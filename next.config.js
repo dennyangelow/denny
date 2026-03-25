@@ -8,7 +8,6 @@ const nextConfig = {
       },
     ],
   },
-  // Suppress build warnings for missing env vars during CI
   env: {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || 'https://dennyangelow.com',
   },
