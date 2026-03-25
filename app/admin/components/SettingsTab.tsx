@@ -88,7 +88,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             </div>
           ))}
           <button onClick={save} disabled={saving}
-            style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 24px', font: '700 14px inherit', cursor: 'pointer', width: 'fit-content', marginTop: 4 }}>
+            style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 24px', fontWeight: 700, fontSize: 14, fontFamily: 'inherit', cursor: 'pointer', width: 'fit-content', marginTop: 4 }}>
             {saving ? 'Запазва...' : '✓ Запази настройките'}
           </button>
         </div>

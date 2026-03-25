@@ -13,7 +13,6 @@ node_modules/
 # env files — НИКОГА не качвай тези в GitHub!
 .env
 .env.local
-.env.example
 .env.development.local
 .env.test.local
 .env.production.local

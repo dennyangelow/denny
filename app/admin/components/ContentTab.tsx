@@ -140,7 +140,7 @@ export function ContentTab() {
           if (sub === 'affiliate') startEditAff()
           else if (sub === 'own') startEditOwn()
           else startEditLink()
-        }} style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', font: '600 14px inherit', cursor: 'pointer' }}>
+        }} style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontWeight: 600, fontSize: 14, fontFamily: 'inherit', cursor: 'pointer' }}>
           + Добави
         </button>
       </div>
@@ -149,7 +149,7 @@ export function ContentTab() {
       <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: '#f4f4f4', borderRadius: 12, padding: 4, width: 'fit-content' }}>
         {([['affiliate', `Афилиейт (${aff.length})`], ['own', `Собствени (${own.length})`], ['links', `Линкове (${links.length})`]] as [SubTab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => { setSub(id); setEditing(null) }}
-            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer', font: '600 13.5px inherit', background: sub === id ? '#fff' : 'transparent', color: sub === id ? '#0d2b1d' : '#6b7280', boxShadow: sub === id ? '0 1px 6px rgba(0,0,0,.1)' : 'none', transition: 'all .15s' }}>
+            style={{ padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', background: sub === id ? '#fff' : 'transparent', color: sub === id ? '#0d2b1d' : '#6b7280', boxShadow: sub === id ? '0 1px 6px rgba(0,0,0,.1)' : 'none', transition: 'all .15s' }}>
             {label}
           </button>
         ))}
@@ -178,9 +178,9 @@ export function ContentTab() {
                       🔗 {p.partner}
                     </p>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => startEditAff(p)} style={{ flex: 1, background: '#f4f4f4', border: 'none', borderRadius: 8, padding: '8px', cursor: 'pointer', font: '600 13px inherit' }}>✏️ Редактирай</button>
-                      <button onClick={() => toggleAff(p)} style={{ background: p.active ? '#fef3c7' : '#d1fae5', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', font: '600 13px inherit', color: p.active ? '#92400e' : '#065f46' }}>{p.active ? 'Скрий' : 'Покажи'}</button>
-                      <button onClick={() => deleteAff(p.id)} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', font: '600 13px inherit', color: '#991b1b' }}>🗑</button>
+                      <button onClick={() => startEditAff(p)} style={{ flex: 1, background: '#f4f4f4', border: 'none', borderRadius: 8, padding: '8px', cursor: 'pointer', fontWeight: 600, fontSize: 13, fontFamily: 'inherit' }}>✏️ Редактирай</button>
+                      <button onClick={() => toggleAff(p)} style={{ background: p.active ? '#fef3c7' : '#d1fae5', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', color: p.active ? '#92400e' : '#065f46' }}>{p.active ? 'Скрий' : 'Покажи'}</button>
+                      <button onClick={() => deleteAff(p.id)} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', color: '#991b1b' }}>🗑</button>
                     </div>
                   </div>
                 </div>
@@ -207,8 +207,8 @@ export function ContentTab() {
                     </div>
                     <p style={{ fontSize: 13, color: '#374151', marginBottom: 10 }}><strong>{Number(p.price).toFixed(2)} лв.</strong> / {p.unit} · Наличност: {p.stock}</p>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => startEditOwn(p)} style={{ flex: 1, background: '#f4f4f4', border: 'none', borderRadius: 8, padding: '8px', cursor: 'pointer', font: '600 13px inherit' }}>✏️ Редактирай</button>
-                      <button onClick={() => deleteOwn(p.id)} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', font: '600 13px inherit', color: '#991b1b' }}>🗑</button>
+                      <button onClick={() => startEditOwn(p)} style={{ flex: 1, background: '#f4f4f4', border: 'none', borderRadius: 8, padding: '8px', cursor: 'pointer', fontWeight: 600, fontSize: 13, fontFamily: 'inherit' }}>✏️ Редактирай</button>
+                      <button onClick={() => deleteOwn(p.id)} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', color: '#991b1b' }}>🗑</button>
                     </div>
                   </div>
                 </div>
@@ -233,8 +233,8 @@ export function ContentTab() {
                     <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontFamily: 'monospace' }}>{l.href}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <button onClick={() => startEditLink(l)} style={{ background: '#f4f4f4', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', font: '600 13px inherit' }}>✏️</button>
-                    <button onClick={() => deleteLink(l.id)} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', color: '#991b1b', font: '600 13px inherit' }}>🗑</button>
+                    <button onClick={() => startEditLink(l)} style={{ background: '#f4f4f4', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13, fontFamily: 'inherit' }}>✏️</button>
+                    <button onClick={() => deleteLink(l.id)} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', color: '#991b1b', fontWeight: 600, fontSize: 13, fontFamily: 'inherit' }}>🗑</button>
                   </div>
                 </div>
               ))}
@@ -290,7 +290,7 @@ function AffForm({ form, setForm, onSave, onCancel, saving, isNew }: {
               <button onClick={() => rmBullet(i)} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '0 10px', cursor: 'pointer', color: '#991b1b', flexShrink: 0 }}>✕</button>
             </div>
           ))}
-          <button onClick={addBullet} style={{ background: '#f0fdf4', border: '1px dashed #86efac', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', color: '#166534', font: '600 13px inherit', marginTop: 4 }}>+ Добави</button>
+          <button onClick={addBullet} style={{ background: '#f0fdf4', border: '1px dashed #86efac', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', color: '#166534', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', marginTop: 4 }}>+ Добави</button>
         </div>
         <div><label>URL на снимката</label><input value={form.image_url} onChange={e => setForm({ ...form, image_url: e.target.value })} placeholder="https://..." /></div>
         {form.image_url && <img src={form.image_url} alt="" style={{ height: 100, objectFit: 'contain', borderRadius: 8, background: '#f8fafb' }} />}
@@ -332,7 +332,7 @@ function OwnForm({ form, setForm, onSave, onCancel, saving, isNew }: {
         </div>
         <div><label>URL на снимката</label><input value={form.image_url} onChange={e => setForm({ ...form, image_url: e.target.value })} placeholder="https://..." /></div>
         {form.image_url && <img src={form.image_url} alt="" style={{ height: 120, objectFit: 'contain', borderRadius: 8, background: '#f8fafb' }} />}
-        <div style={{ display: 'flex', align: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} style={{ width: 'auto' }} />
             <span style={{ fontSize: 14 }}>Активен (видим на сайта)</span>
