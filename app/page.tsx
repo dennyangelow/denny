@@ -1,396 +1,744 @@
 'use client'
-// app/page.tsx — v4 — всичко от базата данни
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { FadeIn } from '@/components/marketing/FadeIn'
+import { LeadForm } from '@/components/marketing/LeadForm'
+import { ProductCard } from '@/components/marketing/ProductCard'
+import { PRODUCTS, ATLAS_PRODUCTS, AFFILIATE_CATEGORIES, TESTIMONIALS, CDN, AFF } from '@/lib/marketing-data'
 
-interface AffProd { id:string;name:string;subtitle:string;description:string;bullets:string[];image_url:string;affiliate_url:string;partner:string;slug:string;emoji:string;active:boolean;sort_order:number }
-interface CatLink { id:string;label:string;href:string;emoji:string;partner:string|null;slug:string;active:boolean }
-interface OwnProd { id:string;slug:string;name:string;description:string;price:number;compare_price:number;unit:string;stock:number;image_url:string;active:boolean;sort_order:number }
-
-const CDN='https://d1yei2z3i6k35z.cloudfront.net/4263526/'
-
-const FB_AFF:AffProd[]=[
-  {id:'1',name:'Кристалон Зелен 18-18-18',subtitle:'⭐ Един от най-използваните торове от фермерите',description:'Водоразтворимият NPK тор с микроелементи — стимулира бърз растеж, силна коренова система и по-голям добив.',bullets:['100% водоразтворим','Съдържа микроелементи','За листно торене и фертигация','Увеличава добива и качеството'],image_url:CDN+'69b0fc97106ef_zelen-kristalon-230x400.webp',affiliate_url:'https://agroapteki.com/torove/npk-npk-torove/kristalon-zelen-specialen-18-18-18-kompleksen-tor/?tracking=6809eceee15ad',partner:'agroapteki',slug:'kristalon',emoji:'💎',active:true,sort_order:1},
-  {id:'2',name:'Калитех',subtitle:'⭐ Предпазва доматите от върхово гниене',description:'Мощен калциев биостимулатор. Доставя лесно усвоим калций и предотвратява върхово гниене при доматите и пипера.',bullets:['Предпазва от върхово гниене','Подобрява качеството на плодовете','Увеличава добива','Устойчивост към суша и стрес','За листно пръскане и капково напояване'],image_url:CDN+'69b1000d9fb83_kaliteh-224x400.webp',affiliate_url:'https://agroapteki.com/torove/biostimulatori/kaliteh/?tracking=6809eceee15ad',partner:'agroapteki',slug:'kaliteh',emoji:'🛡️',active:true,sort_order:2},
-  {id:'3',name:'Амалгерол',subtitle:'⭐ Легендарният стимулатор за всяка култура',description:'100% природен продукт от алпийски билки и морски водорасли. Щит срещу стреса при градушки, суша и студ.',bullets:['Мощен анти-стрес ефект','Ускорява разграждането на остатъци','Подобрява приема на азот','100% биоразградим','Естествен прилепител за препарати'],image_url:CDN+'69b11176b1758_amalgerol-300x400.webp',affiliate_url:'https://agroapteki.com/torove/techni-torove/amalgerol-za-uskoryavane-rasteja-na-kulturite/?tracking=6809eceee15ad',partner:'agroapteki',slug:'amalgerol',emoji:'🌿',active:true,sort_order:3},
-  {id:'4',name:'Синейс 480 СК',subtitle:'⭐ Мощна био-защита срещу трипс и миниращ молец',description:'Революционен биологичен инсектицид на основата на спинозад. Спира трипса, колорадския бръмбар и Tuta absoluta само за часове. Карантинен срок само 3 дни!',bullets:['Ефективен срещу Калифорнийски трипс','Безмилостен към Tuta absoluta','Карантинен срок 3–7 дни','Устойчив на отмиване','За биологично земеделие'],image_url:CDN+'69b4f5319cf6f1.51072214_sineis-20-237x400.webp',affiliate_url:'https://agroapteki.com/preparati/insekticidi/sineis-480-sk/?tracking=6809eceee15ad',partner:'agroapteki',slug:'sineis',emoji:'🐛',active:true,sort_order:4},
-  {id:'5',name:'Ридомил Голд Р ВГ',subtitle:'⭐ Стопира маната само за 48 часа',description:'Легендарен фунгицид — предпазва и лекува вече възникнала зараза. Прониква в растението за 30 минути, защитава дори новия прираст.',bullets:['Спира болестта до 2 дни след зараза','Комбинирано системно и контактно действие','Не се отмива от дъжд','Защитава новия прираст','Лесна разтворимост'],image_url:CDN+'69b4f6e3264510.81149458_ridomil-gold-300x400.webp',affiliate_url:'https://agroapteki.com/preparati/fungicidi/ridomil-gold/?tracking=6809eceee15ad',partner:'agroapteki',slug:'ridomil',emoji:'🍄',active:true,sort_order:5},
-  {id:'6',name:'Турбо Рут',subtitle:'⭐ Мощно вкореняване и 100% прихващане',description:'Тайното оръжие при засаждане. Стимулира растежа на фините бели корени с хуминови киселини и желязо. Експлозивен ранен старт.',bullets:['Бързо вкореняване на разсада','Подобрява структурата около корена','Готови аминокиселини','Увеличава приема на микроелементи','Устойчивост към стрес'],image_url:CDN+'69b4fd32592803.63113743_turbo-rot-224x400.webp',affiliate_url:'https://agroapteki.com/torove/biostimulatori/turbo-rut/?tracking=6809eceee15ad',partner:'agroapteki',slug:'turbo-root',emoji:'🌱',active:true,sort_order:6},
-  {id:'7',name:'Израелски Найлон GINEGAR',subtitle:'⭐ Световен стандарт за оранжерии',description:'Премиум оранжерийни фолиа от GINEGAR Israel. Многослойна технология — по-дълъг живот, по-стабилни свойства и по-малко проблеми.',bullets:['Многослойна технология до 9 слоя','UV защита и анти-капков ефект','Контрол на температурата','Стабилен добив сезон след сезон','Дългосрочна инвестиция'],image_url:CDN+'6940e17e0d4a3_pe-film-supflor-ginegar.jpg',affiliate_url:'https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar',partner:'oranjeriata',slug:'ginegar',emoji:'🏕️',active:true,sort_order:7},
-  {id:'8',name:'Агрил — Израелски Агротекстил',subtitle:'⭐ Надеждна защита от слана и студ',description:'Висококачествен тъкан агротекстил от GINEGAR Israel. Защитава разсади и деликатни култури от слана, студ и вятър.',bullets:['Защита от слана и студ','Пропуска въздух и вода','Лек и лесен за работа','За разсади и деликатни култури','Дълготраен материал'],image_url:CDN+'694242e9c1baa_ginegar-logo-mk-group.600x600.png',affiliate_url:'https://oranjeriata.com/products/aksesoari-za-otglejdane-na-rasteniya/netukan-tekstil---agril',partner:'oranjeriata',slug:'agril',emoji:'🧵',active:true,sort_order:8},
-]
-const FB_LINKS:CatLink[]=[
-  {id:'1',label:'🌱 Торове и Био Стимулатори',href:'https://agroapteki.com/torove/?tracking=6809eceee15ad',emoji:'🌱',partner:'agroapteki',slug:'torove',active:true},
-  {id:'2',label:'💧 Изграждане на Поливни Системи',href:'https://agroapteki.com/polivni-sistemi/?tracking=6809eceee15ad',emoji:'💧',partner:'agroapteki',slug:'polivni',active:true},
-  {id:'3',label:'🛡️ Защита от Болести и Вредители',href:'https://agroapteki.com/preparati/?tracking=6809eceee15ad',emoji:'🛡️',partner:'agroapteki',slug:'preparati',active:true},
-  {id:'4',label:'🌳 Биологично Земеделие',href:'#',emoji:'🌳',partner:null,slug:'bio',active:true},
-  {id:'5',label:'🌾 Качествени Семена за Вкусна Реколта',href:'https://agroapteki.com/semena/?tracking=6809eceee15ad',emoji:'🌾',partner:'agroapteki',slug:'semena',active:true},
-  {id:'6',label:'🏕️ Израелски Найлон за Оранжерия',href:'https://oranjeriata.com/products/aksesoari-za-otglejdane-na-rasteniya/netukan-tekstil---agril',emoji:'🏕️',partner:'oranjeriata',slug:'najlon',active:true},
-]
-const FB_OWN:OwnProd[]=[
-  {id:'1',slug:'atlas-terra',name:'Atlas Terra',description:'Органичен подобрител за почвата. Богат на хуминови киселини и органично вещество. Трансформира структурата, задържа влага, отключва блокираните микроелементи.',price:28.90,compare_price:35.00,unit:'кг',stock:999,image_url:CDN+'69b106e276e0e_Jan-2025-ATLAS-TERRA-AMINONITRO.jpg',active:true,sort_order:1},
-  {id:'2',slug:'atlas-terra-amino',name:'Atlas Terra AMINO',description:'Аминокиселини за експлозивен растеж. Действа моментално при жега, студ и пресаждане. Предизвиква бърз и обилен цъфтеж. Видими резултати само след 48 часа.',price:32.90,compare_price:39.00,unit:'л',stock:999,image_url:CDN+'69b106e276e0e_Jan-2025-ATLAS-TERRA-AMINONITRO.jpg',active:true,sort_order:2},
-]
+interface CartItem { id: string; name: string; price: number; qty: number }
+interface OrderForm { name: string; phone: string; email: string; address: string; city: string; notes: string; payment: string }
 
 export default function HomePage() {
-  const [aff,setAff]=useState<AffProd[]>(FB_AFF)
-  const [links,setLinks]=useState<CatLink[]>(FB_LINKS)
-  const [own,setOwn]=useState<OwnProd[]>(FB_OWN)
-  const [form,setForm]=useState({name:'',email:'',phone:''})
-  const [sent,setSent]=useState(false)
-  const [ldg,setLdg]=useState(false)
-  const [cart,setCart]=useState<{id:string;name:string;price:number;qty:number;img:string}[]>([])
-  const [cartOpen,setCartOpen]=useState(false)
-  const [oForm,setOForm]=useState({customer_name:'',customer_phone:'',customer_email:'',customer_address:'',customer_city:'',customer_notes:'',payment_method:'cod'})
-  const [done,setDone]=useState('')
-  const [oLdg,setOLdg]=useState(false)
-  const [scrolled,setScrolled]=useState(false)
+  const [cartVisible, setCartVisible] = useState(false)
+  const [cart, setCart] = useState<CartItem[]>([])
+  const [orderForm, setOrderForm] = useState<OrderForm>({ name: '', phone: '', email: '', address: '', city: '', notes: '', payment: 'cod' })
+  const [orderLoading, setOrderLoading] = useState(false)
+  const [orderDone, setOrderDone] = useState('')
+  const [scrolled, setScrolled] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  useEffect(()=>{
-    Promise.all([
-      fetch('/api/affiliate-products').then(r=>r.json()).catch(()=>null),
-      fetch('/api/category-links').then(r=>r.json()).catch(()=>null),
-      fetch('/api/own-products').then(r=>r.json()).catch(()=>null),
-    ]).then(([a,c,o])=>{
-      if(a?.products?.length)setAff(a.products)
-      if(c?.links?.length)setLinks(c.links)
-      if(o?.products?.length)setOwn(o.products)
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 30)
+    window.addEventListener('scroll', onScroll)
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  const addToCart = (product: typeof ATLAS_PRODUCTS[number]) => {
+    setCart(prev => {
+      const existing = prev.find(i => i.id === product.id)
+      if (existing) return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i)
+      return [...prev, { id: product.id, name: product.name, price: product.price, qty: 1 }]
     })
-    const s=()=>setScrolled(window.scrollY>60)
-    window.addEventListener('scroll',s)
-    return()=>window.removeEventListener('scroll',s)
-  },[])
+    setCartVisible(true)
+  }
 
-  const addToCart=(p:OwnProd)=>setCart(prev=>{
-    const ex=prev.find(c=>c.id===p.id)
-    if(ex)return prev.map(c=>c.id===p.id?{...c,qty:c.qty+1}:c)
-    return[...prev,{id:p.id,name:p.name,price:p.price,qty:1,img:p.image_url}]
-  })
-  const chgQty=(id:string,d:number)=>setCart(prev=>prev.map(c=>c.id===id?{...c,qty:Math.max(1,c.qty+d)}:c))
-  const rmCart=(id:string)=>setCart(prev=>prev.filter(c=>c.id!==id))
-  const qty=cart.reduce((s,c)=>s+c.qty,0)
-  const sub=cart.reduce((s,c)=>s+c.price*c.qty,0)
-  const ship=sub>=60?0:5.99
-  const tot=sub+ship
-  const track=(partner:string,slug:string)=>fetch('/api/analytics/affiliate-click',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({partner,product_slug:slug})}).catch(()=>{})
-  const handleLead=async(e:React.FormEvent)=>{e.preventDefault();setLdg(true);await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...form,source:'naruchnik'})}).catch(()=>{});setSent(true);setLdg(false)}
-  const handleOrder=async(e:React.FormEvent)=>{e.preventDefault();if(!cart.length)return;setOLdg(true);const items=cart.map(c=>({product_name:c.name,quantity:c.qty,unit_price:c.price,total_price:c.price*c.qty}));const res=await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...oForm,items,subtotal:sub,shipping:ship,total:tot})}).catch(()=>null);const data=await res?.json().catch(()=>null);if(data?.order_number){setDone(data.order_number);setCart([]);setCartOpen(false)};setOLdg(false)}
+  const cartTotal = cart.reduce((s, i) => s + i.price * i.qty, 0)
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0)
+  const shipping = cartTotal >= 60 ? 0 : 5.99
 
-  return(
-    <div style={{fontFamily:"'Sora',system-ui,sans-serif",color:'#111',margin:0}}>
-      <style>{`
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&display=swap');
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
-.nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:62px;transition:background .3s,box-shadow .3s}
-.nav.sc{background:rgba(7,16,9,.96);backdrop-filter:blur(14px);box-shadow:0 2px 24px rgba(0,0,0,.35)}
-.nlogo{color:#fff;font-size:16px;font-weight:800;text-decoration:none;display:flex;align-items:center;gap:8px;letter-spacing:-.02em}
-.nlinks{display:flex;gap:2px}
-.na{color:rgba(255,255,255,.75);text-decoration:none;font-size:13.5px;font-weight:500;padding:6px 12px;border-radius:8px;transition:all .2s}
-.na:hover{color:#fff;background:rgba(255,255,255,.1)}
-.ncart{background:#2d6a4f;color:#fff;border:none;border-radius:10px;padding:8px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;transition:background .2s}
-.ncart:hover{background:#40916c}
-.cbadge{background:#4ade80;color:#052e16;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}
-@media(max-width:640px){.nlinks{display:none}}
-.hero{background:linear-gradient(150deg,#040a06 0%,#0a1f13 25%,#0d2b1d 50%,#1b4332 72%,#2d6a4f 88%,#40916c 100%);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:110px 20px 90px;text-align:center;position:relative;overflow:hidden}
-.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 65% 45% at 62% 32%,rgba(74,222,128,.065) 0%,transparent 65%);pointer-events:none}
-.hav{width:86px;height:86px;border-radius:50%;border:3px solid rgba(74,222,128,.35);object-fit:cover;margin-bottom:16px;box-shadow:0 0 0 6px rgba(74,222,128,.07)}
-.hhandle{color:rgba(255,255,255,.4);font-size:13px;margin-bottom:16px;letter-spacing:.04em}
-.htag{display:inline-flex;align-items:center;gap:8px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.22);color:#4ade80;border-radius:99px;padding:6px 18px;font-size:13px;font-weight:600;margin-bottom:22px}
-.hh1{color:#fff;font-size:clamp(28px,6vw,60px);font-weight:800;line-height:1.08;margin-bottom:18px;letter-spacing:-.035em}
-.hh1 em{color:#4ade80;font-style:normal}
-.hsub{color:rgba(255,255,255,.65);font-size:clamp(15px,2.2vw,19px);line-height:1.7;margin-bottom:14px;max-width:540px}
-.hwarn{color:rgba(255,213,79,.82);font-size:14.5px;font-style:italic;margin-bottom:36px;max-width:460px;line-height:1.55}
-.btnH{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;padding:17px 38px;border-radius:14px;text-decoration:none;font-weight:800;font-size:17px;display:inline-flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(74,222,128,.28);transition:all .25s;border:none;cursor:pointer;font-family:inherit}
-.btnH:hover{transform:translateY(-2px);box-shadow:0 14px 40px rgba(74,222,128,.38)}
-.scue{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.28);font-size:12px;display:flex;flex-direction:column;align-items:center;gap:5px;animation:bob 2s ease-in-out infinite}
-@keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(7px)}}
-.qsec{background:#fff;padding:26px 20px;border-bottom:1.5px solid #eee}
-.qgrid{max-width:940px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(182px,1fr));gap:10px}
-.qa{display:flex;align-items:center;gap:9px;background:#f8fafb;border:1.5px solid #e5e7eb;border-radius:12px;padding:13px 16px;text-decoration:none;color:#1a2e20;font-weight:600;font-size:13.5px;transition:all .2s}
-.qa:hover{background:#f0fdf4;border-color:#86efac;transform:translateY(-1px);box-shadow:0 4px 12px rgba(45,106,79,.07)}
-.lsec{background:linear-gradient(135deg,#f0fdf4,#dcfce7);padding:80px 20px}
-.lcard{max-width:500px;margin:0 auto;background:#fff;border-radius:24px;padding:40px;box-shadow:0 8px 48px rgba(45,106,79,.12);border:1px solid #bbf7d0}
-.lic{font-size:52px;text-align:center;margin-bottom:14px}
-.lh2{font-size:26px;font-weight:800;text-align:center;letter-spacing:-.03em;margin-bottom:8px}
-.lp{color:#6b7280;text-align:center;font-size:15px;line-height:1.65;margin-bottom:26px}
-.fld{display:flex;flex-direction:column;gap:10px}
-input,textarea,select{width:100%;padding:13px 16px;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:15px;transition:border-color .2s;outline:none;color:#111;background:#fafafa}
-input:focus,textarea:focus,select:focus{border-color:#2d6a4f;background:#fff}
-.priv{font-size:12px;color:#9ca3af;text-align:center;margin-top:2px}
-.okc{background:#f0fdf4;border:2px solid #86efac;border-radius:16px;padding:36px;text-align:center}
-.psec{padding:80px 20px;max-width:980px;margin:0 auto}
-.shd{text-align:center;margin-bottom:40px}
-.sh2{font-size:clamp(24px,4vw,40px);font-weight:800;letter-spacing:-.03em}
-.sp{color:#6b7280;font-size:16px;margin-top:8px}
-.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
-.pcard{background:#fff;border:1.5px solid #e5e7eb;border-radius:22px;overflow:hidden;transition:all .25s}
-.pcard:hover{box-shadow:0 10px 48px rgba(45,106,79,.15);border-color:#86efac;transform:translateY(-4px)}
-.pimg{width:100%;height:230px;object-fit:cover;background:#f0fdf4}
-.pbody{padding:24px}
-.pbadge{display:inline-flex;align-items:center;gap:5px;background:#f0fdf4;color:#166534;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;margin-bottom:12px}
-.pname{font-size:20px;font-weight:800;letter-spacing:-.02em;margin-bottom:5px}
-.pdesc{color:#6b7280;font-size:13.5px;line-height:1.6;margin-bottom:18px}
-.pprice{display:flex;align-items:baseline;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-.pbig{font-size:30px;font-weight:800;color:#0d2b1d}
-.pold{font-size:16px;color:#9ca3af;text-decoration:line-through}
-.punit{font-size:13px;color:#9ca3af}
-.poff{background:#fef3c7;color:#92400e;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:800}
-.btnadd{background:#1b4332;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;width:100%;display:flex;align-items:center;justify-content:center;gap:8px}
-.btnadd:hover{background:#2d6a4f}
-.combo{background:linear-gradient(135deg,#040a06,#0d2b1d);border-radius:22px;padding:44px 36px;text-align:center;max-width:720px;margin:56px auto 0;border:1px solid rgba(74,222,128,.16)}
-.combo h3{color:#fff;font-size:24px;font-weight:800;margin-bottom:10px}
-.combo p{color:rgba(255,255,255,.58);font-size:15px;margin-bottom:26px;line-height:1.65}
-.combo em{color:#4ade80;font-style:normal;font-weight:700}
-.btnC{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;padding:15px 34px;border-radius:12px;text-decoration:none;font-weight:800;font-size:16px;display:inline-flex;align-items:center;gap:9px;transition:all .25s;box-shadow:0 6px 24px rgba(74,222,128,.22)}
-.btnC:hover{transform:translateY(-2px);box-shadow:0 10px 36px rgba(74,222,128,.32)}
-.asec{background:#f8fafb;padding:80px 20px}
-.ains{max-width:980px;margin:0 auto}
-.agrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:22px;margin-top:40px}
-.acard{background:#fff;border:1.5px solid #e5e7eb;border-radius:22px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column;transition:all .25s;position:relative}
-.acard:hover{box-shadow:0 10px 48px rgba(0,0,0,.1);border-color:#2d6a4f;transform:translateY(-4px)}
-.acard::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#0d2b1d,#40916c)}
-.aimg{width:100%;height:200px;object-fit:cover;background:#f0fdf4}
-.aph{width:100%;height:200px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);display:flex;align-items:center;justify-content:center;font-size:72px}
-.abody{padding:22px;flex:1;display:flex;flex-direction:column}
-.abadge{font-size:12px;color:#6b7280;font-style:italic;margin-bottom:7px}
-.aname{font-size:17px;font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
-.adesc{font-size:13.5px;color:#6b7280;line-height:1.6;margin-bottom:14px}
-.abuls{list-style:none;padding:0;flex:1;display:flex;flex-direction:column;gap:5px;margin-bottom:18px}
-.abuls li{font-size:13px;color:#374151;display:flex;gap:7px}
-.abuls li::before{content:'✔';color:#2d6a4f;font-weight:700;flex-shrink:0}
-.acta{display:flex;align-items:center;justify-content:center;gap:7px;background:#0d2b1d;color:#fff;border-radius:10px;padding:12px;font-size:14px;font-weight:700;transition:background .2s}
-.acta:hover{background:#1b4332}
-.partnersec{background:#040a06;padding:40px 20px}
-.plabel{color:rgba(255,255,255,.3);text-align:center;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:16px}
-.prow{max-width:640px;margin:0 auto;display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
-.pa{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);color:rgba(255,255,255,.65);text-decoration:none;border-radius:12px;padding:11px 20px;font-size:13.5px;font-weight:600;transition:all .2s}
-.pa:hover{background:rgba(255,255,255,.09);border-color:rgba(74,222,128,.3);color:#fff}
-.footer{background:#020604;color:rgba(255,255,255,.25);padding:28px 20px;text-align:center;font-size:13px}
-.footer a{color:rgba(255,255,255,.12);text-decoration:none}
-.footer p+p{margin-top:6px}
-.ovl{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;backdrop-filter:blur(5px)}
-.cslide{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:460px;background:#fff;z-index:201;display:flex;flex-direction:column;box-shadow:-12px 0 48px rgba(0,0,0,.22)}
-.chd{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #f0f0f0;position:sticky;top:0;background:#fff;z-index:1}
-.chd h3{font-size:18px;font-weight:800}
-.clsbtn{background:#f4f4f4;border:none;border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:19px;display:flex;align-items:center;justify-content:center}
-.cbd{flex:1;overflow-y:auto;padding:14px 24px}
-.crow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f5f5f5}
-.cthumb{width:52px;height:52px;border-radius:10px;object-fit:cover;background:#f0fdf4;flex-shrink:0}
-.cinfo{flex:1;min-width:0}
-.ciname{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ciprice{font-size:12px;color:#6b7280;margin-top:2px}
-.qc{display:flex;align-items:center;gap:7px}
-.qb{background:#f4f4f4;border:none;border-radius:7px;width:28px;height:28px;cursor:pointer;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;transition:background .15s}
-.qb:hover{background:#e5e7eb}
-.qn{font-size:14px;font-weight:700;min-width:22px;text-align:center}
-.rmb{background:none;border:none;cursor:pointer;color:#ef4444;font-size:18px;padding:4px;flex-shrink:0}
-.cft{padding:18px 24px;border-top:1px solid #f0f0f0;background:#fafafa}
-.cl{display:flex;justify-content:space-between;font-size:14px;color:#6b7280;margin-bottom:5px}
-.cl.hint{color:#2d6a4f;font-size:12px}
-.ctot{display:flex;justify-content:space-between;font-size:21px;font-weight:800;color:#0d2b1d;padding-top:10px;border-top:2px solid #e5e7eb;margin-top:4px}
-.oform{background:#f8fafb;border-radius:14px;padding:20px;margin-top:14px}
-.oform h4{font-size:14.5px;font-weight:800;margin-bottom:14px}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:400px){.g2{grid-template-columns:1fr}}
-.btnO{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;border:none;border-radius:12px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;margin-top:4px}
-.btnO:disabled{opacity:.6;cursor:default}
-.fcart{position:fixed;bottom:24px;right:24px;z-index:150;background:linear-gradient(135deg,#1b4332,#2d6a4f);color:#fff;border:none;border-radius:18px;padding:14px 22px;fontWeight:800,fontSize:16,fontFamily:"'Sora',sans-serif";cursor:pointer;box-shadow:0 8px 32px rgba(45,106,79,.42);display:flex;align-items:center;gap:10px;transition:all .25s}
-.fcart:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(45,106,79,.52)}
-      `}</style>
+  const submitOrder = async () => {
+    if (!orderForm.name || !orderForm.phone || !orderForm.address || !orderForm.city) return
+    setOrderLoading(true)
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_name: orderForm.name, customer_phone: orderForm.phone,
+          customer_email: orderForm.email, customer_address: orderForm.address,
+          customer_city: orderForm.city, customer_notes: orderForm.notes,
+          payment_method: orderForm.payment,
+          items: cart.map(i => ({ product_name: i.name, quantity: i.qty, unit_price: i.price, total_price: i.price * i.qty })),
+          subtotal: cartTotal, shipping, total: cartTotal + shipping,
+        }),
+      })
+      const data = await res.json()
+      if (data.order_number) { setOrderDone(data.order_number); setCart([]) }
+    } catch {}
+    setOrderLoading(false)
+  }
 
-      {/* NAV */}
-      <nav className={`nav${scrolled?' sc':''}`}>
-        <a href="#" className="nlogo">🍅 Denny Angelow</a>
-        <div className="nlinks">
-          <a href="#naruchnik" className="na">📗 Наръчник</a>
-          <a href="#products" className="na">🛒 Продукти</a>
-          <a href="#affiliate" className="na">🌿 Препоръки</a>
-        </div>
-        {cart.length>0&&<button className="ncart" onClick={()=>setCartOpen(true)}>🛒 Количка<span className="cbadge">{qty}</span></button>}
-      </nav>
+  const trackAffiliate = (partner: string, slug: string) => {
+    fetch('/api/analytics/affiliate-click', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partner, product_slug: slug }) }).catch(() => {})
+  }
 
-      {/* HERO */}
-      <section className="hero">
-        <img className="hav" src="https://d1yei2z3i6k35z.cloudfront.net/4263526/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg" alt="Denny Angelow"/>
-        <p className="hhandle">@iammyoungmoney</p>
-        <div className="htag">🍅 За градинари и фермери</div>
-        <h1 className="hh1">Искаш <em>едри, здрави</em><br/>и сочни домати?</h1>
-        <p className="hsub">Без болести, без гниене и без загубена реколта. С правилната грижа и нужните продукти можеш да отгледаш <strong style={{color:'#fff'}}>здрави и продуктивни растения</strong>, без излишни усилия.</p>
-        <p className="hwarn">⚠️ Не рискувай да изхвърлиш продукцията си,<br/>само защото нямаш нужната информация навреме.</p>
-        <a href="#naruchnik" className="btnH">📗 Изтегли наръчника БЕЗПЛАТНО</a>
-        <div className="scue"><span>Виж повече</span><span>↓</span></div>
-      </section>
+  return (
+    <>
+      <style>{pageCSS}</style>
 
-      {/* QUICK LINKS */}
-      <div className="qsec">
-        <div className="qgrid">
-          {links.filter(l=>l.active).map(l=>(
-            <a key={l.id} className="qa" href={l.href} target={l.href!=='#'?'_blank':undefined} rel="noreferrer"
-              onClick={()=>l.partner&&track(l.partner,l.slug)}>{l.label}</a>
-          ))}
-        </div>
+      {/* URGENCY BAR */}
+      <div className="urgency-bar">
+        🔥 <strong>Безплатна доставка</strong> при поръчка над 60 лв. &nbsp;·&nbsp; 📗 Над 6 000 изтеглени наръчника
       </div>
 
-      {/* LEAD FORM */}
-      <section id="naruchnik" className="lsec">
-        <div className="lcard">
-          <div className="lic">📗</div>
-          <h2 className="lh2">Безплатен Наръчник</h2>
-          <p className="lp">„Тайните на Едрите и Вкусни Домати" — всичко от което се нуждаеш, за да защитиш и подхраниш своите растения. PDF директно на имейла ти.</p>
-          {sent?(
-            <div className="okc">
-              <div style={{fontSize:52,marginBottom:12}}>✅</div>
-              <h3 style={{fontSize:22,fontWeight:800,marginBottom:8}}>Изпратен!</h3>
-              <p style={{color:'#6b7280'}}>Провери имейла си — наръчникът е на път!</p>
+      {/* HEADER */}
+      <header className={`site-header${scrolled ? ' site-header--scrolled' : ''}`}>
+        <a href="#" className="header-logo" style={{ textDecoration: 'none' }}>
+          <span style={{ fontSize: 26 }}>🍅</span>
+          <div>
+            <div className="logo-name">Denny Angelow</div>
+            <div className="logo-sub">Агро Консултант</div>
+          </div>
+        </a>
+        <nav className="header-nav">
+          <a href="#produkti" className="nav-link">Продукти</a>
+          <a href="#atlas" className="nav-link">Atlas Terra</a>
+          <a href="#testimonials" className="nav-link">Отзиви</a>
+          <a href="#kategorii" className="nav-link">Магазин</a>
+        </nav>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setCartVisible(true)} className={`cart-button${cartCount > 0 ? ' cart-button--active' : ''}`}>
+            🛒 {cartCount > 0 ? `(${cartCount})` : ''} Количка
+          </button>
+          <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(v => !v)} aria-label="Меню">
+            {mobileMenuOpen ? '✕' : '☰'}
+          </button>
+        </div>
+      </header>
+
+      {/* MOBILE NAV */}
+      {mobileMenuOpen && (
+        <div className="mobile-nav">
+          {[['#produkti','Продукти'],['#atlas','Atlas Terra'],['#testimonials','Отзиви'],['#kategorii','Магазин']].map(([h,l]) => (
+            <a key={h} href={h} className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>{l}</a>
+          ))}
+        </div>
+      )}
+
+      {/* HERO */}
+      <section className="hero-section">
+        <div className="hero-dots" />
+        <div className="hero-blob hero-blob--tr" />
+        <div className="hero-blob hero-blob--bl" />
+
+        <div className="hero-inner">
+          <div className="hero-left">
+            <div className="trust-badge">
+              <img
+                src={`${CDN}/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg`}
+                alt="Denny"
+                style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.5)', flexShrink: 0 }}
+              />
+              <span>@dennyangelow · 85K+ последователи</span>
+              <span className="live-dot" />
             </div>
-          ):(
-            <form onSubmit={handleLead} className="fld">
-              <input placeholder="Твоето име" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))}/>
-              <input type="email" placeholder="Имейл адрес *" required value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/>
-              <input placeholder="Телефон (по желание)" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))}/>
-              <button type="submit" className="btnH" style={{justifyContent:'center',border:'none'}} disabled={ldg}>{ldg?'Изпращане...':'📗 Изпрати ми наръчника безплатно'}</button>
-              <p className="priv">🔒 Без спам. Само полезно агро съдържание.</p>
-            </form>
-          )}
+
+            <h1 className="hero-title">
+              Тайните на<br />
+              <span className="shimmer-text">Едрите и Вкусни<br />Домати</span>
+            </h1>
+
+            <p className="hero-desc">
+              Искаш едри, здрави и сочни домати — без болести, без гниене и без загубена реколта? Открий проверените методи и продукти.
+            </p>
+
+            <div className="hero-features">
+              {[
+                { i: '🛡️', t: 'Защита от болести' },
+                { i: '🌿', t: 'Кои торове работят' },
+                { i: '📅', t: 'Календар за третиране' },
+                { i: '❌', t: 'Грешки убиващи реколтата' },
+              ].map(f => (
+                <span key={f.t} className="feature-chip"><span>{f.i}</span> {f.t}</span>
+              ))}
+            </div>
+
+            <div className="lead-box">
+              <p className="lead-tag">📗 БЕЗПЛАТЕН НАРЪЧНИК</p>
+              <h2 className="lead-title">„Тайните на Едрите Домати" — изтегли сега</h2>
+              <LeadForm />
+            </div>
+          </div>
+
+          <div className="hero-right">
+            <div className="profile-card hero-float-anim">
+              <img
+                src={`${CDN}/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg`}
+                alt="Denny Angelow"
+                style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', border: '3px solid #86efac', marginBottom: 12 }}
+              />
+              <div style={{ color: '#fff', fontWeight: 800, fontSize: 17, fontFamily: "'Cormorant Garamond', serif" }}>Denny Angelow</div>
+              <div style={{ color: '#86efac', fontSize: 12, fontWeight: 700, marginBottom: 14, letterSpacing: '0.04em' }}>Агро консултант &amp; фермер</div>
+              <blockquote style={{ color: 'rgba(255,255,255,0.78)', fontSize: 13.5, fontStyle: 'italic', lineHeight: 1.6, margin: 0 }}>
+                „С правилните продукти, здрави домати без излишен стрес."
+              </blockquote>
+            </div>
+            <div className="mini-stats">
+              {[{ n: '85K+', l: 'Последователи' }, { n: '6 000+', l: 'Наръчника' }, { n: '100%', l: 'Органично' }, { n: '8+', l: 'Продукта' }].map(s => (
+                <div key={s.n} className="mini-stat">
+                  <div className="mini-stat-num">{s.n}</div>
+                  <div className="mini-stat-label">{s.l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* OWN PRODUCTS */}
-      <section id="products" className="psec">
-        <div className="shd">
-          <h2 className="sh2">Продукти Atlas Terra</h2>
-          <p className="sp">Директна поръчка с наложен платеж · Безплатна доставка над 60 лв.</p>
-        </div>
-        <div className="pgrid">
-          {own.filter(p=>p.active).map(p=>(
-            <div key={p.id} className="pcard">
-              {p.image_url?<img className="pimg" src={p.image_url} alt={p.name} loading="lazy"/>:<div className="pimg" style={{display:'flex',alignItems:'center',justifyContent:'center',fontSize:72}}>🌱</div>}
-              <div className="pbody">
-                <div className="pbadge">⭐ Atlas Terra</div>
-                <h3 className="pname">{p.name}</h3>
-                <p className="pdesc">{p.description}</p>
-                <div className="pprice">
-                  <span className="pbig">{Number(p.price).toFixed(2)} лв.</span>
-                  {p.compare_price&&<span className="pold">{Number(p.compare_price).toFixed(2)} лв.</span>}
-                  <span className="punit">/ {p.unit}</span>
-                  {p.compare_price&&<span className="poff">-{Math.round((1-p.price/p.compare_price)*100)}%</span>}
-                </div>
-                <button className="btnadd" onClick={()=>{addToCart(p);setCartOpen(true)}}>🛒 Добави в количката</button>
-              </div>
-            </div>
+      {/* TRUST STRIP */}
+      <div className="trust-strip">
+        {[
+          { i: '🌱', t: 'Органични продукти' },
+          { i: '🚚', t: 'Доставка до вратата' },
+          { i: '📞', t: 'Лична консултация' },
+          { i: '⭐', t: '5-звездни отзиви' },
+          { i: '🔒', t: 'Сигурно плащане' },
+        ].map(x => (
+          <div key={x.t} className="trust-item">
+            <span>{x.i}</span> <span>{x.t}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* CATEGORIES */}
+      <section id="kategorii" className="section-wrap">
+        <FadeIn>
+          <div className="section-header">
+            <span className="section-tag">Магазин</span>
+            <h2 className="section-title">Всичко за Твоята Градина</h2>
+            <p className="section-desc">Избери категорията, която те интересува</p>
+          </div>
+        </FadeIn>
+        <div className="categories-grid">
+          {AFFILIATE_CATEGORIES.map((c, i) => (
+            <FadeIn key={c.label} delay={i * 55}>
+              <a
+                href={c.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="category-card"
+                onClick={() => trackAffiliate('agroapteki', c.label)}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLElement
+                  el.style.borderColor = c.color + '55'
+                  el.style.boxShadow = `0 8px 28px ${c.color}22`
+                  el.style.background = c.color + '08'
+                  el.style.transform = 'translateY(-3px)'
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLElement
+                  el.style.borderColor = '#e5e7eb'
+                  el.style.boxShadow = '0 2px 12px rgba(0,0,0,0.04)'
+                  el.style.background = '#fff'
+                  el.style.transform = ''
+                }}
+              >
+                <span style={{ fontSize: 22, background: c.color + '18', width: 48, height: 48, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{c.icon}</span>
+                <span style={{ flex: 1 }}>{c.label}</span>
+                <span style={{ color: c.color, fontSize: 16, opacity: 0.7 }}>→</span>
+              </a>
+            </FadeIn>
           ))}
-        </div>
-        <div className="combo">
-          <h3>Комбинирай двата продукта</h3>
-          <p>Не избирайте между здрава почва и бърз растеж. Комбинирайте Atlas Terra и Atlas Terra AMINO за <em>професионални резултати</em> още тази седмица!</p>
-          <a href="https://atlasagro.eu/" target="_blank" rel="noreferrer" className="btnC" onClick={()=>track('atlasagro','combo')}>🛒 КУПИ от Производителя →</a>
         </div>
       </section>
 
       {/* AFFILIATE PRODUCTS */}
-      <section id="affiliate" className="asec">
-        <div className="ains">
-          <div className="shd">
-            <h2 className="sh2">Препоръчани продукти</h2>
-            <p className="sp">Проверени продукти от доверени доставчици</p>
+      <section id="produkti" className="section-wrap" style={{ paddingTop: 0 }}>
+        <FadeIn>
+          <div className="section-header">
+            <span className="section-tag">Препоръчани продукти</span>
+            <h2 className="section-title">Проверени от Практиката</h2>
+            <p className="section-desc">Продуктите, които лично използвам и препоръчвам на всеки фермер</p>
           </div>
-          <div className="agrid">
-            {aff.filter(p=>p.active).map(p=>(
-              <a key={p.id} href={p.affiliate_url} target="_blank" rel="noreferrer" className="acard" onClick={()=>track(p.partner,p.slug)}>
-                {p.image_url?<img className="aimg" src={p.image_url} alt={p.name} loading="lazy"/>:<div className="aph">{p.emoji}</div>}
-                <div className="abody">
-                  <p className="abadge">{p.subtitle}</p>
-                  <h3 className="aname">{p.name}</h3>
-                  <p className="adesc">{p.description}</p>
-                  <ul className="abuls">{(p.bullets||[]).map((b,i)=><li key={i}>{b}</li>)}</ul>
-                  <span className="acta">ПРОЧЕТИ ПОВЕЧЕ →</span>
-                </div>
-              </a>
-            ))}
-          </div>
+        </FadeIn>
+        <div className="products-grid">
+          {PRODUCTS.map((p, i) => <ProductCard key={p.id} p={p} idx={i} />)}
         </div>
       </section>
 
-      {/* PARTNERS */}
-      <div className="partnersec">
-        <p className="plabel">Нашите партньори</p>
-        <div className="prow">
-          {[{l:'🌿 AgroApteki.bg',h:'https://agroapteki.com/?tracking=6809eceee15ad',p:'agroapteki',s:'main'},{l:'🏡 Oranjeriata.bg',h:'https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar',p:'oranjeriata',s:'main'},{l:'🌱 AtlasAgro.eu',h:'https://atlasagro.eu/',p:'atlasagro',s:'main'}].map(x=>(
-            <a key={x.s} className="pa" href={x.h} target="_blank" rel="noreferrer" onClick={()=>track(x.p,x.s)}>{x.l} →</a>
+      {/* ATLAS TERRA */}
+      <section id="atlas" className="atlas-section">
+        <div className="atlas-blob" />
+        <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative' }}>
+          <FadeIn>
+            <div className="section-header">
+              <span style={{ background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '6px 18px', borderRadius: 30, letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>🏭 ДИРЕКТНО ОТ ПРОИЗВОДИТЕЛЯ</span>
+              <h2 className="section-title" style={{ marginTop: 18 }}>Atlas Terra — Поръчай Директно</h2>
+              <p className="section-desc">Два продукта. Един резултат — здрава почва и мощен растеж.</p>
+            </div>
+          </FadeIn>
+
+          <div className="atlas-grid">
+            {ATLAS_PRODUCTS.map((p, i) => (
+              <FadeIn key={p.id} delay={i * 120}>
+                <div
+                  className="atlas-card"
+                  onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 20px 60px rgba(22,163,74,0.15)'; el.style.borderColor = '#86efac' }}
+                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.transform = ''; el.style.boxShadow = '0 8px 40px rgba(0,0,0,0.09)'; el.style.borderColor = '#d1fae5' }}
+                >
+                  <div style={{ position: 'relative' }}>
+                    <img src={p.img} alt={p.name} style={{ width: '100%', height: 220, objectFit: 'cover' }} />
+                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 55%)' }} />
+                    <span style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(255,255,255,0.95)', color: '#16a34a', fontSize: 11, fontWeight: 800, padding: '5px 14px', borderRadius: 24 }}>⭐ {p.badge}</span>
+                    <div style={{ position: 'absolute', bottom: 18, left: 20, right: 20 }}>
+                      <div style={{ fontSize: 28, marginBottom: 4 }}>{p.emoji}</div>
+                      <h3 style={{ color: '#fff', margin: 0, fontSize: 24, fontFamily: "'Cormorant Garamond', serif", fontWeight: 800 }}>{p.name}</h3>
+                      <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 13 }}>{p.subtitle}</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: '22px 24px 26px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <p style={{ color: '#4b5563', fontSize: 14, lineHeight: 1.7, marginBottom: 16, fontStyle: 'italic' }}>„{p.desc}"</p>
+                    <ul style={{ margin: '0 0 24px', padding: 0, listStyle: 'none', flex: 1 }}>
+                      {p.features.map(f => (
+                        <li key={f} style={{ fontSize: 13.5, color: '#374151', padding: '5px 0', display: 'flex', gap: 10, alignItems: 'flex-start', borderBottom: '1px solid #f3f4f6' }}>
+                          <span style={{ background: '#16a34a', color: '#fff', width: 16, height: 16, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0, marginTop: 2 }}>✓</span>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: '#16a34a', fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{p.priceLabel}</div>
+                        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>
+                          <span style={{ textDecoration: 'line-through', marginRight: 6 }}>{p.comparePrice.toFixed(2)} лв.</span>
+                          <span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 7px', borderRadius: 6, fontWeight: 800, fontSize: 10 }}>-{Math.round((1 - p.price / p.comparePrice) * 100)}%</span>
+                        </div>
+                      </div>
+                      <button onClick={() => addToCart(p)} className="add-to-cart-btn">🛒 Добави</button>
+                    </div>
+                  </div>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+
+          <FadeIn>
+            <div style={{ textAlign: 'center', marginTop: 8 }}>
+              <p style={{ color: '#6b7280', marginBottom: 16, fontSize: 14 }}>Или поръчай директно от производителя</p>
+              <a
+                href="https://atlasagro.eu/"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackAffiliate('atlasagro', 'atlas-terra')}
+                className="cta-link-btn"
+              >
+                🛒 Купи от AtlasAgro.eu
+              </a>
+              <div style={{ marginTop: 14, fontSize: 13, color: '#16a34a', fontWeight: 700 }}>🚚 Безплатна доставка над 60 лв.</div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* GINEGAR */}
+      <section className="ginegar-section">
+        <div className="ginegar-glow" />
+        <div className="ginegar-dots" />
+        <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+          <FadeIn>
+            <div className="ginegar-inner">
+              <div className="ginegar-text">
+                <span style={{ background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 30, letterSpacing: '0.08em', textTransform: 'uppercase' as const, display: 'inline-block', marginBottom: 18 }}>🏕️ ИЗРАЕЛСКА ТЕХНОЛОГИЯ</span>
+                <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 3.5vw, 40px)', margin: '0 0 16px', fontWeight: 800, lineHeight: 1.15 }}>
+                  Ginegar — Премиум<br />Найлон за Оранжерии
+                </h2>
+                <p style={{ color: 'rgba(255,255,255,0.72)', fontSize: 15, lineHeight: 1.8, marginBottom: 24 }}>
+                  Световен стандарт за здравина, светлина и дълъг живот. GINEGAR не е най-евтиният избор —{' '}
+                  <strong style={{ color: '#86efac' }}>той е изборът, който излиза най-изгоден с времето.</strong>
+                </p>
+                <ul style={{ margin: '0 0 32px', padding: 0, listStyle: 'none' }}>
+                  {[
+                    '9-слойна технология (всеки слой с функция)',
+                    'UV защита и анти-капка ефект',
+                    'Равномерно осветление на растенията',
+                    'По-малко подмяна — по-ниска цена на сезон',
+                  ].map(f => (
+                    <li key={f} style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, padding: '8px 0', display: 'flex', gap: 12, borderBottom: '1px solid rgba(255,255,255,0.07)', alignItems: 'flex-start' }}>
+                      <span style={{ background: '#16a34a', color: '#fff', width: 18, height: 18, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, flexShrink: 0, marginTop: 1 }}>✓</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <a
+                  href="https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackAffiliate('oranjeriata', 'ginegar')}
+                  className="ginegar-btn"
+                >
+                  👉 Разгледай фолиата на Ginegar
+                </a>
+              </div>
+              <div className="ginegar-img-wrap">
+                <div style={{ position: 'absolute', inset: -16, background: 'radial-gradient(circle, rgba(22,163,74,0.22), transparent 70%)', borderRadius: '50%' }} />
+                <img
+                  src={`${CDN}/6940e17e0d4a3_pe-film-supflor-ginegar.jpg`}
+                  alt="Ginegar фолио"
+                  style={{ width: '100%', maxWidth: 280, borderRadius: 20, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative' }}
+                />
+                <img
+                  src={`${CDN}/694242e9c1baa_ginegar-logo-mk-group.600x600.png`}
+                  alt="Ginegar logo"
+                  style={{ width: 90, marginTop: 20, filter: 'brightness(0) invert(1)', opacity: 0.6 }}
+                />
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* TESTIMONIALS */}
+      <section id="testimonials" className="section-wrap" style={{ background: '#fff' }}>
+        <FadeIn>
+          <div className="section-header">
+            <span className="section-tag">Отзиви</span>
+            <h2 className="section-title">Какво казват фермерите</h2>
+            <p className="section-desc">Реални резултати от реални хора</p>
+          </div>
+        </FadeIn>
+        <div className="testimonials-grid">
+          {TESTIMONIALS.map((t, i) => (
+            <FadeIn key={t.name} delay={i * 80}>
+              <div className="testimonial-card">
+                <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>
+                  {Array.from({ length: t.stars }).map((_, j) => (
+                    <span key={j} style={{ color: '#f59e0b', fontSize: 15 }}>★</span>
+                  ))}
+                </div>
+                <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, marginBottom: 16, fontStyle: 'italic', flex: 1 }}>„{t.text}"</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderTop: '1px solid #f3f4f6', paddingTop: 14 }}>
+                  <span style={{ fontSize: 30, lineHeight: 1 }}>{t.avatar}</span>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: '#111' }}>{t.name}</div>
+                    <div style={{ fontSize: 12, color: '#9ca3af' }}>📍 {t.location}</div>
+                  </div>
+                </div>
+              </div>
+            </FadeIn>
           ))}
         </div>
-      </div>
+
+        {/* Denny quote */}
+        <FadeIn>
+          <div style={{ textAlign: 'center', padding: '36px 28px', background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', borderRadius: 24, border: '1px solid #bbf7d0', maxWidth: 700, margin: '48px auto 0' }}>
+            <img
+              src={`${CDN}/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg`}
+              alt="Denny Angelow"
+              style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '3px solid #16a34a', marginBottom: 18 }}
+            />
+            <blockquote style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(18px, 2.5vw, 24px)', color: '#1a1a1a', fontStyle: 'italic', lineHeight: 1.65, margin: '0 0 18px' }}>
+              „С правилната грижа и нужните продукти можеш да отгледаш здрави и продуктивни растения, без излишни усилия."
+            </blockquote>
+            <div style={{ fontWeight: 800, color: '#16a34a', fontSize: 15 }}>Denny Angelow</div>
+            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>@iammyoungmoney · Агро Консултант</div>
+          </div>
+        </FadeIn>
+      </section>
+
+      {/* SECOND CTA */}
+      <section className="cta-section">
+        <div className="cta-dots" />
+        <div style={{ maxWidth: 520, margin: '0 auto', position: 'relative', textAlign: 'center' }}>
+          <FadeIn>
+            <div style={{ fontSize: 52, marginBottom: 16 }}>📗</div>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 4vw, 40px)', margin: '0 0 12px', fontWeight: 800 }}>
+              Изтегли Безплатния Наръчник
+            </h2>
+            <p style={{ color: 'rgba(255,255,255,0.78)', fontSize: 16, lineHeight: 1.7, marginBottom: 36 }}>
+              Над 6 000 фермери вече го имат. Вземи и ти тайните за едри, здрави домати — напълно безплатно.
+            </p>
+            <LeadForm />
+          </FadeIn>
+        </div>
+      </section>
 
       {/* FOOTER */}
-      <footer className="footer">
-        <p>© {new Date().getFullYear()} Denny Angelow · dennyangelow.com</p>
-        <p><a href="/admin">admin</a></p>
+      <footer id="kontakt" className="site-footer">
+        <div style={{ maxWidth: 800, margin: '0 auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 32, marginBottom: 40, textAlign: 'left' }}>
+            <div>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>🍅</div>
+              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: '#fff', fontWeight: 700, marginBottom: 4 }}>Denny Angelow</div>
+              <div style={{ fontSize: 11, color: '#86efac', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 12 }}>Агро Консултант</div>
+              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>Помагам на фермери да отглеждат по-здрави растения с проверени органични методи.</p>
+            </div>
+            <div>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 14 }}>Партньори</div>
+              {[{ label: '🌿 AgroApteki.bg', href: `https://agroapteki.com/${AFF}` }, { label: '🏡 Oranjeriata.bg', href: 'https://oranjeriata.com/' }, { label: '🌱 AtlasAgro.eu', href: 'https://atlasagro.eu/' }].map(l => (
+                <a key={l.label} href={l.href} target="_blank" rel="noopener" className="footer-link" style={{ display: 'block', marginBottom: 8, color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: 14, fontWeight: 600, transition: 'color 0.2s' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#86efac' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.6)' }}>
+                  {l.label}
+                </a>
+              ))}
+            </div>
+            <div>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 14 }}>Контакт</div>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>📧 <a href="mailto:support@dennyangelow.com" style={{ color: '#86efac', fontWeight: 600, textDecoration: 'none' }}>support@dennyangelow.com</a></p>
+              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>Работим от пон–пет, 9:00–17:00 ч.</p>
+            </div>
+          </div>
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', marginBottom: 20 }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>© 2025–2026 Denny Angelow · Всички права запазени</div>
+            <a href="/admin" style={{ color: 'rgba(255,255,255,0.15)', textDecoration: 'none', fontSize: 11 }}>Admin</a>
+          </div>
+        </div>
       </footer>
 
-      {/* CART SIDEBAR */}
-      {cartOpen&&(
-        <>
-          <div className="ovl" onClick={()=>setCartOpen(false)}/>
-          <div className="cslide">
-            <div className="chd">
-              <h3>🛒 Количка ({qty} бр.)</h3>
-              <button className="clsbtn" onClick={()=>setCartOpen(false)}>✕</button>
+      {/* CART DRAWER */}
+      {cartVisible && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
+          <div onClick={() => setCartVisible(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }} />
+          <div className="cart-drawer">
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+              <h3 style={{ margin: 0, fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700 }}>🛒 Количка</h3>
+              <button onClick={() => setCartVisible(false)} style={{ background: '#f3f4f6', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6b7280', width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
             </div>
-            <div className="cbd">
-              {cart.length===0?<p style={{color:'#9ca3af',textAlign:'center',paddingTop:48,fontSize:15}}>Количката е празна</p>:
-                cart.map(c=>(
-                  <div key={c.id} className="crow">
-                    {c.img?<img className="cthumb" src={c.img} alt={c.name}/>:<div className="cthumb" style={{display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}}>🌱</div>}
-                    <div className="cinfo"><div className="ciname">{c.name}</div><div className="ciprice">{c.price.toFixed(2)} лв. / бр.</div></div>
-                    <div className="qc">
-                      <button className="qb" onClick={()=>chgQty(c.id,-1)}>−</button>
-                      <span className="qn">{c.qty}</span>
-                      <button className="qb" onClick={()=>chgQty(c.id,1)}>+</button>
-                    </div>
-                    <span style={{fontWeight:800,minWidth:70,textAlign:'right',fontSize:14}}>{(c.price*c.qty).toFixed(2)} лв.</span>
-                    <button className="rmb" onClick={()=>rmCart(c.id)}>✕</button>
-                  </div>
-                ))
-              }
-            </div>
-            {cart.length>0&&(
-              <div className="cft">
-                <div className="cl"><span>Продукти</span><span>{sub.toFixed(2)} лв.</span></div>
-                <div className="cl"><span>Доставка</span><span>{ship===0?'🎁 Безплатна':`${ship.toFixed(2)} лв.`}</span></div>
-                {ship>0&&<div className="cl hint"><span>Добави още за безплатна доставка</span><span>+{(60-sub).toFixed(2)} лв.</span></div>}
-                <div className="ctot"><span>Общо</span><span>{tot.toFixed(2)} лв.</span></div>
-                {done?(
-                  <div className="okc" style={{marginTop:14}}>
-                    <div style={{fontSize:40,marginBottom:8}}>✅</div>
-                    <h4 style={{fontSize:17,fontWeight:800,marginBottom:4}}>Поръчка {done}</h4>
-                    <p style={{color:'#6b7280',fontSize:13}}>Ще се свържем с теб скоро!</p>
-                  </div>
-                ):(
-                  <form onSubmit={handleOrder} className="oform">
-                    <h4>📦 Данни за доставка</h4>
-                    <div style={{display:'flex',flexDirection:'column',gap:9}}>
-                      <div className="g2">
-                        <input placeholder="Имe *" required value={oForm.customer_name} onChange={e=>setOForm(p=>({...p,customer_name:e.target.value}))}/>
-                        <input placeholder="Телефон *" required value={oForm.customer_phone} onChange={e=>setOForm(p=>({...p,customer_phone:e.target.value}))}/>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+              {orderDone ? (
+                <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+                  <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
+                  <h3 style={{ color: '#16a34a', fontFamily: "'Cormorant Garamond', serif", fontSize: 24, margin: '0 0 8px' }}>Поръчката е приета!</h3>
+                  <p style={{ color: '#374151', marginBottom: 4 }}>Номер: <strong>{orderDone}</strong></p>
+                  <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24 }}>Ще се свържем с теб до 24 часа.</p>
+                  <button onClick={() => { setCartVisible(false); setOrderDone('') }} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 12, padding: '12px 28px', cursor: 'pointer', fontWeight: 800, fontSize: 15 }}>Затвори</button>
+                </div>
+              ) : cart.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '64px 0', color: '#9ca3af' }}>
+                  <div style={{ fontSize: 56, marginBottom: 12 }}>🛒</div>
+                  <p style={{ fontSize: 16, fontWeight: 700 }}>Количката е празна</p>
+                  <p style={{ fontSize: 13, marginTop: 6 }}>Добави продукти от секцията Atlas Terra</p>
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 20 }}>
+                    {cart.map(item => (
+                      <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid #f3f4f6', gap: 12 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#111', marginBottom: 2 }}>{item.name}</div>
+                          <div style={{ fontSize: 13, color: '#6b7280' }}>{item.price.toFixed(2)} лв. × {item.qty}</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <button onClick={() => setCart(p => p.map(i => i.id === item.id ? { ...i, qty: Math.max(0, i.qty - 1) } : i).filter(i => i.qty > 0))} style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #e5e7eb', background: '#f9fafb', cursor: 'pointer', fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                          <span style={{ fontWeight: 800, minWidth: 22, textAlign: 'center', fontSize: 15 }}>{item.qty}</span>
+                          <button onClick={() => setCart(p => p.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i))} style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #e5e7eb', background: '#f9fafb', cursor: 'pointer', fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: 14, minWidth: 70, textAlign: 'right', color: '#16a34a' }}>{(item.price * item.qty).toFixed(2)} лв.</div>
                       </div>
-                      <input placeholder="Имейл (по желание)" type="email" value={oForm.customer_email} onChange={e=>setOForm(p=>({...p,customer_email:e.target.value}))}/>
-                      <input placeholder="Адрес *" required value={oForm.customer_address} onChange={e=>setOForm(p=>({...p,customer_address:e.target.value}))}/>
-                      <input placeholder="Град *" required value={oForm.customer_city} onChange={e=>setOForm(p=>({...p,customer_city:e.target.value}))}/>
-                      <textarea placeholder="Бележка" rows={2} value={oForm.customer_notes} onChange={e=>setOForm(p=>({...p,customer_notes:e.target.value}))} style={{resize:'vertical'}}/>
-                      <select value={oForm.payment_method} onChange={e=>setOForm(p=>({...p,payment_method:e.target.value}))}>
-                        <option value="cod">💵 Наложен платеж</option>
-                        <option value="bank">🏦 Банков превод</option>
-                      </select>
-                      <button type="submit" className="btnO" disabled={oLdg}>{oLdg?'Изпращане...':`✓ Поръчай · ${tot.toFixed(2)} лв.`}</button>
+                    ))}
+
+                    {/* Totals */}
+                    <div style={{ padding: '14px 0', fontSize: 14, color: '#4b5563' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Продукти:</span><span>{cartTotal.toFixed(2)} лв.</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <span>Доставка:</span>
+                        <span style={{ color: shipping === 0 ? '#16a34a' : 'inherit', fontWeight: shipping === 0 ? 700 : 400 }}>{shipping === 0 ? '🎉 Безплатна!' : `${shipping.toFixed(2)} лв.`}</span>
+                      </div>
+                      {shipping > 0 && (
+                        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#92400e', marginBottom: 10 }}>
+                          Добави още <strong>{(60 - cartTotal).toFixed(2)} лв.</strong> за безплатна доставка
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: 19, color: '#111', borderTop: '2px solid #e5e7eb', paddingTop: 12, marginTop: 4 }}>
+                        <span>Общо:</span><span style={{ color: '#16a34a' }}>{(cartTotal + shipping).toFixed(2)} лв.</span>
+                      </div>
                     </div>
-                  </form>
-                )}
+                  </div>
+
+                  {/* Order form */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#374151', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>📦 Данни за доставка</div>
+                    {([
+                      { key: 'name', placeholder: 'Три имена *', type: 'text' },
+                      { key: 'phone', placeholder: 'Телефон *', type: 'tel' },
+                      { key: 'email', placeholder: 'Имейл (по желание)', type: 'email' },
+                      { key: 'address', placeholder: 'Адрес *', type: 'text' },
+                      { key: 'city', placeholder: 'Град *', type: 'text' },
+                    ] as const).map(field => (
+                      <input
+                        key={field.key}
+                        type={field.type}
+                        placeholder={field.placeholder}
+                        value={orderForm[field.key]}
+                        onChange={e => setOrderForm(f => ({ ...f, [field.key]: e.target.value }))}
+                        style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', color: '#111', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
+                        onFocus={e => { (e.currentTarget as HTMLElement).style.borderColor = '#16a34a' }}
+                        onBlur={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb' }}
+                      />
+                    ))}
+                    <textarea
+                      placeholder="Бележки (по желание)"
+                      value={orderForm.notes}
+                      onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))}
+                      rows={2}
+                      style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', resize: 'none', fontFamily: 'inherit', color: '#111', width: '100%', boxSizing: 'border-box' }}
+                    />
+                    <select
+                      value={orderForm.payment}
+                      onChange={e => setOrderForm(f => ({ ...f, payment: e.target.value }))}
+                      style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', fontSize: 14, background: '#fff', color: '#111', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
+                    >
+                      <option value="cod">💵 Наложен платеж</option>
+                      <option value="bank">🏦 Банков превод</option>
+                    </select>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {!orderDone && cart.length > 0 && (
+              <div style={{ padding: '16px 24px', borderTop: '1px solid #e5e7eb', background: '#fafaf8' }}>
+                <button
+                  onClick={submitOrder}
+                  disabled={orderLoading || !orderForm.name || !orderForm.phone || !orderForm.address || !orderForm.city}
+                  style={{
+                    width: '100%', padding: '16px', borderRadius: 14, border: 'none',
+                    background: (!orderForm.name || !orderForm.phone || !orderForm.address || !orderForm.city) ? '#d1d5db' : '#16a34a',
+                    color: '#fff', fontWeight: 900, fontSize: 17, cursor: 'pointer',
+                    transition: 'all 0.2s', boxShadow: '0 6px 20px rgba(22,163,74,0.3)', fontFamily: 'inherit',
+                  }}
+                >
+                  {orderLoading ? 'Изпращане...' : `✅ Поръчай — ${(cartTotal + shipping).toFixed(2)} лв.`}
+                </button>
+                <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>🔒 Сигурна поръчка · Плащане при доставка</p>
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
-      {cart.length>0&&!cartOpen&&<button className="fcart" onClick={()=>setCartOpen(true)}>🛒 {qty} · {tot.toFixed(2)} лв.</button>}
-    </div>
+
+      {/* FLOATING CART BUTTON (mobile) */}
+      {cartCount > 0 && !cartVisible && (
+        <button onClick={() => setCartVisible(true)} className="float-cart-btn">
+          🛒 {cartCount} · {(cartTotal + shipping).toFixed(2)} лв.
+        </button>
+      )}
+    </>
   )
 }
+
+const pageCSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;0,800;1,600;1,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: 'DM Sans', -apple-system, sans-serif; background: #fafaf8; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
+
+  @keyframes fadeDown { from { opacity:0; transform:translateX(24px) } to { opacity:1; transform:translateX(0) } }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+  @keyframes shimmer { 0%{background-position:-200% center} 100%{background-position:200% center} }
+  @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(0.85)} }
+  @keyframes slideRight { from{opacity:0;transform:translateX(-100%)} to{opacity:1;transform:translateX(0)} }
+
+  .urgency-bar { background: linear-gradient(90deg,#dc2626,#b91c1c); padding: 10px 20px; text-align: center; font-size: 13px; color: #fff; font-weight: 600; letter-spacing: .015em; }
+
+  .site-header { position: sticky; top: 0; z-index: 200; background: rgba(255,255,255,0.96); backdrop-filter: blur(16px); border-bottom: 1px solid #e5e7eb; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 64px; box-shadow: 0 1px 8px rgba(0,0,0,.04); transition: all .3s; gap: 16px; }
+  .site-header--scrolled { box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  .header-logo { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .logo-name { font-weight: 900; font-size: 16px; font-family: 'Cormorant Garamond', serif; color: #1a1a1a; line-height: 1; }
+  .logo-sub { font-size: 10px; color: #16a34a; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  .header-nav { display: flex; gap: 2px; align-items: center; }
+  .nav-link { color: #374151; text-decoration: none; font-size: 14px; font-weight: 600; padding: 6px 12px; border-radius: 8px; transition: all .2s; white-space: nowrap; }
+  .nav-link:hover { color: #16a34a; background: #f0fdf4; }
+  .cart-button { background: #f0fdf4; color: #16a34a; border: 2px solid #16a34a; border-radius: 12px; padding: 8px 16px; cursor: pointer; font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 6px; transition: all .2s; font-family: inherit; white-space: nowrap; flex-shrink: 0; }
+  .cart-button--active { background: #16a34a; color: #fff; }
+  .cart-button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(22,163,74,0.25); }
+  .mobile-menu-btn { display: none; background: #f4f4f4; border: none; border-radius: 10px; width: 40px; height: 40px; font-size: 20px; cursor: pointer; align-items: center; justify-content: center; flex-shrink: 0; }
+  .mobile-nav { position: sticky; top: 64px; z-index: 199; background: #fff; border-bottom: 1px solid #e5e7eb; padding: 12px 24px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); animation: slideRight .25s ease; }
+  .mobile-nav-link { color: #374151; text-decoration: none; font-size: 15px; font-weight: 700; padding: 10px 14px; border-radius: 10px; display: block; }
+  .mobile-nav-link:hover { background: #f0fdf4; color: #16a34a; }
+
+  .hero-section { background: linear-gradient(145deg,#0c3a1c 0%,#14532d 30%,#166534 65%,#15803d 100%); position: relative; overflow: hidden; }
+  .hero-dots { position: absolute; inset: 0; pointer-events: none; opacity: .1; background-image: radial-gradient(circle,rgba(255,255,255,.3) 1px,transparent 1px); background-size: 32px 32px; }
+  .hero-blob { position: absolute; border-radius: 50%; pointer-events: none; }
+  .hero-blob--tr { top: -140px; right: -140px; width: 520px; height: 520px; background: rgba(134,239,172,.06); }
+  .hero-blob--bl { bottom: -80px; left: -100px; width: 360px; height: 360px; background: rgba(255,255,255,.03); }
+  .hero-inner { max-width: 1100px; margin: 0 auto; padding: 72px 24px 80px; position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 48px; align-items: center; justify-content: space-between; }
+  .hero-left { flex: 1 1 400px; max-width: 560px; }
+  .hero-right { flex: 0 0 272px; display: flex; flex-direction: column; gap: 16px; align-items: center; }
+  .hero-float-anim { animation: float 4.5s ease-in-out infinite; }
+  .trust-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,.11); border: 1px solid rgba(255,255,255,.18); border-radius: 30px; padding: 7px 16px; backdrop-filter: blur(12px); margin-bottom: 26px; }
+  .trust-badge span { color: rgba(255,255,255,.92); font-size: 13px; font-weight: 600; }
+  .live-dot { width: 7px; height: 7px; background: #86efac; border-radius: 50%; animation: pulse-dot 2s ease-in-out infinite; flex-shrink: 0; }
+  .hero-title { font-family: 'Cormorant Garamond', serif; font-size: clamp(36px,5.5vw,62px); color: #fff; margin: 0 0 16px; line-height: 1.1; font-weight: 800; }
+  .shimmer-text { background: linear-gradient(90deg,#86efac 0%,#fff 40%,#86efac 80%); background-size: 200%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 3.5s ease infinite; }
+  .hero-desc { color: rgba(255,255,255,.8); font-size: 17px; line-height: 1.75; margin-bottom: 24px; max-width: 460px; }
+  .hero-features { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 32px; }
+  .feature-chip { font-size: 13px; color: rgba(255,255,255,.88); background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14); padding: 7px 14px; border-radius: 24px; display: flex; align-items: center; gap: 6px; backdrop-filter: blur(8px); }
+  .lead-box { background: rgba(255,255,255,.08); backdrop-filter: blur(16px); border-radius: 24px; padding: 28px; border: 1px solid rgba(255,255,255,.16); max-width: 420px; }
+  .lead-tag { color: #86efac; font-weight: 700; font-size: 11px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .1em; }
+  .lead-title { color: #fff; font-size: 17px; margin: 0 0 18px; font-family: 'Cormorant Garamond', serif; font-weight: 700; line-height: 1.3; }
+  .profile-card { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); border-radius: 20px; padding: 22px; text-align: center; backdrop-filter: blur(12px); width: 100%; max-width: 260px; }
+  .mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 260px; }
+  .mini-stat { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14); border-radius: 14px; padding: 12px 10px; text-align: center; }
+  .mini-stat-num { font-size: 19px; font-weight: 900; color: #86efac; font-family: 'Cormorant Garamond', serif; }
+  .mini-stat-label { font-size: 10px; color: rgba(255,255,255,.65); font-weight: 600; margin-top: 2px; }
+
+  .trust-strip { background: #fff; border-bottom: 1px solid #f0f0f0; padding: 14px 24px; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; }
+  .trust-strip::-webkit-scrollbar { display: none; }
+  .trust-item { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; color: #374151; padding: 0 24px; white-space: nowrap; border-right: 1px solid #e5e7eb; flex-shrink: 0; }
+  .trust-item:last-child { border-right: none; }
+
+  .section-wrap { padding: 72px 24px; max-width: 1100px; margin: 0 auto; }
+  .section-header { text-align: center; margin-bottom: 44px; }
+  .section-tag { font-size: 11px; font-weight: 800; letter-spacing: .1em; color: #16a34a; text-transform: uppercase; }
+  .section-title { font-family: 'Cormorant Garamond', serif; font-size: clamp(28px,4vw,44px); margin: 10px 0 10px; font-weight: 800; line-height: 1.15; }
+  .section-desc { color: #6b7280; font-size: 15px; max-width: 500px; margin: 0 auto; line-height: 1.6; }
+
+  .categories-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .category-card { display: flex; align-items: center; gap: 14px; background: #fff; border-radius: 18px; padding: 18px 20px; border: 2px solid #e5e7eb; font-weight: 700; font-size: 14px; color: #1a1a1a; box-shadow: 0 2px 12px rgba(0,0,0,.04); text-decoration: none; transition: all .25s cubic-bezier(.4,0,.2,1); }
+
+  .products-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+
+  .atlas-section { background: linear-gradient(135deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf4 100%); padding: 80px 24px; position: relative; overflow: hidden; }
+  .atlas-blob { position: absolute; top: -80px; right: -60px; width: 320px; height: 320px; border-radius: 50%; background: rgba(22,163,74,.07); pointer-events: none; }
+  .atlas-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 28px; margin-bottom: 44px; }
+  .atlas-card { background: #fff; border-radius: 24px; overflow: hidden; box-shadow: 0 8px 40px rgba(0,0,0,.09); border: 2px solid #d1fae5; display: flex; flex-direction: column; transition: all .3s ease; }
+  .add-to-cart-btn { background: #16a34a; color: #fff; border: none; border-radius: 14px; padding: 12px 22px; cursor: pointer; font-weight: 800; font-size: 15px; box-shadow: 0 4px 16px rgba(22,163,74,.3); transition: all .2s; font-family: inherit; white-space: nowrap; }
+  .add-to-cart-btn:hover { background: #15803d; transform: translateY(-1px); }
+  .cta-link-btn { display: inline-flex; align-items: center; gap: 10px; background: #15803d; color: #fff; padding: 15px 36px; border-radius: 16px; text-decoration: none; font-weight: 800; font-size: 16px; box-shadow: 0 8px 28px rgba(22,163,74,.3); transition: all .25s; }
+  .cta-link-btn:hover { background: #14532d; transform: translateY(-2px); }
+
+  .ginegar-section { background: #0f1f14; padding: 80px 24px; position: relative; overflow: hidden; }
+  .ginegar-glow { position: absolute; top: 0; right: 0; width: 600px; height: 100%; opacity: .12; pointer-events: none; background: radial-gradient(ellipse at top right,#22c55e,transparent 65%); }
+  .ginegar-dots { position: absolute; inset: 0; pointer-events: none; opacity: .07; background-image: radial-gradient(circle,rgba(255,255,255,.25) 1px,transparent 1px); background-size: 36px 36px; }
+  .ginegar-inner { display: flex; flex-wrap: wrap; gap: 52px; align-items: center; }
+  .ginegar-text { flex: 1 1 380px; }
+  .ginegar-img-wrap { flex: 0 0 260px; text-align: center; position: relative; display: inline-flex; flex-direction: column; align-items: center; }
+  .ginegar-btn { display: inline-flex; align-items: center; gap: 8px; background: #16a34a; color: #fff; text-decoration: none; padding: 14px 28px; border-radius: 14px; font-weight: 800; font-size: 15px; box-shadow: 0 8px 24px rgba(22,163,74,.35); transition: all .25s; }
+  .ginegar-btn:hover { background: #15803d; transform: translateY(-2px); }
+
+  .testimonials-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .testimonial-card { background: #f9fafb; border-radius: 20px; padding: 24px; border: 1px solid #e5e7eb; transition: all .25s; display: flex; flex-direction: column; }
+  .testimonial-card:hover { box-shadow: 0 8px 32px rgba(0,0,0,.08); transform: translateY(-3px); background: #fff; }
+
+  .cta-section { background: linear-gradient(145deg,#14532d 0%,#15803d 100%); padding: 72px 24px; position: relative; overflow: hidden; }
+  .cta-dots { position: absolute; inset: 0; pointer-events: none; opacity: .1; background-image: radial-gradient(circle,rgba(255,255,255,.3) 1px,transparent 1px); background-size: 28px 28px; }
+
+  .site-footer { background: #0f1f14; color: rgba(255,255,255,0.7); padding: 52px 24px 32px; }
+
+  .cart-drawer { position: absolute; right: 0; top: 0; bottom: 0; width: 100%; max-width: 480px; background: #fff; animation: fadeDown 0.3s ease; display: flex; flex-direction: column; box-shadow: -8px 0 48px rgba(0,0,0,0.2); }
+
+  .float-cart-btn { position: fixed; bottom: 24px; right: 24px; z-index: 999; background: linear-gradient(135deg,#16a34a,#15803d); color: #fff; border: none; border-radius: 18px; padding: 14px 22px; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: 0 8px 28px rgba(22,163,74,0.45); font-family: inherit; transition: all .25s; display: flex; align-items: center; gap: 8px; }
+  .float-cart-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(22,163,74,0.5); }
+
+  /* RESPONSIVE */
+  @media(max-width:960px) {
+    .products-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .testimonials-grid { grid-template-columns: repeat(2, 1fr); }
+    .categories-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media(max-width:640px) {
+    .products-grid, .atlas-grid, .categories-grid, .testimonials-grid { grid-template-columns: 1fr !important; }
+    .hero-right { display: none; }
+    .header-nav { display: none; }
+    .mobile-menu-btn { display: flex; }
+    .hero-inner { padding: 48px 20px 56px; }
+    .hero-title { font-size: 38px; }
+    .lead-box { max-width: 100%; }
+    .section-wrap { padding: 52px 20px; }
+    .atlas-section { padding: 60px 20px; }
+    .ginegar-section { padding: 60px 20px; }
+    .ginegar-img-wrap { flex: 1 1 100%; }
+    .trust-strip { padding: 12px 20px; }
+    .cart-drawer { max-width: 100%; }
+    .float-cart-btn { bottom: 16px; right: 16px; padding: 12px 18px; font-size: 14px; }
+    .urgency-bar { font-size: 12px; padding: 8px 16px; }
+  }
+  @media(max-width:480px) {
+    .hero-title { font-size: 32px; }
+    .categories-grid { grid-template-columns: 1fr; }
+  }
+`

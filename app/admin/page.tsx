@@ -1,5 +1,5 @@
 'use client'
-// app/admin/page.tsx v2
+// app/admin/page.tsx v3
 
 import { useState } from 'react'
 import { Sidebar }      from './components/Sidebar'
@@ -26,26 +26,10 @@ export default function AdminPage() {
   } = useAdminData()
 
   if (loading) return (
-    <div className="loading-screen">
-      <div className="spinner" />
-      <p>Зарежда данните...</p>
-      <style>{`
-        .loading-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:16px;font-family:'DM Sans',sans-serif;color:#6b7280;background:#f8fafc}
-        .spinner{width:36px;height:36px;border:3px solid #e5e7eb;border-top-color:#2d6a4f;border-radius:50%;animation:spin .7s linear infinite}
-        @keyframes spin{to{transform:rotate(360deg)}}
-      `}</style>
-    </div>
-  )
-
-  if (error) return (
-    <div className="error-screen">
-      <p>⚠ {error}</p>
-      <button onClick={fetchAll}>Опитай отново</button>
-      <style>{`
-        .error-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:16px;font-family:'DM Sans',sans-serif}
-        .error-screen p{color:#991b1b;font-size:16px}
-        .error-screen button{background:#2d6a4f;color:#fff;border:none;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:14px}
-      `}</style>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16, fontFamily:"'DM Sans',sans-serif", color:'#6b7280', background:'#f4f6f8' }}>
+      <div style={{ width:40, height:40, border:'3px solid #e5e7eb', borderTopColor:'#2d6a4f', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
+      <p style={{ fontSize:15 }}>Зарежда данните...</p>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
 
@@ -58,12 +42,28 @@ export default function AdminPage() {
         html,body{height:100%;background:var(--bg)}
         body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
         .admin-layout{display:flex;min-height:100vh}
-        .admin-main{flex:1;margin-left:220px;min-height:100vh;background:var(--bg)}
+        .admin-main{flex:1;margin-left:220px;min-height:100vh;background:var(--bg);overflow-x:hidden}
         @media(max-width:768px){.admin-main{margin-left:0;padding-top:60px}}
       `}</style>
 
-      <div className="admin-layout">
-        <Sidebar tab={tab} setTab={setTab} newOrders={stats.newOrders} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      {error && (
+        <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:999, background:'#fef3c7', borderBottom:'2px solid #fde68a', padding:'12px 24px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, fontFamily:"'DM Sans',sans-serif", fontSize:14 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, color:'#92400e' }}>
+            <span>⚠️</span>
+            <span><strong>Внимание:</strong> {error}</span>
+          </div>
+          <button onClick={fetchAll} style={{ background:'#92400e', color:'#fff', border:'none', borderRadius:8, padding:'6px 16px', cursor:'pointer', fontWeight:700, fontSize:13, fontFamily:'inherit' }}>Опитай пак</button>
+        </div>
+      )}
+
+      <div className="admin-layout" style={{ paddingTop: error ? 52 : 0 }}>
+        <Sidebar
+          tab={tab}
+          setTab={setTab}
+          newOrders={stats.newOrders}
+          mobileOpen={mobileOpen}
+          setMobileOpen={setMobileOpen}
+        />
         <main className="admin-main">
           {tab === 'dashboard'  && <DashboardTab stats={stats} orders={orders} leads={leads} analytics={analytics} onRefresh={fetchAll} onViewOrder={o => { setViewOrder(o); setTab('orders') }} />}
           {tab === 'orders'     && <OrdersTab orders={orders} onStatusChange={updateOrderStatus} onPaymentChange={updatePaymentStatus} initialOrder={viewOrder} />}

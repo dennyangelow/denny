@@ -14,48 +14,63 @@ export interface AdminStats {
 }
 
 export function useAdminData() {
-  const [orders, setOrders]     = useState<Order[]>([])
-  const [leads, setLeads]       = useState<Lead[]>([])
+  const [orders, setOrders]       = useState<Order[]>([])
+  const [leads, setLeads]         = useState<Lead[]>([])
   const [analytics, setAnalytics] = useState<AffiliateAnalytics | null>(null)
-  const [stats, setStats]       = useState<AdminStats>({
+  const [stats, setStats]         = useState<AdminStats>({
     totalOrders: 0, revenue: 0, leads: 0,
     newOrders: 0, todayRevenue: 0, pendingPayments: 0,
   })
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
     setError(null)
+
     try {
-      const [ordRes, leadRes, affRes] = await Promise.all([
-        fetch('/api/orders?limit=500').then(r => r.json()),
-        fetch('/api/leads').then(r => r.json()),
-        fetch('/api/analytics/affiliate-click').then(r => r.json()),
+      const [ordRes, leadRes, affRes] = await Promise.allSettled([
+        fetch('/api/orders?limit=500').then(r => {
+          if (!r.ok) throw new Error(`Orders: ${r.status}`)
+          return r.json()
+        }),
+        fetch('/api/leads?limit=500').then(r => {
+          if (!r.ok) throw new Error(`Leads: ${r.status}`)
+          return r.json()
+        }),
+        fetch('/api/analytics/affiliate-click').then(r => {
+          if (!r.ok) return { total: 0, last30days: 0, byPartner: {}, byProduct: {} }
+          return r.json()
+        }),
       ])
 
-      const orderList: Order[] = ordRes.orders || []
-      const leadList: Lead[]   = leadRes.leads  || []
+      const orderList: Order[] = ordRes.status === 'fulfilled' ? (ordRes.value?.orders || []) : []
+      const leadList: Lead[]   = leadRes.status === 'fulfilled' ? (leadRes.value?.leads || []) : []
+      const affData            = affRes.status === 'fulfilled' ? affRes.value : null
+
+      // If both main fetches failed, show error
+      if (ordRes.status === 'rejected' && leadRes.status === 'rejected') {
+        setError(`Грешка при зареждане на данните. Провери дали Supabase env vars са настроени в Vercel.`)
+      }
 
       setOrders(orderList)
       setLeads(leadList)
-      setAnalytics(affRes)
+      setAnalytics(affData)
 
-      const today = new Date().toISOString().slice(0, 10)
+      const today  = new Date().toISOString().slice(0, 10)
       const active = orderList.filter(o => o.status !== 'cancelled')
 
       setStats({
         totalOrders:     orderList.length,
-        revenue:         active.reduce((s, o) => s + o.total, 0),
+        revenue:         active.reduce((s, o) => s + Number(o.total), 0),
         leads:           leadList.length,
         newOrders:       orderList.filter(o => o.status === 'new').length,
-        todayRevenue:    active
-          .filter(o => o.created_at.slice(0, 10) === today)
-          .reduce((s, o) => s + o.total, 0),
+        todayRevenue:    active.filter(o => o.created_at.slice(0, 10) === today).reduce((s, o) => s + Number(o.total), 0),
         pendingPayments: orderList.filter(o => o.payment_status === 'pending' && o.status !== 'cancelled').length,
       })
-    } catch {
-      setError('Грешка при зареждане. Провери връзката.')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Неизвестна грешка'
+      setError(`Грешка: ${msg}. Провери Supabase конфигурацията.`)
     } finally {
       setLoading(false)
     }
