@@ -1,585 +1,323 @@
 'use client'
-// app/page.tsx — Главна маркетинг страница v3
+// app/page.tsx — v4 — всичко от базата данни
 
 import { useState, useEffect } from 'react'
 
-const AFFILIATE_BASE = 'https://agroapteki.com'
-const TRACKING = '?tracking=6809eceee15ad'
+interface AffProd { id:string;name:string;subtitle:string;description:string;bullets:string[];image_url:string;affiliate_url:string;partner:string;slug:string;emoji:string;active:boolean;sort_order:number }
+interface CatLink { id:string;label:string;href:string;emoji:string;partner:string|null;slug:string;active:boolean }
+interface OwnProd { id:string;slug:string;name:string;description:string;price:number;compare_price:number;unit:string;stock:number;image_url:string;active:boolean;sort_order:number }
 
-const affiliateProducts = [
-  {
-    id: 'kristalon',
-    name: 'Кристалон Зелен 18-18-18',
-    subtitle: '⭐ Един от най-използваните торове от фермерите',
-    description: 'Водоразтворимият NPK тор с микроелементи, който стимулира бърз растеж, силна коренова система и по-голям добив. Осигурява идеално съотношение на азот, фосфор и калий.',
-    bullets: ['100% водоразтворим', 'Съдържа микроелементи', 'Подходящ за листно торене и фертигация', 'Увеличава добива и качеството на плодовете'],
-    href: `${AFFILIATE_BASE}/torove/npk-npk-torove/kristalon-zelen-specialen-18-18-18-kompleksen-tor/${TRACKING}`,
-    emoji: '💎',
-    partner: 'agroapteki',
-    slug: 'kristalon',
-  },
-  {
-    id: 'kaliteh',
-    name: 'Калитех',
-    subtitle: '⭐ Предпазва доматите от върхово гниене',
-    description: 'Мощен калциев биостимулатор, който доставя лесно усвоим калций и предотвратява върхово гниене при доматите. Помага за по-здрави и по-качествени плодове.',
-    bullets: ['Предпазва от върхово гниене', 'Подобрява качеството и цвета на плодовете', 'Увеличава добива и съдържанието на захари', 'Повишава устойчивостта към суша и стрес'],
-    href: `${AFFILIATE_BASE}/torove/biostimulatori/kaliteh/${TRACKING}`,
-    emoji: '🛡️',
-    partner: 'agroapteki',
-    slug: 'kaliteh',
-  },
-  {
-    id: 'amalgerol',
-    name: 'Амалгерол',
-    subtitle: '⭐ Легендарният стимулатор за всяка култура',
-    description: '100% природен продукт, съчетаващ силата на алпийски билки и морски водорасли. Действа като щит срещу стреса при градушки, суша или студ.',
-    bullets: ['Мощен анти-стрес ефект (слана, суша, хербициди)', 'Ускорява разграждането на растителните остатъци', 'Подобрява приема на азот и структурата на почвата', '100% биоразградим, сертифициран за био земеделие'],
-    href: `${AFFILIATE_BASE}/torove/techni-torove/amalgerol-za-uskoryavane-rasteja-na-kulturite/${TRACKING}`,
-    emoji: '🌿',
-    partner: 'agroapteki',
-    slug: 'amalgerol',
-  },
+const CDN='https://d1yei2z3i6k35z.cloudfront.net/4263526/'
+
+const FB_AFF:AffProd[]=[
+  {id:'1',name:'Кристалон Зелен 18-18-18',subtitle:'⭐ Един от най-използваните торове от фермерите',description:'Водоразтворимият NPK тор с микроелементи — стимулира бърз растеж, силна коренова система и по-голям добив.',bullets:['100% водоразтворим','Съдържа микроелементи','За листно торене и фертигация','Увеличава добива и качеството'],image_url:CDN+'69b0fc97106ef_zelen-kristalon-230x400.webp',affiliate_url:'https://agroapteki.com/torove/npk-npk-torove/kristalon-zelen-specialen-18-18-18-kompleksen-tor/?tracking=6809eceee15ad',partner:'agroapteki',slug:'kristalon',emoji:'💎',active:true,sort_order:1},
+  {id:'2',name:'Калитех',subtitle:'⭐ Предпазва доматите от върхово гниене',description:'Мощен калциев биостимулатор. Доставя лесно усвоим калций и предотвратява върхово гниене при доматите и пипера.',bullets:['Предпазва от върхово гниене','Подобрява качеството на плодовете','Увеличава добива','Устойчивост към суша и стрес','За листно пръскане и капково напояване'],image_url:CDN+'69b1000d9fb83_kaliteh-224x400.webp',affiliate_url:'https://agroapteki.com/torove/biostimulatori/kaliteh/?tracking=6809eceee15ad',partner:'agroapteki',slug:'kaliteh',emoji:'🛡️',active:true,sort_order:2},
+  {id:'3',name:'Амалгерол',subtitle:'⭐ Легендарният стимулатор за всяка култура',description:'100% природен продукт от алпийски билки и морски водорасли. Щит срещу стреса при градушки, суша и студ.',bullets:['Мощен анти-стрес ефект','Ускорява разграждането на остатъци','Подобрява приема на азот','100% биоразградим','Естествен прилепител за препарати'],image_url:CDN+'69b11176b1758_amalgerol-300x400.webp',affiliate_url:'https://agroapteki.com/torove/techni-torove/amalgerol-za-uskoryavane-rasteja-na-kulturite/?tracking=6809eceee15ad',partner:'agroapteki',slug:'amalgerol',emoji:'🌿',active:true,sort_order:3},
+  {id:'4',name:'Синейс 480 СК',subtitle:'⭐ Мощна био-защита срещу трипс и миниращ молец',description:'Революционен биологичен инсектицид на основата на спинозад. Спира трипса, колорадския бръмбар и Tuta absoluta само за часове. Карантинен срок само 3 дни!',bullets:['Ефективен срещу Калифорнийски трипс','Безмилостен към Tuta absoluta','Карантинен срок 3–7 дни','Устойчив на отмиване','За биологично земеделие'],image_url:CDN+'69b4f5319cf6f1.51072214_sineis-20-237x400.webp',affiliate_url:'https://agroapteki.com/preparati/insekticidi/sineis-480-sk/?tracking=6809eceee15ad',partner:'agroapteki',slug:'sineis',emoji:'🐛',active:true,sort_order:4},
+  {id:'5',name:'Ридомил Голд Р ВГ',subtitle:'⭐ Стопира маната само за 48 часа',description:'Легендарен фунгицид — предпазва и лекува вече възникнала зараза. Прониква в растението за 30 минути, защитава дори новия прираст.',bullets:['Спира болестта до 2 дни след зараза','Комбинирано системно и контактно действие','Не се отмива от дъжд','Защитава новия прираст','Лесна разтворимост'],image_url:CDN+'69b4f6e3264510.81149458_ridomil-gold-300x400.webp',affiliate_url:'https://agroapteki.com/preparati/fungicidi/ridomil-gold/?tracking=6809eceee15ad',partner:'agroapteki',slug:'ridomil',emoji:'🍄',active:true,sort_order:5},
+  {id:'6',name:'Турбо Рут',subtitle:'⭐ Мощно вкореняване и 100% прихващане',description:'Тайното оръжие при засаждане. Стимулира растежа на фините бели корени с хуминови киселини и желязо. Експлозивен ранен старт.',bullets:['Бързо вкореняване на разсада','Подобрява структурата около корена','Готови аминокиселини','Увеличава приема на микроелементи','Устойчивост към стрес'],image_url:CDN+'69b4fd32592803.63113743_turbo-rot-224x400.webp',affiliate_url:'https://agroapteki.com/torove/biostimulatori/turbo-rut/?tracking=6809eceee15ad',partner:'agroapteki',slug:'turbo-root',emoji:'🌱',active:true,sort_order:6},
+  {id:'7',name:'Израелски Найлон GINEGAR',subtitle:'⭐ Световен стандарт за оранжерии',description:'Премиум оранжерийни фолиа от GINEGAR Israel. Многослойна технология — по-дълъг живот, по-стабилни свойства и по-малко проблеми.',bullets:['Многослойна технология до 9 слоя','UV защита и анти-капков ефект','Контрол на температурата','Стабилен добив сезон след сезон','Дългосрочна инвестиция'],image_url:CDN+'6940e17e0d4a3_pe-film-supflor-ginegar.jpg',affiliate_url:'https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar',partner:'oranjeriata',slug:'ginegar',emoji:'🏕️',active:true,sort_order:7},
+  {id:'8',name:'Агрил — Израелски Агротекстил',subtitle:'⭐ Надеждна защита от слана и студ',description:'Висококачествен тъкан агротекстил от GINEGAR Israel. Защитава разсади и деликатни култури от слана, студ и вятър.',bullets:['Защита от слана и студ','Пропуска въздух и вода','Лек и лесен за работа','За разсади и деликатни култури','Дълготраен материал'],image_url:CDN+'694242e9c1baa_ginegar-logo-mk-group.600x600.png',affiliate_url:'https://oranjeriata.com/products/aksesoari-za-otglejdane-na-rasteniya/netukan-tekstil---agril',partner:'oranjeriata',slug:'agril',emoji:'🧵',active:true,sort_order:8},
 ]
-
-const ownProducts = [
-  {
-    slug: 'atlas-terra',
-    name: 'Atlas Terra',
-    subtitle: 'Органичен подобрител на почвата',
-    badge: '⭐ Фундамент за здрава почва',
-    price: 28.90,
-    compare: 35.00,
-    unit: 'кг',
-    emoji: '🌱',
-    description: 'Вашият инструмент за „съживяване" на земята без агресивно гюбре. Богат на хуминови киселини и органично вещество, трансформира структурата на почвата.',
-    bullets: [
-      'Възстановява естественото плодородие',
-      'Подобрява структурата на тежки и песъчливи почви',
-      'Задържа влагата по-дълго при засушаване',
-      'Отключва блокираните микроелементи в земята',
-      '100% органичен състав — безопасно за почвата',
-    ],
-  },
-  {
-    slug: 'atlas-terra-amino',
-    name: 'Atlas Terra AMINO',
-    subtitle: 'Аминокиселини за експлозивен растеж',
-    badge: '⚡ Видими резултати за 48 часа',
-    price: 32.90,
-    compare: 39.00,
-    unit: 'л',
-    emoji: '⚡',
-    description: '„Бързата храна" за вашите домати, краставици и зеленчуци. Действа моментално при стресови ситуации — жега, студ, след пресаждане.',
-    bullets: [
-      'Висока концентрация на свободни аминокиселини',
-      'Предизвиква бърз и обилен цъфтеж',
-      'Мощен анти-стрес ефект (жега, студ, градушка)',
-      'Подходящ за листно пръскане и капково поливане',
-      'Видими резултати само след 48 часа',
-    ],
-  },
+const FB_LINKS:CatLink[]=[
+  {id:'1',label:'🌱 Торове и Био Стимулатори',href:'https://agroapteki.com/torove/?tracking=6809eceee15ad',emoji:'🌱',partner:'agroapteki',slug:'torove',active:true},
+  {id:'2',label:'💧 Изграждане на Поливни Системи',href:'https://agroapteki.com/polivni-sistemi/?tracking=6809eceee15ad',emoji:'💧',partner:'agroapteki',slug:'polivni',active:true},
+  {id:'3',label:'🛡️ Защита от Болести и Вредители',href:'https://agroapteki.com/preparati/?tracking=6809eceee15ad',emoji:'🛡️',partner:'agroapteki',slug:'preparati',active:true},
+  {id:'4',label:'🌳 Биологично Земеделие',href:'#',emoji:'🌳',partner:null,slug:'bio',active:true},
+  {id:'5',label:'🌾 Качествени Семена за Вкусна Реколта',href:'https://agroapteki.com/semena/?tracking=6809eceee15ad',emoji:'🌾',partner:'agroapteki',slug:'semena',active:true},
+  {id:'6',label:'🏕️ Израелски Найлон за Оранжерия',href:'https://oranjeriata.com/products/aksesoari-za-otglejdane-na-rasteniya/netukan-tekstil---agril',emoji:'🏕️',partner:'oranjeriata',slug:'najlon',active:true},
+]
+const FB_OWN:OwnProd[]=[
+  {id:'1',slug:'atlas-terra',name:'Atlas Terra',description:'Органичен подобрител за почвата. Богат на хуминови киселини и органично вещество. Трансформира структурата, задържа влага, отключва блокираните микроелементи.',price:28.90,compare_price:35.00,unit:'кг',stock:999,image_url:CDN+'69b106e276e0e_Jan-2025-ATLAS-TERRA-AMINONITRO.jpg',active:true,sort_order:1},
+  {id:'2',slug:'atlas-terra-amino',name:'Atlas Terra AMINO',description:'Аминокиселини за експлозивен растеж. Действа моментално при жега, студ и пресаждане. Предизвиква бърз и обилен цъфтеж. Видими резултати само след 48 часа.',price:32.90,compare_price:39.00,unit:'л',stock:999,image_url:CDN+'69b106e276e0e_Jan-2025-ATLAS-TERRA-AMINONITRO.jpg',active:true,sort_order:2},
 ]
 
 export default function HomePage() {
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '' })
-  const [submitted, setSubmitted] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [cart, setCart] = useState<{ slug: string; name: string; price: number; qty: number }[]>([])
-  const [cartOpen, setCartOpen] = useState(false)
-  const [orderForm, setOrderForm] = useState({
-    customer_name: '', customer_phone: '', customer_email: '',
-    customer_address: '', customer_city: '', customer_notes: '',
-    payment_method: 'cod',
-  })
-  const [orderDone, setOrderDone] = useState('')
-  const [orderLoading, setOrderLoading] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
+  const [aff,setAff]=useState<AffProd[]>(FB_AFF)
+  const [links,setLinks]=useState<CatLink[]>(FB_LINKS)
+  const [own,setOwn]=useState<OwnProd[]>(FB_OWN)
+  const [form,setForm]=useState({name:'',email:'',phone:''})
+  const [sent,setSent]=useState(false)
+  const [ldg,setLdg]=useState(false)
+  const [cart,setCart]=useState<{id:string;name:string;price:number;qty:number;img:string}[]>([])
+  const [cartOpen,setCartOpen]=useState(false)
+  const [oForm,setOForm]=useState({customer_name:'',customer_phone:'',customer_email:'',customer_address:'',customer_city:'',customer_notes:'',payment_method:'cod'})
+  const [done,setDone]=useState('')
+  const [oLdg,setOLdg]=useState(false)
+  const [scrolled,setScrolled]=useState(false)
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 60)
-    window.addEventListener('scroll', onScroll)
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
-  const addToCart = (p: typeof ownProducts[0]) => {
-    setCart(prev => {
-      const ex = prev.find(c => c.slug === p.slug)
-      if (ex) return prev.map(c => c.slug === p.slug ? { ...c, qty: c.qty + 1 } : c)
-      return [...prev, { slug: p.slug, name: p.name, price: p.price, qty: 1 }]
+  useEffect(()=>{
+    Promise.all([
+      fetch('/api/affiliate-products').then(r=>r.json()).catch(()=>null),
+      fetch('/api/category-links').then(r=>r.json()).catch(()=>null),
+      fetch('/api/own-products').then(r=>r.json()).catch(()=>null),
+    ]).then(([a,c,o])=>{
+      if(a?.products?.length)setAff(a.products)
+      if(c?.links?.length)setLinks(c.links)
+      if(o?.products?.length)setOwn(o.products)
     })
-  }
+    const s=()=>setScrolled(window.scrollY>60)
+    window.addEventListener('scroll',s)
+    return()=>window.removeEventListener('scroll',s)
+  },[])
 
-  const removeFromCart = (slug: string) => setCart(prev => prev.filter(c => c.slug !== slug))
-  const changeQty = (slug: string, delta: number) => {
-    setCart(prev => prev.map(c => c.slug === slug ? { ...c, qty: Math.max(1, c.qty + delta) } : c))
-  }
+  const addToCart=(p:OwnProd)=>setCart(prev=>{
+    const ex=prev.find(c=>c.id===p.id)
+    if(ex)return prev.map(c=>c.id===p.id?{...c,qty:c.qty+1}:c)
+    return[...prev,{id:p.id,name:p.name,price:p.price,qty:1,img:p.image_url}]
+  })
+  const chgQty=(id:string,d:number)=>setCart(prev=>prev.map(c=>c.id===id?{...c,qty:Math.max(1,c.qty+d)}:c))
+  const rmCart=(id:string)=>setCart(prev=>prev.filter(c=>c.id!==id))
+  const qty=cart.reduce((s,c)=>s+c.qty,0)
+  const sub=cart.reduce((s,c)=>s+c.price*c.qty,0)
+  const ship=sub>=60?0:5.99
+  const tot=sub+ship
+  const track=(partner:string,slug:string)=>fetch('/api/analytics/affiliate-click',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({partner,product_slug:slug})}).catch(()=>{})
+  const handleLead=async(e:React.FormEvent)=>{e.preventDefault();setLdg(true);await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...form,source:'naruchnik'})}).catch(()=>{});setSent(true);setLdg(false)}
+  const handleOrder=async(e:React.FormEvent)=>{e.preventDefault();if(!cart.length)return;setOLdg(true);const items=cart.map(c=>({product_name:c.name,quantity:c.qty,unit_price:c.price,total_price:c.price*c.qty}));const res=await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...oForm,items,subtotal:sub,shipping:ship,total:tot})}).catch(()=>null);const data=await res?.json().catch(()=>null);if(data?.order_number){setDone(data.order_number);setCart([]);setCartOpen(false)};setOLdg(false)}
 
-  const totalQty = cart.reduce((s, c) => s + c.qty, 0)
-  const subtotal = cart.reduce((s, c) => s + c.price * c.qty, 0)
-  const shipping = subtotal >= 60 ? 0 : 5.99
-  const total = subtotal + shipping
-
-  const handleLeadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    try {
-      await fetch('/api/leads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, source: 'naruchnik' }),
-      })
-      setSubmitted(true)
-    } catch { /* silent */ }
-    setLoading(false)
-  }
-
-  const handleOrder = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (cart.length === 0) return
-    setOrderLoading(true)
-    try {
-      const items = cart.map(c => ({
-        product_name: c.name, quantity: c.qty,
-        unit_price: c.price, total_price: c.price * c.qty,
-      }))
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...orderForm, items, subtotal, shipping, total }),
-      })
-      const data = await res.json()
-      if (data.order_number) {
-        setOrderDone(data.order_number)
-        setCart([])
-        setCartOpen(false)
-      }
-    } catch { /* silent */ }
-    setOrderLoading(false)
-  }
-
-  const trackAffiliate = (partner: string, slug: string) => {
-    fetch('/api/analytics/affiliate-click', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ partner, product_slug: slug }),
-    }).catch(() => {})
-  }
-
-  return (
-    <div style={{ fontFamily: "'Sora', system-ui, sans-serif", color: '#111', margin: 0 }}>
+  return(
+    <div style={{fontFamily:"'Sora',system-ui,sans-serif",color:'#111',margin:0}}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&display=swap');
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        html { scroll-behavior: smooth; }
-        body { font-family: 'Sora', system-ui, sans-serif; }
-
-        .nav {
-          position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 0 24px; height: 60px;
-          transition: background .3s, box-shadow .3s;
-        }
-        .nav.scrolled {
-          background: rgba(15,31,22,.96);
-          backdrop-filter: blur(12px);
-          box-shadow: 0 1px 20px rgba(0,0,0,.3);
-        }
-        .nav-logo { color: #fff; font-size: 16px; font-weight: 700; text-decoration: none; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; }
-        .nav-links { display: flex; gap: 4px; }
-        .nav-link { color: rgba(255,255,255,.8); text-decoration: none; font-size: 14px; font-weight: 500; padding: 6px 12px; border-radius: 8px; transition: all .2s; }
-        .nav-link:hover { color: #fff; background: rgba(255,255,255,.1); }
-        .nav-cart {
-          background: #40916c; color: #fff; border: none; border-radius: 10px;
-          padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
-          font-family: inherit; display: flex; align-items: center; gap: 6px; transition: background .2s;
-        }
-        .nav-cart:hover { background: #52b788; }
-        .cart-badge {
-          background: #4ade80; color: #0f1f16; width: 20px; height: 20px;
-          border-radius: 50%; font-size: 11px; font-weight: 700;
-          display: flex; align-items: center; justify-content: center;
-        }
-        @media (max-width: 640px) { .nav-links { display: none; } }
-
-        .hero {
-          background: linear-gradient(150deg, #0f1f16 0%, #1b4332 45%, #2d6a4f 80%, #40916c 100%);
-          min-height: 100vh; display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          padding: 100px 20px 80px; text-align: center; position: relative; overflow: hidden;
-        }
-        .hero::before {
-          content: '';
-          position: absolute; inset: 0;
-          background: radial-gradient(ellipse at 60% 40%, rgba(74,222,128,.08) 0%, transparent 60%),
-                      radial-gradient(ellipse at 20% 70%, rgba(45,106,79,.15) 0%, transparent 50%);
-          pointer-events: none;
-        }
-        .hero-tag {
-          display: inline-flex; align-items: center; gap: 8px;
-          background: rgba(74,222,128,.15); border: 1px solid rgba(74,222,128,.3);
-          color: #4ade80; border-radius: 99px; padding: 6px 16px; font-size: 13px; font-weight: 600;
-          margin-bottom: 28px; letter-spacing: .02em;
-        }
-        .hero-title {
-          color: #fff; font-size: clamp(32px, 6vw, 64px);
-          font-weight: 800; line-height: 1.1; margin-bottom: 20px;
-          letter-spacing: -.03em;
-        }
-        .hero-title em { color: #4ade80; font-style: normal; }
-        .hero-sub {
-          color: rgba(255,255,255,.7); font-size: clamp(16px, 2.5vw, 20px);
-          line-height: 1.65; margin-bottom: 16px; max-width: 560px;
-        }
-        .hero-warning {
-          color: rgba(255,220,100,.8); font-size: 15px; font-style: italic;
-          margin-bottom: 40px; max-width: 480px; line-height: 1.5;
-        }
-        .btn-primary {
-          background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
-          color: #0f1f16; padding: 18px 40px; border-radius: 14px;
-          text-decoration: none; font-weight: 700; font-size: 18px;
-          display: inline-flex; align-items: center; gap: 10px;
-          box-shadow: 0 8px 32px rgba(74,222,128,.35);
-          transition: all .25s; border: none; cursor: pointer; font-family: inherit;
-        }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(74,222,128,.45); }
-        .btn-green {
-          background: #2d6a4f; color: #fff; border: none; border-radius: 10px;
-          padding: 13px 24px; font-size: 15px; font-weight: 600; cursor: pointer;
-          font-family: inherit; transition: all .2s; width: 100%;
-        }
-        .btn-green:hover { background: #40916c; }
-        .hero-scroll {
-          position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
-          color: rgba(255,255,255,.4); font-size: 13px; display: flex; flex-direction: column;
-          align-items: center; gap: 6px; animation: bounce 2s infinite;
-        }
-        @keyframes bounce { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(6px); } }
-
-        .quick-links { background: #fff; padding: 32px 20px; border-bottom: 1px solid #f0f0f0; }
-        .quick-grid { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
-        .quick-link {
-          display: flex; align-items: center; gap: 10px;
-          background: #f8fafb; border: 1px solid #e5e7eb;
-          border-radius: 12px; padding: 14px 18px; text-decoration: none;
-          color: #1a2e20; font-weight: 600; font-size: 14px; transition: all .2s;
-        }
-        .quick-link:hover { background: #f0fdf4; border-color: #86efac; transform: translateY(-1px); }
-
-        .section { padding: 80px 20px; max-width: 960px; margin: 0 auto; }
-        .section-title { font-size: clamp(24px,4vw,38px); font-weight: 800; letter-spacing: -.03em; }
-        .section-sub { color: #6b7280; font-size: 16px; margin-top: 8px; }
-
-        .lead-section { background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); padding: 80px 20px; }
-        .lead-card {
-          max-width: 500px; margin: 0 auto;
-          background: #fff; border-radius: 24px; padding: 40px;
-          box-shadow: 0 4px 40px rgba(45,106,79,.12);
-          border: 1px solid #bbf7d0;
-        }
-        .lead-icon { font-size: 52px; text-align: center; margin-bottom: 16px; }
-        .lead-title { font-size: 26px; font-weight: 800; text-align: center; letter-spacing: -.02em; margin-bottom: 6px; }
-        .lead-desc { color: #6b7280; text-align: center; font-size: 15px; line-height: 1.6; margin-bottom: 28px; }
-        .form-field { display: flex; flex-direction: column; gap: 10px; }
-        input, textarea, select {
-          width: 100%; padding: 13px 16px; border: 1.5px solid #e5e7eb;
-          border-radius: 10px; font-family: inherit; font-size: 15px;
-          transition: border-color .2s; outline: none; color: #111; background: #fafafa;
-        }
-        input:focus, textarea:focus, select:focus { border-color: #2d6a4f; background: #fff; }
-        .lead-privacy { font-size: 12px; color: #9ca3af; text-align: center; margin-top: 4px; }
-        .success-card { background: #f0fdf4; border: 2px solid #86efac; border-radius: 16px; padding: 36px; text-align: center; }
-
-        .products-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-top: 40px; }
-        .product-card {
-          background: #fff; border: 1.5px solid #e5e7eb; border-radius: 20px;
-          padding: 28px; transition: all .25s; position: relative; overflow: hidden;
-        }
-        .product-card:hover { box-shadow: 0 8px 40px rgba(45,106,79,.15); border-color: #86efac; transform: translateY(-3px); }
-        .product-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #2d6a4f, #40916c); }
-        .product-badge { display: inline-flex; align-items: center; gap: 6px; background: #f0fdf4; color: #166534; border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; margin-bottom: 14px; }
-        .product-name { font-size: 20px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 4px; }
-        .product-sub { color: #6b7280; font-size: 14px; margin-bottom: 10px; }
-        .product-desc { color: #374151; font-size: 14px; line-height: 1.6; margin-bottom: 14px; }
-        .product-bullets { list-style: none; padding: 0; margin-bottom: 20px; display: flex; flex-direction: column; gap: 5px; }
-        .product-bullets li { font-size: 13px; color: #374151; display: flex; align-items: flex-start; gap: 8px; }
-        .product-bullets li::before { content: '✓'; color: #2d6a4f; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
-        .product-price { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
-        .price-main { font-size: 30px; font-weight: 800; color: #1b4332; }
-        .price-old { font-size: 16px; color: #9ca3af; text-decoration: line-through; }
-        .price-unit { font-size: 13px; color: #9ca3af; }
-        .price-save { background: #fef3c7; color: #92400e; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
-
-        .cart-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 200; backdrop-filter: blur(4px); }
-        .cart-sidebar {
-          position: fixed; right: 0; top: 0; bottom: 0; width: 100%; max-width: 440px;
-          background: #fff; z-index: 201; overflow-y: auto;
-          box-shadow: -8px 0 40px rgba(0,0,0,.2); display: flex; flex-direction: column;
-        }
-        .cart-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid #f0f0f0; position: sticky; top: 0; background: #fff; }
-        .cart-head h3 { font-size: 18px; font-weight: 700; }
-        .cart-close { background: #f4f4f4; border: none; border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
-        .cart-body { flex: 1; padding: 20px 24px; }
-        .cart-item { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid #f5f5f5; }
-        .cart-item-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
-        .cart-item-price { font-size: 13px; color: #6b7280; }
-        .qty-control { display: flex; align-items: center; gap: 8px; }
-        .qty-btn { background: #f4f4f4; border: none; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: background .2s; }
-        .qty-btn:hover { background: #e5e7eb; }
-        .qty-num { font-size: 14px; font-weight: 600; min-width: 20px; text-align: center; }
-        .cart-remove { background: none; border: none; cursor: pointer; color: #ef4444; font-size: 18px; padding: 4px; }
-        .cart-foot { padding: 20px 24px; border-top: 1px solid #f0f0f0; background: #fafafa; }
-        .cart-line { display: flex; justify-content: space-between; font-size: 14px; color: #6b7280; margin-bottom: 6px; }
-        .cart-total-line { display: flex; justify-content: space-between; font-size: 20px; font-weight: 800; color: #1b4332; padding-top: 10px; border-top: 2px solid #e5e7eb; margin-top: 4px; }
-
-        .order-section { background: #f8fafb; padding: 20px; border-radius: 14px; margin-top: 16px; }
-        .order-section h4 { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
-        .order-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        @media (max-width: 400px) { .order-grid { grid-template-columns: 1fr; } }
-
-        .aff-section { background: #f8fafb; padding: 80px 20px; }
-        .aff-grid { max-width: 960px; margin: 40px auto 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
-        .aff-card {
-          border: 1.5px solid #e5e7eb; border-radius: 20px; padding: 28px;
-          transition: all .25s; position: relative; overflow: hidden;
-          text-decoration: none; color: inherit; display: flex; flex-direction: column;
-          background: #fff;
-        }
-        .aff-card:hover { box-shadow: 0 8px 40px rgba(0,0,0,.1); border-color: #2d6a4f; transform: translateY(-3px); }
-        .aff-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #1b4332, #40916c); }
-        .aff-emoji { font-size: 40px; margin-bottom: 12px; }
-        .aff-badge { font-size: 12px; color: #6b7280; font-style: italic; margin-bottom: 8px; }
-        .aff-name { font-size: 18px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 8px; }
-        .aff-desc { font-size: 14px; color: #6b7280; line-height: 1.6; margin-bottom: 14px; }
-        .aff-bullets { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 5px; flex: 1; margin-bottom: 20px; }
-        .aff-bullets li { font-size: 13px; color: #374151; display: flex; gap: 8px; }
-        .aff-bullets li::before { content: '✔'; color: #2d6a4f; font-weight: 700; flex-shrink: 0; }
-        .aff-cta { display: flex; align-items: center; justify-content: center; gap: 8px; background: #1b4332; color: #fff; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 600; text-decoration: none; transition: background .2s; }
-        .aff-cta:hover { background: #2d6a4f; }
-
-        .partner-links { background: #0f1f16; padding: 48px 20px; }
-        .partner-title { color: rgba(255,255,255,.5); text-align: center; font-size: 13px; margin-bottom: 20px; letter-spacing: .06em; text-transform: uppercase; }
-        .partner-grid { max-width: 800px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-        .partner-link {
-          display: flex; align-items: center; gap: 10px;
-          background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
-          color: rgba(255,255,255,.85); text-decoration: none;
-          border-radius: 12px; padding: 14px 18px; font-size: 14px; font-weight: 500; transition: all .2s;
-        }
-        .partner-link:hover { background: rgba(255,255,255,.1); border-color: rgba(74,222,128,.4); color: #fff; }
-
-        .footer { background: #070f09; color: rgba(255,255,255,.4); padding: 36px 20px; text-align: center; font-size: 14px; }
-        .footer a { color: rgba(255,255,255,.2); text-decoration: none; }
-        .footer p + p { margin-top: 8px; }
-
-        .combo-cta {
-          background: linear-gradient(135deg, #0f1f16, #1b4332); border-radius: 20px; padding: 40px;
-          text-align: center; max-width: 700px; margin: 56px auto 0; border: 1px solid rgba(74,222,128,.2);
-        }
-        .combo-cta h3 { color: #fff; font-size: 22px; font-weight: 800; margin-bottom: 8px; }
-        .combo-cta p { color: rgba(255,255,255,.65); font-size: 15px; margin-bottom: 24px; line-height: 1.6; }
-
-        .text-center { text-align: center; }
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:62px;transition:background .3s,box-shadow .3s}
+.nav.sc{background:rgba(7,16,9,.96);backdrop-filter:blur(14px);box-shadow:0 2px 24px rgba(0,0,0,.35)}
+.nlogo{color:#fff;font-size:16px;font-weight:800;text-decoration:none;display:flex;align-items:center;gap:8px;letter-spacing:-.02em}
+.nlinks{display:flex;gap:2px}
+.na{color:rgba(255,255,255,.75);text-decoration:none;font-size:13.5px;font-weight:500;padding:6px 12px;border-radius:8px;transition:all .2s}
+.na:hover{color:#fff;background:rgba(255,255,255,.1)}
+.ncart{background:#2d6a4f;color:#fff;border:none;border-radius:10px;padding:8px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;transition:background .2s}
+.ncart:hover{background:#40916c}
+.cbadge{background:#4ade80;color:#052e16;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}
+@media(max-width:640px){.nlinks{display:none}}
+.hero{background:linear-gradient(150deg,#040a06 0%,#0a1f13 25%,#0d2b1d 50%,#1b4332 72%,#2d6a4f 88%,#40916c 100%);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:110px 20px 90px;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 65% 45% at 62% 32%,rgba(74,222,128,.065) 0%,transparent 65%);pointer-events:none}
+.hav{width:86px;height:86px;border-radius:50%;border:3px solid rgba(74,222,128,.35);object-fit:cover;margin-bottom:16px;box-shadow:0 0 0 6px rgba(74,222,128,.07)}
+.hhandle{color:rgba(255,255,255,.4);font-size:13px;margin-bottom:16px;letter-spacing:.04em}
+.htag{display:inline-flex;align-items:center;gap:8px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.22);color:#4ade80;border-radius:99px;padding:6px 18px;font-size:13px;font-weight:600;margin-bottom:22px}
+.hh1{color:#fff;font-size:clamp(28px,6vw,60px);font-weight:800;line-height:1.08;margin-bottom:18px;letter-spacing:-.035em}
+.hh1 em{color:#4ade80;font-style:normal}
+.hsub{color:rgba(255,255,255,.65);font-size:clamp(15px,2.2vw,19px);line-height:1.7;margin-bottom:14px;max-width:540px}
+.hwarn{color:rgba(255,213,79,.82);font-size:14.5px;font-style:italic;margin-bottom:36px;max-width:460px;line-height:1.55}
+.btnH{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;padding:17px 38px;border-radius:14px;text-decoration:none;font-weight:800;font-size:17px;display:inline-flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(74,222,128,.28);transition:all .25s;border:none;cursor:pointer;font-family:inherit}
+.btnH:hover{transform:translateY(-2px);box-shadow:0 14px 40px rgba(74,222,128,.38)}
+.scue{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.28);font-size:12px;display:flex;flex-direction:column;align-items:center;gap:5px;animation:bob 2s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(7px)}}
+.qsec{background:#fff;padding:26px 20px;border-bottom:1.5px solid #eee}
+.qgrid{max-width:940px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(182px,1fr));gap:10px}
+.qa{display:flex;align-items:center;gap:9px;background:#f8fafb;border:1.5px solid #e5e7eb;border-radius:12px;padding:13px 16px;text-decoration:none;color:#1a2e20;font-weight:600;font-size:13.5px;transition:all .2s}
+.qa:hover{background:#f0fdf4;border-color:#86efac;transform:translateY(-1px);box-shadow:0 4px 12px rgba(45,106,79,.07)}
+.lsec{background:linear-gradient(135deg,#f0fdf4,#dcfce7);padding:80px 20px}
+.lcard{max-width:500px;margin:0 auto;background:#fff;border-radius:24px;padding:40px;box-shadow:0 8px 48px rgba(45,106,79,.12);border:1px solid #bbf7d0}
+.lic{font-size:52px;text-align:center;margin-bottom:14px}
+.lh2{font-size:26px;font-weight:800;text-align:center;letter-spacing:-.03em;margin-bottom:8px}
+.lp{color:#6b7280;text-align:center;font-size:15px;line-height:1.65;margin-bottom:26px}
+.fld{display:flex;flex-direction:column;gap:10px}
+input,textarea,select{width:100%;padding:13px 16px;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:15px;transition:border-color .2s;outline:none;color:#111;background:#fafafa}
+input:focus,textarea:focus,select:focus{border-color:#2d6a4f;background:#fff}
+.priv{font-size:12px;color:#9ca3af;text-align:center;margin-top:2px}
+.okc{background:#f0fdf4;border:2px solid #86efac;border-radius:16px;padding:36px;text-align:center}
+.psec{padding:80px 20px;max-width:980px;margin:0 auto}
+.shd{text-align:center;margin-bottom:40px}
+.sh2{font-size:clamp(24px,4vw,40px);font-weight:800;letter-spacing:-.03em}
+.sp{color:#6b7280;font-size:16px;margin-top:8px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+.pcard{background:#fff;border:1.5px solid #e5e7eb;border-radius:22px;overflow:hidden;transition:all .25s}
+.pcard:hover{box-shadow:0 10px 48px rgba(45,106,79,.15);border-color:#86efac;transform:translateY(-4px)}
+.pimg{width:100%;height:230px;object-fit:cover;background:#f0fdf4}
+.pbody{padding:24px}
+.pbadge{display:inline-flex;align-items:center;gap:5px;background:#f0fdf4;color:#166534;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;margin-bottom:12px}
+.pname{font-size:20px;font-weight:800;letter-spacing:-.02em;margin-bottom:5px}
+.pdesc{color:#6b7280;font-size:13.5px;line-height:1.6;margin-bottom:18px}
+.pprice{display:flex;align-items:baseline;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.pbig{font-size:30px;font-weight:800;color:#0d2b1d}
+.pold{font-size:16px;color:#9ca3af;text-decoration:line-through}
+.punit{font-size:13px;color:#9ca3af}
+.poff{background:#fef3c7;color:#92400e;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:800}
+.btnadd{background:#1b4332;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;width:100%;display:flex;align-items:center;justify-content:center;gap:8px}
+.btnadd:hover{background:#2d6a4f}
+.combo{background:linear-gradient(135deg,#040a06,#0d2b1d);border-radius:22px;padding:44px 36px;text-align:center;max-width:720px;margin:56px auto 0;border:1px solid rgba(74,222,128,.16)}
+.combo h3{color:#fff;font-size:24px;font-weight:800;margin-bottom:10px}
+.combo p{color:rgba(255,255,255,.58);font-size:15px;margin-bottom:26px;line-height:1.65}
+.combo em{color:#4ade80;font-style:normal;font-weight:700}
+.btnC{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;padding:15px 34px;border-radius:12px;text-decoration:none;font-weight:800;font-size:16px;display:inline-flex;align-items:center;gap:9px;transition:all .25s;box-shadow:0 6px 24px rgba(74,222,128,.22)}
+.btnC:hover{transform:translateY(-2px);box-shadow:0 10px 36px rgba(74,222,128,.32)}
+.asec{background:#f8fafb;padding:80px 20px}
+.ains{max-width:980px;margin:0 auto}
+.agrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:22px;margin-top:40px}
+.acard{background:#fff;border:1.5px solid #e5e7eb;border-radius:22px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column;transition:all .25s;position:relative}
+.acard:hover{box-shadow:0 10px 48px rgba(0,0,0,.1);border-color:#2d6a4f;transform:translateY(-4px)}
+.acard::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#0d2b1d,#40916c)}
+.aimg{width:100%;height:200px;object-fit:cover;background:#f0fdf4}
+.aph{width:100%;height:200px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);display:flex;align-items:center;justify-content:center;font-size:72px}
+.abody{padding:22px;flex:1;display:flex;flex-direction:column}
+.abadge{font-size:12px;color:#6b7280;font-style:italic;margin-bottom:7px}
+.aname{font-size:17px;font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
+.adesc{font-size:13.5px;color:#6b7280;line-height:1.6;margin-bottom:14px}
+.abuls{list-style:none;padding:0;flex:1;display:flex;flex-direction:column;gap:5px;margin-bottom:18px}
+.abuls li{font-size:13px;color:#374151;display:flex;gap:7px}
+.abuls li::before{content:'✔';color:#2d6a4f;font-weight:700;flex-shrink:0}
+.acta{display:flex;align-items:center;justify-content:center;gap:7px;background:#0d2b1d;color:#fff;border-radius:10px;padding:12px;font-size:14px;font-weight:700;transition:background .2s}
+.acta:hover{background:#1b4332}
+.partnersec{background:#040a06;padding:40px 20px}
+.plabel{color:rgba(255,255,255,.3);text-align:center;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:16px}
+.prow{max-width:640px;margin:0 auto;display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.pa{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);color:rgba(255,255,255,.65);text-decoration:none;border-radius:12px;padding:11px 20px;font-size:13.5px;font-weight:600;transition:all .2s}
+.pa:hover{background:rgba(255,255,255,.09);border-color:rgba(74,222,128,.3);color:#fff}
+.footer{background:#020604;color:rgba(255,255,255,.25);padding:28px 20px;text-align:center;font-size:13px}
+.footer a{color:rgba(255,255,255,.12);text-decoration:none}
+.footer p+p{margin-top:6px}
+.ovl{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;backdrop-filter:blur(5px)}
+.cslide{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:460px;background:#fff;z-index:201;display:flex;flex-direction:column;box-shadow:-12px 0 48px rgba(0,0,0,.22)}
+.chd{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #f0f0f0;position:sticky;top:0;background:#fff;z-index:1}
+.chd h3{font-size:18px;font-weight:800}
+.clsbtn{background:#f4f4f4;border:none;border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:19px;display:flex;align-items:center;justify-content:center}
+.cbd{flex:1;overflow-y:auto;padding:14px 24px}
+.crow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f5f5f5}
+.cthumb{width:52px;height:52px;border-radius:10px;object-fit:cover;background:#f0fdf4;flex-shrink:0}
+.cinfo{flex:1;min-width:0}
+.ciname{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ciprice{font-size:12px;color:#6b7280;margin-top:2px}
+.qc{display:flex;align-items:center;gap:7px}
+.qb{background:#f4f4f4;border:none;border-radius:7px;width:28px;height:28px;cursor:pointer;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.qb:hover{background:#e5e7eb}
+.qn{font-size:14px;font-weight:700;min-width:22px;text-align:center}
+.rmb{background:none;border:none;cursor:pointer;color:#ef4444;font-size:18px;padding:4px;flex-shrink:0}
+.cft{padding:18px 24px;border-top:1px solid #f0f0f0;background:#fafafa}
+.cl{display:flex;justify-content:space-between;font-size:14px;color:#6b7280;margin-bottom:5px}
+.cl.hint{color:#2d6a4f;font-size:12px}
+.ctot{display:flex;justify-content:space-between;font-size:21px;font-weight:800;color:#0d2b1d;padding-top:10px;border-top:2px solid #e5e7eb;margin-top:4px}
+.oform{background:#f8fafb;border-radius:14px;padding:20px;margin-top:14px}
+.oform h4{font-size:14.5px;font-weight:800;margin-bottom:14px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:400px){.g2{grid-template-columns:1fr}}
+.btnO{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;border:none;border-radius:12px;padding:15px;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;margin-top:4px}
+.btnO:disabled{opacity:.6;cursor:default}
+.fcart{position:fixed;bottom:24px;right:24px;z-index:150;background:linear-gradient(135deg,#1b4332,#2d6a4f);color:#fff;border:none;border-radius:18px;padding:14px 22px;font:800 16px 'Sora',sans-serif;cursor:pointer;box-shadow:0 8px 32px rgba(45,106,79,.42);display:flex;align-items:center;gap:10px;transition:all .25s}
+.fcart:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(45,106,79,.52)}
       `}</style>
 
-      {/* NAVBAR */}
-      <nav className={`nav${scrolled ? ' scrolled' : ''}`}>
-        <a href="#" className="nav-logo">🍅 Denny Angelow</a>
-        <div className="nav-links">
-          <a href="#naruchnik" className="nav-link">📗 Наръчник</a>
-          <a href="#products" className="nav-link">🛒 Продукти</a>
-          <a href="#affiliate" className="nav-link">🌿 Препоръки</a>
+      {/* NAV */}
+      <nav className={`nav${scrolled?' sc':''}`}>
+        <a href="#" className="nlogo">🍅 Denny Angelow</a>
+        <div className="nlinks">
+          <a href="#naruchnik" className="na">📗 Наръчник</a>
+          <a href="#products" className="na">🛒 Продукти</a>
+          <a href="#affiliate" className="na">🌿 Препоръки</a>
         </div>
-        {cart.length > 0 && (
-          <button className="nav-cart" onClick={() => setCartOpen(true)}>
-            🛒 Количка
-            <span className="cart-badge">{totalQty}</span>
-          </button>
-        )}
+        {cart.length>0&&<button className="ncart" onClick={()=>setCartOpen(true)}>🛒 Количка<span className="cbadge">{qty}</span></button>}
       </nav>
 
       {/* HERO */}
       <section className="hero">
-        <div className="hero-tag">🍅 За градинари и фермери</div>
-        <h1 className="hero-title">
-          Искаш <em>едри, здрави</em><br />и сочни домати?
-        </h1>
-        <p className="hero-sub">
-          Без болести, без гниене и без загубена реколта.
-          С правилната грижа и нужните продукти можеш да отгледаш{' '}
-          <strong style={{ color: '#fff' }}>здрави и продуктивни растения</strong>, без излишни усилия.
-        </p>
-        <p className="hero-warning">
-          ⚠️ Не рискувай да изхвърлиш продукцията си,<br />
-          само защото нямаш нужната информация навреме.
-        </p>
-        <a href="#naruchnik" className="btn-primary">
-          📗 Изтегли наръчника безплатно
-        </a>
-        <div className="hero-scroll">
-          <span>Виж повече</span>
-          <span>↓</span>
-        </div>
+        <img className="hav" src="https://d1yei2z3i6k35z.cloudfront.net/4263526/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg" alt="Denny Angelow"/>
+        <p className="hhandle">@iammyoungmoney</p>
+        <div className="htag">🍅 За градинари и фермери</div>
+        <h1 className="hh1">Искаш <em>едри, здрави</em><br/>и сочни домати?</h1>
+        <p className="hsub">Без болести, без гниене и без загубена реколта. С правилната грижа и нужните продукти можеш да отгледаш <strong style={{color:'#fff'}}>здрави и продуктивни растения</strong>, без излишни усилия.</p>
+        <p className="hwarn">⚠️ Не рискувай да изхвърлиш продукцията си,<br/>само защото нямаш нужната информация навреме.</p>
+        <a href="#naruchnik" className="btnH">📗 Изтегли наръчника БЕЗПЛАТНО</a>
+        <div className="scue"><span>Виж повече</span><span>↓</span></div>
       </section>
 
       {/* QUICK LINKS */}
-      <div className="quick-links">
-        <div className="quick-grid">
-          {[
-            { href: `${AFFILIATE_BASE}/torove/${TRACKING}`, label: '🌱 Торове и Био Стимулатори', partner: 'agroapteki', slug: 'torove' },
-            { href: `${AFFILIATE_BASE}/polivni-sistemi/${TRACKING}`, label: '💧 Поливни Системи', partner: 'agroapteki', slug: 'polivni' },
-            { href: `${AFFILIATE_BASE}/preparati/${TRACKING}`, label: '🛡️ Защита от Болести', partner: 'agroapteki', slug: 'preparati' },
-            { href: `${AFFILIATE_BASE}/semena/${TRACKING}`, label: '🌾 Качествени Семена', partner: 'agroapteki', slug: 'semena' },
-            { href: 'https://oranjeriata.com/products/aksesoari-za-otglejdane-na-rasteniya/netukan-tekstil---agril', label: '🏕️ Найлон за Оранжерия', partner: 'oranjeriata', slug: 'agril' },
-          ].map(l => (
-            <a key={l.slug} className="quick-link" href={l.href} target="_blank" rel="noreferrer" onClick={() => trackAffiliate(l.partner, l.slug)}>
-              {l.label}
-            </a>
+      <div className="qsec">
+        <div className="qgrid">
+          {links.filter(l=>l.active).map(l=>(
+            <a key={l.id} className="qa" href={l.href} target={l.href!=='#'?'_blank':undefined} rel="noreferrer"
+              onClick={()=>l.partner&&track(l.partner,l.slug)}>{l.label}</a>
           ))}
         </div>
       </div>
 
       {/* LEAD FORM */}
-      <section id="naruchnik" className="lead-section">
-        <div className="lead-card">
-          <div className="lead-icon">📗</div>
-          <h2 className="lead-title">Безплатен Наръчник</h2>
-          <p className="lead-desc">
-            „Тайните на Едрите и Вкусни Домати" — всичко от което се нуждаеш,
-            за да защитиш и подхраниш своите растения.
-          </p>
-
-          {submitted ? (
-            <div className="success-card">
-              <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
-              <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>Изпратен!</h3>
-              <p style={{ color: '#6b7280', fontSize: 15 }}>Провери имейла си — наръчникът е на път!</p>
+      <section id="naruchnik" className="lsec">
+        <div className="lcard">
+          <div className="lic">📗</div>
+          <h2 className="lh2">Безплатен Наръчник</h2>
+          <p className="lp">„Тайните на Едрите и Вкусни Домати" — всичко от което се нуждаеш, за да защитиш и подхраниш своите растения. PDF директно на имейла ти.</p>
+          {sent?(
+            <div className="okc">
+              <div style={{fontSize:52,marginBottom:12}}>✅</div>
+              <h3 style={{fontSize:22,fontWeight:800,marginBottom:8}}>Изпратен!</h3>
+              <p style={{color:'#6b7280'}}>Провери имейла си — наръчникът е на път!</p>
             </div>
-          ) : (
-            <form onSubmit={handleLeadSubmit} className="form-field">
-              <input
-                placeholder="Твоето име"
-                value={formData.name}
-                onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
-              />
-              <input
-                type="email"
-                placeholder="Имейл адрес *"
-                required
-                value={formData.email}
-                onChange={e => setFormData(p => ({ ...p, email: e.target.value }))}
-              />
-              <input
-                placeholder="Телефон (по желание)"
-                value={formData.phone}
-                onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))}
-              />
-              <button type="submit" className="btn-primary" style={{ justifyContent: 'center', border: 'none' }} disabled={loading}>
-                {loading ? 'Изпращане...' : '📗 Изпрати ми наръчника безплатно'}
-              </button>
-              <p className="lead-privacy">🔒 Без спам. Само полезно агро съдържание.</p>
+          ):(
+            <form onSubmit={handleLead} className="fld">
+              <input placeholder="Твоето име" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))}/>
+              <input type="email" placeholder="Имейл адрес *" required value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}/>
+              <input placeholder="Телефон (по желание)" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))}/>
+              <button type="submit" className="btnH" style={{justifyContent:'center',border:'none'}} disabled={ldg}>{ldg?'Изпращане...':'📗 Изпрати ми наръчника безплатно'}</button>
+              <p className="priv">🔒 Без спам. Само полезно агро съдържание.</p>
             </form>
           )}
         </div>
       </section>
 
       {/* OWN PRODUCTS */}
-      <section id="products" className="section">
-        <div className="text-center">
-          <h2 className="section-title">Продукти Atlas Terra</h2>
-          <p className="section-sub">Директна поръчка с наложен платеж · Безплатна доставка над 60 лв.</p>
+      <section id="products" className="psec">
+        <div className="shd">
+          <h2 className="sh2">Продукти Atlas Terra</h2>
+          <p className="sp">Директна поръчка с наложен платеж · Безплатна доставка над 60 лв.</p>
         </div>
-
-        <div className="products-grid">
-          {ownProducts.map(p => (
-            <div key={p.slug} className="product-card">
-              <div className="product-badge">{p.badge}</div>
-              <div style={{ fontSize: 44, marginBottom: 12 }}>{p.emoji}</div>
-              <h3 className="product-name">{p.name}</h3>
-              <p className="product-sub">{p.subtitle}</p>
-              <p className="product-desc">{p.description}</p>
-              <ul className="product-bullets">
-                {p.bullets.map(b => <li key={b}>{b}</li>)}
-              </ul>
-              <div className="product-price">
-                <span className="price-main">{p.price.toFixed(2)} лв.</span>
-                <span className="price-old">{p.compare.toFixed(2)} лв.</span>
-                <span className="price-unit">/ {p.unit}</span>
-                <span className="price-save">-{Math.round((1 - p.price / p.compare) * 100)}%</span>
+        <div className="pgrid">
+          {own.filter(p=>p.active).map(p=>(
+            <div key={p.id} className="pcard">
+              {p.image_url?<img className="pimg" src={p.image_url} alt={p.name} loading="lazy"/>:<div className="pimg" style={{display:'flex',alignItems:'center',justifyContent:'center',fontSize:72}}>🌱</div>}
+              <div className="pbody">
+                <div className="pbadge">⭐ Atlas Terra</div>
+                <h3 className="pname">{p.name}</h3>
+                <p className="pdesc">{p.description}</p>
+                <div className="pprice">
+                  <span className="pbig">{Number(p.price).toFixed(2)} лв.</span>
+                  {p.compare_price&&<span className="pold">{Number(p.compare_price).toFixed(2)} лв.</span>}
+                  <span className="punit">/ {p.unit}</span>
+                  {p.compare_price&&<span className="poff">-{Math.round((1-p.price/p.compare_price)*100)}%</span>}
+                </div>
+                <button className="btnadd" onClick={()=>{addToCart(p);setCartOpen(true)}}>🛒 Добави в количката</button>
               </div>
-              <button className="btn-green" onClick={() => { addToCart(p); setCartOpen(true) }}>
-                🛒 Добави в количката
-              </button>
             </div>
           ))}
         </div>
-
-        <div className="combo-cta">
+        <div className="combo">
           <h3>Комбинирай двата продукта</h3>
-          <p>
-            Не избирайте между здрава почва и бърз растеж.
-            Комбинирайте Atlas Terra и Atlas Terra AMINO за{' '}
-            <strong style={{ color: '#4ade80' }}>професионални резултати</strong> още тази седмица!
-          </p>
-          <a
-            href="https://atlasagro.eu/"
-            target="_blank"
-            rel="noreferrer"
-            className="btn-primary"
-            style={{ display: 'inline-flex', textDecoration: 'none' }}
-            onClick={() => trackAffiliate('atlasagro', 'combo')}
-          >
-            🛒 КУПИ от Производителя →
-          </a>
+          <p>Не избирайте между здрава почва и бърз растеж. Комбинирайте Atlas Terra и Atlas Terra AMINO за <em>професионални резултати</em> още тази седмица!</p>
+          <a href="https://atlasagro.eu/" target="_blank" rel="noreferrer" className="btnC" onClick={()=>track('atlasagro','combo')}>🛒 КУПИ от Производителя →</a>
         </div>
       </section>
 
       {/* AFFILIATE PRODUCTS */}
-      <section id="affiliate" className="aff-section">
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
-          <div className="text-center">
-            <h2 className="section-title">Препоръчани продукти</h2>
-            <p className="section-sub">Проверени продукти от доверени доставчици</p>
+      <section id="affiliate" className="asec">
+        <div className="ains">
+          <div className="shd">
+            <h2 className="sh2">Препоръчани продукти</h2>
+            <p className="sp">Проверени продукти от доверени доставчици</p>
           </div>
-
-          <div className="aff-grid">
-            {affiliateProducts.map(p => (
-              <a
-                key={p.id}
-                href={p.href}
-                target="_blank"
-                rel="noreferrer"
-                className="aff-card"
-                onClick={() => trackAffiliate(p.partner, p.slug)}
-              >
-                <div className="aff-emoji">{p.emoji}</div>
-                <div className="aff-badge">{p.subtitle}</div>
-                <h3 className="aff-name">{p.name}</h3>
-                <p className="aff-desc">{p.description}</p>
-                <ul className="aff-bullets">
-                  {p.bullets.map(b => <li key={b}>{b}</li>)}
-                </ul>
-                <span className="aff-cta">ПРОЧЕТИ ПОВЕЧЕ →</span>
+          <div className="agrid">
+            {aff.filter(p=>p.active).map(p=>(
+              <a key={p.id} href={p.affiliate_url} target="_blank" rel="noreferrer" className="acard" onClick={()=>track(p.partner,p.slug)}>
+                {p.image_url?<img className="aimg" src={p.image_url} alt={p.name} loading="lazy"/>:<div className="aph">{p.emoji}</div>}
+                <div className="abody">
+                  <p className="abadge">{p.subtitle}</p>
+                  <h3 className="aname">{p.name}</h3>
+                  <p className="adesc">{p.description}</p>
+                  <ul className="abuls">{(p.bullets||[]).map((b,i)=><li key={i}>{b}</li>)}</ul>
+                  <span className="acta">ПРОЧЕТИ ПОВЕЧЕ →</span>
+                </div>
               </a>
             ))}
           </div>
         </div>
       </section>
 
-      {/* PARTNER LINKS */}
-      <div className="partner-links">
-        <p className="partner-title">Нашите партньори</p>
-        <div className="partner-grid">
-          <a className="partner-link" href={`${AFFILIATE_BASE}/${TRACKING}`} target="_blank" rel="noreferrer" onClick={() => trackAffiliate('agroapteki', 'general')}>
-            🌿 AgroApteki.bg →
-          </a>
-          <a className="partner-link" href="https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar" target="_blank" rel="noreferrer" onClick={() => trackAffiliate('oranjeriata', 'ginegar')}>
-            🏡 Oranjeriata.bg →
-          </a>
-          <a className="partner-link" href="https://atlasagro.eu/" target="_blank" rel="noreferrer" onClick={() => trackAffiliate('atlasagro', 'main')}>
-            🌱 AtlasAgro.eu →
-          </a>
+      {/* PARTNERS */}
+      <div className="partnersec">
+        <p className="plabel">Нашите партньори</p>
+        <div className="prow">
+          {[{l:'🌿 AgroApteki.bg',h:'https://agroapteki.com/?tracking=6809eceee15ad',p:'agroapteki',s:'main'},{l:'🏡 Oranjeriata.bg',h:'https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar',p:'oranjeriata',s:'main'},{l:'🌱 AtlasAgro.eu',h:'https://atlasagro.eu/',p:'atlasagro',s:'main'}].map(x=>(
+            <a key={x.s} className="pa" href={x.h} target="_blank" rel="noreferrer" onClick={()=>track(x.p,x.s)}>{x.l} →</a>
+          ))}
         </div>
       </div>
 
@@ -590,85 +328,60 @@ export default function HomePage() {
       </footer>
 
       {/* CART SIDEBAR */}
-      {cartOpen && (
+      {cartOpen&&(
         <>
-          <div className="cart-overlay" onClick={() => setCartOpen(false)} />
-          <div className="cart-sidebar">
-            <div className="cart-head">
-              <h3>🛒 Количка ({totalQty} бр.)</h3>
-              <button className="cart-close" onClick={() => setCartOpen(false)}>✕</button>
+          <div className="ovl" onClick={()=>setCartOpen(false)}/>
+          <div className="cslide">
+            <div className="chd">
+              <h3>🛒 Количка ({qty} бр.)</h3>
+              <button className="clsbtn" onClick={()=>setCartOpen(false)}>✕</button>
             </div>
-            <div className="cart-body">
-              {cart.length === 0 ? (
-                <p style={{ color: '#9ca3af', textAlign: 'center', paddingTop: 40, fontSize: 15 }}>
-                  Количката е празна
-                </p>
-              ) : (
-                cart.map(c => (
-                  <div key={c.slug} className="cart-item">
-                    <div style={{ flex: 1 }}>
-                      <div className="cart-item-name">{c.name}</div>
-                      <div className="cart-item-price">{c.price.toFixed(2)} лв. / бр.</div>
+            <div className="cbd">
+              {cart.length===0?<p style={{color:'#9ca3af',textAlign:'center',paddingTop:48,fontSize:15}}>Количката е празна</p>:
+                cart.map(c=>(
+                  <div key={c.id} className="crow">
+                    {c.img?<img className="cthumb" src={c.img} alt={c.name}/>:<div className="cthumb" style={{display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}}>🌱</div>}
+                    <div className="cinfo"><div className="ciname">{c.name}</div><div className="ciprice">{c.price.toFixed(2)} лв. / бр.</div></div>
+                    <div className="qc">
+                      <button className="qb" onClick={()=>chgQty(c.id,-1)}>−</button>
+                      <span className="qn">{c.qty}</span>
+                      <button className="qb" onClick={()=>chgQty(c.id,1)}>+</button>
                     </div>
-                    <div className="qty-control">
-                      <button className="qty-btn" onClick={() => changeQty(c.slug, -1)}>−</button>
-                      <span className="qty-num">{c.qty}</span>
-                      <button className="qty-btn" onClick={() => changeQty(c.slug, 1)}>+</button>
-                    </div>
-                    <span style={{ fontWeight: 700, minWidth: 64, textAlign: 'right', fontSize: 14 }}>
-                      {(c.price * c.qty).toFixed(2)} лв.
-                    </span>
-                    <button className="cart-remove" onClick={() => removeFromCart(c.slug)}>✕</button>
+                    <span style={{fontWeight:800,minWidth:70,textAlign:'right',fontSize:14}}>{(c.price*c.qty).toFixed(2)} лв.</span>
+                    <button className="rmb" onClick={()=>rmCart(c.id)}>✕</button>
                   </div>
                 ))
-              )}
+              }
             </div>
-
-            {cart.length > 0 && (
-              <div className="cart-foot">
-                <div className="cart-line"><span>Продукти</span><span>{subtotal.toFixed(2)} лв.</span></div>
-                <div className="cart-line"><span>Доставка</span><span>{shipping === 0 ? '🎁 Безплатна' : `${shipping.toFixed(2)} лв.`}</span></div>
-                {shipping > 0 && (
-                  <div className="cart-line" style={{ color: '#2d6a4f', fontSize: 12 }}>
-                    <span>Добави още за безплатна доставка</span>
-                    <span>+{(60 - subtotal).toFixed(2)} лв.</span>
+            {cart.length>0&&(
+              <div className="cft">
+                <div className="cl"><span>Продукти</span><span>{sub.toFixed(2)} лв.</span></div>
+                <div className="cl"><span>Доставка</span><span>{ship===0?'🎁 Безплатна':`${ship.toFixed(2)} лв.`}</span></div>
+                {ship>0&&<div className="cl hint"><span>Добави още за безплатна доставка</span><span>+{(60-sub).toFixed(2)} лв.</span></div>}
+                <div className="ctot"><span>Общо</span><span>{tot.toFixed(2)} лв.</span></div>
+                {done?(
+                  <div className="okc" style={{marginTop:14}}>
+                    <div style={{fontSize:40,marginBottom:8}}>✅</div>
+                    <h4 style={{fontSize:17,fontWeight:800,marginBottom:4}}>Поръчка {done}</h4>
+                    <p style={{color:'#6b7280',fontSize:13}}>Ще се свържем с теб скоро!</p>
                   </div>
-                )}
-                <div className="cart-total-line"><span>Общо</span><span>{total.toFixed(2)} лв.</span></div>
-
-                {orderDone ? (
-                  <div className="success-card" style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
-                    <h4 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>Поръчка {orderDone}</h4>
-                    <p style={{ color: '#6b7280', fontSize: 13 }}>Ще се свържем с теб скоро!</p>
-                  </div>
-                ) : (
-                  <form onSubmit={handleOrder} className="order-section">
+                ):(
+                  <form onSubmit={handleOrder} className="oform">
                     <h4>📦 Данни за доставка</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div className="order-grid">
-                        <input placeholder="Имe *" required value={orderForm.customer_name}
-                          onChange={e => setOrderForm(p => ({ ...p, customer_name: e.target.value }))} />
-                        <input placeholder="Телефон *" required value={orderForm.customer_phone}
-                          onChange={e => setOrderForm(p => ({ ...p, customer_phone: e.target.value }))} />
+                    <div style={{display:'flex',flexDirection:'column',gap:9}}>
+                      <div className="g2">
+                        <input placeholder="Имe *" required value={oForm.customer_name} onChange={e=>setOForm(p=>({...p,customer_name:e.target.value}))}/>
+                        <input placeholder="Телефон *" required value={oForm.customer_phone} onChange={e=>setOForm(p=>({...p,customer_phone:e.target.value}))}/>
                       </div>
-                      <input placeholder="Имейл (по желание)" type="email" value={orderForm.customer_email}
-                        onChange={e => setOrderForm(p => ({ ...p, customer_email: e.target.value }))} />
-                      <input placeholder="Адрес *" required value={orderForm.customer_address}
-                        onChange={e => setOrderForm(p => ({ ...p, customer_address: e.target.value }))} />
-                      <input placeholder="Град *" required value={orderForm.customer_city}
-                        onChange={e => setOrderForm(p => ({ ...p, customer_city: e.target.value }))} />
-                      <textarea placeholder="Бележка (по желание)" rows={2} value={orderForm.customer_notes}
-                        onChange={e => setOrderForm(p => ({ ...p, customer_notes: e.target.value }))}
-                        style={{ resize: 'vertical' }} />
-                      <select value={orderForm.payment_method}
-                        onChange={e => setOrderForm(p => ({ ...p, payment_method: e.target.value }))}>
+                      <input placeholder="Имейл (по желание)" type="email" value={oForm.customer_email} onChange={e=>setOForm(p=>({...p,customer_email:e.target.value}))}/>
+                      <input placeholder="Адрес *" required value={oForm.customer_address} onChange={e=>setOForm(p=>({...p,customer_address:e.target.value}))}/>
+                      <input placeholder="Град *" required value={oForm.customer_city} onChange={e=>setOForm(p=>({...p,customer_city:e.target.value}))}/>
+                      <textarea placeholder="Бележка" rows={2} value={oForm.customer_notes} onChange={e=>setOForm(p=>({...p,customer_notes:e.target.value}))} style={{resize:'vertical'}}/>
+                      <select value={oForm.payment_method} onChange={e=>setOForm(p=>({...p,payment_method:e.target.value}))}>
                         <option value="cod">💵 Наложен платеж</option>
                         <option value="bank">🏦 Банков превод</option>
                       </select>
-                      <button type="submit" className="btn-primary" style={{ justifyContent: 'center', border: 'none' }} disabled={orderLoading}>
-                        {orderLoading ? 'Изпращане...' : `✓ Поръчай за ${total.toFixed(2)} лв.`}
-                      </button>
+                      <button type="submit" className="btnO" disabled={oLdg}>{oLdg?'Изпращане...':`✓ Поръчай · ${tot.toFixed(2)} лв.`}</button>
                     </div>
                   </form>
                 )}
@@ -677,23 +390,7 @@ export default function HomePage() {
           </div>
         </>
       )}
-
-      {/* Floating cart button */}
-      {cart.length > 0 && !cartOpen && (
-        <button
-          onClick={() => setCartOpen(true)}
-          style={{
-            position: 'fixed', bottom: 24, right: 24, zIndex: 150,
-            background: 'linear-gradient(135deg, #2d6a4f, #40916c)',
-            color: '#fff', border: 'none', borderRadius: 16,
-            padding: '14px 22px', font: "600 16px 'Sora', sans-serif",
-            cursor: 'pointer', boxShadow: '0 8px 32px rgba(45,106,79,.5)',
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}
-        >
-          🛒 {totalQty} · {total.toFixed(2)} лв.
-        </button>
-      )}
+      {cart.length>0&&!cartOpen&&<button className="fcart" onClick={()=>setCartOpen(true)}>🛒 {qty} · {tot.toFixed(2)} лв.</button>}
     </div>
   )
 }

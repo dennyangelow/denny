@@ -1,4 +1,4 @@
-// lib/constants.ts — централни константи (премахва дублирането)
+// lib/constants.ts
 
 export const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   new:       { label: 'Нова',        color: '#92400e', bg: '#fef3c7' },
@@ -27,6 +27,7 @@ export const NAV_ITEMS = [
   { id: 'dashboard',  icon: '▦',  label: 'Дашборд'    },
   { id: 'orders',     icon: '◫',  label: 'Поръчки'    },
   { id: 'leads',      icon: '◉',  label: 'Email листа' },
+  { id: 'content',    icon: '✦',  label: 'Съдържание'  },
   { id: 'analytics',  icon: '▲',  label: 'Аналитика'  },
   { id: 'settings',   icon: '◈',  label: 'Настройки'  },
 ] as const
