@@ -246,14 +246,16 @@ export function ContentTab() {
       <style>{`
         .cf { display: flex; flex-direction: column; gap: 12px; }
         .cf label { font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 4px; display: block; }
-        .cf input, .cf textarea, .cf select { width: 100%; padding: 11px 14px; border: 1.5px solid #e5e7eb; border-radius: 9px; font-family: inherit; font-size: 14px; outline: none; transition: border-color .2s; }
+        .cf input, .cf textarea, .cf select { width: 100%; padding: 11px 14px; border: 1.5px solid #e5e7eb; border-radius: 9px; font-family: inherit; font-size: 14px; outline: none; transition: border-color .2s; color: #111; background: #fff; }
+        .cf input::placeholder, .cf textarea::placeholder { color: #9ca3af; }
         .cf input:focus, .cf textarea:focus, .cf select:focus { border-color: #2d6a4f; }
         .cf textarea { resize: vertical; }
         .form-card { background: #fff; border: 1.5px solid #e5e7eb; border-radius: 18px; padding: 28px; max-width: 700px; }
         .form-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         @media(max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
-        .btn-save { background: #1b4332; color: #fff; border: none; border-radius: 10px; padding: '12px 24px'; font: 700 14px inherit; cursor: pointer; transition: background .2s; }
+        .btn-save { background: #1b4332; color: #fff; border: none; border-radius: 10px; padding: 12px 24px; font-weight: 700; font-size: 14px; font-family: inherit; cursor: pointer; transition: background .2s; }
+        .btn-save:hover { background: #2d6a4f; }
         .btn-save:hover { background: #2d6a4f; }
         .btn-cancel { background: #f4f4f4; color: #374151; border: none; border-radius: 10px; padding: 12px 24px; font: 600 14px inherit; cursor: pointer; }
       `}</style>

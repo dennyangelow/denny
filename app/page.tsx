@@ -554,7 +554,7 @@ export default function HomePage() {
                         placeholder={field.placeholder}
                         value={orderForm[field.key]}
                         onChange={e => setOrderForm(f => ({ ...f, [field.key]: e.target.value }))}
-                        style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', color: '#111', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
+                        style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', color: '#111', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', background: '#fff' }}
                         onFocus={e => { (e.currentTarget as HTMLElement).style.borderColor = '#16a34a' }}
                         onBlur={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e5e7eb' }}
                       />
@@ -564,7 +564,7 @@ export default function HomePage() {
                       value={orderForm.notes}
                       onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))}
                       rows={2}
-                      style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', resize: 'none', fontFamily: 'inherit', color: '#111', width: '100%', boxSizing: 'border-box' }}
+                      style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none', resize: 'none', fontFamily: 'inherit', color: '#111', width: '100%', boxSizing: 'border-box', background: '#fff' }}
                     />
                     <select
                       value={orderForm.payment}
@@ -615,6 +615,13 @@ const pageCSS = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
   body { font-family: 'DM Sans', -apple-system, sans-serif; background: #fafaf8; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
+  input, textarea, select { color: #111 !important; background: #fff; font-family: 'DM Sans', sans-serif; }
+  input::placeholder, textarea::placeholder { color: #9ca3af !important; opacity: 1; }
+  input::-webkit-input-placeholder, textarea::-webkit-input-placeholder { color: #9ca3af !important; }
+  input::-moz-placeholder, textarea::-moz-placeholder { color: #9ca3af !important; }
+
+  /* Input placeholder visibility */
+  input:-webkit-autofill { -webkit-box-shadow: 0 0 0 30px #fff inset !important; -webkit-text-fill-color: #111 !important; }
 
   @keyframes fadeDown { from { opacity:0; transform:translateX(24px) } to { opacity:1; transform:translateX(0) } }
   @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }

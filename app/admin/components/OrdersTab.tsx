@@ -167,7 +167,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         .page-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
         .search-box {
           padding: 9px 14px; border: 1px solid var(--border); border-radius: 9px;
-          font-family: inherit; font-size: 13px; width: 280px; background: #fff;
+          font-family: inherit; font-size: 13px; width: 280px; background: #fff; color: var(--text);
           transition: border-color .2s;
         }
         .search-box:focus { outline: none; border-color: var(--green); }

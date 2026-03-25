@@ -75,14 +75,14 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
                   rows={3}
                   value={vals[k.key] || ''}
                   onChange={e => setVals(p => ({ ...p, [k.key]: e.target.value }))}
-                  style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: 9, fontFamily: 'inherit', fontSize: 14, outline: 'none', resize: 'vertical' }}
+                  style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: 9, fontFamily: 'inherit', fontSize: 14, outline: 'none', resize: 'vertical', color: '#111', background: '#fff' }}
                 />
               ) : (
                 <input
                   type={k.type}
                   value={vals[k.key] || ''}
                   onChange={e => setVals(p => ({ ...p, [k.key]: e.target.value }))}
-                  style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: 9, fontFamily: 'inherit', fontSize: 14, outline: 'none' }}
+                  style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #e5e7eb', borderRadius: 9, fontFamily: 'inherit', fontSize: 14, outline: 'none', color: '#111', background: '#fff' }}
                 />
               )}
             </div>
