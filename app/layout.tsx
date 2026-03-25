@@ -1,8 +1,10 @@
+// app/layout.tsx
+
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'Denny Angelow — Тайните на Едрите и Вкусни Домати',
-  description: 'Изтегли безплатния наръчник и открий как да отгледаш едри, здрави и сочни домати без болести и загубена реколта. Проверени агро продукти и директна поръчка.',
+  description: 'Изтегли безплатния наръчник и открий как да отгледаш едри, здрави и сочни домати без болести и загубена реколта.',
   keywords: 'домати, торове, агро, биостимулатори, Atlas Terra, оранжерия, земеделие',
   openGraph: {
     title: 'Denny Angelow — Агро Консултант',
@@ -23,9 +25,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
-        {/* Google Fonts preconnect */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body style={{ margin: 0, padding: 0 }}>
         {children}

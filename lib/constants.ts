@@ -1,0 +1,34 @@
+// lib/constants.ts — централни константи (премахва дублирането)
+
+export const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  new:       { label: 'Нова',        color: '#92400e', bg: '#fef3c7' },
+  confirmed: { label: 'Потвърдена',  color: '#1e40af', bg: '#dbeafe' },
+  shipped:   { label: 'Изпратена',   color: '#5b21b6', bg: '#ede9fe' },
+  delivered: { label: 'Доставена',   color: '#065f46', bg: '#d1fae5' },
+  cancelled: { label: 'Отказана',    color: '#991b1b', bg: '#fee2e2' },
+}
+
+export const PAYMENT_LABELS: Record<string, string> = {
+  cod:  'Наложен платеж',
+  bank: 'Банков превод',
+  card: 'Карта',
+}
+
+export const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  pending:  { label: 'Чака',     color: '#92400e', bg: '#fef3c7' },
+  paid:     { label: 'Платена',  color: '#065f46', bg: '#d1fae5' },
+  refunded: { label: 'Върната',  color: '#991b1b', bg: '#fee2e2' },
+}
+
+export const ORDER_STATUSES = ['all', 'new', 'confirmed', 'shipped', 'delivered', 'cancelled'] as const
+export type OrderStatus = typeof ORDER_STATUSES[number]
+
+export const NAV_ITEMS = [
+  { id: 'dashboard',  icon: '▦',  label: 'Дашборд'    },
+  { id: 'orders',     icon: '◫',  label: 'Поръчки'    },
+  { id: 'leads',      icon: '◉',  label: 'Email листа' },
+  { id: 'analytics',  icon: '▲',  label: 'Аналитика'  },
+  { id: 'settings',   icon: '◈',  label: 'Настройки'  },
+] as const
+
+export type TabId = typeof NAV_ITEMS[number]['id']

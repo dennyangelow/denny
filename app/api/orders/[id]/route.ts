@@ -1,15 +1,18 @@
+// app/api/orders/[id]/route.ts
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { status, payment_status, tracking_number } = await req.json()
+    const body = await req.json()
     const updates: Record<string, any> = {}
-    if (status) updates.status = status
-    if (payment_status) updates.payment_status = payment_status
-    if (tracking_number !== undefined) updates.tracking_number = tracking_number
-    if (status === 'shipped') updates.shipped_at = new Date().toISOString()
-    if (status === 'delivered') updates.delivered_at = new Date().toISOString()
+
+    if (body.status)         updates.status         = body.status
+    if (body.payment_status) updates.payment_status = body.payment_status
+    if (body.tracking_number !== undefined) updates.tracking_number = body.tracking_number
+    if (body.status === 'shipped')   updates.shipped_at   = new Date().toISOString()
+    if (body.status === 'delivered') updates.delivered_at = new Date().toISOString()
 
     const { data, error } = await supabaseAdmin
       .from('orders')
@@ -25,7 +28,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { data, error } = await supabaseAdmin
     .from('orders')
     .select('*, order_items(*)')

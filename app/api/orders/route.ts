@@ -1,3 +1,5 @@
+// app/api/orders/route.ts
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
@@ -11,7 +13,6 @@ export async function POST(req: NextRequest) {
       utm_source, utm_campaign,
     } = body
 
-    // Validate
     if (!customer_name || !customer_phone || !customer_address || !customer_city) {
       return NextResponse.json({ error: 'Задължителните полета липсват' }, { status: 400 })
     }
@@ -19,7 +20,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Количката е празна' }, { status: 400 })
     }
 
-    // Create order (order_number set by DB trigger)
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .insert({
@@ -41,7 +41,6 @@ export async function POST(req: NextRequest) {
 
     if (orderError) throw orderError
 
-    // Add order items
     const orderItems = items.map((item: any) => ({
       order_id: order.id,
       product_name: item.product_name,
@@ -56,13 +55,10 @@ export async function POST(req: NextRequest) {
 
     if (itemsError) throw itemsError
 
-    // Send confirmation email (via Resend)
     if (customer_email) {
-      await sendOrderConfirmationEmail(order, items)
+      await sendOrderConfirmationEmail(order, items).catch(console.error)
     }
-
-    // Notify admin
-    await notifyAdmin(order)
+    await notifyAdmin(order).catch(console.error)
 
     return NextResponse.json({
       success: true,
@@ -76,15 +72,14 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  // Admin only - protected by middleware
   const { searchParams } = new URL(req.url)
-  const page = parseInt(searchParams.get('page') || '1')
-  const limit = 20
+  const page   = parseInt(searchParams.get('page')  || '1')
+  const limit  = parseInt(searchParams.get('limit') || '20')
   const status = searchParams.get('status')
 
   let query = supabaseAdmin
     .from('orders')
-    .select(`*, order_items(*)`)
+    .select('*, order_items(*)', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range((page - 1) * limit, page * limit - 1)
 
@@ -105,30 +100,40 @@ async function sendOrderConfirmationEmail(order: any, items: any[]) {
   const resend = new Resend(process.env.RESEND_API_KEY)
 
   const itemsHtml = items.map(item =>
-    `<tr><td>${item.product_name}</td><td>${item.quantity}</td><td>${item.total_price.toFixed(2)} лв.</td></tr>`
+    `<tr><td style="padding:8px">${item.product_name}</td><td style="padding:8px">${item.quantity}</td><td style="padding:8px">${Number(item.total_price).toFixed(2)} лв.</td></tr>`
   ).join('')
 
   await resend.emails.send({
     from: 'Denny Angelow <noreply@dennyangelow.com>',
     to: order.customer_email,
-    subject: `Поръчка ${order.order_number} — потвърдена`,
+    subject: `Поръчка ${order.order_number} — потвърдена ✓`,
     html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #2d6a4f;">🍅 Поръчката е получена!</h1>
-        <p>Здравей, <strong>${order.customer_name}</strong>!</p>
-        <p>Получихме твоята поръчка с номер <strong>${order.order_number}</strong>.</p>
-        <table style="width:100%;border-collapse:collapse;margin:20px 0;">
-          <tr style="background:#f3f4f6;"><th>Продукт</th><th>Кол.</th><th>Цена</th></tr>
-          ${itemsHtml}
-          <tr style="font-weight:bold;border-top:2px solid #e5e7eb;">
-            <td colspan="2">Общо с доставка</td>
-            <td>${order.total.toFixed(2)} лв.</td>
-          </tr>
-        </table>
-        <p><strong>Доставка:</strong> ${order.customer_address}, ${order.customer_city}</p>
-        <p><strong>Начин на плащане:</strong> ${order.payment_method === 'cod' ? 'Наложен платеж' : 'Банков превод'}</p>
-        <p>Ще се свържем с теб в рамките на 24 часа за потвърждение.</p>
-        <p style="color:#6b7280;font-size:13px;">При въпроси: support@dennyangelow.com</p>
+      <div style="font-family:'DM Sans',sans-serif;max-width:600px;margin:0 auto;color:#111">
+        <div style="background:linear-gradient(135deg,#0f1f16,#2d6a4f);padding:36px;border-radius:16px 16px 0 0;text-align:center">
+          <p style="font-size:32px;margin:0">🍅</p>
+          <h1 style="color:#fff;font-size:22px;margin:12px 0 4px">Поръчката е получена!</h1>
+          <p style="color:rgba(255,255,255,.7);font-size:14px;margin:0">${order.order_number}</p>
+        </div>
+        <div style="padding:32px;background:#fff;border:1px solid #e5e7eb;border-top:none">
+          <p style="font-size:16px">Здравей, <strong>${order.customer_name}</strong>!</p>
+          <p style="color:#6b7280;font-size:14px">Получихме твоята поръчка и ще се свържем в рамките на 24 часа.</p>
+          <table style="width:100%;border-collapse:collapse;margin:24px 0;font-size:14px">
+            <tr style="background:#f9fafb">
+              <th style="padding:10px 8px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase">Продукт</th>
+              <th style="padding:10px 8px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase">Бр.</th>
+              <th style="padding:10px 8px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase">Цена</th>
+            </tr>
+            ${itemsHtml}
+            <tr style="border-top:2px solid #e5e7eb;font-weight:700">
+              <td colspan="2" style="padding:10px 8px">Общо с доставка</td>
+              <td style="padding:10px 8px">${Number(order.total).toFixed(2)} лв.</td>
+            </tr>
+          </table>
+          <p style="font-size:14px"><strong>Адрес:</strong> ${order.customer_address}, ${order.customer_city}</p>
+          <p style="color:#6b7280;font-size:12px;margin-top:32px;border-top:1px solid #e5e7eb;padding-top:16px">
+            Въпроси? <a href="mailto:support@dennyangelow.com" style="color:#2d6a4f">support@dennyangelow.com</a>
+          </p>
+        </div>
       </div>
     `,
   })
@@ -142,12 +147,12 @@ async function notifyAdmin(order: any) {
   await resend.emails.send({
     from: 'System <noreply@dennyangelow.com>',
     to: process.env.ADMIN_EMAIL || 'support@dennyangelow.com',
-    subject: `🛒 Нова поръчка ${order.order_number} — ${order.total.toFixed(2)} лв.`,
+    subject: `🛒 Нова поръчка ${order.order_number} — ${Number(order.total).toFixed(2)} лв.`,
     html: `
-      <p><strong>${order.order_number}</strong></p>
+      <p><strong>${order.order_number}</strong> · ${Number(order.total).toFixed(2)} лв.</p>
       <p>${order.customer_name} · ${order.customer_phone}</p>
       <p>${order.customer_address}, ${order.customer_city}</p>
-      <p><strong>Общо: ${order.total.toFixed(2)} лв.</strong></p>
+      <p><a href="${process.env.NEXT_PUBLIC_SITE_URL}/admin">Отвори Admin панела →</a></p>
     `,
   })
 }

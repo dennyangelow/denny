@@ -1,164 +1,138 @@
-# 🍅 Denny Angelow — Пълна Маркетинг Система
+# 🍅 Denny Angelow — Маркетинг Система v2
 
-Next.js 14 + Supabase маркетинг и e-commerce система за dennyangelow.com
+Next.js 14 + Supabase маркетинг и e-commerce система с пълен Admin панел.
 
 ---
 
-## 📋 Структура на системата
+## 📁 Нова структура на файловете
 
 ```
 dennyangelow/
 ├── app/
-│   ├── page.tsx              ← Главна маркетинг страница
-│   ├── layout.tsx            ← Root layout + SEO metadata
+│   ├── layout.tsx                        ← Root layout + SEO + fonts
+│   ├── page.tsx                          ← Главна маркетинг страница
 │   ├── admin/
-│   │   └── page.tsx          ← Пълен админ панел
+│   │   ├── page.tsx                      ← Admin панел (само layout + hooks)
+│   │   ├── login/
+│   │   │   └── page.tsx                  ← Login страница
+│   │   └── components/
+│   │       ├── Sidebar.tsx               ← Странична навигация
+│   │       ├── DashboardTab.tsx          ← Дашборд + Recharts графика
+│   │       ├── OrdersTab.tsx             ← Таблица с поръчки + филтри + пагинация
+│   │       ├── OrderModal.tsx            ← Детайли на поръчка + смяна на статус
+│   │       ├── LeadsTab.tsx              ← Email листа + CSV export
+│   │       ├── AnalyticsTab.tsx          ← Всички графики (Bar, Pie, Area)
+│   │       └── SettingsTab.tsx           ← Системна информация + ENV статус
 │   └── api/
-│       ├── orders/
-│       │   ├── route.ts      ← GET/POST поръчки
-│       │   └── [id]/route.ts ← PATCH статус на поръчка
-│       ├── leads/
-│       │   └── route.ts      ← GET/POST email абонати
-│       └── analytics/
-│           └── affiliate-click/route.ts ← Проследяване кликове
+│       ├── admin/auth/route.ts           ← Login/logout endpoint
+│       ├── orders/route.ts               ← GET/POST поръчки
+│       ├── orders/[id]/route.ts          ← PATCH/GET поръчка по ID
+│       ├── leads/route.ts                ← GET/POST leads
+│       └── analytics/affiliate-click/   ← GET/POST кликове
+│           └── route.ts
+├── components/
+│   └── ui/
+│       └── Toast.tsx                     ← Toast нотификации
+├── hooks/
+│   └── useAdminData.ts                   ← Custom hook за всички admin данни
 ├── lib/
-│   └── supabase.ts           ← Supabase клиент + TypeScript типове
-├── supabase-schema.sql       ← Цялата база данни (изпълни в Supabase)
-├── .env.example              ← Шаблон за environment variables
+│   ├── supabase.ts                       ← Supabase клиент + TypeScript типове
+│   └── constants.ts                      ← STATUS_LABELS, NAV_ITEMS и др.
+├── middleware.ts                          ← Auth защита на /admin
+├── supabase-schema.sql
+├── .env.example
 └── package.json
 ```
 
 ---
 
-## 🚀 Инсталация (стъпка по стъпка)
+## ✨ Нови подобрения в v2
 
-### 1. Клонирай и инсталирай
+### Admin панел
+- **Recharts графики** — Area chart за приходите, Bar chart, Pie charts за статуси и плащания
+- **Toast нотификации** — при смяна на статус, копиране, export
+- **Пагинация** — 15 поръчки/20 leads на страница
+- **CSV export** — с BOM за коректно кирилско кодиране в Excel
+- **Копиране на имейли** — един клик за всички активни абонати
+- **Копиране на телефон** — директно от modal-а на поръчка
+- **Mobile sidebar** — drawer на мобилни устройства
+- **Error state** — при проблем с мрежата показва съобщение + retry бутон
+- **UTM tracking** — вижда се в modal-а на поръчката
 
+### Сигурност
+- **Auth middleware** — защита на `/admin` с парола (cookie-based)
+- **Login страница** — `/admin/login` с форма
+- **Logout API** — `DELETE /api/admin/auth`
+
+### Код качество
+- **Разделени компоненти** — всеки tab е отделен файл (~100-200 реда)
+- **Custom hook** — `useAdminData` извлича всички данни и state логиката
+- **Централни константи** — `lib/constants.ts` — без дублиране
+- **TypeScript** — пълни типове навсякъде
+
+---
+
+## 🚀 Инсталация
+
+### 1. Инсталирай зависимостите
 ```bash
-cd dennyangelow
 npm install
 ```
 
-### 2. Създай Supabase проект
-
-1. Отиди на [supabase.com](https://supabase.com) → New Project
-2. Избери регион: **Frankfurt** (EU, близо до България)
-3. Запиши: Project URL и API Keys
-
-### 3. Създай базата данни
-
-1. В Supabase → SQL Editor
-2. Копирай целия `supabase-schema.sql`
-3. Изпълни → базата се създава автоматично с:
-   - Таблици: orders, leads, products, affiliate_clicks, email_logs, settings
-   - Автоматичен номер на поръчка (DA-2024-0001)
-   - Row Level Security (RLS) политики
-   - Индекси за бързина
-
-### 4. Настрой environment variables
-
+### 2. Настрой .env.local
 ```bash
 cp .env.example .env.local
-# Попълни стойностите в .env.local
+# Попълни всички стойности
 ```
 
-### 5. Настрой Resend (имейли)
+### 3. Задължително — смени ADMIN_SECRET!
+```env
+ADMIN_SECRET=супер-сложна-парола-минимум-20-символа
+```
 
-1. Регистрирай се на [resend.com](https://resend.com)
-2. Верифицирай домейна dennyangelow.com
-3. Вземи API key → добави в .env.local
+### 4. Изпълни SQL схемата в Supabase
+```sql
+-- Копирай supabase-schema.sql в Supabase SQL Editor и изпълни
+```
 
-### 6. Стартирай локално
-
+### 5. Стартирай
 ```bash
 npm run dev
-# Отвори http://localhost:3000
-```
-
-### 7. Deploy на Vercel
-
-```bash
-# Инсталирай Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel
-
-# Добави environment variables в Vercel Dashboard
+# Admin: http://localhost:3000/admin
 ```
 
 ---
 
-## 🗃️ База данни — таблици
+## 🔐 Admin достъп
 
-| Таблица | Описание |
-|---------|----------|
-| `orders` | Всички поръчки (Atlas Terra) |
-| `order_items` | Продукти в поръчката |
-| `leads` | Email абонати от наръчника |
-| `products` | Продукти (Atlas Terra + AMINO) |
-| `affiliate_clicks` | Кликове към agroapteki, oranjeriata |
-| `email_logs` | История на изпратени имейли |
-| `settings` | Настройки на сайта |
+1. Отиди на `/admin` → автоматично redirect към `/admin/login`
+2. Въведи паролата от `ADMIN_SECRET`
+3. Cookie се пази 7 дни
+4. Logout: `DELETE /api/admin/auth`
+
+Ако `ADMIN_SECRET` **не е настроен** — `/admin` е отворена (само за development)!
 
 ---
 
-## 💰 Бизнес модел
+## 📊 Admin панел — функции
 
-### Директни продажби (Atlas Terra)
-- Atlas Terra — 28.90 лв./кг
-- Atlas Terra AMINO — 32.90 лв./л
-- Поръчки с наложен платеж или банков превод
-- Автоматично потвърждение по имейл
-
-### Афилиейт приходи
-- **AgroApteki** — tracking=6809eceee15ad
-- **Oranjeriata** — линк към Ginegar фолиа
-- Всеки клик се записва в базата данни
-- Виждаш кой продукт носи повече трафик
+| Tab | Функции |
+|-----|---------|
+| **Дашборд** | 5 stat cards, Area chart (30 дни приход), последни поръчки, статус breakdown |
+| **Поръчки** | Таблица, 6 филтъра, търсене, пагинация, modal с детайли, смяна на статус/плащане |
+| **Email листа** | Таблица, CSV export, копиране на имейли, филтър активни/отписани |
+| **Аналитика** | Bar chart приход, Pie статуси, Pie плащания, афилиейт bars |
+| **Настройки** | Системна информация, ENV статус, бързи линкове, security напомняния |
 
 ---
 
-## 📊 Админ панел (/admin)
+## 📦 Технологии
 
-- **Дашборд** — общ преглед: поръчки, приходи, абонати, кликове
-- **Поръчки** — виж и управлявай поръчките, промени статус
-- **Email листа** — всички абонати + export в CSV
-- **Аналитика** — кликове по партньор и продукт
-- **Настройки** — системна информация
-
----
-
-## 📧 Email автоматизация
-
-При изтегляне на наръчника → изпраща се welcome email с link.
-При поръчка → потвърждение до клиента + нотификация до admin.
-
-**Следваща стъпка:** Добави email последователност (5 имейла) с Resend.
-
----
-
-## 🔒 Сигурност
-
-- RLS (Row Level Security) в Supabase
-- Публично: само INSERT на поръчки и leads
-- Само authenticated admin: SELECT/UPDATE/DELETE
-- Препоръчително: добави NextAuth.js за /admin
-
----
-
-## 📱 Технологии
-
-| Технология | Употреба |
-|------------|----------|
-| Next.js 14 | Framework (App Router) |
-| Supabase | База данни + Auth |
-| Resend | Транзакционни имейли |
-| TypeScript | Типова сигурност |
-| Vercel | Hosting (препоръчано) |
-
----
-
-## 🆘 Поддръжка
-
-За технически въпроси: support@dennyangelow.com
+| | |
+|--|--|
+| **Next.js 14** | App Router, Server Components |
+| **Supabase** | PostgreSQL + RLS + Auth |
+| **Recharts** | Всички графики в admin панела |
+| **Resend** | Транзакционни имейли |
+| **TypeScript** | Пълна типова сигурност |
+| **Vercel** | Hosting (препоръчано) |
