@@ -1,5 +1,5 @@
 'use client'
-// hooks/useAdminData.ts — v7 extended with page views
+// hooks/useAdminData.ts — v8 с уникални посещения
 
 import { useState, useCallback, useEffect } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
@@ -18,11 +18,15 @@ export interface AdminStats {
 
 export interface PageViewStats {
   total: number
+  unique: number
   today: number
+  todayUnique: number
   last7: number
+  last7Unique: number
   last30: number
+  last30Unique: number
   mobilePercent: number
-  dailyChart: { date: string; count: number }[]
+  dailyChart: { date: string; count: number; unique?: number }[]
   topReferrers: { name: string; count: number }[]
   topUtm: { name: string; count: number }[]
   topPages: { name: string; count: number }[]
@@ -66,9 +70,9 @@ export function useAdminData() {
       setAnalytics(affData)
       setPageViews(pvData)
 
-      const today = new Date().toISOString().slice(0, 10)
+      const today   = new Date().toISOString().slice(0, 10)
       const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
-      const active = orderList.filter(o => o.status !== 'cancelled')
+      const active  = orderList.filter(o => o.status !== 'cancelled')
       const revenue = active.reduce((s, o) => s + Number(o.total), 0)
       const weekRevenue = active
         .filter(o => o.created_at.slice(0, 10) >= weekAgo)
@@ -84,7 +88,7 @@ export function useAdminData() {
         pendingPayments: orderList.filter(o => o.payment_status === 'pending' && o.status !== 'cancelled').length,
         avgOrderValue:   active.length ? revenue / active.length : 0,
         conversionRate:  pvData?.last30 && orderList.length
-          ? Math.min(99, (orderList.filter(o => o.created_at >= new Date(Date.now() - 30*86400000).toISOString()).length / pvData.last30) * 100)
+          ? Math.min(99, (orderList.filter(o => o.created_at >= new Date(Date.now() - 30 * 86400000).toISOString()).length / pvData.last30) * 100)
           : 0,
       })
     } catch (err: unknown) {
