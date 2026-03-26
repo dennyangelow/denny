@@ -298,3 +298,28 @@ CREATE POLICY "Category links are public"       ON category_links   FOR SELECT U
 CREATE POLICY "Admin manages category links"    ON category_links   FOR ALL    USING (auth.role() = 'authenticated');
 CREATE POLICY "Settings are public"             ON settings         FOR SELECT USING (true);
 CREATE POLICY "Admin manages settings"          ON settings         FOR ALL    USING (auth.role() = 'authenticated');
+
+-- =====================================================
+-- PAGE VIEWS — добавено в v6
+-- =====================================================
+CREATE TABLE IF NOT EXISTS page_views (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  page TEXT NOT NULL DEFAULT '/',
+  referrer TEXT,
+  utm_source TEXT,
+  utm_medium TEXT,
+  utm_campaign TEXT,
+  ip_address TEXT,
+  user_agent TEXT,
+  is_mobile BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_page_views_page ON page_views(page);
+
+ALTER TABLE page_views ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Anyone can log page views" ON page_views;
+DROP POLICY IF EXISTS "Admin reads page views"    ON page_views;
+CREATE POLICY "Anyone can log page views" ON page_views FOR INSERT WITH CHECK (true);
+CREATE POLICY "Admin reads page views"    ON page_views FOR SELECT USING (auth.role() = 'authenticated');

@@ -20,7 +20,7 @@ export default function AdminPage() {
   const [viewOrder, setViewOrder]   = useState<Order | null>(null)
 
   const {
-    orders, leads, analytics, stats,
+    orders, leads, analytics, pageViews, stats,
     loading, error, fetchAll,
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
@@ -65,11 +65,11 @@ export default function AdminPage() {
           setMobileOpen={setMobileOpen}
         />
         <main className="admin-main">
-          {tab === 'dashboard'  && <DashboardTab stats={stats} orders={orders} leads={leads} analytics={analytics} onRefresh={fetchAll} onViewOrder={o => { setViewOrder(o); setTab('orders') }} />}
+          {tab === 'dashboard'  && <DashboardTab stats={stats} orders={orders} leads={leads} analytics={analytics} pageViews={pageViews} onRefresh={fetchAll} onViewOrder={o => { setViewOrder(o); setTab('orders') }} />}
           {tab === 'orders'     && <OrdersTab orders={orders} onStatusChange={updateOrderStatus} onPaymentChange={updatePaymentStatus} initialOrder={viewOrder} />}
           {tab === 'leads'      && <LeadsTab leads={leads} />}
           {tab === 'content'    && <ContentTab />}
-          {tab === 'analytics'  && <AnalyticsTab analytics={analytics} orders={orders} />}
+          {tab === 'analytics'  && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}
           {tab === 'settings'   && <SettingsTab ordersCount={orders.length} leadsCount={leads.length} />}
         </main>
       </div>

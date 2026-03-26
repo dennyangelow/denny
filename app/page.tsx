@@ -21,6 +21,19 @@ export default function HomePage() {
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 30)
     window.addEventListener('scroll', onScroll)
+    // Track page view
+    const params = new URLSearchParams(window.location.search)
+    fetch('/api/analytics/pageview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        page: '/',
+        referrer: document.referrer,
+        utm_source: params.get('utm_source'),
+        utm_medium: params.get('utm_medium'),
+        utm_campaign: params.get('utm_campaign'),
+      }),
+    }).catch(() => {})
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
