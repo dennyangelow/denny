@@ -1,16 +1,20 @@
 // app/api/leads/route.ts
-
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { Resend } from 'resend'
+
+const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, name, source, utm_source, utm_campaign } = await req.json()
+    const body = await req.json()
+    const { email, name, source, utm_source, utm_campaign, naruchnik_slug } = body
 
     if (!email || !email.includes('@')) {
       return NextResponse.json({ error: 'Невалиден имейл' }, { status: 400 })
     }
 
+    // Записваме или обновяваме леада
     const { error } = await supabaseAdmin
       .from('leads')
       .upsert(
@@ -18,17 +22,18 @@ export async function POST(req: NextRequest) {
           email: email.toLowerCase().trim(),
           name,
           source: source || 'naruchnik',
+          naruchnik_slug: naruchnik_slug || 'super-domati', // Новата колона от SQL скрипта
           utm_source,
           utm_campaign,
+          downloaded_at: new Date().toISOString(),
         },
         { onConflict: 'email', ignoreDuplicates: false }
       )
-      .select()
-      .single()
 
     if (error && error.code !== '23505') throw error
 
-    await sendWelcomeEmail(email, name).catch(console.error)
+    // Изпращаме имейла
+    await sendWelcomeEmail(email, name, naruchnik_slug).catch(console.error)
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
@@ -53,44 +58,31 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ leads: data, total: count })
 }
 
-async function sendWelcomeEmail(email: string, name?: string) {
+async function sendWelcomeEmail(email: string, name?: string, slug?: string) {
   if (!process.env.RESEND_API_KEY) return
-  const { Resend } = await import('resend')
-  const resend = new Resend(process.env.RESEND_API_KEY)
 
   const greeting = name ? `Здравей, ${name}!` : 'Здравей!'
+  const targetSlug = slug || 'super-domati'
+  const downloadUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/naruchnik/${targetSlug}`
 
   await resend.emails.send({
     from: 'Denny Angelow <denny@dennyangelow.com>',
     to: email,
-    subject: '📗 Твоят наръчник "Тайните на Едрите Домати" е тук!',
+    subject: '📗 Твоят наръчник е тук!',
     html: `
-      <div style="font-family:'DM Sans',sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
-        <div style="background:linear-gradient(135deg,#0f1f16,#2d6a4f);padding:40px;border-radius:16px 16px 0 0;text-align:center">
-          <h1 style="color:#fff;font-size:26px;margin:0">🍅 Наръчникът е тук!</h1>
-          <p style="color:rgba(255,255,255,.75);margin:10px 0 0;font-size:14px">"Тайните на Едрите и Вкусни Домати"</p>
+      <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;background:#fff;padding:20px;border:1px solid #eee;border-radius:12px">
+        <h2 style="color:#2d6a4f">${greeting}</h2>
+        <p>Благодарим ти за интереса! Твоят безплатен наръчник е готов за сваляне.</p>
+        <div style="margin:30px 0;text-align:center">
+          <a href="${downloadUrl}" 
+             style="background:#2d6a4f;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">
+             Към страницата за сваляне →
+          </a>
         </div>
-        <div style="padding:40px;background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 16px 16px">
-          <p style="font-size:17px">${greeting}</p>
-          <p style="color:#6b7280">Радвам се, че се присъедини! Ето твоят безплатен наръчник:</p>
-          <div style="text-align:center;margin:32px 0">
-            <a href="${process.env.NEXT_PUBLIC_SITE_URL}/naruchnik-super-domati"
-               style="background:#2d6a4f;color:#fff;padding:16px 32px;border-radius:10px;text-decoration:none;font-size:16px;font-weight:600;display:inline-block">
-              📗 Изтегли Наръчника →
-            </a>
-          </div>
-          <p style="font-size:14px;color:#374151">Вътре ще намериш:</p>
-          <ul style="line-height:2.2;font-size:14px;color:#374151">
-            <li>✓ Как да предпазиш от болести и вредители</li>
-            <li>✓ Кои торове работят наистина</li>
-            <li>✓ Календар за третиране</li>
-            <li>✓ Грешките, които убиват реколтата</li>
-          </ul>
-          <p style="color:#9ca3af;font-size:12px;margin-top:32px;border-top:1px solid #e5e7eb;padding-top:20px">
-            Въпроси? <a href="mailto:support@dennyangelow.com" style="color:#2d6a4f">support@dennyangelow.com</a> ·
-            <a href="${process.env.NEXT_PUBLIC_SITE_URL}/unsubscribe?email=${encodeURIComponent(email)}" style="color:#9ca3af">Отпиши се</a>
-          </p>
-        </div>
+        <p style="font-size:12px;color:#999;margin-top:40px;border-top:1px solid #eee;padding-top:20px">
+          Ако не желаеш да получаваш повече имейли, можеш да се 
+          <a href="${process.env.NEXT_PUBLIC_SITE_URL}/unsubscribe?email=${encodeURIComponent(email)}" style="color:#999">отпишеш тук</a>.
+        </p>
       </div>
     `,
   })

@@ -33,3 +33,9 @@ export const NAV_ITEMS = [
 ] as const
 
 export type TabId = typeof NAV_ITEMS[number]['id']
+
+// Currency helper — евро навсякъде
+export const CURRENCY = '€'
+export function formatPrice(amount: number): string {
+  return `${Number(amount).toFixed(2)} €`
+}

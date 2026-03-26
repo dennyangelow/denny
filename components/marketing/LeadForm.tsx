@@ -1,44 +1,59 @@
 'use client'
-// components/marketing/LeadForm.tsx
+// components/marketing/LeadForm.tsx — v2 с redirect към страница за сваляне
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
-export function LeadForm() {
+interface Props {
+  naruchnikSlug?: string  // default: 'super-domati'
+  source?: string         // default: 'naruchnik'
+}
+
+export function LeadForm({ naruchnikSlug = 'super-domati', source = 'naruchnik' }: Props) {
   const [form, setForm] = useState({ name: '', email: '', phone: '' })
   const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
   const [error, setError] = useState('')
+  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.email) return
     setLoading(true)
     setError('')
+
+    const params = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
+      : new URLSearchParams()
+
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, source: 'naruchnik' }),
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          phone: form.phone || undefined,
+          source,
+          naruchnik_slug: naruchnikSlug,
+          utm_source: params.get('utm_source') || undefined,
+          utm_campaign: params.get('utm_campaign') || undefined,
+        }),
       })
+
       if (res.ok) {
-        setDone(true)
+        // Redirect to download page with name for personalisation
+        const redirectParams = new URLSearchParams()
+        if (form.name) redirectParams.set('name', form.name)
+        redirectParams.set('email', form.email)
+        router.push(`/naruchnik/${naruchnikSlug}?${redirectParams.toString()}`)
       } else {
         setError('Нещо се обърка. Опитай отново.')
+        setLoading(false)
       }
     } catch {
       setError('Грешка при изпращане.')
+      setLoading(false)
     }
-    setLoading(false)
-  }
-
-  if (done) {
-    return (
-      <div style={{ background: 'rgba(74,222,128,0.15)', border: '1.5px solid rgba(74,222,128,0.4)', borderRadius: 16, padding: '22px 24px', textAlign: 'center' }}>
-        <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
-        <div style={{ color: '#fff', fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Изпратено успешно!</div>
-        <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>Провери имейла си — наръчникът е на път.</div>
-      </div>
-    )
   }
 
   return (
@@ -58,9 +73,7 @@ export function LeadForm() {
           backdrop-filter: blur(8px);
           box-sizing: border-box;
         }
-        .lead-input::placeholder {
-          color: rgba(255,255,255,0.6);
-        }
+        .lead-input::placeholder { color: rgba(255,255,255,0.6); }
         .lead-input:focus {
           border-color: #86efac;
           background: rgba(255,255,255,0.18);
@@ -87,10 +100,7 @@ export function LeadForm() {
           transform: translateY(-1px);
           box-shadow: 0 6px 20px rgba(74,222,128,0.35);
         }
-        .lead-submit:disabled {
-          opacity: 0.6;
-          cursor: default;
-        }
+        .lead-submit:disabled { opacity: 0.6; cursor: default; }
       `}</style>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <input
@@ -117,7 +127,7 @@ export function LeadForm() {
         />
         {error && <div style={{ color: '#fca5a5', fontSize: 13 }}>{error}</div>}
         <button className="lead-submit" type="submit" disabled={loading}>
-          {loading ? 'Изпращане...' : '📗 Изпрати ми наръчника безплатно'}
+          {loading ? 'Изпращане...' : '📗 Изтегли наръчника безплатно'}
         </button>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center', margin: 0 }}>
           🔒 Без спам · Само полезно агро съдържание

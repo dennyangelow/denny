@@ -1,7 +1,9 @@
 // app/api/orders/route.ts
-
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { Resend } from 'resend' // Директен импорт за стабилност
+
+const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(req: NextRequest) {
   try {
@@ -96,11 +98,9 @@ export async function GET(req: NextRequest) {
 
 async function sendOrderConfirmationEmail(order: any, items: any[]) {
   if (!process.env.RESEND_API_KEY) return
-  const { Resend } = await import('resend')
-  const resend = new Resend(process.env.RESEND_API_KEY)
 
   const itemsHtml = items.map(item =>
-    `<tr><td style="padding:8px">${item.product_name}</td><td style="padding:8px">${item.quantity}</td><td style="padding:8px">${Number(item.total_price).toFixed(2)} лв.</td></tr>`
+    `<tr><td style="padding:8px">${item.product_name}</td><td style="padding:8px">${item.quantity}</td><td style="padding:8px">${Number(item.total_price).toFixed(2)} €</td></tr>`
   ).join('')
 
   await resend.emails.send({
@@ -126,7 +126,7 @@ async function sendOrderConfirmationEmail(order: any, items: any[]) {
             ${itemsHtml}
             <tr style="border-top:2px solid #e5e7eb;font-weight:700">
               <td colspan="2" style="padding:10px 8px">Общо с доставка</td>
-              <td style="padding:10px 8px">${Number(order.total).toFixed(2)} лв.</td>
+              <td style="padding:10px 8px">${Number(order.total).toFixed(2)} €</td>
             </tr>
           </table>
           <p style="font-size:14px"><strong>Адрес:</strong> ${order.customer_address}, ${order.customer_city}</p>
@@ -141,15 +141,13 @@ async function sendOrderConfirmationEmail(order: any, items: any[]) {
 
 async function notifyAdmin(order: any) {
   if (!process.env.RESEND_API_KEY) return
-  const { Resend } = await import('resend')
-  const resend = new Resend(process.env.RESEND_API_KEY)
 
   await resend.emails.send({
     from: 'System <noreply@dennyangelow.com>',
     to: process.env.ADMIN_EMAIL || 'support@dennyangelow.com',
-    subject: `🛒 Нова поръчка ${order.order_number} — ${Number(order.total).toFixed(2)} лв.`,
+    subject: `🛒 Нова поръчка ${order.order_number} — ${Number(order.total).toFixed(2)} €`,
     html: `
-      <p><strong>${order.order_number}</strong> · ${Number(order.total).toFixed(2)} лв.</p>
+      <p><strong>${order.order_number}</strong> · ${Number(order.total).toFixed(2)} €</p>
       <p>${order.customer_name} · ${order.customer_phone}</p>
       <p>${order.customer_address}, ${order.customer_city}</p>
       <p><a href="${process.env.NEXT_PUBLIC_SITE_URL}/admin">Отвори Admin панела →</a></p>
