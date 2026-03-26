@@ -1,9 +1,7 @@
 // app/api/orders/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Resend } from 'resend' // Директен импорт за стабилност
-
-const resend = new Resend(process.env.RESEND_API_KEY)
+import { Resend } from 'resend'
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,6 +55,7 @@ export async function POST(req: NextRequest) {
 
     if (itemsError) throw itemsError
 
+    // Изпращане на имейли само ако имаме API ключ
     if (customer_email) {
       await sendOrderConfirmationEmail(order, items).catch(console.error)
     }
@@ -97,8 +96,10 @@ export async function GET(req: NextRequest) {
 }
 
 async function sendOrderConfirmationEmail(order: any, items: any[]) {
-  if (!process.env.RESEND_API_KEY) return
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) return
 
+  const resend = new Resend(apiKey) // Инициализираме тук
   const itemsHtml = items.map(item =>
     `<tr><td style="padding:8px">${item.product_name}</td><td style="padding:8px">${item.quantity}</td><td style="padding:8px">${Number(item.total_price).toFixed(2)} €</td></tr>`
   ).join('')
@@ -140,8 +141,10 @@ async function sendOrderConfirmationEmail(order: any, items: any[]) {
 }
 
 async function notifyAdmin(order: any) {
-  if (!process.env.RESEND_API_KEY) return
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) return
 
+  const resend = new Resend(apiKey) // Инициализираме тук
   await resend.emails.send({
     from: 'System <noreply@dennyangelow.com>',
     to: process.env.ADMIN_EMAIL || 'support@dennyangelow.com',

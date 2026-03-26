@@ -3,8 +3,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -14,7 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Невалиден имейл' }, { status: 400 })
     }
 
-    // Записваме или обновяваме леада
+    // Записваме или обновяваме леада в базата
     const { error } = await supabaseAdmin
       .from('leads')
       .upsert(
@@ -22,7 +20,7 @@ export async function POST(req: NextRequest) {
           email: email.toLowerCase().trim(),
           name,
           source: source || 'naruchnik',
-          naruchnik_slug: naruchnik_slug || 'super-domati', // Новата колона от SQL скрипта
+          naruchnik_slug: naruchnik_slug || 'super-domati',
           utm_source,
           utm_campaign,
           downloaded_at: new Date().toISOString(),
@@ -32,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     if (error && error.code !== '23505') throw error
 
-    // Изпращаме имейла
+    // Изпращаме имейла (инициализираме Resend вътре в самата функция)
     await sendWelcomeEmail(email, name, naruchnik_slug).catch(console.error)
 
     return NextResponse.json({ success: true })
@@ -59,12 +57,21 @@ export async function GET(req: NextRequest) {
 }
 
 async function sendWelcomeEmail(email: string, name?: string, slug?: string) {
-  if (!process.env.RESEND_API_KEY) return
+  // 1. Проверка за API ключ - предотвратява грешки при Build/Deploy
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) {
+    console.warn('Пропускане на имейл: RESEND_API_KEY не е зададен.')
+    return
+  }
+
+  // 2. Инициализиране на клиента тук
+  const resend = new Resend(apiKey)
 
   const greeting = name ? `Здравей, ${name}!` : 'Здравей!'
   const targetSlug = slug || 'super-domati'
   const downloadUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/naruchnik/${targetSlug}`
 
+  // 3. Изпращане
   await resend.emails.send({
     from: 'Denny Angelow <denny@dennyangelow.com>',
     to: email,
