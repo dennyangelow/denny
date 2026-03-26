@@ -41,17 +41,20 @@ export interface Order {
   subtotal: number
   shipping: number
   total: number
+  tracking_number?: string
   utm_source?: string
   utm_campaign?: string
   created_at: string
   updated_at: string
+  shipped_at?: string
+  delivered_at?: string
   order_items?: OrderItem[]
 }
 
 export interface OrderItem {
   id: string
   order_id: string
-  product_id: string
+  product_id?: string
   product_name: string
   quantity: number
   unit_price: number
@@ -65,6 +68,8 @@ export interface Lead {
   phone?: string
   source: string
   subscribed: boolean
+  utm_source?: string
+  utm_campaign?: string
   created_at: string
 }
 

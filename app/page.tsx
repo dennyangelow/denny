@@ -6,29 +6,70 @@ import { LeadForm } from '@/components/marketing/LeadForm'
 import { ProductCard } from '@/components/marketing/ProductCard'
 import { PRODUCTS as FB_PRODUCTS, ATLAS_PRODUCTS as FB_ATLAS, AFFILIATE_CATEGORIES as FB_CATS, TESTIMONIALS, CDN, AFF } from '@/lib/marketing-data'
 
-// Types
+// Types matching the DB schema
 interface CartItem { id: string; name: string; price: number; qty: number; image?: string }
 interface OrderForm { name: string; phone: string; email: string; address: string; city: string; notes: string; payment: string }
-interface AffProduct { id: string; name: string; subtitle: string; description: string; bullets: string[]; image_url: string; affiliate_url: string; partner: string; slug: string; emoji: string; active: boolean; sort_order: number; badge?: string; color?: string; tag?: string; link?: string; img?: string; desc?: string; features?: string[]; id_str?: string }
-interface CatLink { id: string; label: string; href: string; emoji: string; partner: string | null; slug: string; active: boolean; sort_order: number; link?: string; icon?: string; color?: string }
-interface OwnProduct { id: string; slug: string; name: string; description: string; price: number; compare_price: number; unit: string; stock: number; image_url: string; active: boolean; sort_order: number; subtitle?: string; badge?: string; emoji?: string; img?: string; desc?: string; features?: string[]; priceLabel?: string; comparePrice?: number }
+
+interface AffProduct {
+  id: string; name: string; subtitle: string; description: string
+  bullets: string[]; image_url: string; affiliate_url: string
+  partner: string; slug: string; emoji: string; active: boolean; sort_order: number
+  // optional extras from static data
+  badge?: string; color?: string; tag?: string; link?: string; img?: string; desc?: string; features?: string[]
+}
+interface CatLink {
+  id: string; label: string; href: string; emoji: string
+  partner: string | null; slug: string; active: boolean; sort_order: number
+  // optional extras
+  link?: string; icon?: string; color?: string
+}
+interface OwnProduct {
+  id: string; slug: string; name: string; description: string; price: number
+  compare_price: number; unit: string; stock: number; image_url: string
+  active: boolean; sort_order: number
+  // optional extras
+  subtitle?: string; badge?: string; emoji?: string; img?: string
+  desc?: string; features?: string[]; priceLabel?: string; comparePrice?: number
+}
+
+// Normalized types for rendering
+interface NormAff {
+  id: string; slug: string; name: string; badge: string; subtitle: string
+  desc: string; features: string[]; img: string; link: string
+  partner: string; color: string; tag: string
+}
+interface NormCat {
+  id: string; slug: string; label: string; href: string; emoji: string
+  partner: string | null; active: boolean; sort_order: number
+  link: string; icon: string; color: string
+}
+interface NormOwn {
+  id: string; slug: string; name: string; price: number; compare_price: number
+  description: string; unit: string; stock: number; image_url: string
+  active: boolean; sort_order: number
+  img: string; desc: string; priceLabel: string; comparePrice: number
+  features: string[]; emoji: string; badge: string; subtitle: string
+}
 
 // Normalize DB affiliate product to component format
-function normAff(p: AffProduct) {
+function normAff(p: AffProduct): NormAff {
   return {
-    ...p,
     id: p.id || p.slug,
-    link: p.affiliate_url || p.link || '#',
-    img: p.image_url || p.img || '',
-    desc: p.description || p.desc || '',
-    features: p.bullets || p.features || [],
-    tag: p.subtitle || p.tag || '',
-    color: p.color || '#16a34a',
+    slug: p.slug,
+    name: p.name,
     badge: p.badge || p.subtitle || '',
+    subtitle: p.subtitle || '',
+    desc: p.description || p.desc || '',
+    features: p.bullets?.length ? p.bullets : (p.features || []),
+    img: p.image_url || p.img || '',
+    link: p.affiliate_url || p.link || '#',
+    partner: p.partner,
+    color: p.color || '#16a34a',
+    tag: p.tag || p.subtitle || '',
   }
 }
 
-function normOwn(p: OwnProduct) {
+function normOwn(p: OwnProduct): NormOwn {
   return {
     ...p,
     img: p.image_url || p.img || '',
@@ -37,12 +78,12 @@ function normOwn(p: OwnProduct) {
     comparePrice: Number(p.compare_price || 0),
     features: p.features || [],
     emoji: p.emoji || '🌱',
-    badge: p.badge || '⭐ Atlas Terra',
+    badge: p.badge || 'Atlas Terra',
     subtitle: p.subtitle || '',
   }
 }
 
-function normCat(l: CatLink) {
+function normCat(l: CatLink): NormCat {
   return {
     ...l,
     link: l.href || l.link || '#',
@@ -51,28 +92,72 @@ function normCat(l: CatLink) {
   }
 }
 
-export default function HomePage() {
-  // Dynamic data from DB (falls back to static if DB not configured)
-  const [affProducts, setAffProducts] = useState(FB_PRODUCTS.map(normAff))
-  const [catLinks, setCatLinks]       = useState(FB_CATS.map(normCat))
-  const [ownProducts, setOwnProducts] = useState(FB_ATLAS.map(normOwn))
-  const [dataLoaded, setDataLoaded]   = useState(false)
+// Static fallbacks already have the right shape — cast through normAff
+const staticAff: NormAff[] = FB_PRODUCTS.map(p => normAff({
+  id: p.id,
+  slug: p.id,
+  name: p.name,
+  subtitle: p.subtitle,
+  description: p.desc,
+  bullets: p.features,
+  image_url: p.img,
+  affiliate_url: p.link,
+  partner: p.partner,
+  badge: p.badge,
+  color: p.color,
+  tag: p.tag,
+  active: true,
+  sort_order: 0,
+  emoji: '🌿',
+}))
 
-  // Cart & UI state
-  const [cartVisible, setCartVisible] = useState(false)
-  const [cart, setCart]               = useState<CartItem[]>([])
-  const [orderForm, setOrderForm]     = useState<OrderForm>({ name: '', phone: '', email: '', address: '', city: '', notes: '', payment: 'cod' })
+const staticOwn: NormOwn[] = FB_ATLAS.map(p => normOwn({
+  id: p.id,
+  slug: p.id,
+  name: p.name,
+  description: p.desc,
+  price: p.price,
+  compare_price: p.comparePrice,
+  unit: p.unit,
+  stock: 999,
+  image_url: p.img,
+  active: true,
+  sort_order: 0,
+  badge: p.badge,
+  subtitle: p.subtitle,
+  emoji: p.emoji,
+  features: [],
+}))
+
+const staticCats: NormCat[] = FB_CATS.map(c => normCat({
+  id: c.label,
+  slug: c.label.toLowerCase().replace(/\s+/g, '-'),
+  label: c.label,
+  href: c.link,
+  emoji: c.icon,
+  partner: null,
+  active: true,
+  sort_order: 0,
+  color: c.color,
+}))
+
+export default function HomePage() {
+  const [affProducts, setAffProducts] = useState<NormAff[]>(staticAff)
+  const [catLinks, setCatLinks]       = useState<NormCat[]>(staticCats)
+  const [ownProducts, setOwnProducts] = useState<NormOwn[]>(staticOwn)
+
+  const [cartVisible, setCartVisible]   = useState(false)
+  const [cart, setCart]                 = useState<CartItem[]>([])
+  const [orderForm, setOrderForm]       = useState<OrderForm>({ name: '', phone: '', email: '', address: '', city: '', notes: '', payment: 'cod' })
   const [orderLoading, setOrderLoading] = useState(false)
-  const [orderDone, setOrderDone]     = useState('')
-  const [scrolled, setScrolled]       = useState(false)
+  const [orderDone, setOrderDone]       = useState('')
+  const [scrolled, setScrolled]         = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
-    // Scroll listener
     const onScroll = () => setScrolled(window.scrollY > 30)
     window.addEventListener('scroll', onScroll)
 
-    // Track page view
     const params = new URLSearchParams(window.location.search)
     fetch('/api/analytics/pageview', {
       method: 'POST',
@@ -86,7 +171,6 @@ export default function HomePage() {
       }),
     }).catch(() => {})
 
-    // Load dynamic data from DB
     Promise.allSettled([
       fetch('/api/affiliate-products').then(r => r.ok ? r.json() : null),
       fetch('/api/category-links').then(r => r.ok ? r.json() : null),
@@ -101,13 +185,12 @@ export default function HomePage() {
       if (ownRes.status === 'fulfilled' && ownRes.value?.products?.length > 0) {
         setOwnProducts(ownRes.value.products.filter((p: OwnProduct) => p.active).map(normOwn))
       }
-      setDataLoaded(true)
     })
 
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  const addToCart = (product: ReturnType<typeof normOwn>) => {
+  const addToCart = (product: NormOwn) => {
     setCart(prev => {
       const existing = prev.find(i => i.id === product.id)
       if (existing) return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i)
@@ -260,12 +343,16 @@ export default function HomePage() {
         <div className="categories-grid">
           {catLinks.map((c, i) => (
             <FadeIn key={c.id || c.slug} delay={i * 55}>
-              <a href={c.link || c.href} target="_blank" rel="noopener noreferrer" className="category-card"
+              <a
+                href={c.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="category-card"
                 onClick={() => c.partner && trackAffiliate(c.partner, c.slug)}
                 onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = c.color + '55'; el.style.boxShadow = `0 8px 28px ${c.color}22`; el.style.background = c.color + '08'; el.style.transform = 'translateY(-3px)' }}
                 onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = '#e5e7eb'; el.style.boxShadow = ''; el.style.background = '#fff'; el.style.transform = '' }}
               >
-                <span style={{ fontSize: 22, background: c.color + '18', width: 48, height: 48, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{c.icon || c.emoji}</span>
+                <span style={{ fontSize: 22, background: c.color + '18', width: 48, height: 48, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{c.icon}</span>
                 <span style={{ flex: 1 }}>{c.label}</span>
                 <span style={{ color: c.color, fontSize: 16, opacity: 0.7 }}>→</span>
               </a>
@@ -284,7 +371,25 @@ export default function HomePage() {
           </div>
         </FadeIn>
         <div className="products-grid">
-          {affProducts.map((p, i) => <ProductCard key={p.id || p.slug} p={p as any} idx={i} />)}
+          {affProducts.map((p, i) => (
+            <ProductCard
+              key={p.id || p.slug}
+              idx={i}
+              p={{
+                id: p.id,
+                name: p.name,
+                badge: p.badge,
+                subtitle: p.subtitle,
+                desc: p.desc,
+                features: p.features,
+                img: p.img,
+                link: p.link,
+                partner: p.partner,
+                color: p.color,
+                tag: p.tag,
+              }}
+            />
+          ))}
         </div>
       </section>
 
@@ -302,7 +407,8 @@ export default function HomePage() {
           <div className="atlas-grid">
             {ownProducts.map((p, i) => (
               <FadeIn key={p.id || p.slug} delay={i * 120}>
-                <div className="atlas-card"
+                <div
+                  className="atlas-card"
                   onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 20px 60px rgba(22,163,74,0.15)'; el.style.borderColor = '#86efac' }}
                   onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.transform = ''; el.style.boxShadow = '0 8px 40px rgba(0,0,0,0.09)'; el.style.borderColor = '#d1fae5' }}
                 >
@@ -323,7 +429,7 @@ export default function HomePage() {
                   <div style={{ padding: '22px 24px 26px', flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <p style={{ color: '#4b5563', fontSize: 14, lineHeight: 1.7, marginBottom: 16, fontStyle: 'italic' }}>„{p.desc || p.description}"</p>
                     <ul style={{ margin: '0 0 24px', padding: 0, listStyle: 'none', flex: 1 }}>
-                      {(p.features && p.features.length > 0 ? p.features : []).map((f: string) => (
+                      {p.features.map((f: string) => (
                         <li key={f} style={{ fontSize: 13.5, color: '#374151', padding: '5px 0', display: 'flex', gap: 10, alignItems: 'flex-start', borderBottom: '1px solid #f3f4f6' }}>
                           <span style={{ background: '#16a34a', color: '#fff', width: 16, height: 16, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0, marginTop: 2 }}>✓</span>
                           {f}

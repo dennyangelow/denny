@@ -1,10 +1,10 @@
 'use client'
-// app/admin/components/AnalyticsTab.tsx — v7 с посещения, funnel, UTM
+// app/admin/components/AnalyticsTab.tsx — v8 fixed
 
 import { useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, AreaChart, Area,
+  PieChart, Pie, Cell, Legend, AreaChart, Area, CartesianGrid,
 } from 'recharts'
 import type { Order, AffiliateAnalytics } from '@/lib/supabase'
 import type { PageViewStats } from '@/hooks/useAdminData'
@@ -21,16 +21,22 @@ const PIE_COLORS = ['#16a34a','#0ea5e9','#8b5cf6','#f59e0b','#ec4899','#06b6d4',
 export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   const [period, setPeriod] = useState<'7'|'14'|'30'>('30')
 
-  // Revenue by day
+  // Revenue by day — last N days filled
   const revenueData = (() => {
     const days = Number(period)
     const m: Record<string, number> = {}
     orders.filter(o => o.status !== 'cancelled').forEach(o => {
-      const d = o.created_at.slice(5, 10)
+      const d = o.created_at.slice(0, 10) // YYYY-MM-DD
       m[d] = (m[d] || 0) + Number(o.total)
     })
-    return Object.entries(m).sort(([a],[b])=>a.localeCompare(b)).slice(-days)
-      .map(([date, total]) => ({ date, total: Math.round(total*100)/100 }))
+    const result = []
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(Date.now() - i * 86400000)
+      const key  = date.toISOString().slice(0, 10)
+      const label = `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}`
+      result.push({ date: label, total: Math.round((m[key]||0)*100)/100 })
+    }
+    return result
   })()
 
   // Status pie
@@ -51,14 +57,13 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
     const d30 = new Date(Date.now()-30*86400000).toISOString()
     return o.created_at >= d30
   }).length
-  const totalLeads30 = 0 // would need leads passed
   const funnelData = [
-    { name:'Посещения',   value: totalViews,    pct: 100,                                         color:'#0ea5e9' },
-    { name:'Формуляри',   value: Math.round(totalViews*0.08), pct: 8,                             color:'#8b5cf6' },
-    { name:'Поръчки',     value: totalOrders30, pct: totalViews?Math.round(totalOrders30/totalViews*100):0, color:'#16a34a' },
+    { name:'Посещения',  value: totalViews,    pct: 100,                                                           color:'#0ea5e9' },
+    { name:'Формуляри', value: Math.round(totalViews*0.08), pct: 8,                                                color:'#8b5cf6' },
+    { name:'Поръчки',   value: totalOrders30,  pct: totalViews ? Math.round(totalOrders30/totalViews*100) : 0,     color:'#16a34a' },
   ]
 
-  // Page views daily (from pageViews API)
+  // Page views daily — slice last N days
   const pvChartData = pageViews?.dailyChart?.slice(-Number(period)) || []
 
   // Referrers
@@ -145,24 +150,25 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          ) : <div className="emp">Инсталирай page view tracking — виж README</div>}
+          ) : <div className="emp">Няма данни за посещения</div>}
         </div>
 
         {/* Revenue chart */}
         <div className="ac span2">
-          <div className="ac-hd"><h2>Приход по дни</h2></div>
-          {revenueData.length>0 ? (
+          <div className="ac-hd"><h2>Приход по дни</h2><span className="bdg">последните {period} дни</span></div>
+          {revenueData.some(d=>d.total>0) ? (
             <div style={{height:180}}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={revenueData} margin={{top:4,right:4,left:-10,bottom:0}}>
-                  <XAxis dataKey="date" tick={{fontSize:10,fill:'#9ca3af'}} tickLine={false} axisLine={false}/>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.04)" vertical={false}/>
+                  <XAxis dataKey="date" tick={{fontSize:10,fill:'#9ca3af'}} tickLine={false} axisLine={false} interval={Math.floor(Number(period)/7)}/>
                   <YAxis tick={{fontSize:10,fill:'#9ca3af'}} tickLine={false} axisLine={false} tickFormatter={v=>`${v}лв`} width={52}/>
                   <Tooltip contentStyle={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,fontSize:12}} formatter={(v:number)=>[`${v.toFixed(2)} лв.`,'Приход']}/>
                   <Bar dataKey="total" fill="#16a34a" radius={[3,3,0,0]}/>
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          ) : <div className="emp">Няма данни</div>}
+          ) : <div className="emp">Няма приход за периода</div>}
         </div>
 
         {/* Funnel */}
@@ -176,7 +182,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
                   <span style={{color:'#6b7280'}}>{f.value.toLocaleString()}</span>
                 </div>
                 <div style={{height:28,background:'#f3f4f6',borderRadius:8,overflow:'hidden',position:'relative'}}>
-                  <div style={{width:`${100-i*30}%`,height:'100%',background:f.color,borderRadius:8,opacity:.85,transition:'width .6s'}}/>
+                  <div style={{width:`${Math.max(i===0?100:f.pct,2)}%`,height:'100%',background:f.color,borderRadius:8,opacity:.85,transition:'width .6s'}}/>
                   <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:i===0?'#0369a1':i===1?'#5b21b6':'#065f46'}}>{f.pct}%</span>
                 </div>
               </div>

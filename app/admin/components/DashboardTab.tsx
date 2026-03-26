@@ -1,5 +1,5 @@
 'use client'
-// app/admin/components/DashboardTab.tsx — v7
+// app/admin/components/DashboardTab.tsx — v8 fixed
 
 import { useMemo, useState, useEffect } from 'react'
 import {
@@ -24,18 +24,32 @@ function buildChart(orders: Order[], pvData: PageViewStats | null) {
   const rvMap: Record<string, number> = {}
   const orMap: Record<string, number> = {}
   orders.filter(o => o.status !== 'cancelled').forEach(o => {
-    const d = o.created_at.slice(0, 10)
+    const d = o.created_at.slice(0, 10) // YYYY-MM-DD
     rvMap[d] = (rvMap[d] || 0) + Number(o.total)
     orMap[d] = (orMap[d] || 0) + 1
   })
+
+  // pvData.dailyChart has items like { date: "03-26", count: N } (MM-DD from API)
+  // We need to map them by full YYYY-MM-DD key
   const pvMap: Record<string, number> = {}
-  pvData?.dailyChart?.forEach(d => { pvMap[d.date] = d.count })
+  const currentYear = new Date().getFullYear()
+  pvData?.dailyChart?.forEach(item => {
+    // item.date is "MM-DD"
+    const fullKey = `${currentYear}-${item.date}`
+    pvMap[fullKey] = item.count
+  })
+
   const result = []
   for (let i = 29; i >= 0; i--) {
     const date  = new Date(Date.now() - i * 86400000)
-    const key   = date.toISOString().slice(0, 10)
+    const key   = date.toISOString().slice(0, 10) // YYYY-MM-DD
     const label = `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}`
-    result.push({ date: label, revenue: Math.round((rvMap[key]||0)*100)/100, orders: orMap[key]||0, views: pvMap[label]||0 })
+    result.push({
+      date: label,
+      revenue: Math.round((rvMap[key]||0)*100)/100,
+      orders: orMap[key]||0,
+      views: pvMap[key]||0,
+    })
   }
   return result
 }
@@ -133,7 +147,7 @@ export function DashboardTab({ stats, orders, leads, analytics, pageViews, onRef
       {/* Revenue + Views combined */}
       <div className="c span2">
         <div className="c-hd">
-          <div><h2>Приход &amp; Посещения — 30 дни</h2><p className="c-note">🟢 Приход (лв.) &nbsp; 🔵 Посещения &nbsp; 📦 Поръчки</p></div>
+          <div><h2>Приход &amp; Посещения — 30 дни</h2><p className="c-note">🟢 Приход (лв.) &nbsp; 🔵 Посещения</p></div>
         </div>
         <div style={{height:220}}>
           <ResponsiveContainer width="100%" height="100%">
