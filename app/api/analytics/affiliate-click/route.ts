@@ -1,77 +1,53 @@
 // app/api/analytics/affiliate-click/route.ts
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { partner, product_slug } = body
-
-    if (!partner) return NextResponse.json({ success: false }, { status: 400 })
+    const { partner, product_slug } = await req.json()
 
     const forwarded = req.headers.get('x-forwarded-for')
     const ip = forwarded?.split(',')[0].trim() || 'unknown'
-    const userAgent = req.headers.get('user-agent')
 
-    // Записваме клика в базата
-    const { error } = await supabaseAdmin.from('affiliate_clicks').insert({
+    await supabaseAdmin.from('affiliate_clicks').insert({
       partner,
-      product_slug: product_slug || null,
+      product_slug,
       ip_address: ip,
-      user_agent: userAgent,
-      referrer: req.headers.get('referer'),
+      user_agent: req.headers.get('user-agent'),
+      referrer:   req.headers.get('referer'),
     })
 
-    if (error) throw error
     return NextResponse.json({ success: true })
-  } catch (err: any) {
-    console.error('Click tracking error:', err.message)
-    return NextResponse.json({ success: false }, { status: 500 })
+  } catch {
+    return NextResponse.json({ success: false })
   }
 }
 
 export async function GET() {
-  try {
-    const last30daysDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const { data } = await supabaseAdmin
+    .from('affiliate_clicks')
+    .select('partner, product_slug, created_at')
+    .order('created_at', { ascending: false })
+    .limit(2000)
 
-    // 1. Вземаме само суровата статистика чрез по-бърза заявка
-    const { data, error } = await supabaseAdmin
-      .from('affiliate_clicks')
-      .select('partner, product_slug, created_at')
-      .order('created_at', { ascending: false })
-      .limit(5000) // Увеличаваме лимита, но оптимизираме обработката
+  const byPartner: Record<string, number> = {}
+  const byProduct: Record<string, number> = {}
+  const last30days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
 
-    if (error) throw error
-
-    const byPartner: Record<string, number> = {}
-    const byProduct: Record<string, number> = {}
-    let last30daysCount = 0
-
-    if (data) {
-      for (const click of data) {
-        // Броим партньорите
-        byPartner[click.partner] = (byPartner[click.partner] || 0) + 1
-        
-        // Броим продуктите
-        if (click.product_slug) {
-          byProduct[click.product_slug] = (byProduct[click.product_slug] || 0) + 1
-        }
-
-        // Броим последните 30 дни
-        if (click.created_at > last30daysDate) {
-          last30daysCount++
-        }
-      }
+  data?.forEach(click => {
+    byPartner[click.partner] = (byPartner[click.partner] || 0) + 1
+    if (click.product_slug) {
+      byProduct[click.product_slug] = (byProduct[click.product_slug] || 0) + 1
     }
+  })
 
-    return NextResponse.json({
-      total: data?.length || 0,
-      last30days: last30daysCount,
-      byPartner,
-      byProduct,
-      lastUpdate: new Date().toISOString()
-    })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  const recent = data?.filter(c => new Date(c.created_at) > last30days).length || 0
+
+  return NextResponse.json({
+    total:      data?.length || 0,
+    last30days: recent,
+    byPartner,
+    byProduct,
+  })
 }

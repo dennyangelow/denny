@@ -8,17 +8,15 @@ export async function GET() {
     const { data, error } = await supabaseAdmin
       .from('category_links')
       .select('*')
-      .order('sort_order', { ascending: true }) // Подреждаме ги по твоя зададен ред
+      .order('sort_order', { ascending: true })
 
-    if (error) {
-      console.error('Category Links GET Error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
+    if (error) throw error
 
-    // ВАЖНО: Връщаме { links: [...] }, защото това очаква фронтендът в ContentTab.tsx
+    // ВАЖНО: Ключът трябва да е "links", защото ContentTab.tsx го очаква точно така
     return NextResponse.json({ links: data || [] })
   } catch (error: any) {
-    return NextResponse.json({ error: 'Възникна сървърна грешка при зареждане на линковете' }, { status: 500 })
+    console.error('Category Links GET Error:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
@@ -27,28 +25,19 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     
-    // 1. Почистваме данните - премахваме id и дати, ако са изпратени случайно
-    const { id, created_at, ...insertData } = body
-
-    // 2. Валидация - ако няма заглавие или URL, не записваме нищо
-    if (!insertData.title || !insertData.url) {
-      return NextResponse.json({ error: 'Заглавието и URL адресът са задължителни' }, { status: 400 })
-    }
+    // Премахваме id, ако е изпратено, за да може Postgres да си генерира ново UUID
+    const { id, ...insertData } = body
 
     const { data, error } = await supabaseAdmin
       .from('category_links')
-      .insert([insertData]) // Винаги подаваме масив към .insert() за сигурност
+      .insert([insertData])
       .select()
       .single()
 
-    if (error) {
-      console.error('Category Links POST Error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
+    if (error) throw error
     return NextResponse.json({ link: data })
   } catch (error: any) {
-    console.error('Critical POST Error:', error.message)
-    return NextResponse.json({ error: 'Грешка при създаването на линка' }, { status: 500 })
+    console.error('Category Links POST Error:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

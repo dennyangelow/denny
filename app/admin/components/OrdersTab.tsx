@@ -1,4 +1,5 @@
 'use client'
+// app/admin/components/OrdersTab.tsx
 
 import { useState, useMemo, useEffect } from 'react'
 import type { Order } from '@/lib/supabase'
@@ -19,20 +20,14 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   const [search, setSearch]     = useState('')
   const [page, setPage]         = useState(1)
   const [selected, setSelected] = useState<Order | null>(null)
-  
-  // Добавяме състояние за сортиране
-  const [sortField, setSortField] = useState<keyof Order>('created_at')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
   useEffect(() => {
     if (initialOrder) setSelected(initialOrder)
   }, [initialOrder])
 
-  // Обединена логика за филтриране И сортиране
-  const filteredAndSorted = useMemo(() => {
+  const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    
-    let result = orders
+    return orders
       .filter(o => filter === 'all' || o.status === filter)
       .filter(o => !q ||
         o.order_number?.toLowerCase().includes(q) ||
@@ -40,32 +35,13 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         o.customer_phone?.includes(q) ||
         o.customer_city?.toLowerCase().includes(q)
       )
+  }, [orders, filter, search])
 
-    // Сортиране на резултатите
-    return result.sort((a, b) => {
-      const valA = a[sortField] ?? ''
-      const valB = b[sortField] ?? ''
-      if (valA < valB) return sortOrder === 'asc' ? -1 : 1
-      if (valA > valB) return sortOrder === 'asc' ? 1 : -1
-      return 0
-    })
-  }, [orders, filter, search, sortField, sortOrder])
-
-  const totalPages = Math.ceil(filteredAndSorted.length / PAGE_SIZE)
-  const paginated  = filteredAndSorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const handleFilter = (f: OrderStatus) => { setFilter(f); setPage(1) }
   const handleSearch = (v: string)      => { setSearch(v); setPage(1) }
-  
-  // Функция за промяна на сортирането
-  const toggleSort = (field: keyof Order) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortOrder('desc')
-    }
-  }
 
   const statusCount = (s: string) => orders.filter(o => s === 'all' ? true : o.status === s).length
 
@@ -74,26 +50,17 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
       <div className="orders-header">
         <div>
           <h1 className="page-title">Поръчки</h1>
-          <p className="page-sub">{filteredAndSorted.length} резултата</p>
+          <p className="page-sub">{filtered.length} резултата</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          {/* Бутон за Експорт - полезно допълнение */}
-          <button 
-            onClick={() => alert('CSV Експортът се генерира...')} 
-            className="page-btn" 
-            style={{ fontSize: 12 }}
-          >
-            📥 Експорт
-          </button>
-          <input
-            className="search-box"
-            placeholder="Търси..."
-            value={search}
-            onChange={e => handleSearch(e.target.value)}
-          />
-        </div>
+        <input
+          className="search-box"
+          placeholder="Търси по номер, клиент, телефон..."
+          value={search}
+          onChange={e => handleSearch(e.target.value)}
+        />
       </div>
 
+      {/* Filter tabs */}
       <div className="filter-row">
         {ORDER_STATUSES.map(s => (
           <button
@@ -112,30 +79,18 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         ))}
       </div>
 
+      {/* Table */}
       <div className="table-wrap">
         <table className="orders-table">
           <thead>
             <tr>
-              <th onClick={() => toggleSort('order_number')} style={{ cursor: 'pointer' }}>
-                Номер {sortField === 'order_number' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </th>
+              <th>Номер</th>
               <th>Клиент</th>
               <th>Град</th>
               <th>Плащане</th>
               <th>Статус</th>
-              <th 
-                className="text-right" 
-                onClick={() => toggleSort('total')} 
-                style={{ cursor: 'pointer' }}
-              >
-                Сума {sortField === 'total' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </th>
-              <th 
-                onClick={() => toggleSort('created_at')} 
-                style={{ cursor: 'pointer' }}
-              >
-                Дата {sortField === 'created_at' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </th>
+              <th className="text-right">Сума</th>
+              <th>Дата</th>
             </tr>
           </thead>
           <tbody>
@@ -171,7 +126,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </table>
       </div>
 
-      {/* Pagination логиката остава същата */}
+      {/* Pagination */}
       {totalPages > 1 && (
         <div className="pagination">
           <button className="page-btn" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
@@ -186,7 +141,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </div>
       )}
 
-      {/* Modal логиката остава същата */}
+      {/* Modal */}
       {selected && (
         <OrderModal
           order={selected}
@@ -203,9 +158,64 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
       )}
 
       <style>{`
-        /* Твоите стилове остават непроменени, те са супер */
         .orders-root { padding: 28px 32px; }
-        /* ... останалите стилове ... */
+        .orders-header {
+          display: flex; align-items: flex-start; justify-content: space-between;
+          margin-bottom: 18px; gap: 16px; flex-wrap: wrap;
+        }
+        .page-title { font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -.02em; }
+        .page-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+        .search-box {
+          padding: 9px 14px; border: 1px solid var(--border); border-radius: 9px;
+          font-family: inherit; font-size: 13px; width: 280px; background: #fff; color: var(--text);
+          transition: border-color .2s;
+        }
+        .search-box:focus { outline: none; border-color: var(--green); }
+        @media(max-width:600px) { .search-box { width: 100%; } }
+
+        .filter-row { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+        .filter-chip {
+          padding: 6px 12px; border: 1px solid var(--border); border-radius: 99px;
+          background: #fff; cursor: pointer; font-family: inherit; font-size: 12.5px;
+          color: var(--muted); display: flex; align-items: center; gap: 5px;
+          transition: all .15s; font-weight: 500;
+        }
+        .filter-chip:hover { border-color: #9ca3af; color: var(--text); }
+        .filter-chip.active:not([style]) { background: var(--text); color: #fff; border-color: var(--text); }
+        .chip-count {
+          background: rgba(0,0,0,.08); border-radius: 99px; padding: 1px 6px; font-size: 11px;
+        }
+        .filter-chip.active .chip-count { background: rgba(0,0,0,.15); }
+
+        .table-wrap { background: #fff; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+        .orders-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+        .orders-table th {
+          padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 600;
+          color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+          border-bottom: 1px solid var(--border); background: #f9fafb;
+        }
+        .orders-table td { padding: 11px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+        .order-row { cursor: pointer; transition: background .12s; }
+        .order-row:hover { background: #fafcff; }
+        .order-num { font-family: monospace; font-size: 12px; color: var(--muted); }
+        .customer-name { font-size: 13px; font-weight: 500; color: var(--text); }
+        .customer-phone { font-size: 11px; color: var(--muted); margin-top: 1px; }
+        .city-cell { font-size: 13px; color: var(--muted); }
+        .text-right { text-align: right; }
+        .amount { font-weight: 600; color: var(--text); }
+        .date-cell { font-size: 12px; color: var(--muted); white-space: nowrap; }
+        .status-pill { padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+        .empty-row { text-align: center; color: var(--muted); padding: 48px !important; font-size: 14px; }
+
+        .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 18px; }
+        .page-btn {
+          padding: 7px 16px; border: 1px solid var(--border); border-radius: 8px;
+          background: #fff; cursor: pointer; font-family: inherit; font-size: 13px;
+          color: var(--text); transition: all .15s;
+        }
+        .page-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+        .page-btn:disabled { opacity: .4; cursor: default; }
+        .page-info { font-size: 13px; color: var(--muted); }
       `}</style>
     </div>
   )

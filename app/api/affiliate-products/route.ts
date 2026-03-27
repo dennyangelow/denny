@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
+// 1. ЗАРЕЖДАНЕ НА ВСИЧКИ ПРОДУКТИ (за списъка в Админ панела)
 export async function GET() {
   try {
     const { data, error } = await supabaseAdmin
@@ -11,55 +12,36 @@ export async function GET() {
 
     if (error) throw error
 
-    // Връщаме ключ "products", както го очаква твоят фронтенд (ContentTab.tsx)
+    // ВАЖНО: Връщаме ключ "products", защото ContentTab.tsx го очаква точно така
     return NextResponse.json({ products: data || [] })
   } catch (error: any) {
     console.error('Affiliate GET Error:', error.message)
-    return NextResponse.json({ error: 'Грешка при зареждане на продуктите' }, { status: 500 })
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
+// 2. СЪЗДАВАНЕ НА НОВ ПРОДУКТ (когато натиснеш "+ Добави")
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     
-    // 1. Почистване на данните
-    const { id, created_at, updated_at, ...insertData } = body
-
-    // 2. Валидация - заглавието и линкът са критични
-    if (!insertData.title || !insertData.affiliate_url) {
-      return NextResponse.json({ error: 'Заглавието и партнерският линк са задължителни' }, { status: 400 })
-    }
-
-    // 3. Автоматичен slug (ако е празен)
-    if (!insertData.slug && insertData.title) {
-      insertData.slug = insertData.title
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, '-')
-        .replace(/[^-a-z0-9а-яё]/g, '') // Поддържа и кирилица
-    }
-
-    const now = new Date().toISOString()
+    // Премахваме id, ако случайно е пратено, за да може базата да генерира ново
+    const { id, ...insertData } = body
 
     const { data, error } = await supabaseAdmin
       .from('affiliate_products')
       .insert([{
         ...insertData,
-        created_at: now,
-        updated_at: now
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }])
       .select()
       .single()
 
-    if (error) {
-      console.error('Affiliate POST Error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
+    if (error) throw error
     return NextResponse.json({ product: data })
   } catch (error: any) {
-    console.error('Affiliate Server Error:', error.message)
-    return NextResponse.json({ error: 'Грешка при създаване на продукта' }, { status: 500 })
+    console.error('Affiliate POST Error:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

@@ -1,6 +1,7 @@
 'use client'
+// app/admin/page.tsx v3
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Sidebar }      from './components/Sidebar'
 import { DashboardTab } from './components/DashboardTab'
 import { OrdersTab }    from './components/OrdersTab'
@@ -24,112 +25,55 @@ export default function AdminPage() {
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
 
-  // Функция за автоматично затваряне на менюто при избор на таб (за мобилни)
-  const handleTabChange = (newTab: TabId) => {
-    setTab(newTab)
-    setMobileOpen(false)
-  }
-
-  if (loading) return <AdminLoader />
+  if (loading) return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16, fontFamily:"'DM Sans',sans-serif", color:'#6b7280', background:'#f4f6f8' }}>
+      <div style={{ width:40, height:40, border:'3px solid #e5e7eb', borderTopColor:'#2d6a4f', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
+      <p style={{ fontSize:15 }}>Зарежда данните...</p>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
 
   return (
-    <div className="admin-wrapper">
-      <style>{cssVariables}</style>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        :root{--green:#2d6a4f;--text:#111827;--muted:#6b7280;--border:#e5e7eb;--bg:#f4f6f8;--font:'DM Sans',system-ui,sans-serif}
+        html,body{height:100%;background:var(--bg)}
+        body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
+        .admin-layout{display:flex;min-height:100vh}
+        .admin-main{flex:1;margin-left:220px;min-height:100vh;background:var(--bg);overflow-x:hidden}
+        @media(max-width:768px){.admin-main{margin-left:0;padding-top:60px}}
+      `}</style>
 
-      {/* По-красиво известие за грешка */}
       {error && (
-        <div className="error-banner">
-          <p>⚠️ <strong>Грешка при връзката:</strong> {error}</p>
-          <button onClick={fetchAll}>Обнови</button>
+        <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:999, background:'#fef3c7', borderBottom:'2px solid #fde68a', padding:'12px 24px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, fontFamily:"'DM Sans',sans-serif", fontSize:14 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, color:'#92400e' }}>
+            <span>⚠️</span>
+            <span><strong>Внимание:</strong> {error}</span>
+          </div>
+          <button onClick={fetchAll} style={{ background:'#92400e', color:'#fff', border:'none', borderRadius:8, padding:'6px 16px', cursor:'pointer', fontWeight:700, fontSize:13, fontFamily:'inherit' }}>Опитай пак</button>
         </div>
       )}
 
-      <div className="admin-layout">
-        {/* Sidebar с подобрена логика */}
+      <div className="admin-layout" style={{ paddingTop: error ? 52 : 0 }}>
         <Sidebar
           tab={tab}
-          setTab={handleTabChange}
+          setTab={setTab}
           newOrders={stats.newOrders}
           mobileOpen={mobileOpen}
           setMobileOpen={setMobileOpen}
         />
-
-        {/* Затъмняване при отворено мобилно меню */}
-        {mobileOpen && <div className="mobile-overlay" onClick={() => setMobileOpen(false)} />}
-
         <main className="admin-main">
-          <div className="tab-content">
-            {tab === 'dashboard'  && <DashboardTab stats={stats} orders={orders} leads={leads} analytics={analytics} pageViews={pageViews} onRefresh={fetchAll} onViewOrder={o => { setViewOrder(o); setTab('orders') }} />}
-            {tab === 'orders'     && <OrdersTab orders={orders} onStatusChange={updateOrderStatus} onPaymentChange={updatePaymentStatus} initialOrder={viewOrder} />}
-            {tab === 'leads'      && <LeadsTab leads={leads} />}
-            {tab === 'content'    && <ContentTab />}
-            {tab === 'analytics'  && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}
-            {tab === 'settings'   && <SettingsTab ordersCount={orders.length} leadsCount={leads.length} />}
-          </div>
+          {tab === 'dashboard'  && <DashboardTab stats={stats} orders={orders} leads={leads} analytics={analytics} pageViews={pageViews} onRefresh={fetchAll} onViewOrder={o => { setViewOrder(o); setTab('orders') }} />}
+          {tab === 'orders'     && <OrdersTab orders={orders} onStatusChange={updateOrderStatus} onPaymentChange={updatePaymentStatus} initialOrder={viewOrder} />}
+          {tab === 'leads'      && <LeadsTab leads={leads} />}
+          {tab === 'content'    && <ContentTab />}
+          {tab === 'analytics'  && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}
+          {tab === 'settings'   && <SettingsTab ordersCount={orders.length} leadsCount={leads.length} />}
         </main>
       </div>
-
       <ToastContainer />
-    </div>
+    </>
   )
 }
-
-// Отделен компонент за Loader-а за по-чист код
-function AdminLoader() {
-  return (
-    <div className="loader-container">
-      <div className="spinner" />
-      <p>Синхронизиране на данните...</p>
-      <style>{`
-        .loader-container { display:flex; flex-direction:column; alignItems:center; justifyContent:center; height:100vh; gap:16px; font-family: sans-serif; background:#f4f6f8; color:#6b7280; }
-        .spinner { width:40px; height:40px; border:3px solid #e5e7eb; border-top-color:#2d6a4f; border-radius:50%; animation:spin .7s linear infinite; }
-        @keyframes spin { to { transform:rotate(360deg); } }
-      `}</style>
-    </div>
-  )
-}
-
-const cssVariables = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap');
-  
-  :root {
-    --sidebar-width: 240px;
-    --green: #2d6a4f;
-    --bg: #f4f6f8;
-  }
-
-  .admin-layout { 
-    display: flex; 
-    min-height: 100vh; 
-  }
-
-  .admin-main { 
-    flex: 1; 
-    margin-left: var(--sidebar-width); 
-    background: var(--bg);
-    transition: margin 0.3s;
-  }
-
-  .tab-content {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 24px;
-  }
-
-  .error-banner {
-    position: fixed; top: 20px; right: 20px; z-index: 10000;
-    background: #fff; border-left: 4px solid #ef4444;
-    padding: 16px 24px; border-radius: 12px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-    display: flex; align-items: center; gap: 20px;
-  }
-
-  .mobile-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40;
-    backdrop-filter: blur(4px);
-  }
-
-  @media (max-width: 768px) {
-    .admin-main { margin-left: 0; padding-top: 60px; }
-  }
-`

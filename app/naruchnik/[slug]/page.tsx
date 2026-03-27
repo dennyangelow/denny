@@ -1,4 +1,4 @@
-// app/naruchnik/[slug]/page.tsx
+// app/naruchnik/[slug]/page.tsx — v2 с cross-promote
 import { supabaseAdmin } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -8,115 +8,124 @@ interface Props {
   searchParams: { email?: string; name?: string }
 }
 
-async function getData(slug: string) {
-  // Пускаме двете заявки едновременно за максимална скорост
-  const [mainRes, othersRes] = await Promise.all([
-    supabaseAdmin.from('naruchnici').select('*').eq('slug', slug).eq('active', true).single(),
-    supabaseAdmin.from('naruchnici').select('id, slug, title, subtitle, cover_image_url').eq('active', true).neq('slug', slug).limit(3)
-  ])
+async function getNaruchnik(slug: string) {
+  const { data } = await supabaseAdmin
+    .from('naruchnici')
+    .select('*')
+    .eq('slug', slug)
+    .eq('active', true)
+    .single()
+  return data
+}
 
-  return { 
-    naruchnik: mainRes.data, 
-    others: othersRes.data || [] 
-  }
+async function getOtherNaruchnici(currentSlug: string) {
+  const { data } = await supabaseAdmin
+    .from('naruchnici')
+    .select('id, slug, title, subtitle, cover_image_url, category')
+    .eq('active', true)
+    .neq('slug', currentSlug)
+    .order('sort_order')
+    .limit(3)
+  return data || []
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { naruchnik } = await getData(params.slug)
-  if (!naruchnik) return { title: 'Наръчникът не е намерен' }
-  
+  const n = await getNaruchnik(params.slug)
+  if (!n) return { title: 'Не е намерено' }
   return {
-    title: `📗 ${naruchnik.title} — Изтегли безплатно`,
-    description: naruchnik.subtitle || 'Твоят градинарски наръчник е готов.',
-    openGraph: {
-      images: [naruchnik.cover_image_url || '']
-    }
+    title: `${n.title} — Изтегли Безплатно`,
+    description: n.description || n.subtitle,
   }
 }
 
 export default async function NaruchnikPage({ params, searchParams }: Props) {
-  const { naruchnik, others } = await getData(params.slug)
+  const naruchnik = await getNaruchnik(params.slug)
   if (!naruchnik) notFound()
 
-  // Увеличаваме брояча само на сървъра
-  try {
-    await supabaseAdmin.rpc('increment_naruchnik_downloads', { p_slug: params.slug })
-  } catch (e) {
-    console.error('Counter error:', e)
-  }
+  const otherNaruchnici = await getOtherNaruchnici(params.slug)
+
+  // Increment download counter (fire and forget)
+  supabaseAdmin.rpc('increment_naruchnik_downloads', { p_slug: params.slug }).then(() => {})
 
   const name = searchParams.name || ''
-  const email = searchParams.email || ''
 
   return (
     <>
       <style>{css}</style>
       <div className="dl-page">
         <div className="dl-card">
+          {/* Header */}
           <div className="dl-header">
-            <div className="dl-logo">🌿</div>
+            <div className="dl-logo">🍅</div>
             <div className="dl-check">✓</div>
             <h1 className="dl-title">
-              {name ? `${name}, твоят наръчник е готов!` : 'Наръчникът е готов!'}
+              {name ? `${name}, наръчникът е готов!` : 'Наръчникът е готов!'}
             </h1>
-            <p className="dl-sub">Можеш да го разгледаш веднага на бутона отдолу</p>
+            <p className="dl-sub">Кликни на бутона по-долу за да го изтеглиш директно</p>
           </div>
 
+          {/* Cover */}
           {naruchnik.cover_image_url && (
             <div className="dl-cover-wrap">
               <img src={naruchnik.cover_image_url} alt={naruchnik.title} className="dl-cover" />
             </div>
           )}
 
+          {/* Book info */}
           <div className="dl-info">
             <h2 className="dl-book-title">{naruchnik.title}</h2>
-            <p className="dl-desc">{naruchnik.subtitle || 'Полезни съвети за твоята градина.'}</p>
+            {naruchnik.subtitle && <p className="dl-book-sub">{naruchnik.subtitle}</p>}
+            {naruchnik.description && <p className="dl-desc">{naruchnik.description}</p>}
           </div>
 
+          {/* Download button */}
           <a
             href={naruchnik.pdf_url}
             target="_blank"
             rel="noopener noreferrer"
             className="dl-btn"
+            download
           >
-            📥 Отвори Наръчника (PDF)
+            📥 Изтегли Наръчника (PDF)
           </a>
 
-          <p className="dl-hint">Препоръчваме да го запазиш на телефона или компютъра си.</p>
+          <p className="dl-hint">
+            Ако файлът не се изтегля автоматично, кликни с десния бутон и избери „Запази като..."
+          </p>
 
-          {/* ДИНАМИЧНИ БОНУСИ - ако имаш такова поле в базата, го ползвай тук */}
+          {/* What's inside */}
           <div className="dl-inside">
-            <div className="dl-inside-title">Какво ще научиш:</div>
+            <div className="dl-inside-title">Вътре ще намериш:</div>
             <ul className="dl-features">
-              <li>✓ Практически стъпки за по-добра реколта</li>
-              <li>✓ Тайните на опитните градинари</li>
-              <li>✓ Естествени методи за защита</li>
+              <li>✓ Как да предпазиш от болести и вредители</li>
+              <li>✓ Кои торове работят наистина</li>
+              <li>✓ Календар за третиране</li>
+              <li>✓ Грешките, които убиват реколтата</li>
             </ul>
           </div>
 
-          {others.length > 0 && (
+          {/* OTHER naruchnici — cross-promote */}
+          {otherNaruchnici.length > 0 && (
             <div className="dl-other">
-              <div className="dl-other-title">🎁 Още безплатни ресурси</div>
+              <div className="dl-other-title">📚 Виж и другите наши наръчници</div>
               <div className="dl-other-grid">
-                {others.map(n => (
-                  <a 
-                    key={n.slug} 
-                    href={`/naruchnik/${n.slug}${email ? `?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}` : ''}`} 
-                    className="dl-other-card"
-                  >
-                    {n.cover_image_url 
+                {otherNaruchnici.map(n => (
+                  <a key={n.slug} href={`/naruchnik/${n.slug}${searchParams.email ? `?email=${encodeURIComponent(searchParams.email)}${searchParams.name ? `&name=${encodeURIComponent(searchParams.name)}` : ''}` : ''}`} className="dl-other-card">
+                    {n.cover_image_url
                       ? <img src={n.cover_image_url} alt={n.title} className="dl-other-img" />
                       : <div className="dl-other-emoji">📗</div>
                     }
                     <div className="dl-other-name">{n.title}</div>
-                    <div className="dl-other-btn">Виж тук →</div>
+                    {n.subtitle && <div className="dl-other-sub">{n.subtitle}</div>}
+                    <div className="dl-other-btn">Изтегли →</div>
                   </a>
                 ))}
               </div>
             </div>
           )}
 
-          <a href="/" className="dl-back">← Обратно към началната страница</a>
+          {/* Back link */}
+          <a href="/" className="dl-back">← Обратно към сайта</a>
         </div>
       </div>
     </>

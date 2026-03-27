@@ -1,4 +1,5 @@
 'use client'
+// app/admin/login/page.tsx
 
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -6,16 +7,14 @@ import { Suspense } from 'react'
 
 function LoginContent() {
   const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [error, setError]       = useState('')
+  const [loading, setLoading]   = useState(false)
   const [noSecret, setNoSecret] = useState(false)
-  
   const router = useRouter()
   const params = useSearchParams()
   const from = params.get('from') || '/admin'
 
-  // Проверка за конфигуриран секрет
+  // Check if ADMIN_SECRET is configured by trying with empty password
   useEffect(() => {
     fetch('/api/admin/auth', {
       method: 'POST',
@@ -26,14 +25,16 @@ function LoginContent() {
     }).catch(() => {})
   }, [])
 
+  // If no secret configured, auto-redirect
   useEffect(() => {
-    if (noSecret) router.replace(from)
+    if (noSecret) {
+      router.replace(from)
+    }
   }, [noSecret, from, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!password.trim() || loading) return
-    
+    if (!password.trim()) return
     setLoading(true)
     setError('')
 
@@ -46,109 +47,98 @@ function LoginContent() {
     if (res.ok) {
       router.replace(from)
     } else {
-      setError('Грешна парола. Опитайте отново.')
+      setError('Грешна парола. Провери ADMIN_SECRET в Vercel.')
       setLoading(false)
-      // Кратка вибрация или анимация може да се добави тук
     }
   }
 
-  if (noSecret) return <div className="full-center"><div className="spinner" /></div>
+  if (noSecret) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'#0f1f16', fontFamily:"'DM Sans',sans-serif" }}>
+        <div style={{ color:'#86efac', fontSize:16, display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:24, height:24, border:'3px solid rgba(134,239,172,0.3)', borderTopColor:'#86efac', borderRadius:'50%', animation:'spin .6s linear infinite' }} />
+          Пренасочване към Admin...
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="login-page">
-      <style>{loginStyles}</style>
-      
-      <div className={`login-card ${error ? 'shake' : ''}`}>
-        <div className="avatar">🍅</div>
-        <h1>Админ Панел</h1>
-        <p className="subtitle">Въведете вашия секретен ключ</p>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'linear-gradient(135deg,#0c3a1c,#0f1f16)', fontFamily:"'DM Sans',sans-serif", padding:'20px' }}>
+      <div style={{ background:'#fff', borderRadius:24, padding:'44px 40px', width:'100%', maxWidth:400, textAlign:'center', boxShadow:'0 24px 80px rgba(0,0,0,0.5)' }}>
+        {/* Logo */}
+        <div style={{ fontSize:44, marginBottom:12 }}>🍅</div>
+        <h1 style={{ fontSize:22, fontWeight:800, color:'#111', letterSpacing:'-.02em', marginBottom:4 }}>Denny Angelow</h1>
+        <p style={{ fontSize:13, color:'#6b7280', marginBottom:32 }}>Admin панел</p>
 
-        <form onSubmit={handleSubmit}>
-          <div className="input-group">
-            <span className="icon">🔑</span>
+        <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ position:'relative' }}>
             <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Парола..."
+              type="password"
+              placeholder="Въведи паролата"
               value={password}
               onChange={e => setPassword(e.target.value)}
               autoFocus
-              className={error ? 'input-error' : ''}
+              style={{
+                width:'100%', padding:'14px 16px', paddingLeft:44,
+                border:`1.5px solid ${error ? '#ef4444' : '#e5e7eb'}`,
+                borderRadius:12, fontSize:15, outline:'none',
+                fontFamily:'inherit', color:'#111', background:'#fafafa',
+                transition:'border-color .2s', boxSizing:'border-box',
+              }}
+              onFocus={e => { if (!error) (e.target as HTMLInputElement).style.borderColor = '#2d6a4f' }}
+              onBlur={e => { if (!error) (e.target as HTMLInputElement).style.borderColor = '#e5e7eb' }}
             />
-            <button 
-              type="button" 
-              className="toggle-pass" 
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? '👁️' : '🙈'}
-            </button>
+            <span style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', fontSize:18, pointerEvents:'none' }}>🔑</span>
           </div>
 
-          {error && <div className="error-box">⚠️ {error}</div>}
+          {error && (
+            <div style={{ background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#991b1b', textAlign:'left', display:'flex', gap:8, alignItems:'flex-start' }}>
+              <span>⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
 
-          <button 
-            type="submit" 
-            className="submit-btn" 
+          <button
+            type="submit"
             disabled={loading || !password.trim()}
+            style={{
+              background: (!password.trim() || loading) ? '#d1d5db' : 'linear-gradient(135deg,#2d6a4f,#16a34a)',
+              color:'#fff', border:'none', borderRadius:12,
+              padding:'14px', fontWeight:800, fontSize:16,
+              cursor: (!password.trim() || loading) ? 'default' : 'pointer',
+              fontFamily:'inherit', transition:'all .2s',
+              boxShadow: password.trim() ? '0 4px 16px rgba(22,163,74,0.3)' : 'none',
+            }}
           >
-            {loading ? 'Проверка...' : 'Влез в системата'}
+            {loading ? 'Влизане...' : 'Влез в Admin →'}
           </button>
         </form>
 
-        <footer className="login-footer">
-          Забравена парола? Проверете <code>.env</code> файла си.
-        </footer>
+        <p style={{ fontSize:12, color:'#9ca3af', marginTop:20, lineHeight:1.5 }}>
+          Паролата се задава чрез <code style={{ background:'#f3f4f6', padding:'2px 6px', borderRadius:4, fontSize:11 }}>ADMIN_SECRET</code> в Vercel Environment Variables
+        </p>
       </div>
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'DM Sans', sans-serif; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   )
 }
 
-const loginStyles = `
-  .login-page {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background: radial-gradient(circle at top left, #14532d, #064e3b, #022c22);
-    padding: 20px; font-family: 'DM Sans', sans-serif;
-  }
-  .login-card {
-    background: white; padding: 40px; border-radius: 28px; width: 100%; max-width: 400px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center;
-  }
-  .avatar { font-size: 50px; margin-bottom: 10px; }
-  h1 { font-size: 24px; font-weight: 800; color: #111827; margin-bottom: 4px; }
-  .subtitle { color: #6b7280; font-size: 14px; margin-bottom: 30px; }
-  
-  .input-group { position: relative; margin-bottom: 16px; }
-  .input-group input {
-    width: 100%; padding: 14px 45px; border-radius: 14px; border: 2px solid #f3f4f6;
-    background: #f9fafb; font-size: 16px; transition: all 0.2s; outline: none;
-  }
-  .input-group input:focus { border-color: #10b981; background: white; }
-  .input-group .icon { position: absolute; left: 15px; top: 14px; font-size: 20px; }
-  .toggle-pass { position: absolute; right: 15px; top: 14px; background: none; border: none; cursor: pointer; opacity: 0.5; }
-  
-  .submit-btn {
-    width: 100%; padding: 14px; border-radius: 14px; border: none;
-    background: #059669; color: white; font-weight: 700; font-size: 16px;
-    cursor: pointer; transition: 0.2s; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
-  }
-  .submit-btn:hover:not(:disabled) { background: #047857; transform: translateY(-1px); }
-  .submit-btn:disabled { background: #d1d5db; box-shadow: none; cursor: not-allowed; }
-  
-  .error-box { background: #fef2f2; color: #dc2626; padding: 12px; border-radius: 10px; font-size: 13px; margin-bottom: 16px; border: 1px solid #fee2e2; }
-  .login-footer { margin-top: 24px; color: #9ca3af; font-size: 12px; }
-  
-  .shake { animation: shake 0.4s ease-in-out; }
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-8px); }
-    75% { transform: translateX(8px); }
-  }
-  .spinner { width: 30px; height: 30px; border: 3px solid #10b981; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-`
-
 export default function AdminLogin() {
   return (
-    <Suspense fallback={<div className="full-center"><div className="spinner" /></div>}>
+    <Suspense fallback={
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'#0f1f16' }}>
+        <div style={{ width:32, height:32, border:'3px solid rgba(134,239,172,0.3)', borderTopColor:'#86efac', borderRadius:'50%', animation:'spin .6s linear infinite' }} />
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    }>
       <LoginContent />
     </Suspense>
   )
