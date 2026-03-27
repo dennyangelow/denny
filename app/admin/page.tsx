@@ -1,18 +1,20 @@
 'use client'
-// app/admin/page.tsx v3
+// app/admin/page.tsx v4 — с auto-refresh на 5 минути
 
-import { useState } from 'react'
-import { Sidebar }      from './components/Sidebar'
-import { DashboardTab } from './components/DashboardTab'
-import { OrdersTab }    from './components/OrdersTab'
-import { LeadsTab }     from './components/LeadsTab'
-import { ContentTab }   from './components/ContentTab'
-import { AnalyticsTab } from './components/AnalyticsTab'
-import { SettingsTab }  from './components/SettingsTab'
+import { useState, useEffect } from 'react'
+import { Sidebar }        from './components/Sidebar'
+import { DashboardTab }   from './components/DashboardTab'
+import { OrdersTab }      from './components/OrdersTab'
+import { LeadsTab }       from './components/LeadsTab'
+import { ContentTab }     from './components/ContentTab'
+import { AnalyticsTab }   from './components/AnalyticsTab'
+import { SettingsTab }    from './components/SettingsTab'
 import { ToastContainer } from '@/components/ui/Toast'
-import { useAdminData }  from '@/hooks/useAdminData'
-import type { TabId }   from '@/lib/constants'
-import type { Order }   from '@/lib/supabase'
+import { useAdminData }   from '@/hooks/useAdminData'
+import type { TabId }     from '@/lib/constants'
+import type { Order }     from '@/lib/supabase'
+
+const AUTO_REFRESH_MS = 5 * 60 * 1000 // 5 минути
 
 export default function AdminPage() {
   const [tab, setTab]               = useState<TabId>('dashboard')
@@ -25,10 +27,23 @@ export default function AdminPage() {
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
 
+  // Auto-refresh на 5 минути
+  useEffect(() => {
+    const timer = setInterval(() => fetchAll(), AUTO_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [fetchAll])
+
+  // Затвори мобилния sidebar при смяна на tab
+  useEffect(() => { setMobileOpen(false) }, [tab])
+
   if (loading) return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16, fontFamily:"'DM Sans',sans-serif", color:'#6b7280', background:'#f4f6f8' }}>
-      <div style={{ width:40, height:40, border:'3px solid #e5e7eb', borderTopColor:'#2d6a4f', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
-      <p style={{ fontSize:15 }}>Зарежда данните...</p>
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', height: '100vh', gap: 16,
+      fontFamily: "'DM Sans',sans-serif", color: '#6b7280', background: '#f4f6f8',
+    }}>
+      <div style={{ width: 40, height: 40, border: '3px solid #e5e7eb', borderTopColor: '#2d6a4f', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
+      <p style={{ fontSize: 15 }}>Зарежда Admin панела...</p>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
@@ -36,23 +51,39 @@ export default function AdminPage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800;900&display=swap');
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-        :root{--green:#2d6a4f;--text:#111827;--muted:#6b7280;--border:#e5e7eb;--bg:#f4f6f8;--font:'DM Sans',system-ui,sans-serif}
+        :root{
+          --green:#2d6a4f;--text:#111827;--muted:#6b7280;
+          --border:#e5e7eb;--bg:#f4f6f8;
+          --font:'DM Sans',system-ui,sans-serif;
+        }
         html,body{height:100%;background:var(--bg)}
         body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
         .admin-layout{display:flex;min-height:100vh}
         .admin-main{flex:1;margin-left:220px;min-height:100vh;background:var(--bg);overflow-x:hidden}
-        @media(max-width:768px){.admin-main{margin-left:0;padding-top:60px}}
+        @media(max-width:768px){.admin-main{margin-left:0;padding-top:56px}}
+        input,select,textarea,button{font-family:inherit}
       `}</style>
 
       {error && (
-        <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:999, background:'#fef3c7', borderBottom:'2px solid #fde68a', padding:'12px 24px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, fontFamily:"'DM Sans',sans-serif", fontSize:14 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10, color:'#92400e' }}>
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999,
+          background: '#fef3c7', borderBottom: '2px solid #fde68a',
+          padding: '12px 24px', display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between', gap: 16,
+          fontFamily: "'DM Sans',sans-serif", fontSize: 14,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#92400e' }}>
             <span>⚠️</span>
             <span><strong>Внимание:</strong> {error}</span>
           </div>
-          <button onClick={fetchAll} style={{ background:'#92400e', color:'#fff', border:'none', borderRadius:8, padding:'6px 16px', cursor:'pointer', fontWeight:700, fontSize:13, fontFamily:'inherit' }}>Опитай пак</button>
+          <button
+            onClick={fetchAll}
+            style={{ background: '#92400e', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 16px', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit' }}
+          >
+            Опитай пак
+          </button>
         </div>
       )}
 
@@ -65,8 +96,22 @@ export default function AdminPage() {
           setMobileOpen={setMobileOpen}
         />
         <main className="admin-main">
-          {tab === 'dashboard'  && <DashboardTab stats={stats} orders={orders} leads={leads} analytics={analytics} pageViews={pageViews} onRefresh={fetchAll} onViewOrder={o => { setViewOrder(o); setTab('orders') }} />}
-          {tab === 'orders'     && <OrdersTab orders={orders} onStatusChange={updateOrderStatus} onPaymentChange={updatePaymentStatus} initialOrder={viewOrder} />}
+          {tab === 'dashboard'  && (
+            <DashboardTab
+              stats={stats} orders={orders} leads={leads}
+              analytics={analytics} pageViews={pageViews}
+              onRefresh={fetchAll}
+              onViewOrder={o => { setViewOrder(o); setTab('orders') }}
+            />
+          )}
+          {tab === 'orders'     && (
+            <OrdersTab
+              orders={orders}
+              onStatusChange={updateOrderStatus}
+              onPaymentChange={updatePaymentStatus}
+              initialOrder={viewOrder}
+            />
+          )}
           {tab === 'leads'      && <LeadsTab leads={leads} />}
           {tab === 'content'    && <ContentTab />}
           {tab === 'analytics'  && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}

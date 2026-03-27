@@ -1,4 +1,4 @@
-// app/api/orders/[id]/route.ts
+// app/api/orders/[id]/route.ts — v2 с tracking number support
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -8,11 +8,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const body = await req.json()
     const updates: Record<string, any> = {}
 
-    if (body.status)         updates.status         = body.status
-    if (body.payment_status) updates.payment_status = body.payment_status
-    if (body.tracking_number !== undefined) updates.tracking_number = body.tracking_number
-    if (body.status === 'shipped')   updates.shipped_at   = new Date().toISOString()
-    if (body.status === 'delivered') updates.delivered_at = new Date().toISOString()
+    if (body.status !== undefined)           updates.status            = body.status
+    if (body.payment_status !== undefined)   updates.payment_status    = body.payment_status
+    if (body.tracking_number !== undefined)  updates.tracking_number   = body.tracking_number || null
+
+    // Автоматични timestamps
+    if (body.status === 'shipped')    updates.shipped_at   = new Date().toISOString()
+    if (body.status === 'delivered')  updates.delivered_at = new Date().toISOString()
+
+    updates.updated_at = new Date().toISOString()
+
+    if (Object.keys(updates).length === 1) {
+      // само updated_at — нищо реално не е сменено
+      return NextResponse.json({ success: true })
+    }
 
     const { data, error } = await supabaseAdmin
       .from('orders')
