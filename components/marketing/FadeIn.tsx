@@ -7,9 +7,10 @@ interface Props {
   children: React.ReactNode
   delay?: number
   className?: string
+  style?: React.CSSProperties
 }
 
-export function FadeIn({ children, delay = 0, className }: Props) {
+export function FadeIn({ children, delay = 0, className, style }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
 
@@ -29,9 +30,10 @@ export function FadeIn({ children, delay = 0, className }: Props) {
       ref={ref}
       className={className}
       style={{
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(22px)',
+        opacity:    visible ? 1 : 0,
+        transform:  visible ? 'translateY(0)' : 'translateY(22px)',
         transition: `opacity 0.55s ease ${delay}ms, transform 0.55s ease ${delay}ms`,
+        ...style,
       }}
     >
       {children}

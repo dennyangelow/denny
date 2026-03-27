@@ -1,23 +1,17 @@
 // app/api/analytics/affiliate-click/route.ts
-
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export async function POST(req: NextRequest) {
   try {
     const { partner, product_slug } = await req.json()
-
-    const forwarded = req.headers.get('x-forwarded-for')
-    const ip = forwarded?.split(',')[0].trim() || 'unknown'
-
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
     await supabaseAdmin.from('affiliate_clicks').insert({
-      partner,
-      product_slug,
+      partner, product_slug,
       ip_address: ip,
       user_agent: req.headers.get('user-agent'),
       referrer:   req.headers.get('referer'),
     })
-
     return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json({ success: false })
@@ -37,16 +31,12 @@ export async function GET() {
 
   data?.forEach(click => {
     byPartner[click.partner] = (byPartner[click.partner] || 0) + 1
-    if (click.product_slug) {
-      byProduct[click.product_slug] = (byProduct[click.product_slug] || 0) + 1
-    }
+    if (click.product_slug) byProduct[click.product_slug] = (byProduct[click.product_slug] || 0) + 1
   })
-
-  const recent = data?.filter(c => new Date(c.created_at) > last30days).length || 0
 
   return NextResponse.json({
     total:      data?.length || 0,
-    last30days: recent,
+    last30days: data?.filter(c => new Date(c.created_at) > last30days).length || 0,
     byPartner,
     byProduct,
   })

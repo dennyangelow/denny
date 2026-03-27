@@ -1,9 +1,9 @@
-// app/api/leads/broadcast/route.ts — Масово изпращане до абонатите
+// app/api/leads/broadcast/route.ts — масово изпращане
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { Resend } from 'resend'
 
-// Rate limit: max 1 broadcast per 10 минути (предпазва от случайно двойно изпращане)
 let lastBroadcast = 0
 const COOLDOWN_MS = 10 * 60 * 1000
 
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { subject, body } = await req.json()
+    const { subject, body, tags, onlySubscribed = true } = await req.json()
     if (!subject?.trim() || !body?.trim()) {
       return NextResponse.json({ error: 'Темата и съдържанието са задължителни' }, { status: 400 })
     }
@@ -28,23 +28,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'RESEND_API_KEY не е настроен' }, { status: 500 })
     }
 
-    // Вземи всички активни абонати
-    const { data: leads, error } = await supabaseAdmin
-      .from('leads')
-      .select('email, name')
-      .eq('subscribed', true)
+    let query = supabaseAdmin.from('leads').select('email, name')
+    if (onlySubscribed) query = query.eq('subscribed', true)
+    if (tags && tags.length > 0) query = query.overlaps('tags', tags)
 
+    const { data: leads, error } = await query
     if (error) throw error
     if (!leads || leads.length === 0) {
-      return NextResponse.json({ error: 'Няма активни абонати' }, { status: 400 })
+      return NextResponse.json({ error: 'Няма подходящи абонати' }, { status: 400 })
     }
 
-    const resend = new Resend(apiKey)
-    let sent = 0
-    const errors: string[] = []
+    const resend  = new Resend(apiKey)
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://dennyangelow.com'
+    let sent      = 0
+    const errors: string[] = []
 
-    // Изпращаме по 10 наведнъж (rate limit на Resend)
     const BATCH = 10
     for (let i = 0; i < leads.length; i += BATCH) {
       const batch = leads.slice(i, i + BATCH)
@@ -72,7 +70,6 @@ export async function POST(req: NextRequest) {
           errors.push(`${lead.email}: ${e.message}`)
         }
       }))
-      // Малка пауза между batch-овете
       if (i + BATCH < leads.length) {
         await new Promise(r => setTimeout(r, 200))
       }

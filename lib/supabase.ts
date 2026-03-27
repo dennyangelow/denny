@@ -2,12 +2,11 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL     || 'https://placeholder.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder'
+const serviceRoleKey  = process.env.SUPABASE_SERVICE_ROLE_KEY     || 'placeholder'
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
+export const supabase      = createClient(supabaseUrl, supabaseAnonKey)
 export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
 
 // ── Interfaces ──────────────────────────────────────────────
@@ -38,6 +37,7 @@ export interface Order {
   payment_method: 'cod' | 'bank' | 'card'
   payment_status: 'pending' | 'paid' | 'refunded'
   status: 'new' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled'
+  courier?: 'econt' | 'speedy'
   subtotal: number
   shipping: number
   total: number
@@ -67,10 +67,37 @@ export interface Lead {
   name?: string
   phone?: string
   source: string
+  naruchnik_slug?: string
   subscribed: boolean
+  tags?: string[]
+  engagement_score?: number
+  total_purchases?: number
+  last_email_sent_at?: string
+  last_email_opened_at?: string
   utm_source?: string
   utm_campaign?: string
+  unsubscribe_reason?: string
   created_at: string
+}
+
+export interface EmailSequenceStep {
+  id: string
+  sequence_name: string
+  step_number: number
+  delay_days: number
+  subject: string
+  template: string
+  active: boolean
+}
+
+export interface EmailLog {
+  id: string
+  lead_id: string
+  sequence_name: string
+  step_number: number
+  sent_at: string
+  opened_at?: string
+  clicked_at?: string
 }
 
 export interface AffiliateAnalytics {

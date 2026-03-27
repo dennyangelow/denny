@@ -1,35 +1,36 @@
 'use client'
-// hooks/useAdminData.ts — v8 с уникални посещения
+// hooks/useAdminData.ts — v9
 
 import { useState, useCallback, useEffect } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
 
 export interface AdminStats {
-  totalOrders: number
-  revenue: number
-  leads: number
-  newOrders: number
-  todayRevenue: number
-  weekRevenue: number
+  totalOrders:     number
+  revenue:         number
+  leads:           number
+  newOrders:       number
+  todayRevenue:    number
+  weekRevenue:     number
   pendingPayments: number
-  avgOrderValue: number
-  conversionRate: number
+  avgOrderValue:   number
+  conversionRate:  number
 }
 
 export interface PageViewStats {
-  total: number
-  unique: number
-  today: number
-  todayUnique: number
-  last7: number
-  last7Unique: number
-  last30: number
+  total:        number
+  unique:       number
+  today:        number
+  todayUnique:  number
+  last7:        number
+  last7Unique:  number
+  last30:       number
   last30Unique: number
   mobilePercent: number
-  dailyChart: { date: string; count: number; unique?: number }[]
-  topReferrers: { name: string; count: number }[]
-  topUtm: { name: string; count: number }[]
-  topPages: { name: string; count: number }[]
+  dailyChart:    { date: string; count: number; unique?: number }[]
+  topReferrers:  { name: string; count: number }[]
+  topUtm:        { name: string; count: number }[]
+  topCampaigns:  { name: string; count: number }[]
+  topPages:      { name: string; count: number }[]
 }
 
 export function useAdminData() {
@@ -56,10 +57,10 @@ export function useAdminData() {
         fetch('/api/analytics/pageview').then(r => r.ok ? r.json() : null),
       ])
 
-      const orderList: Order[] = ordRes.status === 'fulfilled' ? (ordRes.value?.orders || []) : []
-      const leadList: Lead[]   = leadRes.status === 'fulfilled' ? (leadRes.value?.leads || []) : []
-      const affData            = affRes.status === 'fulfilled' ? affRes.value : null
-      const pvData             = pvRes.status === 'fulfilled' ? pvRes.value : null
+      const orderList: Order[] = ordRes.status  === 'fulfilled' ? (ordRes.value?.orders || []) : []
+      const leadList: Lead[]   = leadRes.status === 'fulfilled' ? (leadRes.value?.leads  || []) : []
+      const affData            = affRes.status  === 'fulfilled' ? affRes.value  : null
+      const pvData             = pvRes.status   === 'fulfilled' ? pvRes.value   : null
 
       if (ordRes.status === 'rejected' && leadRes.status === 'rejected') {
         setError('Грешка при зареждане. Провери Supabase env vars в Vercel.')
@@ -74,9 +75,6 @@ export function useAdminData() {
       const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
       const active  = orderList.filter(o => o.status !== 'cancelled')
       const revenue = active.reduce((s, o) => s + Number(o.total), 0)
-      const weekRevenue = active
-        .filter(o => o.created_at.slice(0, 10) >= weekAgo)
-        .reduce((s, o) => s + Number(o.total), 0)
 
       setStats({
         totalOrders:     orderList.length,
@@ -84,7 +82,7 @@ export function useAdminData() {
         leads:           leadList.length,
         newOrders:       orderList.filter(o => o.status === 'new').length,
         todayRevenue:    active.filter(o => o.created_at.slice(0, 10) === today).reduce((s, o) => s + Number(o.total), 0),
-        weekRevenue,
+        weekRevenue:     active.filter(o => o.created_at.slice(0, 10) >= weekAgo).reduce((s, o) => s + Number(o.total), 0),
         pendingPayments: orderList.filter(o => o.payment_status === 'pending' && o.status !== 'cancelled').length,
         avgOrderValue:   active.length ? revenue / active.length : 0,
         conversionRate:  pvData?.last30 && orderList.length
@@ -102,7 +100,8 @@ export function useAdminData() {
 
   const updateOrderStatus = useCallback(async (orderId: string, status: string) => {
     const res = await fetch(`/api/orders/${orderId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     })
     if (!res.ok) throw new Error('Update failed')
@@ -111,7 +110,8 @@ export function useAdminData() {
 
   const updatePaymentStatus = useCallback(async (orderId: string, payment_status: string) => {
     const res = await fetch(`/api/orders/${orderId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payment_status }),
     })
     if (!res.ok) throw new Error('Update failed')

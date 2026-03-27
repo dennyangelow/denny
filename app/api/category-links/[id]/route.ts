@@ -6,11 +6,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const body = await req.json()
     const { data, error } = await supabaseAdmin
-      .from('category_links')
-      .update(body)
-      .eq('id', params.id)
-      .select()
-      .single()
+      .from('category_links').update(body).eq('id', params.id).select().single()
     if (error) throw error
     return NextResponse.json({ link: data })
   } catch (error: any) {
@@ -20,10 +16,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { error } = await supabaseAdmin
-      .from('category_links')
-      .delete()
-      .eq('id', params.id)
+    const { error } = await supabaseAdmin.from('category_links').delete().eq('id', params.id)
     if (error) throw error
     return NextResponse.json({ success: true })
   } catch (error: any) {

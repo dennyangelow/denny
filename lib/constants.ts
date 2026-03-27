@@ -20,6 +20,11 @@ export const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: strin
   refunded: { label: 'Върната',  color: '#991b1b', bg: '#fee2e2' },
 }
 
+export const COURIER_LABELS: Record<string, { label: string; price: number }> = {
+  econt: { label: 'Еконт',  price: 5.00 },
+  speedy: { label: 'Спиди', price: 5.50 },
+}
+
 export const ORDER_STATUSES = ['all', 'new', 'confirmed', 'shipped', 'delivered', 'cancelled'] as const
 export type OrderStatus = typeof ORDER_STATUSES[number]
 
@@ -34,7 +39,7 @@ export const NAV_ITEMS = [
 
 export type TabId = typeof NAV_ITEMS[number]['id']
 
-// Currency helper — евро навсякъде
+// Валута — само евро
 export const CURRENCY = '€'
 export function formatPrice(amount: number): string {
   return `${Number(amount).toFixed(2)} €`
