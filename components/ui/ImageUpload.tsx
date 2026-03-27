@@ -28,7 +28,7 @@ export function ImageUpload({ value, onChange, folder = 'products', label = 'Ð¡Ð
       fd.append('folder', folder)
 
       setProgress(40)
-      const res  = await fetch('/api/upload', { method: 'POST', body: fd })
+      const res  = await fetch('/api/uploads', { method: 'POST', body: fd })
       setProgress(80)
       const data = await res.json()
 
