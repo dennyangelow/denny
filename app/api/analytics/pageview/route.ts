@@ -1,18 +1,27 @@
-// app/api/analytics/pageview/route.ts — v2 с уникални посещения
+// app/api/analytics/pageview/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { createHash } from 'crypto'
 
 export async function POST(req: NextRequest) {
   try {
-    const { page, referrer, utm_source, utm_medium, utm_campaign } = await req.json()
+    const body = await req.json()
+    const { page, referrer, utm_source, utm_medium, utm_campaign } = body
+
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
     const ua = req.headers.get('user-agent') || ''
+    
+    // Филтрираме ботове (Googlebot и т.н.), за да не ти цапат статистиката
+    if (/bot|spider|crawler|lighthouse/i.test(ua)) {
+      return NextResponse.json({ ok: true, skipped: 'bot' })
+    }
+
     const isMobile = /mobile|android|iphone|ipad/i.test(ua)
 
-    // Хешираме IP + UA за privacy-safe уникален visitor ID (не пазим raw IP в лог)
+    // Генерираме уникален ID за деня (сменя се всеки ден за по-добра анонимност)
+    const salt = new Date().toISOString().slice(0, 10)
     const visitorHash = createHash('sha256')
-      .update(`${ip}:${ua}:${new Date().toISOString().slice(0, 10)}`) // daily rotating
+      .update(`${ip}:${ua}:${salt}`)
       .digest('hex')
       .slice(0, 16)
 
@@ -22,114 +31,103 @@ export async function POST(req: NextRequest) {
       utm_source: utm_source || null,
       utm_medium: utm_medium || null,
       utm_campaign: utm_campaign || null,
-      ip_address: ip,
       visitor_hash: visitorHash,
-      user_agent: ua,
       is_mobile: isMobile,
+      // Не записваме чист IP адрес, ако искаме пълна GDPR съвместимост
     })
+
     return NextResponse.json({ ok: true })
-  } catch {
-    return NextResponse.json({ ok: false })
+  } catch (err) {
+    return NextResponse.json({ ok: false }, { status: 500 })
   }
 }
 
 export async function GET() {
   try {
-    const { data } = await supabaseAdmin
+    // Вземаме само последните 30 дни от базата, за да не теглим милиони редове
+    const limitDate = new Date(Date.now() - 30 * 86400000).toISOString()
+    
+    const { data, error } = await supabaseAdmin
       .from('page_views')
       .select('page, referrer, utm_source, is_mobile, visitor_hash, created_at')
+      .gt('created_at', limitDate)
       .order('created_at', { ascending: false })
-      .limit(10000)
 
-    if (!data) return NextResponse.json({ views: [], total: 0, today: 0, unique: 0 })
+    if (error) throw error
+    if (!data) return NextResponse.json({ total: 0 })
 
     const now = new Date()
-    const today = now.toISOString().slice(0, 10)
-    const last7 = new Date(now.getTime() - 7 * 86400000).toISOString()
-    const last30 = new Date(now.getTime() - 30 * 86400000).toISOString()
+    const todayStr = now.toISOString().slice(0, 10)
 
-    // Уникални посещения (по visitor_hash)
-    const allHashes = new Set(data.map(v => v.visitor_hash).filter(Boolean))
-    const todayHashes = new Set(data.filter(v => v.created_at.slice(0, 10) === today).map(v => v.visitor_hash).filter(Boolean))
-    const last7Hashes = new Set(data.filter(v => v.created_at >= last7).map(v => v.visitor_hash).filter(Boolean))
-    const last30Hashes = new Set(data.filter(v => v.created_at >= last30).map(v => v.visitor_hash).filter(Boolean))
-
-    // Daily chart — last 30 days (общо + уникални)
-    const dailyMap: Record<string, { total: number; unique: Set<string> }> = {}
-    data.forEach(v => {
-      const d = v.created_at.slice(0, 10)
-      if (!dailyMap[d]) dailyMap[d] = { total: 0, unique: new Set() }
-      dailyMap[d].total++
-      if (v.visitor_hash) dailyMap[d].unique.add(v.visitor_hash)
-    })
-
-    // Fill missing days
-    const dailyChart = []
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000).toISOString().slice(0, 10)
-      const entry = dailyMap[d]
-      dailyChart.push({
-        date: d.slice(5), // MM-DD
-        count: entry?.total || 0,
-        unique: entry?.unique.size || 0,
-      })
+    // Обекти за събиране на статистика
+    const stats = {
+      total: data.length,
+      hashes: new Set(),
+      todayTotal: 0,
+      todayHashes: new Set(),
+      mobileCount: 0,
+      pages: {} as Record<string, number>,
+      refs: {} as Record<string, number>,
+      utms: {} as Record<string, number>,
+      daily: {} as Record<string, { t: number; u: Set<string> }>
     }
 
-    // Referrers
-    const refMap: Record<string, number> = {}
+    // Едно минаване през данните (O(n) сложност) - много по-бързо!
     data.forEach(v => {
-      try {
-        const ref = v.referrer
-          ? new URL(v.referrer.startsWith('http') ? v.referrer : 'https://' + v.referrer).hostname.replace('www.', '')
-          : 'Direct'
-        refMap[ref] = (refMap[ref] || 0) + 1
-      } catch {
-        refMap['Direct'] = (refMap['Direct'] || 0) + 1
+      const date = v.created_at.slice(0, 10)
+      const h = v.visitor_hash
+      
+      // Общи
+      stats.hashes.add(h)
+      if (v.is_mobile) stats.mobileCount++
+      
+      // Днешни
+      if (date === todayStr) {
+        stats.todayTotal++
+        stats.todayHashes.add(h)
       }
+
+      // Трафик източници
+      const host = v.referrer ? v.referrer.replace(/https?:\/\/(www\.)?/, '').split('/')[0] : 'Direct'
+      stats.refs[host] = (stats.refs[host] || 0) + 1
+      
+      // Страници и UTM
+      stats.pages[v.page] = (stats.pages[v.page] || 0) + 1
+      if (v.utm_source) stats.utms[v.utm_source] = (stats.utms[v.utm_source] || 0) + 1
+
+      // Данни за графиката
+      if (!stats.daily[date]) stats.daily[date] = { t: 0, u: new Set() }
+      stats.daily[date].t++
+      stats.daily[date].u.add(h)
     })
-    const topReferrers = Object.entries(refMap)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 8)
-      .map(([name, count]) => ({ name, count }))
 
-    // UTM sources
-    const utmMap: Record<string, number> = {}
-    data.forEach(v => {
-      if (v.utm_source) utmMap[v.utm_source] = (utmMap[v.utm_source] || 0) + 1
-    })
-    const topUtm = Object.entries(utmMap)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 6)
-      .map(([name, count]) => ({ name, count }))
-
-    // Pages
-    const pageMap: Record<string, number> = {}
-    data.forEach(v => { pageMap[v.page] = (pageMap[v.page] || 0) + 1 })
-    const topPages = Object.entries(pageMap)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 6)
-      .map(([name, count]) => ({ name, count }))
-
-    const mobileCount = data.filter(v => v.is_mobile).length
-    const mobilePercent = data.length ? Math.round(mobileCount / data.length * 100) : 0
+    // Форматиране на графиката
+    const dailyChart = Object.keys(stats.daily).sort().map(d => ({
+      date: d.slice(5),
+      count: stats.daily[d].t,
+      unique: stats.daily[d].u.size
+    })).slice(-30)
 
     return NextResponse.json({
-      total: data.length,
-      unique: allHashes.size,
-      today: data.filter(v => v.created_at.slice(0, 10) === today).length,
-      todayUnique: todayHashes.size,
-      last7: data.filter(v => v.created_at >= last7).length,
-      last7Unique: last7Hashes.size,
-      last30: data.filter(v => v.created_at >= last30).length,
-      last30Unique: last30Hashes.size,
-      mobilePercent,
+      total: stats.total,
+      unique: stats.hashes.size,
+      today: stats.todayTotal,
+      todayUnique: stats.todayHashes.size,
+      mobilePercent: Math.round((stats.mobileCount / stats.total) * 100) || 0,
       dailyChart,
-      topReferrers,
-      topUtm,
-      topPages,
+      topPages: sortAndSlice(stats.pages, 6),
+      topReferrers: sortAndSlice(stats.refs, 8),
+      topUtm: sortAndSlice(stats.utms, 6),
     })
-  } catch (e) {
-    console.error(e)
-    return NextResponse.json({ views: [], total: 0, today: 0, unique: 0 })
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 })
   }
+}
+
+// Помощна функция за сортиране на обекти
+function sortAndSlice(obj: Record<string, number>, limit: number) {
+  return Object.entries(obj)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, limit)
+    .map(([name, count]) => ({ name, count }))
 }
