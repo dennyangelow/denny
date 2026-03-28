@@ -35,17 +35,17 @@ export function ContentTab() {
       label: 'Афилиейт продукти', api: '/api/affiliate-products',
       imageField: 'image_url', imageFolder: 'affiliate',
       fields: [
-        { key: 'name',        label: 'Наименование',  type: 'text',     placeholder: 'Кристалон Зелен' },
-        { key: 'slug',        label: 'Slug',          type: 'text',     placeholder: 'kristalon' },
-        { key: 'badge',       label: 'Бадж',          type: 'text',     placeholder: 'Най-използван' },
-        { key: 'subtitle',    label: 'Подзаглавие',   type: 'text',     placeholder: 'NPK тор' },
-        { key: 'description', label: 'Описание',      type: 'textarea', placeholder: 'Описание...' },
-        { key: 'link',        label: 'Affiliate URL', type: 'url',      placeholder: 'https://...' },
-        { key: 'partner',     label: 'Партньор',      type: 'text',     placeholder: 'agroapteki' },
-        { key: 'color',       label: 'Цвят (HEX)',    type: 'color' },
-        { key: 'tag',         label: 'Таг',           type: 'text',     placeholder: '⭐ Фаворит' },
-        { key: 'sort_order',  label: 'Ред',           type: 'number',   placeholder: '0' },
-        { key: 'active',      label: 'Активен',       type: 'checkbox' },
+        { key: 'name',          label: 'Наименование',  type: 'text',     placeholder: 'Кристалон Зелен' },
+        { key: 'slug',          label: 'Slug',          type: 'text',     placeholder: 'kristalon' },
+        { key: 'badge_text',    label: 'Бадж',          type: 'text',     placeholder: 'Най-използван' },
+        { key: 'subtitle',      label: 'Подзаглавие',   type: 'text',     placeholder: 'NPK тор' },
+        { key: 'description',   label: 'Описание',      type: 'textarea', placeholder: 'Описание...' },
+        { key: 'affiliate_url', label: 'Affiliate URL', type: 'url',      placeholder: 'https://...' },
+        { key: 'partner',       label: 'Партньор',      type: 'text',     placeholder: 'agroapteki' },
+        { key: 'color',         label: 'Цвят (HEX)',    type: 'color' },
+        { key: 'tag_text',      label: 'Таг',           type: 'text',     placeholder: '⭐ Фаворит' },
+        { key: 'sort_order',    label: 'Ред',           type: 'number',   placeholder: '0' },
+        { key: 'active',        label: 'Активен',       type: 'checkbox' },
       ],
     },
     own: {
@@ -182,7 +182,7 @@ export function ContentTab() {
                       {item.title || item.name || item.label || item.id}
                     </div>
                     <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
-                      {item.slug || item.link || '—'}
+                      {item.slug || item.affiliate_url || item.link || '—'}
                       {item.active === false && <span style={{ marginLeft: 8, color: '#ef4444', fontSize: 11 }}>● Неактивен</span>}
                     </div>
                   </div>

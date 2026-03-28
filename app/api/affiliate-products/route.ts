@@ -16,11 +16,25 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { id, ...insertData } = body
+    
+    // Премахваме всякакви стари или грешни ключове, които биха предизвикали 500 грешка
+    const { id, link, badge, tag, badj, tar, sub_title, color_hex, ...insertData } = body
+
+    // Гарантираме, че данните са правилно мапнати към колоните в Supabase
+    const cleanData = {
+      ...insertData,
+      affiliate_url: insertData.affiliate_url || link,
+      badge_text: insertData.badge_text || badge || badj,
+      tag_text: insertData.tag_text || tag || tar,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+
     const { data, error } = await supabaseAdmin
       .from('affiliate_products')
-      .insert([{ ...insertData, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }])
+      .insert([cleanData])
       .select().single()
+      
     if (error) throw error
     return NextResponse.json({ product: data })
   } catch (error: any) {
