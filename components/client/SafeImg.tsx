@@ -22,7 +22,12 @@ export function SafeImg({ src, alt, fallbackEmoji = '🌿', style, className }: 
         const img = e.currentTarget as HTMLImageElement
         img.style.display = 'none'
         const w = img.parentElement
-        if (w) w.innerHTML = `<span style="font-size:72px;display:flex;align-items:center;justify-content:center;height:100%">${fallbackEmoji}</span>`
+        if (w) {
+          const span = document.createElement('span')
+          span.textContent = fallbackEmoji
+          span.style.cssText = 'font-size:72px;display:flex;align-items:center;justify-content:center;height:100%'
+          w.appendChild(span)
+        }
       }}
     />
   )
