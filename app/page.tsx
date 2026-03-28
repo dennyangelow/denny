@@ -57,20 +57,38 @@ function parseBold(text: string) {
   )
 }
 
-// ─── Data fetching (SERVER SIDE) ───────────────────────────────────────────────
+// ─── Data fetching (SERVER SIDE — директно от Supabase) ───────────────────────
 async function getPageData() {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
-    const [siteData, narData] = await Promise.all([
-      fetch(`${baseUrl}/api/site-data`, { next: { revalidate: 60 } }).then(r => r.json()),
-      fetch(`${baseUrl}/api/naruchnici`, { next: { revalidate: 60 } }).then(r => r.json()),
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+
+    const [
+      { data: settingsRows },
+      { data: productsRows },
+      { data: affiliateRows },
+      { data: categoryRows },
+      { data: testimonialRows },
+      { data: faqRows },
+      { data: handbookRows },
+    ] = await Promise.all([
+      supabase.from('settings').select('key,value'),
+      supabase.from('products').select('*').eq('active', true).order('sort_order'),
+      supabase.from('affiliate_products').select('*').eq('active', true).order('sort_order'),
+      supabase.from('category_links').select('*').eq('active', true).order('sort_order'),
+      supabase.from('testimonials').select('*').order('sort_order').limit(9),
+      supabase.from('faq').select('*').order('sort_order'),
+      supabase.from('naruchnici').select('*').eq('active', true).order('sort_order'),
     ])
 
     // Settings
     let settings = { ...DEFAULT_SETTINGS }
-    if (siteData.settings) {
+    if (settingsRows?.length) {
       const s: Record<string, string> = {}
-      siteData.settings.forEach((row: { key: string; value: string }) => { s[row.key] = row.value })
+      settingsRows.forEach((row: { key: string; value: string }) => { s[row.key] = row.value })
       settings = {
         ...settings,
         ...(s.hero_title && { hero_title: s.hero_title }),
@@ -90,19 +108,21 @@ async function getPageData() {
       }
     }
 
-    const atlasProducts: AtlasProduct[] = (siteData.atlasProducts || []).map((p: any) => ({
+    const atlasProducts: AtlasProduct[] = (productsRows || []).map((p: any) => ({
       id: p.slug, name: p.name, subtitle: p.subtitle || '', desc: p.description || '',
       badge: p.badge || 'Хит', emoji: p.emoji || '🌿', img: p.image_url || '',
       price: parseFloat(p.price), comparePrice: parseFloat(p.compare_price || p.price),
       priceLabel: parseFloat(p.price).toFixed(2) + ' лв.', features: p.features || [],
     }))
 
-    const affiliateProducts: AffiliateProduct[] = siteData.affiliateProducts || []
-    const categoryLinks: CategoryLink[] = siteData.categoryLinks || []
-    const testimonials: Testimonial[] = siteData.testimonials || []
-    const faq: FaqItem[] = siteData.faq || []
-    const handbooks: Handbook[] = narData.naruchnici?.length
-      ? narData.naruchnici.map((n: any) => ({
+    const affiliateProducts: AffiliateProduct[] = affiliateRows || []
+    const categoryLinks: CategoryLink[] = (categoryRows || []).map((c: any) => ({
+      ...c, color: CAT_COLORS[c.partner || 'default'] || CAT_COLORS.default,
+    }))
+    const testimonials: Testimonial[] = testimonialRows || []
+    const faq: FaqItem[] = faqRows || []
+    const handbooks: Handbook[] = handbookRows?.length
+      ? handbookRows.map((n: any) => ({
           slug: n.slug, title: n.title, subtitle: n.subtitle || '',
           emoji: n.emoji || (n.category === 'domati' ? '🍅' : '🌿'),
           color: n.color || (n.category === 'domati' ? '#dc2626' : '#16a34a'),
@@ -112,7 +132,8 @@ async function getPageData() {
       : DEFAULT_HANDBOOKS
 
     return { settings, atlasProducts, affiliateProducts, categoryLinks, testimonials, faq, handbooks }
-  } catch {
+  } catch (err) {
+    console.error('[getPageData] Supabase error:', err)
     return {
       settings: DEFAULT_SETTINGS, atlasProducts: [], affiliateProducts: [],
       categoryLinks: [], testimonials: [], faq: [], handbooks: DEFAULT_HANDBOOKS,
