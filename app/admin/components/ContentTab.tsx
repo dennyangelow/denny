@@ -1,479 +1,264 @@
 'use client'
-// app/admin/components/ContentTab.tsx — v3 FULL CMS
+// app/admin/components/ContentTab.tsx — v3 с ImageUpload
 
 import { useState, useEffect, useCallback } from 'react'
 import { ImageUpload } from '@/components/ui/ImageUpload'
 import { toast } from '@/components/ui/Toast'
 
-type Section = 'atlas' | 'affiliate' | 'ginegar' | 'testimonials' | 'faq' | 'category'
+type SubTab = 'naruchnici' | 'affiliate' | 'own' | 'links'
 
-// ── Shared helpers ───────────────────────────────────────
-const inputStyle = (focus = false) => ({
-  width: '100%', padding: '9px 12px', border: `1.5px solid ${focus ? '#2d6a4f' : '#e5e7eb'}`,
-  borderRadius: 8, fontFamily: 'inherit', fontSize: 13, outline: 'none',
-  background: '#fff', color: '#111', boxSizing: 'border-box' as const,
-})
+interface BaseItem { id: string; [key: string]: any }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>{children}</label>
-}
+export function ContentTab() {
+  const [subTab, setSubTab] = useState<SubTab>('naruchnici')
+  const [items, setItems]   = useState<BaseItem[]>([])
+  const [loading, setLoading] = useState(false)
+  const [editing, setEditing] = useState<BaseItem | null>(null)
+  const [saving, setSaving]   = useState(false)
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 12 }}><Label>{label}</Label>{children}</div>
-}
-
-// ── Atlas Terra Product Editor ───────────────────────────
-function AtlasProductEditor() {
-  const [products, setProducts] = useState<any[]>([])
-  const [variants, setVariants] = useState<any[]>([])
-  const [selected, setSelected] = useState<any | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  const load = useCallback(async () => {
-    const [pr, vr] = await Promise.all([
-      fetch('/api/own-products').then(r => r.json()),
-      fetch('/api/own-products/variants').then(r => r.json()),
-    ])
-    setProducts(pr.products || [])
-    setVariants(vr.variants || [])
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  const save = async () => {
-    if (!selected) return
-    setSaving(true)
-    try {
-      await fetch(`/api/own-products/${selected.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: selected.name, subtitle: selected.subtitle,
-          description: selected.description, badge: selected.badge,
-          emoji: selected.emoji, usage_notes: selected.usage_notes,
-          image_url: selected.image_url, active: selected.active,
-          features: typeof selected.features === 'string'
-            ? JSON.parse(selected.features)
-            : selected.features,
-        }),
-      })
-      toast.success('Продуктът е запазен!')
-      load()
-    } catch { toast.error('Грешка при запазване') }
-    finally { setSaving(false) }
+  const config: Record<SubTab, { label: string; api: string; fields: { key: string; label: string; type: string; placeholder?: string }[]; imageField?: string; imageFolder?: string }> = {
+    naruchnici: {
+      label: 'Наръчници', api: '/api/naruchnici',
+      imageField: 'cover_image_url', imageFolder: 'naruchnici',
+      fields: [
+        { key: 'title',           label: 'Заглавие',      type: 'text',     placeholder: 'Тайните на едрите домати' },
+        { key: 'subtitle',        label: 'Подзаглавие',   type: 'text',     placeholder: 'Пълен наръчник за...' },
+        { key: 'slug',            label: 'Slug (URL)',     type: 'text',     placeholder: 'super-domati' },
+        { key: 'description',     label: 'Описание',      type: 'textarea', placeholder: 'Описание...' },
+        { key: 'pdf_url',         label: 'PDF URL',       type: 'url',      placeholder: 'https://...' },
+        { key: 'category',        label: 'Категория',     type: 'text',     placeholder: 'domati' },
+        { key: 'sort_order',      label: 'Ред (число)',   type: 'number',   placeholder: '0' },
+        { key: 'active',          label: 'Активен',       type: 'checkbox' },
+      ],
+    },
+    affiliate: {
+      label: 'Афилиейт продукти', api: '/api/affiliate-products',
+      imageField: 'image_url', imageFolder: 'affiliate',
+      fields: [
+        { key: 'name',          label: 'Наименование',  type: 'text',     placeholder: 'Кристалон Зелен' },
+        { key: 'slug',          label: 'Slug',          type: 'text',     placeholder: 'kristalon' },
+        { key: 'badge_text',    label: 'Бадж',          type: 'text',     placeholder: 'Най-използван' },
+        { key: 'subtitle',      label: 'Подзаглавие',   type: 'text',     placeholder: 'NPK тор' },
+        { key: 'description',   label: 'Описание',      type: 'textarea', placeholder: 'Описание...' },
+        { key: 'affiliate_url', label: 'Affiliate URL', type: 'url',      placeholder: 'https://...' },
+        { key: 'partner',       label: 'Партньор',      type: 'text',     placeholder: 'agroapteki' },
+        { key: 'color',         label: 'Цвят (HEX)',    type: 'color' },
+        { key: 'tag_text',      label: 'Таг',           type: 'text',     placeholder: '⭐ Фаворит' },
+        { key: 'sort_order',    label: 'Ред',           type: 'number',   placeholder: '0' },
+        { key: 'active',        label: 'Активен',       type: 'checkbox' },
+      ],
+    },
+    own: {
+      label: 'Собствени продукти', api: '/api/own-products',
+      imageField: 'image_url', imageFolder: 'products',
+      fields: [
+        { key: 'name',          label: 'Наименование',     type: 'text',     placeholder: 'Atlas Terra' },
+        { key: 'slug',          label: 'Slug',             type: 'text',     placeholder: 'atlas-terra' },
+        { key: 'description',   label: 'Описание',         type: 'textarea', placeholder: 'Описание...' },
+        { key: 'price',         label: 'Цена (€)',         type: 'number',   placeholder: '14.90' },
+        { key: 'compare_price', label: 'Стара цена (€)',   type: 'number',   placeholder: '18.00' },
+        { key: 'unit',          label: 'Мерна единица',    type: 'text',     placeholder: 'кг' },
+        { key: 'stock',         label: 'Наличност',        type: 'number',   placeholder: '100' },
+        { key: 'sort_order',    label: 'Ред',              type: 'number',   placeholder: '0' },
+        { key: 'active',        label: 'Активен',          type: 'checkbox' },
+      ],
+    },
+    links: {
+      label: 'Категорийни линкове', api: '/api/category-links',
+      fields: [
+        { key: 'icon',       label: 'Иконка (emoji)',  type: 'text',    placeholder: '🌱' },
+        { key: 'label',      label: 'Надпис',          type: 'text',    placeholder: 'Торове и Стимулатори' },
+        { key: 'link',       label: 'URL',             type: 'url',     placeholder: 'https://...' },
+        { key: 'color',      label: 'Цвят (HEX)',      type: 'color' },
+        { key: 'sort_order', label: 'Ред',             type: 'number',  placeholder: '0' },
+        { key: 'active',     label: 'Активен',         type: 'checkbox' },
+      ],
+    },
   }
 
-  const saveVariant = async (v: any) => {
-    const method = v.id ? 'PATCH' : 'POST'
-    const url    = v.id ? `/api/own-products/variants/${v.id}` : '/api/own-products/variants'
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(v),
+  const cfg = config[subTab]
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res  = await fetch(cfg.api)
+      const data = await res.json()
+      const key  = subTab === 'naruchnici' ? 'naruchnici' : subTab === 'links' ? 'links' : 'products'
+      setItems(data[key] || [])
+    } catch { toast.error('Грешка при зареждане') }
+    finally { setLoading(false) }
+  }, [cfg.api, subTab])
+
+  useEffect(() => { load(); setEditing(null) }, [subTab])
+
+  const startNew = () => {
+    const defaults: BaseItem = { id: '' }
+    cfg.fields.forEach(f => {
+      defaults[f.key] = f.type === 'checkbox' ? true : f.type === 'number' ? 0 : f.type === 'color' ? '#16a34a' : ''
     })
-    toast.success('Variant запазен!')
-    load()
+    if (cfg.imageField) defaults[cfg.imageField] = ''
+    setEditing(defaults)
   }
-
-  const deleteVariant = async (id: string) => {
-    if (!confirm('Изтрий variant?')) return
-    await fetch(`/api/own-products/variants/${id}`, { method: 'DELETE' })
-    toast.success('Изтрит')
-    load()
-  }
-
-  const productVariants = selected
-    ? variants.filter(v => v.product_id === selected.id)
-    : []
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20 }}>
-      {/* Product list */}
-      <div>
-        {products.map(p => (
-          <button key={p.id} onClick={() => setSelected({ ...p })}
-            style={{ width: '100%', textAlign: 'left', padding: '10px 12px', border: `1.5px solid ${selected?.id === p.id ? '#2d6a4f' : '#e5e7eb'}`, borderRadius: 10, cursor: 'pointer', background: selected?.id === p.id ? '#f0fdf4' : '#fff', marginBottom: 8, fontFamily: 'inherit' }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{p.emoji} {p.name}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{p.active ? '✅ Активен' : '❌ Неактивен'}</div>
-          </button>
-        ))}
-      </div>
-
-      {selected ? (
-        <div>
-          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 20, marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{selected.name}</h3>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={selected.active}
-                    onChange={e => setSelected((p: any) => ({ ...p, active: e.target.checked }))} />
-                  Активен
-                </label>
-                <button onClick={save} disabled={saving}
-                  style={{ background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  {saving ? '⏳' : '💾 Запази'}
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="Emoji">
-                <input style={inputStyle()} value={selected.emoji || ''}
-                  onChange={e => setSelected((p: any) => ({ ...p, emoji: e.target.value }))} />
-              </Field>
-              <Field label="Badge">
-                <input style={inputStyle()} value={selected.badge || ''}
-                  onChange={e => setSelected((p: any) => ({ ...p, badge: e.target.value }))} />
-              </Field>
-              <Field label="Подзаглавие" >
-                <input style={inputStyle()} value={selected.subtitle || ''}
-                  onChange={e => setSelected((p: any) => ({ ...p, subtitle: e.target.value }))} />
-              </Field>
-            </div>
-
-            <Field label="Описание">
-              <textarea rows={4} style={{ ...inputStyle(), resize: 'vertical' }}
-                value={selected.description || ''}
-                onChange={e => setSelected((p: any) => ({ ...p, description: e.target.value }))} />
-            </Field>
-
-            <Field label="Начин на употреба">
-              <textarea rows={2} style={{ ...inputStyle(), resize: 'vertical' }}
-                value={selected.usage_notes || ''}
-                onChange={e => setSelected((p: any) => ({ ...p, usage_notes: e.target.value }))} />
-            </Field>
-
-            <Field label="Предимства (едно на ред)">
-              <textarea rows={6} style={{ ...inputStyle(), resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
-                value={
-                  Array.isArray(selected.features)
-                    ? selected.features.join('\n')
-                    : typeof selected.features === 'string'
-                      ? JSON.parse(selected.features || '[]').join('\n')
-                      : ''
-                }
-                onChange={e => setSelected((p: any) => ({
-                  ...p,
-                  features: e.target.value.split('\n').filter(Boolean),
-                }))}
-              />
-            </Field>
-
-            <ImageUpload
-              label="Снимка на продукта"
-              value={selected.image_url || ''}
-              onChange={url => setSelected((p: any) => ({ ...p, image_url: url }))}
-              folder="products"
-            />
-          </div>
-
-          {/* Variants */}
-          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>📦 Варианти (5л / 20л)</h3>
-              <button onClick={() => saveVariant({ product_id: selected.id, label: 'Нов вариант', size_liters: 5, price: 0, active: true, sort_order: productVariants.length + 1 })}
-                style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#065f46', fontFamily: 'inherit' }}>
-                + Добави вариант
-              </button>
-            </div>
-            {productVariants.map(v => (
-              <VariantRow key={v.id} variant={v} onSave={saveVariant} onDelete={deleteVariant} />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 14, height: 200 }}>
-          Избери продукт за редактиране →
-        </div>
-      )}
-    </div>
-  )
-}
-
-function VariantRow({ variant, onSave, onDelete }: { variant: any; onSave: (v: any) => void; onDelete: (id: string) => void }) {
-  const [v, setV] = useState(variant)
-  const ppl = v.size_liters > 0 ? (v.price / v.size_liters).toFixed(2) : '0.00'
-
-  return (
-    <div style={{ border: '1px solid #f0f0f0', borderRadius: 10, padding: 14, marginBottom: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
-        <Field label="Етикет">
-          <input style={inputStyle()} value={v.label}
-            onChange={e => setV((p: any) => ({ ...p, label: e.target.value }))} />
-        </Field>
-        <Field label="Литри">
-          <input type="number" style={inputStyle()} value={v.size_liters}
-            onChange={e => setV((p: any) => ({ ...p, size_liters: parseFloat(e.target.value) || 0 }))} />
-        </Field>
-        <Field label="Цена (€)">
-          <input type="number" step="0.01" style={inputStyle()} value={v.price}
-            onChange={e => setV((p: any) => ({ ...p, price: parseFloat(e.target.value) || 0 }))} />
-        </Field>
-        <Field label={`€/л → ${ppl} €`}>
-          <input type="number" step="0.01" style={{ ...inputStyle(), background: '#f9fafb', color: '#16a34a', fontWeight: 700 }}
-            value={ppl} readOnly />
-        </Field>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => onSave(v)}
-            style={{ background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 12, fontFamily: 'inherit' }}>💾</button>
-          <button onClick={() => onDelete(v.id)}
-            style={{ background: '#fee2e2', color: '#991b1b', border: 'none', borderRadius: 8, padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Generic List Editor ──────────────────────────────────
-function ListEditor<T extends { id?: string; active?: boolean; sort_order?: number }>({
-  apiUrl, title, fields, defaultItem, renderPreview,
-}: {
-  apiUrl: string
-  title: string
-  fields: { key: string; label: string; type?: string; rows?: number }[]
-  defaultItem: Partial<T>
-  renderPreview?: (item: T) => React.ReactNode
-}) {
-  const [items, setItems] = useState<T[]>([])
-  const [selected, setSelected] = useState<T | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  const load = useCallback(async () => {
-    const r = await fetch(apiUrl)
-    const d = await r.json()
-    setItems(Object.values(d)[0] as T[] || [])
-  }, [apiUrl])
-
-  useEffect(() => { load() }, [load])
 
   const save = async () => {
-    if (!selected) return
+    if (!editing) return
     setSaving(true)
     try {
-      const method = (selected as any).id ? 'PATCH' : 'POST'
-      const url    = (selected as any).id ? `${apiUrl}/${(selected as any).id}` : apiUrl
-      await fetch(url, {
+      const isNew  = !editing.id
+      const method = isNew ? 'POST' : 'PATCH'
+      const url    = isNew ? cfg.api : `${cfg.api}/${editing.id}`
+      const res    = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selected),
+        body: JSON.stringify(editing),
       })
-      toast.success('Запазено!')
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || 'Грешка')
+      }
+      toast.success(isNew ? 'Създадено успешно!' : 'Запазено успешно!')
+      setEditing(null)
       load()
-      setSelected(null)
-    } catch { toast.error('Грешка') }
-    finally { setSaving(false) }
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const del = async () => {
-    if (!(selected as any)?.id || !confirm('Изтрий?')) return
-    await fetch(`${apiUrl}/${(selected as any).id}`, { method: 'DELETE' })
-    toast.success('Изтрито')
-    setItems(prev => prev.filter(i => (i as any).id !== (selected as any).id))
-    setSelected(null)
+  const del = async (id: string) => {
+    if (!confirm('Сигурен ли си, че искаш да изтриеш?')) return
+    try {
+      const res = await fetch(`${cfg.api}/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      toast.success('Изтрито')
+      load()
+    } catch { toast.error('Грешка при изтриване') }
   }
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
-      <div>
-        <button onClick={() => setSelected({ ...defaultItem } as T)}
-          style={{ width: '100%', padding: '9px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#065f46', fontFamily: 'inherit', marginBottom: 10 }}>
-          + Добави нов
-        </button>
-        {items.map((item: any) => (
-          <button key={item.id} onClick={() => setSelected({ ...item })}
-            style={{ width: '100%', textAlign: 'left', padding: '9px 12px', border: `1.5px solid ${selected && (selected as any).id === item.id ? '#2d6a4f' : '#e5e7eb'}`, borderRadius: 10, cursor: 'pointer', background: selected && (selected as any).id === item.id ? '#f0fdf4' : '#fff', marginBottom: 8, fontFamily: 'inherit' }}>
-            {renderPreview ? renderPreview(item) : (
-              <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {item.name || item.question || item.text || item.label || 'Без заглавие'}
-              </div>
-            )}
-            <div style={{ fontSize: 11, color: item.active !== false ? '#16a34a' : '#ef4444' }}>
-              {item.active !== false ? '✅ Активен' : '❌ Неактивен'}
-            </div>
-          </button>
-        ))}
-      </div>
+  const set = (key: string, val: any) => setEditing(prev => prev ? { ...prev, [key]: val } : null)
 
-      {selected ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{(selected as any).id ? 'Редактирай' : 'Нов запис'}</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {(selected as any).id && (
-                <button onClick={del} style={{ background: '#fee2e2', color: '#991b1b', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>🗑️ Изтрий</button>
-              )}
-              <button onClick={() => setSelected(null)} style={{ background: '#f5f5f5', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>✕</button>
-              <button onClick={save} disabled={saving} style={{ background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit' }}>
-                {saving ? '⏳' : '💾 Запази'}
-              </button>
-            </div>
-          </div>
-
-          {fields.map(f => (
-            <Field key={f.key} label={f.label}>
-              {f.key === 'image_url' ? (
-                <ImageUpload value={(selected as any)[f.key] || ''} onChange={url => setSelected((p: any) => ({ ...p, [f.key]: url }))} folder="content" />
-              ) : f.key === 'active' ? (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 }}>
-                  <input type="checkbox" checked={(selected as any)[f.key] !== false}
-                    onChange={e => setSelected((p: any) => ({ ...p, [f.key]: e.target.checked }))} />
-                  Видим на сайта
-                </label>
-              ) : f.key === 'features' ? (
-                <textarea rows={f.rows || 5} style={{ ...inputStyle(), resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
-                  placeholder="Едно предимство на ред"
-                  value={
-                    Array.isArray((selected as any)[f.key])
-                      ? (selected as any)[f.key].join('\n')
-                      : typeof (selected as any)[f.key] === 'string'
-                        ? JSON.parse((selected as any)[f.key] || '[]').join('\n')
-                        : ''
-                  }
-                  onChange={e => setSelected((p: any) => ({ ...p, [f.key]: e.target.value.split('\n').filter(Boolean) }))}
-                />
-              ) : f.rows ? (
-                <textarea rows={f.rows} style={{ ...inputStyle(), resize: 'vertical' }}
-                  value={(selected as any)[f.key] || ''}
-                  onChange={e => setSelected((p: any) => ({ ...p, [f.key]: e.target.value }))} />
-              ) : (
-                <input type={f.type || 'text'} style={inputStyle()}
-                  value={(selected as any)[f.key] || ''}
-                  onChange={e => setSelected((p: any) => ({ ...p, [f.key]: e.target.value }))} />
-              )}
-            </Field>
-          ))}
-        </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 14, height: 200 }}>
-          Избери запис или добави нов →
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── MAIN ContentTab ──────────────────────────────────────
-export function ContentTab() {
-  const [section, setSection] = useState<Section>('atlas')
-
-  const tabs: { id: Section; label: string; icon: string }[] = [
-    { id: 'atlas',        label: 'Atlas Terra',    icon: '🌱' },
-    { id: 'affiliate',    label: 'Афилиейт',       icon: '🔗' },
-    { id: 'ginegar',      label: 'Ginegar',         icon: '🏕️' },
-    { id: 'testimonials', label: 'Отзиви',          icon: '⭐' },
-    { id: 'faq',          label: 'FAQ',             icon: '❓' },
-    { id: 'category',     label: 'Категории',       icon: '📂' },
-  ]
+  const subTabs: SubTab[] = ['naruchnici', 'affiliate', 'own', 'links']
+  const subLabels: Record<SubTab, string> = { naruchnici: '📗 Наръчници', affiliate: '🔗 Афилиейт', own: '🛒 Собствени', links: '🏷️ Линкове' }
 
   return (
     <div style={{ padding: '24px 28px' }}>
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Съдържание</h1>
-        <p style={{ fontSize: 13, color: '#6b7280', marginTop: 3 }}>Управлявай всичко на сайта от тук</p>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: '0 0 16px' }}>Съдържание</h1>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {subTabs.map(t => (
+            <button key={t} onClick={() => setSubTab(t)}
+              style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${subTab===t?'#2d6a4f':'var(--border)'}`, background: subTab===t?'#2d6a4f':'#fff', color: subTab===t?'#fff':'var(--muted)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 500, transition: 'all .15s' }}>
+              {subLabels[t]}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Section tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setSection(t.id)}
-            style={{ padding: '8px 16px', borderRadius: 99, border: `1.5px solid ${section === t.id ? '#2d6a4f' : '#e5e7eb'}`, background: section === t.id ? '#2d6a4f' : '#fff', color: section === t.id ? '#fff' : '#374151', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-            {t.icon} {t.label}
-          </button>
-        ))}
+      <div style={{ display: 'grid', gridTemplateColumns: editing ? '1fr 420px' : '1fr', gap: 20 }}>
+        {/* List */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{items.length} записа</span>
+            <button onClick={startNew} style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+              + Добави нов
+            </button>
+          </div>
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            {loading ? (
+              <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Зарежда...</div>
+            ) : items.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>Няма записи. Добави първия!</div>
+            ) : (
+              items.map((item, i) => (
+                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: i < items.length-1 ? '1px solid #f5f5f5' : 'none', transition: 'background .1s' }}
+                  onMouseEnter={e=>(e.currentTarget.style.background='#f9fafb')}
+                  onMouseLeave={e=>(e.currentTarget.style.background='')}>
+                  {(cfg.imageField && item[cfg.imageField]) && (
+                    <img src={item[cfg.imageField]} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 8, flexShrink: 0, background: '#f3f4f6' }} onError={e=>{(e.target as HTMLImageElement).style.display='none'}}/>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.title || item.name || item.label || item.id}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
+                      {item.slug || item.affiliate_url || item.link || '—'}
+                      {item.active === false && <span style={{ marginLeft: 8, color: '#ef4444', fontSize: 11 }}>● Неактивен</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => setEditing({ ...item })} style={{ background: '#f3f4f6', border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: '#374151', fontWeight: 600 }}>✏️ Редактирай</button>
+                    <button onClick={() => del(item.id)} style={{ background: '#fee2e2', border: 'none', borderRadius: 7, padding: '6px 10px', cursor: 'pointer', fontSize: 12, color: '#991b1b' }}>✕</button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Edit panel */}
+        {editing && (
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20, maxHeight: '85vh', overflowY: 'auto', position: 'sticky', top: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
+                {editing.id ? 'Редактирай' : 'Нов запис'}
+              </h3>
+              <button onClick={() => setEditing(null)} style={{ background: '#f5f5f5', border: 'none', borderRadius: 7, padding: '5px 9px', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Image upload */}
+              {cfg.imageField && (
+                <ImageUpload
+                  value={editing[cfg.imageField] || ''}
+                  onChange={url => set(cfg.imageField!, url)}
+                  folder={cfg.imageFolder || 'products'}
+                  label="Снимка"
+                  height={140}
+                />
+              )}
+
+              {/* Form fields */}
+              {cfg.fields.map(f => (
+                <div key={f.key}>
+                  {f.type !== 'checkbox' && (
+                    <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>{f.label}</label>
+                  )}
+                  {f.type === 'textarea' ? (
+                    <textarea rows={3} value={editing[f.key] || ''} onChange={e=>set(f.key,e.target.value)} placeholder={f.placeholder}
+                      style={{ width:'100%', padding:'9px 12px', border:'1.5px solid #e5e7eb', borderRadius:8, fontFamily:'inherit', fontSize:13, outline:'none', resize:'vertical', boxSizing:'border-box' }}
+                      onFocus={e=>e.target.style.borderColor='#2d6a4f'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+                  ) : f.type === 'checkbox' ? (
+                    <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:13, color:'#374151', fontWeight:600 }}>
+                      <input type="checkbox" checked={!!editing[f.key]} onChange={e=>set(f.key,e.target.checked)} style={{ width:16, height:16 }}/>
+                      {f.label}
+                    </label>
+                  ) : f.type === 'color' ? (
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      <input type="color" value={editing[f.key]||'#16a34a'} onChange={e=>set(f.key,e.target.value)} style={{ width:40, height:36, border:'1px solid #e5e7eb', borderRadius:6, cursor:'pointer', padding:2 }}/>
+                      <input type="text" value={editing[f.key]||''} onChange={e=>set(f.key,e.target.value)} placeholder="#16a34a"
+                        style={{ flex:1, padding:'8px 12px', border:'1.5px solid #e5e7eb', borderRadius:8, fontFamily:'monospace', fontSize:13, outline:'none', boxSizing:'border-box' }}
+                        onFocus={e=>e.target.style.borderColor='#2d6a4f'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+                    </div>
+                  ) : (
+                    <input type={f.type} value={editing[f.key] ?? ''} onChange={e=>set(f.key, f.type==='number' ? Number(e.target.value) : e.target.value)} placeholder={f.placeholder}
+                      step={f.type==='number'?'0.01':undefined} min={f.type==='number'?'0':undefined}
+                      style={{ width:'100%', padding:'9px 12px', border:'1.5px solid #e5e7eb', borderRadius:8, fontFamily:'inherit', fontSize:13, outline:'none', boxSizing:'border-box' }}
+                      onFocus={e=>e.target.style.borderColor='#2d6a4f'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display:'flex', gap:10, marginTop:20 }}>
+              <button onClick={() => setEditing(null)} style={{ flex:1, padding:'10px', border:'1px solid var(--border)', borderRadius:9, background:'#fff', cursor:'pointer', fontFamily:'inherit', fontSize:14 }}>Отказ</button>
+              <button onClick={save} disabled={saving} style={{ flex:2, padding:'10px', background:'#1b4332', color:'#fff', border:'none', borderRadius:9, cursor:'pointer', fontFamily:'inherit', fontSize:14, fontWeight:700, opacity:saving?.6:1 }}>
+                {saving ? '⏳ Запазва...' : '✓ Запази'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-
-      {section === 'atlas' && <AtlasProductEditor />}
-
-      {section === 'affiliate' && (
-        <ListEditor
-          apiUrl="/api/affiliate-products"
-          title="Афилиейт продукти"
-          defaultItem={{ name: '', subtitle: '', description: '', affiliate_url: '', partner: 'agroapteki', section: 'affiliate', color: '#16a34a', active: true, sort_order: 99 }}
-          fields={[
-            { key: 'name', label: 'Наименование' },
-            { key: 'subtitle', label: 'Подзаглавие' },
-            { key: 'badge_text', label: 'Badge (напр. Нов)' },
-            { key: 'tag_text', label: 'Tag (напр. ⭐ Фаворит)' },
-            { key: 'description', label: 'Описание', rows: 3 },
-            { key: 'features', label: 'Предимства (едно на ред)', rows: 5 },
-            { key: 'image_url', label: 'Снимка' },
-            { key: 'affiliate_url', label: 'Линк (agroapteki.com)' },
-            { key: 'partner', label: 'Партньор' },
-            { key: 'color', label: 'Цвят (hex)' },
-            { key: 'sort_order', label: 'Наредба', type: 'number' },
-            { key: 'active', label: 'Статус' },
-          ]}
-        />
-      )}
-
-      {section === 'ginegar' && (
-        <ListEditor
-          apiUrl="/api/ginegar"
-          title="Ginegar продукти"
-          defaultItem={{ name: '', subtitle: '', description: '', affiliate_url: '', badge: '', color: '#7c3aed', active: true, sort_order: 99 }}
-          fields={[
-            { key: 'name', label: 'Наименование' },
-            { key: 'subtitle', label: 'Подзаглавие' },
-            { key: 'badge', label: 'Badge' },
-            { key: 'description', label: 'Описание', rows: 3 },
-            { key: 'features', label: 'Предимства (едно на ред)', rows: 5 },
-            { key: 'image_url', label: 'Снимка' },
-            { key: 'affiliate_url', label: 'Линк' },
-            { key: 'color', label: 'Цвят (hex)' },
-            { key: 'sort_order', label: 'Наредба', type: 'number' },
-            { key: 'active', label: 'Статус' },
-          ]}
-        />
-      )}
-
-      {section === 'testimonials' && (
-        <ListEditor
-          apiUrl="/api/testimonials"
-          title="Отзиви"
-          defaultItem={{ name: '', location: '', stars: 5, avatar: '👨‍🌾', text: '', active: true, sort_order: 99 }}
-          fields={[
-            { key: 'name', label: 'Имена' },
-            { key: 'location', label: 'Град' },
-            { key: 'avatar', label: 'Emoji аватар' },
-            { key: 'stars', label: 'Оценка (1-5)', type: 'number' },
-            { key: 'text', label: 'Текст на отзива', rows: 3 },
-            { key: 'sort_order', label: 'Наредба', type: 'number' },
-            { key: 'active', label: 'Статус' },
-          ]}
-        />
-      )}
-
-      {section === 'faq' && (
-        <ListEditor
-          apiUrl="/api/faq"
-          title="FAQ"
-          defaultItem={{ question: '', answer: '', category: 'atlas', active: true, sort_order: 99 }}
-          fields={[
-            { key: 'question', label: 'Въпрос', rows: 2 },
-            { key: 'answer', label: 'Отговор', rows: 4 },
-            { key: 'category', label: 'Категория (atlas / affiliate / delivery)' },
-            { key: 'sort_order', label: 'Наредба', type: 'number' },
-            { key: 'active', label: 'Статус' },
-          ]}
-        />
-      )}
-
-      {section === 'category' && (
-        <ListEditor
-          apiUrl="/api/category-links"
-          title="Категорийни линкове"
-          defaultItem={{ icon: '🌱', label: '', link: '', color: '#16a34a', active: true, sort_order: 99 }}
-          fields={[
-            { key: 'icon', label: 'Emoji икона' },
-            { key: 'label', label: 'Наименование' },
-            { key: 'link', label: 'URL' },
-            { key: 'color', label: 'Цвят (hex)' },
-            { key: 'sort_order', label: 'Наредба', type: 'number' },
-            { key: 'active', label: 'Статус' },
-          ]}
-        />
-      )}
     </div>
   )
 }

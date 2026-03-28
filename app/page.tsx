@@ -246,7 +246,7 @@ export default async function HomePage() {
             </div>
           </FadeIn>
           <div className="products-grid">
-            {affiliateProducts.filter(p => p.partner === 'agroapteki').map((p, i) => {
+            {affiliateProducts.map((p, i) => {
               const cardColor = p.color || CAT_COLORS[p.partner] || '#16a34a'
               const badgeColor = p.badge_color || cardColor
               return (
