@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;0,800;1,600&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap');
+/* homepage.css — подобрена версия
+   Добавени: skeleton анимация, CSS hover за карти (без inline JS),
+   footer-link клас, product-card клас, по-добра типография */
+
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#fafaf8;color:#1a1a1a;-webkit-font-smoothing:antialiased}
@@ -6,15 +9,24 @@ input,textarea,select{color:#111!important;background:#fff;font-family:'DM Sans'
 input::placeholder,textarea::placeholder{color:#9ca3af!important;opacity:1}
 input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webkit-text-fill-color:#111!important}
 
+/* ── Анимации ── */
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 @keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}
 @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)}}
 @keyframes faqOpen{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
 @keyframes slideRight{from{opacity:0;transform:translateX(-100%)}to{opacity:1;transform:translateX(0)}}
 @keyframes fadeDown{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
+@keyframes skeleton-pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
+/* ── Skeleton Loading ── */
+.skeleton{background:#e5e7eb;border-radius:8px;animation:skeleton-pulse 1.5s ease-in-out infinite}
+.skeleton-text{height:16px;margin-bottom:8px}
+.skeleton-text:last-child{width:60%}
+
+/* ── Urgency bar ── */
 .urgency-bar{background:linear-gradient(90deg,#dc2626,#b91c1c);padding:9px 20px;text-align:center;font-size:13px;color:#fff;font-weight:600;letter-spacing:.015em}
 
+/* ── Header ── */
 .site-header{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border-bottom:1px solid #e5e7eb;padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:60px;box-shadow:0 1px 8px rgba(0,0,0,.04);transition:all .3s;gap:14px}
 .site-header.scrolled{box-shadow:0 4px 24px rgba(0,0,0,.08)}
 .header-logo{display:flex;align-items:center;gap:9px;flex-shrink:0;text-decoration:none}
@@ -31,6 +43,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .mob-nav-link{color:#374151;text-decoration:none;font-size:15px;font-weight:700;padding:9px 13px;border-radius:9px;display:block}
 .mob-nav-link:hover{background:#f0fdf4;color:#16a34a}
 
+/* ── Hero ── */
 .hero{background:linear-gradient(145deg,#0c3a1c 0%,#14532d 30%,#166534 65%,#15803d 100%);position:relative;overflow:hidden}
 .hero-dots{position:absolute;inset:0;pointer-events:none;opacity:.1;background-image:radial-gradient(circle,rgba(255,255,255,.3) 1px,transparent 1px);background-size:32px 32px}
 .hero-blob{position:absolute;border-radius:50%;pointer-events:none}
@@ -67,41 +80,30 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .hero-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:22px}
 .chip{font-size:12.5px;color:rgba(255,255,255,.88);background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);padding:6px 13px;border-radius:22px;display:flex;align-items:center;gap:5px;backdrop-filter:blur(8px)}
 
-.lead-box{background:rgba(255,255,255,.09);backdrop-filter:blur(16px);border-radius:20px;padding:22px;border:1px solid rgba(255,255,255,.16);max-width:460px}
-.lead-tag{color:#86efac;font-weight:700;font-size:10px;margin:0 0 4px;text-transform:uppercase;letter-spacing:.1em}
-.lead-heading{color:#fff;font-size:15px;margin:0 0 16px;font-family:'Cormorant Garamond',serif;font-weight:700;line-height:1.3}
-
-.book-tabs{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
-.book-tab{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;border:1.5px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);cursor:pointer;text-align:left;transition:all .2s;color:rgba(255,255,255,.75);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600}
-.book-tab:hover{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.1)}
-.book-tab--active{font-weight:700}
-.book-tab-title{flex:1;font-size:13px}
-.book-tab-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;flex-shrink:0}
-.book-cta-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px 20px;border-radius:14px;text-decoration:none;font-weight:900;font-size:14.5px;color:#fff;transition:all .2s;box-shadow:0 6px 20px rgba(0,0,0,0.25)}
-.book-cta-btn:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,0.35)}
-
-.profile-card{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:18px;padding:18px;text-align:center;backdrop-filter:blur(12px);width:100%;max-width:240px;animation:float 4.5s ease-in-out infinite}
-.mini-stats{display:grid;grid-template-columns:1fr 1fr;gap:9px;width:100%;max-width:240px}
-.mini-stat{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 9px;text-align:center}
-.mini-stat-n{font-size:17px;font-weight:900;color:#86efac;font-family:'Cormorant Garamond',serif}
-.mini-stat-l{font-size:9px;color:rgba(255,255,255,.65);font-weight:600;margin-top:2px}
-
+/* ── Trust strip ── */
 .trust-strip{background:#fff;border-bottom:1px solid #f0f0f0;padding:12px 24px;display:flex;gap:0;overflow-x:auto;scrollbar-width:none}
 .trust-strip::-webkit-scrollbar{display:none}
 .trust-item{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#374151;padding:0 20px;white-space:nowrap;border-right:1px solid #e5e7eb;flex-shrink:0}
 .trust-item:last-child{border-right:none}
 
+/* ── Sections ── */
 .section-wrap{padding:60px 24px;max-width:1100px;margin:0 auto}
 .section-head{text-align:center;margin-bottom:38px}
 .s-tag{font-size:11px;font-weight:800;letter-spacing:.1em;color:#16a34a;text-transform:uppercase}
 .s-title{font-family:'Cormorant Garamond',serif;font-size:clamp(26px,3.8vw,42px);margin:9px 0 9px;font-weight:800;line-height:1.15}
 .s-desc{color:#6b7280;font-size:14.5px;max-width:480px;margin:0 auto;line-height:1.6}
 
+/* ── Categories ── */
 .categories-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .cat-card{display:flex;align-items:center;gap:13px;background:#fff;border-radius:16px;padding:16px 18px;border:2px solid #e5e7eb;font-weight:700;font-size:13.5px;color:#1a1a1a;box-shadow:0 2px 12px rgba(0,0,0,.04);text-decoration:none;transition:all .25s}
+.cat-card:hover{border-color:var(--cat-color,#16a34a);box-shadow:0 8px 28px rgba(22,163,74,.12);background:#f9fff9;transform:translateY(-3px)}
 
+/* ── Product cards ── */
 .products-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.product-card{background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);border:1.5px solid #f0f0f0;display:flex;flex-direction:column;height:100%;transition:all .22s}
+.product-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(22,163,74,.15);border-color:rgba(22,163,74,.3)}
 
+/* ── Atlas Terra ── */
 .atlas-section{background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf4 100%);padding:72px 24px;position:relative;overflow:hidden}
 .atlas-blob{position:absolute;top:-70px;right:-50px;width:280px;height:280px;border-radius:50%;background:rgba(22,163,74,.07);pointer-events:none}
 .atlas-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-bottom:40px}
@@ -111,6 +113,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .cta-link-btn{display:inline-flex;align-items:center;gap:9px;background:#15803d;color:#fff;padding:14px 32px;border-radius:15px;text-decoration:none;font-weight:800;font-size:15px;box-shadow:0 8px 28px rgba(22,163,74,.3);transition:all .25s}
 .cta-link-btn:hover{background:#14532d;transform:translateY(-2px)}
 
+/* ── Ginegar ── */
 .ginegar-section{background:#0f1f14;padding:72px 24px;position:relative;overflow:hidden}
 .ginegar-glow{position:absolute;top:0;right:0;width:560px;height:100%;opacity:.12;pointer-events:none;background:radial-gradient(ellipse at top right,#22c55e,transparent 65%)}
 .ginegar-dots{position:absolute;inset:0;pointer-events:none;opacity:.07;background-image:radial-gradient(circle,rgba(255,255,255,.25) 1px,transparent 1px);background-size:36px 36px}
@@ -120,10 +123,12 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .ginegar-btn{display:inline-flex;align-items:center;gap:7px;background:#16a34a;color:#fff;text-decoration:none;padding:13px 26px;border-radius:13px;font-weight:800;font-size:14.5px;box-shadow:0 8px 24px rgba(22,163,74,.35);transition:all .25s}
 .ginegar-btn:hover{background:#15803d;transform:translateY(-2px)}
 
+/* ── Testimonials ── */
 .testimonials-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 .testimonial-card{background:#f9fafb;border-radius:18px;padding:22px;border:1px solid #e5e7eb;transition:all .25s;display:flex;flex-direction:column}
 .testimonial-card:hover{box-shadow:0 8px 32px rgba(0,0,0,.08);transform:translateY(-3px);background:#fff}
 
+/* ── FAQ ── */
 .faq-list{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:9px}
 .faq-item{background:#fff;border:2px solid #e5e7eb;border-radius:16px;cursor:pointer;transition:border-color .2s,box-shadow .2s;overflow:hidden}
 .faq-open{border-color:#16a34a;box-shadow:0 4px 20px rgba(22,163,74,.1)}
@@ -132,15 +137,21 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .faq-open .faq-icon{background:#16a34a;color:#fff}
 .faq-a{padding:0 20px 18px;font-size:14px;color:#4b5563;line-height:1.85;animation:faqOpen .2s ease}
 
+/* ── CTA ── */
 .cta-section{background:linear-gradient(145deg,#14532d 0%,#15803d 100%);padding:64px 24px;position:relative;overflow:hidden}
 .cta-dots{position:absolute;inset:0;pointer-events:none;opacity:.1;background-image:radial-gradient(circle,rgba(255,255,255,.3) 1px,transparent 1px);background-size:28px 28px}
 
+/* ── Footer ── */
 .site-footer{background:#0f1f14;color:rgba(255,255,255,.7);padding:48px 24px 28px}
+.footer-link{display:block;margin-bottom:7px;color:rgba(255,255,255,.6);text-decoration:none;font-size:13.5px;font-weight:600;transition:color .2s}
+.footer-link:hover{color:#86efac}
 
+/* ── Cart ── */
 .cart-drawer{position:absolute;right:0;top:0;bottom:0;width:100%;max-width:460px;background:#fff;animation:fadeDown .3s ease;display:flex;flex-direction:column;box-shadow:-8px 0 48px rgba(0,0,0,.2)}
 .float-cart{position:fixed;bottom:22px;right:22px;z-index:999;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:16px;padding:13px 20px;font-size:14.5px;font-weight:800;cursor:pointer;box-shadow:0 8px 28px rgba(22,163,74,.45);font-family:inherit;transition:all .25s;display:flex;align-items:center;gap:7px}
 .float-cart:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(22,163,74,.5)}
 
+/* ── Responsive ── */
 @media(max-width:1060px){
   .atlas-grid{grid-template-columns:repeat(2,1fr)!important}
 }
@@ -155,7 +166,6 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .header-nav{display:none}
   .mob-btn{display:flex}
   .hero-inner{padding:40px 18px 48px}
-  .lead-box{max-width:100%}
   .section-wrap{padding:48px 18px}
   .atlas-section,.ginegar-section{padding:56px 18px}
   .ginegar-img-wrap{flex:1 1 100%}
@@ -163,7 +173,6 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .cart-drawer{max-width:100%}
   .float-cart{bottom:14px;right:14px;padding:11px 16px;font-size:13.5px}
   .urgency-bar{font-size:11.5px;padding:7px 14px}
-  .book-tab-badge{display:none}
 }
 @media(max-width:480px){
   .hero-title{font-size:30px}
