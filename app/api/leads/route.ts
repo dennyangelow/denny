@@ -83,9 +83,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error('Lead error:', error)
-    return NextResponse.json({ error: 'Грешка. Моля опитай отново.' }, { status: 500 })
-  }
+  console.error('Lead error:', error)
+  return NextResponse.json({ error: error?.message || error?.code || String(error) }, { status: 500 })
+}
 }
 
 export async function GET(req: NextRequest) {

@@ -96,7 +96,7 @@ export default function HomePage() {
 
   return (
     <>
-      <style>{globalCSS}</style>
+<style suppressHydrationWarning>{globalCSS}</style>
 
       {/* ── HERO ─────────────────────────────────────────────── */}
       <section className="hero">
@@ -476,7 +476,7 @@ export default function HomePage() {
 const globalCSS = `
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{font-family:'DM Sans',system-ui,sans-serif;color:#111;background:#fff;-webkit-font-smoothing:antialiased}
+  body{font-family:"DM Sans",system-ui,sans-serif;color:#111;background:#fff;-webkit-font-smoothing:antialiased}
 
   .container{max-width:1200px;margin:0 auto;padding:0 24px}
   .section{padding:72px 0}

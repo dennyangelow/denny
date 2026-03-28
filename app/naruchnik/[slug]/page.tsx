@@ -45,13 +45,16 @@ export default async function NaruchnikPage({ params, searchParams }: Props) {
 
   const otherNaruchnici = await getOtherNaruchnici(params.slug)
 
+  // Fire-and-forget — не блокира рендера
   supabaseAdmin.rpc('increment_naruchnik_downloads', { p_slug: params.slug }).then(() => {})
 
   const name = searchParams.name || ''
 
   return (
     <>
-      <style>{css}</style>
+      {/* suppressHydrationWarning — предотвратява escape грешки от @keyframes и кавички */}
+      <style suppressHydrationWarning>{css}</style>
+
       <div className="dl-page">
         <div className="dl-card">
           <div className="dl-header">
@@ -65,7 +68,7 @@ export default async function NaruchnikPage({ params, searchParams }: Props) {
 
           {naruchnik.cover_image_url && (
             <div className="dl-cover-wrap">
-              <img src={naruchnik.cover_image_url} alt={naruchnik.title} className="dl-cover"/>
+              <img src={naruchnik.cover_image_url} alt={naruchnik.title} className="dl-cover" />
             </div>
           )}
 
@@ -105,7 +108,7 @@ export default async function NaruchnikPage({ params, searchParams }: Props) {
                 <span>Спиди</span>
                 <span className="dl-shipping-price">5.50 €</span>
               </div>
-              <div className="dl-shipping-item" style={{ gridColumn:'1/-1', color:'#16a34a' }}>
+              <div className="dl-shipping-item" style={{ gridColumn: '1/-1', color: '#16a34a' }}>
                 <span>🎁 Безплатна доставка при поръчка над 60 €</span>
               </div>
             </div>
@@ -117,11 +120,15 @@ export default async function NaruchnikPage({ params, searchParams }: Props) {
               <div className="dl-other-title">📚 Виж и другите наши наръчници</div>
               <div className="dl-other-grid">
                 {otherNaruchnici.map(n => (
-                  <a key={n.slug}
-                    href={`/naruchnik/${n.slug}${searchParams.email ? `?email=${encodeURIComponent(searchParams.email)}${searchParams.name ? `&name=${encodeURIComponent(searchParams.name)}` : ''}` : ''}`}
-                    className="dl-other-card">
+                  <a
+                    key={n.slug}
+                    href={`/naruchnik/${n.slug}${searchParams.email
+                      ? `?email=${encodeURIComponent(searchParams.email)}${searchParams.name ? `&name=${encodeURIComponent(searchParams.name)}` : ''}`
+                      : ''}`}
+                    className="dl-other-card"
+                  >
                     {n.cover_image_url
-                      ? <img src={n.cover_image_url} alt={n.title} className="dl-other-img"/>
+                      ? <img src={n.cover_image_url} alt={n.title} className="dl-other-img" />
                       : <div className="dl-other-emoji">📗</div>
                     }
                     <div className="dl-other-name">{n.title}</div>
@@ -141,7 +148,6 @@ export default async function NaruchnikPage({ params, searchParams }: Props) {
 }
 
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'DM Sans',sans-serif;background:linear-gradient(145deg,#0c3a1c,#14532d);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
   .dl-page{width:100%;max-width:540px;margin:0 auto}

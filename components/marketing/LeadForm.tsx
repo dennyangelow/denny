@@ -65,17 +65,19 @@ export function LeadForm({ naruchnikSlug, source = 'naruchnik', showSelector = f
         }),
       })
 
-      if (res.ok) {
+     if (res.ok) {
         const redirectParams = new URLSearchParams()
         if (form.name) redirectParams.set('name', form.name)
         redirectParams.set('email', form.email)
         router.push(`/naruchnik/${selectedSlug}?${redirectParams.toString()}`)
       } else {
         const data = await res.json()
+        console.error('API error response:', data)
         setError(data.error || 'Нещо се обърка. Опитай отново.')
         setLoading(false)
       }
-    } catch {
+    } catch (err) {
+      console.error('Fetch error:', err)
       setError('Грешка при изпращане. Провери интернет връзката.')
       setLoading(false)
     }
