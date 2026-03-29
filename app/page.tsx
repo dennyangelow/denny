@@ -29,6 +29,7 @@ interface AffiliateProduct { id: string; slug: string; name: string; subtitle: s
 interface CategoryLink { id: string; slug: string; label: string; href: string; emoji: string; partner: string | null; color?: string }
 interface Testimonial { id: string; name: string; location: string; text: string; stars: number; avatar: string }
 interface FaqItem { id: string; question: string; answer: string; sort_order: number; category: string }
+interface GinegarProduct { id: string; name: string; description: string; bullets: string[]; image_url: string; affiliate_url: string; active: boolean }
 
 // ─── Defaults ──────────────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS: SiteSettings = {
@@ -81,6 +82,7 @@ async function getPageData() {
       { data: testimonialRows },
       { data: faqRows },
       { data: handbookRows },
+      { data: ginegarRows },
     ] = await Promise.all([
       supabase.from('settings').select('key,value'),
       supabase.from('products').select('*').eq('active', true).order('sort_order'),
@@ -90,6 +92,7 @@ async function getPageData() {
       supabase.from('testimonials').select('*').order('sort_order').limit(9),
       supabase.from('faq').select('*').order('sort_order'),
       supabase.from('naruchnici').select('*').eq('active', true).order('sort_order'),
+      supabase.from('ginegar_products').select('*').eq('active', true).order('sort_order').limit(1),
     ])
 
     // Settings
@@ -184,23 +187,34 @@ async function getPageData() {
         }))
       : DEFAULT_HANDBOOKS
 
-    return { settings, atlasProducts, affiliateProducts, categoryLinks, testimonials, faq, handbooks }
+    const ginegarProduct: GinegarProduct | null = ginegarRows?.[0]
+      ? {
+          id: ginegarRows[0].id,
+          name: ginegarRows[0].name || '',
+          description: ginegarRows[0].description || '',
+          bullets: ginegarRows[0].bullets || ginegarRows[0].features || [],
+          image_url: ginegarRows[0].image_url || '',
+          affiliate_url: ginegarRows[0].affiliate_url || ginegarRows[0].url || '#',
+          active: true,
+        }
+      : null
+
+    return { settings, atlasProducts, affiliateProducts, categoryLinks, testimonials, faq, handbooks, ginegarProduct }
   } catch (err) {
     console.error('[getPageData] Supabase error:', err)
     return {
       settings: DEFAULT_SETTINGS, atlasProducts: [], affiliateProducts: [],
-      categoryLinks: [], testimonials: [], faq: [], handbooks: DEFAULT_HANDBOOKS,
+      categoryLinks: [], testimonials: [], faq: [], handbooks: DEFAULT_HANDBOOKS, ginegarProduct: null,
     }
   }
 }
 
 // ─── SERVER COMPONENT ──────────────────────────────────────────────────────────
 export default async function HomePage() {
-  const { settings, atlasProducts, affiliateProducts, categoryLinks, testimonials, faq, handbooks } = await getPageData()
+  const { settings, atlasProducts, affiliateProducts, categoryLinks, testimonials, faq, handbooks, ginegarProduct } = await getPageData()
 
   const trustItems: { icon: string; text: string }[] = (() => { try { return JSON.parse(settings.trust_strip_items) } catch { return [] } })()
   const socialItems: { number: string; label: string }[] = (() => { try { return JSON.parse(settings.social_proof_items) } catch { return [] } })()
-  const ginegarProduct = affiliateProducts.find(p => p.partner !== 'agroapteki')
 
   return (
     <>
@@ -347,38 +361,52 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* СПЕЦИАЛЕН ПАРТНЬОРСКИ ПРОДУКТ */}
-      {ginegarProduct && (
-        <section id="ginegar" className="ginegar-section">
-          <div className="ginegar-glow" />
-          <div className="ginegar-dots" />
-          <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative', zIndex: 1 }}>
-            <FadeIn>
-              <div className="ginegar-inner">
-                <div className="ginegar-text">
-                  <span style={{ background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 30, letterSpacing: '0.08em', textTransform: 'uppercase', display: 'inline-block', marginBottom: 16 }}>🏕️ ИЗРАЕЛСКА ТЕХНОЛОГИЯ</span>
-                  <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 3.5vw, 38px)', margin: '0 0 14px', fontWeight: 800, lineHeight: 1.15 }}>{settings.ginegar_section_title || ginegarProduct.name}</h2>
-                  <p style={{ color: 'rgba(255,255,255,0.72)', fontSize: 15, lineHeight: 1.8, marginBottom: 22 }}>{settings.ginegar_section_desc || ginegarProduct.description}</p>
-                  <ul style={{ margin: '0 0 28px', padding: 0, listStyle: 'none' }}>
-                    {ginegarProduct.bullets.map(f => (
-                      <li key={f} style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, padding: '7px 0', display: 'flex', gap: 11, borderBottom: '1px solid rgba(255,255,255,0.07)', alignItems: 'flex-start' }}>
-                        <span style={{ background: '#16a34a', color: '#fff', width: 17, height: 17, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0, marginTop: 1 }}>✓</span>{f}
-                      </li>
-                    ))}
-                  </ul>
-                  <a href={ginegarProduct.affiliate_url} target="_blank" rel="noopener noreferrer" data-partner={ginegarProduct.partner} data-slug={ginegarProduct.slug} className="ginegar-btn">
-                    👉 Разгледай фолиата на Ginegar
-                  </a>
-                </div>
-                <div className="ginegar-img-wrap">
-                  <div style={{ position: 'absolute', inset: -16, background: 'radial-gradient(circle, rgba(22,163,74,0.22), transparent 70%)', borderRadius: '50%' }} />
-                  <img src={ginegarProduct.image_url} alt={ginegarProduct.name} style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative' }} />
-                </div>
+      {/* GINEGAR СЕКЦИЯ — зарежда от ginegar_products таблица */}
+      <section id="ginegar" className="ginegar-section">
+        <div className="ginegar-glow" />
+        <div className="ginegar-dots" />
+        <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+          <FadeIn>
+            <div className="ginegar-inner">
+              <div className="ginegar-text">
+                <span style={{ background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 30, letterSpacing: '0.08em', textTransform: 'uppercase', display: 'inline-block', marginBottom: 16 }}>🏕️ ИЗРАЕЛСКА ТЕХНОЛОГИЯ</span>
+                <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 3.5vw, 38px)', margin: '0 0 14px', fontWeight: 800, lineHeight: 1.15 }}>
+                  {settings.ginegar_section_title || ginegarProduct?.name || 'Ginegar — Премиум Найлон за Оранжерии'}
+                </h2>
+                <p style={{ color: 'rgba(255,255,255,0.72)', fontSize: 15, lineHeight: 1.8, marginBottom: 22 }}>
+                  {settings.ginegar_section_desc || ginegarProduct?.description || 'Световен стандарт за здравина, светлина и дълъг живот. GINEGAR не е най-евтиният избор — той е изборът, който излиза най-изгоден с времето.'}
+                </p>
+                <ul style={{ margin: '0 0 28px', padding: 0, listStyle: 'none' }}>
+                  {(ginegarProduct?.bullets?.length
+                    ? ginegarProduct.bullets
+                    : ['9-слойна технология (всеки слой с функция)', 'UV защита и анти-капка ефект', 'Равномерно осветление на растенията', 'По-малко подмяна — по-ниска цена на сезон']
+                  ).map(f => (
+                    <li key={f} style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, padding: '7px 0', display: 'flex', gap: 11, borderBottom: '1px solid rgba(255,255,255,0.07)', alignItems: 'flex-start' }}>
+                      <span style={{ background: '#16a34a', color: '#fff', width: 17, height: 17, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0, marginTop: 1 }}>✓</span>{f}
+                    </li>
+                  ))}
+                </ul>
+                <a href={ginegarProduct?.affiliate_url || 'https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar'} target="_blank" rel="noopener noreferrer" className="ginegar-btn">
+                  👉 Разгледай фолиата на Ginegar
+                </a>
               </div>
-            </FadeIn>
-          </div>
-        </section>
-      )}
+              <div className="ginegar-img-wrap">
+                <div style={{ position: 'absolute', inset: -16, background: 'radial-gradient(circle, rgba(22,163,74,0.22), transparent 70%)', borderRadius: '50%' }} />
+                <img
+                  src={ginegarProduct?.image_url || `${CDN}/6940e17e0d4a3_pe-film-supflor-ginegar.jpg`}
+                  alt="Ginegar фолио"
+                  style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative' }}
+                />
+                <img
+                  src={`${CDN}/694242e9c1baa_ginegar-logo-mk-group.600x600.png`}
+                  alt="Ginegar logo"
+                  style={{ width: 90, marginTop: 16, display: 'block', filter: 'brightness(0) invert(1)', opacity: 0.6 }}
+                />
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
 
       {/* ATLAS TERRA SECTION */}
 {atlasProducts.length > 0 && (
