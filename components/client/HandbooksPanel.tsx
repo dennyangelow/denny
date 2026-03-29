@@ -118,97 +118,109 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
       style={{
         '--hb-color': hb.color,
         cursor: 'pointer',
-        border: 'none',
+        border: `1px solid ${hb.color}33`,
         textAlign: 'left',
         width: '100%',
         display: 'flex',
         alignItems: 'center',
-        gap: 12,
-        padding: '12px',
-        borderRadius: '14px',
-        background: 'rgba(255, 255, 255, 0.05)',
-        transition: 'transform 0.2s, background 0.2s',
+        gap: 0,
+        padding: '0',
+        borderRadius: '16px',
+        background: 'rgba(255,255,255,0.04)',
+        transition: 'transform 0.2s, box-shadow 0.2s, border-color 0.2s',
+        overflow: 'hidden',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
+        minHeight: 100,
       } as React.CSSProperties}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.transform = 'translateY(-3px)';
+        e.currentTarget.style.boxShadow = `0 8px 28px ${hb.color}44`;
+        e.currentTarget.style.borderColor = `${hb.color}88`;
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
         e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.2)';
+        e.currentTarget.style.borderColor = `${hb.color}33`;
       }}
     >
-      {/* Контейнер за икона/снимка */}
-      <div 
-        className="hb-card-emoji" 
-        style={{ 
-          width: 48, 
-          height: 48, 
-          flexShrink: 0, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          borderRadius: '10px',
-          overflow: 'hidden',
-          background: 'rgba(255,255,255,0.05)',
-          fontSize: '24px' 
-        }}
-      >
-        {/* ПРОВЕРКА ЗА СНИМКА */}
+      {/* Снимка вляво — портретна като корица */}
+      <div style={{
+        width: 70,
+        height: 100,
+        flexShrink: 0,
+        overflow: 'hidden',
+        position: 'relative',
+        background: `${hb.color}22`,
+      }}>
         {hb.image_url ? (
-          <img 
-            src={hb.image_url} 
-            alt={hb.title} 
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+          <img
+            src={hb.image_url}
+            alt={hb.title}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
             onError={(e) => {
-              // Ако снимката не се зареди, покажи емоджито
               e.currentTarget.style.display = 'none';
-              e.currentTarget.parentElement!.innerHTML = hb.emoji;
+              e.currentTarget.parentElement!.innerHTML = `<span style="font-size:36px;display:flex;align-items:center;justify-content:center;width:100%;height:100%">${hb.emoji}</span>`;
             }}
           />
         ) : (
-          hb.emoji
+          <span style={{ fontSize: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>{hb.emoji}</span>
         )}
+        {/* Цветна лента отляво */}
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: hb.color }} />
       </div>
 
-      {/* Текстова част */}
-      <div className="hb-card-body" style={{ flex: 1, overflow: 'hidden' }}>
-        <div 
-          className="hb-card-title" 
-          style={{ 
-            color: '#fff', 
-            fontWeight: 700, 
-            fontSize: '15px', 
-            marginBottom: '2px',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
-          }}
-        >
-          {hb.title}
-        </div>
-        <div 
-          className="hb-card-sub" 
-          style={{ 
-            color: 'rgba(255,255,255,0.5)', 
-            fontSize: '12px',
-            lineHeight: '1.3'
-          }}
-        >
-          {hb.subtitle}
-        </div>
+      {/* Текст */}
+      <div style={{ flex: 1, padding: '12px 14px', overflow: 'hidden' }}>
+        <div style={{
+          display: 'inline-block',
+          background: `${hb.color}22`,
+          color: hb.color,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.07em',
+          textTransform: 'uppercase',
+          borderRadius: 5,
+          padding: '2px 7px',
+          marginBottom: 5,
+        }}>{hb.badge}</div>
+        <div style={{
+          color: '#fff',
+          fontWeight: 700,
+          fontSize: 14,
+          lineHeight: 1.3,
+          marginBottom: 3,
+        }}>{hb.title}</div>
+        <div style={{
+          color: 'rgba(255,255,255,0.45)',
+          fontSize: 11,
+          lineHeight: 1.4,
+          overflow: 'hidden',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+        } as React.CSSProperties}>{hb.subtitle}</div>
       </div>
 
       {/* Стрелка */}
-      <div 
-        className="hb-card-arrow" 
-        style={{ 
-          color: 'rgba(255,255,255,0.3)', 
-          fontSize: '18px',
-          paddingRight: '4px' 
-        }}
-      >
-        ↓
+      <div style={{
+        width: 36,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}>
+        <div style={{
+          width: 28,
+          height: 28,
+          borderRadius: '50%',
+          background: hb.color,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 14,
+          color: '#fff',
+          fontWeight: 900,
+        }}>↓</div>
       </div>
     </button>
   ))}
