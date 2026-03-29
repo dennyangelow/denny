@@ -1,9 +1,11 @@
 'use client'
-// components/marketing/LeadForm.tsx — v4
+// components/marketing/LeadForm.tsx
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 
+/** * Интерфейси за сигурност на данните 
+ */
 interface Naruchnik {
   id: string
   slug: string
@@ -11,141 +13,315 @@ interface Naruchnik {
   subtitle: string
   cover_image_url: string
   category: string
-  sort_order: number
 }
 
-interface Props {
+interface LeadFormProps {
   naruchnikSlug?: string
   source?: string
   showSelector?: boolean
 }
 
-export function LeadForm({ naruchnikSlug, source = 'naruchnik', showSelector = false }: Props) {
-  const [form, setForm]             = useState({ name: '', email: '', phone: '' })
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState('')
+export function LeadForm({ 
+  naruchnikSlug, 
+  source = 'marketing_page', 
+  showSelector = false 
+}: LeadFormProps) {
+  
+  const [form, setForm] = useState({ name: '', email: '', phone: '' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [naruchnici, setNaruchnici] = useState<Naruchnik[]>([])
-  const [selectedSlug, setSelectedSlug] = useState(naruchnikSlug || 'super-domati')
+  const [selectedSlug, setSelectedSlug] = useState(naruchnikSlug || '')
+
   const router = useRouter()
 
+  // Зареждане на наръчниците
   useEffect(() => {
-    if (!showSelector && naruchnikSlug) return
-    fetch('/api/naruchnici')
-      .then(r => r.json())
-      .then(d => {
-        const list: Naruchnik[] = d.naruchnici || []
+    const loadNaruchnici = async () => {
+      try {
+        const res = await fetch('/api/naruchnici')
+        const data = await res.json()
+        const list: Naruchnik[] = data.naruchnici || []
         setNaruchnici(list)
-        if (!naruchnikSlug && list.length > 0) setSelectedSlug(list[0].slug)
-      })
-      .catch(() => {})
-  }, [naruchnikSlug, showSelector])
+        
+        // Ако нямаме зададен slug, избираме първия наличен
+        if (!naruchnikSlug && list.length > 0) {
+          setSelectedSlug(list[0].slug)
+        }
+      } catch (err) {
+        console.error("Failed to load naruchnici", err)
+      }
+    }
+
+    loadNaruchnici()
+  }, [naruchnikSlug])
+
+  // По-сигурно извличане на UTM параметри
+  const utmParams = useMemo(() => {
+    if (typeof window === 'undefined') return {}
+    const p = new URLSearchParams(window.location.search)
+    return {
+      utm_source: p.get('utm_source') || undefined,
+      utm_campaign: p.get('utm_campaign') || undefined,
+      utm_medium: p.get('utm_medium') || undefined
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.email) return
+    if (!form.email || !selectedSlug) return
+    
     setLoading(true)
     setError('')
-
-    const params = typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search)
-      : new URLSearchParams()
 
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name:           form.name,
-          email:          form.email,
-          phone:          form.phone || undefined,
+          ...form,
           source,
           naruchnik_slug: selectedSlug,
-          utm_source:     params.get('utm_source')   || undefined,
-          utm_campaign:   params.get('utm_campaign') || undefined,
+          ...utmParams
         }),
       })
 
-     if (res.ok) {
-        const redirectParams = new URLSearchParams()
-        if (form.name) redirectParams.set('name', form.name)
-        redirectParams.set('email', form.email)
-        router.push(`/naruchnik/${selectedSlug}?${redirectParams.toString()}`)
+      const data = await res.json()
+
+      if (res.ok) {
+        // Успех: Пренасочване с персонализирано съобщение
+        const params = new URLSearchParams({ 
+          email: form.email, 
+          name: form.name,
+          new_lead: 'true' 
+        })
+        router.push(`/naruchnik/${selectedSlug}?${params.toString()}`)
       } else {
-        const data = await res.json()
-        console.error('API error response:', data)
-        setError(data.error || 'Нещо се обърка. Опитай отново.')
-        setLoading(false)
+        throw new Error(data.error || 'Възникна грешка')
       }
-    } catch (err) {
-      console.error('Fetch error:', err)
-      setError('Грешка при изпращане. Провери интернет връзката.')
+    } catch (err: any) {
+      setError(err.message)
       setLoading(false)
     }
   }
 
-  const hasMultiple = naruchnici.length > 1 && showSelector
-
   return (
-    <>
-      <style>{`
-        .lead-input{width:100%;padding:13px 16px;border-radius:12px;border:1.5px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.12);color:#fff;font-size:14px;outline:none;font-family:inherit;transition:border-color .2s,background .2s;backdrop-filter:blur(8px);box-sizing:border-box}
-        .lead-input::placeholder{color:rgba(255,255,255,0.6)}
-        .lead-input:focus{border-color:#86efac;background:rgba(255,255,255,0.18)}
-        .lead-submit{width:100%;background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;border:none;border-radius:12px;padding:14px 20px;font-weight:900;font-size:15px;cursor:pointer;transition:all .2s;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(74,222,128,0.25)}
-        .lead-submit:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 20px rgba(74,222,128,0.35)}
-        .lead-submit:disabled{opacity:.6;cursor:default}
-        .nar-option{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;border:1.5px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);transition:all .2s;margin-bottom:8px}
-        .nar-option.selected{border-color:#86efac;background:rgba(134,239,172,0.15)}
-        .nar-option img{width:40px;height:40px;border-radius:6px;object-fit:cover;flex-shrink:0}
-        .nar-check{width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s}
-        .nar-option.selected .nar-check{background:#4ade80;border-color:#4ade80}
-      `}</style>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {hasMultiple && (
-          <div>
-            <p style={{ color: 'rgba(255,255,255,.8)', fontSize: 12, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-              Избери наръчник:
-            </p>
-            {naruchnici.map(n => (
-              <div key={n.slug} className={`nar-option${selectedSlug === n.slug ? ' selected' : ''}`} onClick={() => setSelectedSlug(n.slug)}>
-                {n.cover_image_url
-                  ? <img src={n.cover_image_url} alt={n.title} />
-                  : <span style={{ fontSize: 28 }}>📗</span>
-                }
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{n.title}</div>
-                  {n.subtitle && <div style={{ fontSize: 11, color: 'rgba(255,255,255,.6)' }}>{n.subtitle}</div>}
-                </div>
-                <div className="nar-check">
-                  {selectedSlug === n.slug && <span style={{ color: '#052e16', fontSize: 10, fontWeight: 900 }}>✓</span>}
-                </div>
-              </div>
-            ))}
+    <div className="lead-form-container">
+      <form onSubmit={handleSubmit} className="lead-form-base">
+        
+        {/* Секция за избор на наръчник (ако е активна) */}
+        {showSelector && naruchnici.length > 0 && (
+          <div className="selector-section">
+            <label className="section-label">Избери твоя подарък:</label>
+            <div className="naruchnik-grid">
+              {naruchnici.map(n => (
+                <button
+                  key={n.slug}
+                  type="button"
+                  className={`nar-card ${selectedSlug === n.slug ? 'active' : ''}`}
+                  onClick={() => setSelectedSlug(n.slug)}
+                >
+                  <div className="nar-card-content">
+                    <div className="img-container">
+                      {n.cover_image_url ? (
+                        <img src={n.cover_image_url} alt={n.title} />
+                      ) : (
+                        <span className="emoji-icon">📗</span>
+                      )}
+                    </div>
+                    <div className="text-container">
+                      <span className="title">{n.title}</span>
+                      <span className="category">{n.category}</span>
+                    </div>
+                    <div className="check-indicator" />
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        <input className="lead-input" type="text" placeholder="Твоето име" value={form.name}
-          onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-        <input className="lead-input" type="email" placeholder="Имейл адрес *" required value={form.email}
-          onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
-        <input className="lead-input" type="tel" placeholder="Телефон (по желание)" value={form.phone}
-          onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
+        {/* Полета за вход */}
+        <div className="inputs-group">
+          <div className="input-wrapper">
+            <input 
+              className="lead-field" 
+              type="text" 
+              placeholder="Твоето име"
+              value={form.name}
+              onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+            />
+          </div>
 
-        {error && <div style={{ color: '#fca5a5', fontSize: 13, background: 'rgba(239,68,68,.15)', borderRadius: 8, padding: '8px 12px' }}>{error}</div>}
+          <div className="input-wrapper">
+            <input 
+              className="lead-field" 
+              type="email" 
+              placeholder="Имейл адрес *" 
+              required
+              value={form.email}
+              onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+            />
+          </div>
 
-        <button className="lead-submit" type="submit" disabled={loading}>
+          <div className="input-wrapper">
+            <input 
+              className="lead-field" 
+              type="tel" 
+              placeholder="Телефон (по желание)"
+              value={form.phone}
+              onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        {/* Съобщения за грешка */}
+        {error && <div className="error-bubble">{error}</div>}
+
+        {/* Бутон за изпращане */}
+        <button className="submit-action" type="submit" disabled={loading}>
           {loading ? (
-            <>
-              <div style={{ width: 16, height: 16, border: '2px solid rgba(5,46,22,.3)', borderTopColor: '#052e16', borderRadius: '50%', animation: 'lead-spin .6s linear infinite' }} />
-              Изпраща...
-            </>
-          ) : '📗 Изтегли наръчника безплатно'}
+            <span className="loader" />
+          ) : (
+            <span className="btn-text">📗 Вземи наръчника безплатно</span>
+          )}
         </button>
-        <p style={{ color: 'rgba(255,255,255,.5)', fontSize: 11, textAlign: 'center', margin: 0 }}>
-          🔒 Без спам · Само полезно агро съдържание
+
+        <p className="privacy-note">
+           🔒 Твоите данни са защитени. Само ценни съвети.
         </p>
       </form>
-      <style>{`@keyframes lead-spin{to{transform:rotate(360deg)}}`}</style>
-    </>
+
+      <style jsx>{`
+        .lead-form-container { width: 100%; max-width: 480px; margin: 0 auto; }
+        .lead-form-base { display: flex; flex-direction: column; gap: 16px; }
+        
+        /* Inputs Stylings */
+        .lead-field {
+          width: 100%;
+          padding: 14px 18px;
+          border-radius: 14px;
+          border: 1.5px solid rgba(255,255,255,0.15);
+          background: rgba(255,255,255,0.08);
+          color: #fff;
+          font-size: 15px;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          backdrop-filter: blur(12px);
+          outline: none;
+        }
+        .lead-field:focus {
+          border-color: #4ade80;
+          background: rgba(255,255,255,0.12);
+          box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.1);
+        }
+
+        /* Selector Styling */
+        .section-label {
+          display: block;
+          color: rgba(255,255,255,0.7);
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          margin-bottom: 12px;
+        }
+        .nar-card {
+          width: 100%;
+          background: rgba(255,255,255,0.05);
+          border: 1.5px solid rgba(255,255,255,0.1);
+          border-radius: 14px;
+          padding: 10px;
+          margin-bottom: 8px;
+          cursor: pointer;
+          transition: all 0.25s;
+          text-align: left;
+        }
+        .nar-card.active {
+          border-color: #4ade80;
+          background: rgba(74, 222, 128, 0.08);
+        }
+        .nar-card-content { display: flex; align-items: center; gap: 12px; position: relative; }
+        .img-container img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
+        .emoji-icon { font-size: 24px; width: 44px; text-align: center; display: block; }
+        
+        .text-container { flex: 1; display: flex; flex-direction: column; }
+        .text-container .title { color: #fff; font-size: 14px; font-weight: 700; }
+        .text-container .category { color: rgba(255,255,255,0.5); font-size: 11px; }
+
+        .check-indicator {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          border: 2px solid rgba(255,255,255,0.2);
+          position: relative;
+        }
+        .nar-card.active .check-indicator {
+          background: #4ade80;
+          border-color: #4ade80;
+        }
+        .nar-card.active .check-indicator::after {
+          content: '✓';
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          color: #052e16;
+          font-weight: 900;
+          font-size: 12px;
+        }
+
+        /* Button Styling */
+        .submit-action {
+          width: 100%;
+          padding: 16px;
+          border-radius: 14px;
+          border: none;
+          background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+          color: #052e16;
+          font-weight: 800;
+          font-size: 16px;
+          cursor: pointer;
+          transition: all 0.3s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 10px 25px -5px rgba(34, 197, 94, 0.4);
+        }
+        .submit-action:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 15px 30px -5px rgba(34, 197, 94, 0.5);
+          filter: brightness(1.05);
+        }
+        .submit-action:disabled { opacity: 0.7; cursor: not-allowed; }
+
+        /* Loader Animation */
+        .loader {
+          width: 20px;
+          height: 20px;
+          border: 3px solid rgba(5, 46, 22, 0.2);
+          border-top: 3px solid #052e16;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+
+        .error-bubble {
+          background: rgba(239, 68, 68, 0.15);
+          color: #fca5a5;
+          padding: 12px;
+          border-radius: 10px;
+          font-size: 13px;
+          text-align: center;
+          border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .privacy-note {
+          color: rgba(255,255,255,0.4);
+          font-size: 11px;
+          text-align: center;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
   )
 }

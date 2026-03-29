@@ -1,7 +1,6 @@
 // app/page.tsx  ←  SERVER COMPONENT (без 'use client')
 // Всички данни се зареждат тук на сървъра → нулева CLS, мигновено съдържание
 
-import { Suspense } from 'react'
 import { CDN, AFF } from '@/lib/marketing-data'
 import { HeaderClient } from '@/components/client/HeaderClient'
 import { HandbooksPanel } from '@/components/client/HandbooksPanel'
@@ -10,53 +9,123 @@ import { FaqSection } from '@/components/client/FaqSection'
 import { FadeIn } from '@/components/marketing/FadeIn'
 import { SafeImg } from '@/components/client/SafeImg'
 import './homepage.css'
-export const revalidate = 60; // Обновявай данните на всеки 60 секунди
+
+export const revalidate = 60
 
 // ─── Типове ────────────────────────────────────────────────────────────────────
 interface SiteSettings {
-  hero_title: string; hero_subtitle: string; hero_warning: string
-  shipping_price: number; shipping_econt: number; shipping_speedy: number; free_shipping_above: number
-  site_email: string; site_phone: string; whatsapp_number: string
-  urgency_bar_text: string; trust_strip_items: string
-  social_proof_items: string; footer_about_text: string
-  cta_title: string; cta_subtitle: string
-  ginegar_section_title: string; ginegar_section_desc: string
-  currency: string; currency_symbol: string
+  hero_title: string
+  hero_subtitle: string
+  hero_warning: string
+  shipping_price: number
+  shipping_econt: number
+  shipping_speedy: number
+  free_shipping_above: number
+  site_email: string
+  site_phone: string
+  whatsapp_number: string
+  urgency_bar_text: string
+  trust_strip_items: string
+  social_proof_items: string
+  footer_about_text: string
+  cta_title: string
+  cta_subtitle: string
+  currency: string
+  currency_symbol: string
 }
-interface Handbook { slug: string; title: string; subtitle: string; emoji: string; color: string; bg: string; badge: string }
-interface ProductVariant { id: string; product_id: string; label: string; size_liters: number; price: number; compare_price: number; price_per_liter: number; stock: number; active: boolean }
-interface AtlasProduct { id: string; name: string; subtitle: string; desc: string; badge: string; emoji: string; img: string; price: number; comparePrice: number; priceLabel: string; features: string[]; variants?: ProductVariant[] }
-interface AffiliateProduct { id: string; slug: string; name: string; subtitle: string; description: string; bullets: string[]; image_url: string; affiliate_url: string; partner: string; emoji: string; badge_text: string; tag_text: string; color: string; badge_color: string; category_label: string }
-interface CategoryLink { id: string; slug: string; label: string; href: string; emoji: string; partner: string | null; color?: string }
-interface Testimonial { id: string; name: string; location: string; text: string; stars: number; avatar: string }
-interface FaqItem { id: string; question: string; answer: string; sort_order: number; category: string }
-interface GinegarProduct { id: string; name: string; description: string; bullets: string[]; image_url: string; affiliate_url: string; active: boolean }
+
+interface Handbook {
+  slug: string; title: string; subtitle: string
+  emoji: string; color: string; bg: string; badge: string
+}
+
+interface ProductVariant {
+  id: string; product_id: string; label: string
+  size_liters: number; price: number; compare_price: number
+  price_per_liter: number; stock: number; active: boolean
+}
+
+interface AtlasProduct {
+  id: string; name: string; subtitle: string; desc: string
+  badge: string; emoji: string; img: string
+  price: number; comparePrice: number; priceLabel: string
+  features: string[]; variants?: ProductVariant[]
+}
+
+interface AffiliateProduct {
+  id: string; slug: string; name: string; subtitle: string
+  description: string; bullets: string[]; image_url: string
+  affiliate_url: string; partner: string; emoji: string
+  badge_text: string; tag_text: string; color: string
+  badge_color: string; category_label: string
+}
+
+interface CategoryLink {
+  id: string; slug: string; label: string
+  href: string; emoji: string; partner: string | null; color?: string
+}
+
+interface Testimonial {
+  id: string; name: string; location: string
+  text: string; stars: number; avatar: string
+}
+
+interface FaqItem {
+  id: string; question: string; answer: string
+  sort_order: number; category: string
+}
+
+interface SpecialSection {
+  id: string; slug: string
+  title: string; subtitle: string; description: string
+  badge_text: string; button_text: string; button_url: string
+  bullets: string[]; image_url: string; logo_url: string
+  active: boolean; sort_order: number
+}
 
 // ─── Defaults ──────────────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS: SiteSettings = {
-  hero_title: 'Искаш едри, здрави и сочни домати?',
-  hero_subtitle: 'Без болести, без гниене и без загубена реколта. С правилната грижа и нужните продукти можеш да отгледаш здрави и продуктивни растения, без излишни усилия.',
-  hero_warning: 'Не рискувай да изхвърлиш продукцията си, само защото нямаш нужната информация навреме.',
-  shipping_price: 5.99, shipping_econt: 5.00, shipping_speedy: 5.50, free_shipping_above: 60,
-  currency: 'EUR', currency_symbol: '€',
-  site_email: 'support@dennyangelow.com', site_phone: '+359 876238623', whatsapp_number: '359876238623',
-  urgency_bar_text: '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 лв. · 💵 Само наложен платеж',
-  trust_strip_items: JSON.stringify([
-    { icon: '🌱', text: 'Органични продукти' }, { icon: '🚚', text: 'Еконт · Спиди до вратата' },
-    { icon: '💵', text: 'Само наложен платеж' }, { icon: '📞', text: 'Лична консултация' }, { icon: '⭐', text: '5-звездни отзиви' },
+  hero_title:          'Искаш едри, здрави и сочни домати?',
+  hero_subtitle:       'Без болести, без гниене и без загубена реколта. С правилната грижа и нужните продукти можеш да отгледаш здрави и продуктивни растения, без излишни усилия.',
+  hero_warning:        'Не рискувай да изхвърлиш продукцията си, само защото нямаш нужната информация навреме.',
+  shipping_price:      5.00,
+  shipping_econt:      5.00,
+  shipping_speedy:     5.50,
+  free_shipping_above: 60,
+  currency:            'BGN',
+  currency_symbol:     'лв.',
+  site_email:          'support@dennyangelow.com',
+  site_phone:          '+359 876238623',
+  whatsapp_number:     '359876238623',
+  urgency_bar_text:    '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 лв. · 💵 Само наложен платеж',
+  trust_strip_items:   JSON.stringify([
+    { icon: '🌱', text: 'Органични продукти' },
+    { icon: '🚚', text: 'Еконт · Спиди до вратата' },
+    { icon: '💵', text: 'Само наложен платеж' },
+    { icon: '📞', text: 'Лична консултация' },
+    { icon: '⭐', text: '5-звездни отзиви' },
   ]),
-  social_proof_items: JSON.stringify([{ number: '6 000+', label: 'изтеглени' }, { number: '85K', label: 'последователи' }, { number: '100%', label: 'органично' }]),
-  footer_about_text: 'Помагам на фермери да отглеждат по-здрави растения с проверени органични методи.',
-  cta_title: 'Изтегли И Двата Наръчника Напълно Безплатно',
-  cta_subtitle: 'Над 6 000 фермери вече ги изтеглиха. Вземи **и двата безплатно** — тайните за едри домати и рекордни краставици.',
-  ginegar_section_title: 'Ginegar — Качествен Найлон за Оранжерии',
-  ginegar_section_desc: 'Световен стандарт за здравина, светлина и дълъг живот.',
+  social_proof_items:  JSON.stringify([
+    { number: '6 000+', label: 'изтеглени' },
+    { number: '85K',    label: 'последователи' },
+    { number: '100%',   label: 'органично' },
+  ]),
+  footer_about_text:   'Помагам на фермери да отглеждат по-здрави растения с проверени органични методи.',
+  cta_title:           'Изтегли И Двата Наръчника Напълно Безплатно',
+  cta_subtitle:        'Над 6 000 фермери вече ги изтеглиха. Вземи **и двата безплатно** — тайните за едри домати и рекордни краставици.',
 }
+
 const DEFAULT_HANDBOOKS: Handbook[] = [
-  { slug: 'super-domati', title: 'Тайните на Едрите Домати', subtitle: 'Над 6 000 изтеглени', emoji: '🍅', color: '#dc2626', bg: 'linear-gradient(135deg,#dc2626,#b91c1c)', badge: 'Домати' },
-  { slug: 'krastavici-visoki-dobivy', title: 'Краставици за Високи Добиви', subtitle: 'Новост', emoji: '🥒', color: '#16a34a', bg: 'linear-gradient(135deg,#16a34a,#166534)', badge: 'Краставици' },
+  { slug: 'super-domati',            title: 'Тайните на Едрите Домати',    subtitle: 'Над 6 000 изтеглени', emoji: '🍅', color: '#dc2626', bg: 'linear-gradient(135deg,#dc2626,#b91c1c)', badge: 'Домати' },
+  { slug: 'krastavici-visoki-dobivy', title: 'Краставици за Високи Добиви', subtitle: 'Новост',              emoji: '🥒', color: '#16a34a', bg: 'linear-gradient(135deg,#16a34a,#166534)', badge: 'Краставици' },
 ]
-const CAT_COLORS: Record<string, string> = { agroapteki: '#16a34a', oranjeriata: '#0369a1', atlasagro: '#7c3aed', default: '#374151' }
+
+const CAT_COLORS: Record<string, string> = {
+  agroapteki:  '#16a34a',
+  oranjeriata: '#0369a1',
+  atlasagro:   '#7c3aed',
+  default:     '#374151',
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 function parseBold(text: string) {
@@ -65,7 +134,11 @@ function parseBold(text: string) {
   )
 }
 
-// ─── Data fetching (SERVER SIDE — директно от Supabase) ───────────────────────
+function safeJson<T>(str: string, fallback: T): T {
+  try { return JSON.parse(str) } catch { return fallback }
+}
+
+// ─── Data fetching ─────────────────────────────────────────────────────────────
 async function getPageData() {
   try {
     const { createClient } = await import('@supabase/supabase-js')
@@ -75,15 +148,15 @@ async function getPageData() {
     )
 
     const [
-      { data: settingsRows },
-      { data: productsRows },
-      { data: variantsRows },
-      { data: affiliateRows },
-      { data: categoryRows },
-      { data: testimonialRows },
-      { data: faqRows },
-      { data: handbookRows },
-      { data: ginegarRows },
+      { data: settingsRows,        error: e1 },
+      { data: productsRows,        error: e2 },
+      { data: variantsRows,        error: e3 },
+      { data: affiliateRows,       error: e4 },
+      { data: categoryRows,        error: e5 },
+      { data: testimonialRows,     error: e6 },
+      { data: faqRows,             error: e7 },
+      { data: handbookRows,        error: e8 },
+      { data: specialSectionsRows, error: e9 },
     ] = await Promise.all([
       supabase.from('settings').select('key,value'),
       supabase.from('products').select('*').eq('active', true).order('sort_order'),
@@ -93,206 +166,244 @@ async function getPageData() {
       supabase.from('testimonials').select('*').order('sort_order').limit(9),
       supabase.from('faq').select('*').order('sort_order'),
       supabase.from('naruchnici').select('*').eq('active', true).order('sort_order'),
-      supabase.from('ginegar_products').select('*').eq('active', true).order('sort_order').limit(1),
+      supabase.from('special_sections').select('*').eq('active', true).order('sort_order'),
     ])
 
-    // Settings
+    // Log грешки без да счупваме страницата
+    ;[e1,e2,e3,e4,e5,e6,e7,e8,e9].forEach((e, i) => {
+      if (e) console.error(`[getPageData] query ${i + 1} error:`, e.message)
+    })
+
+    // ── Settings ──────────────────────────────────────────────────────────────
     let settings = { ...DEFAULT_SETTINGS }
     if (settingsRows?.length) {
       const s: Record<string, string> = {}
       settingsRows.forEach((row: { key: string; value: string }) => { s[row.key] = row.value })
+
+      const num = (k: string) => s[k] !== undefined ? parseFloat(s[k]) : undefined
+
       settings = {
         ...settings,
-        ...(s.hero_title && { hero_title: s.hero_title }),
-        ...(s.hero_subtitle && { hero_subtitle: s.hero_subtitle }),
-        ...(s.hero_warning && { hero_warning: s.hero_warning }),
-        ...(s.shipping_price && { shipping_price: parseFloat(s.shipping_price) }),
-        ...(s.free_shipping_above && { free_shipping_above: parseFloat(s.free_shipping_above) }),
-        ...(s.site_email && { site_email: s.site_email }),
-        ...(s.site_phone && { site_phone: s.site_phone }),
-        ...(s.whatsapp_number && { whatsapp_number: s.whatsapp_number }),
-        ...(s.urgency_bar_text && { urgency_bar_text: s.urgency_bar_text }),
-        ...(s.trust_strip_items && { trust_strip_items: s.trust_strip_items }),
+        ...(s.hero_title         && { hero_title:         s.hero_title }),
+        ...(s.hero_subtitle      && { hero_subtitle:      s.hero_subtitle }),
+        ...(s.hero_warning       && { hero_warning:       s.hero_warning }),
+        ...(s.site_email         && { site_email:         s.site_email }),
+        ...(s.site_phone         && { site_phone:         s.site_phone }),
+        ...(s.whatsapp_number    && { whatsapp_number:    s.whatsapp_number }),
+        ...(s.urgency_bar_text   && { urgency_bar_text:   s.urgency_bar_text }),
+        ...(s.trust_strip_items  && { trust_strip_items:  s.trust_strip_items }),
         ...(s.social_proof_items && { social_proof_items: s.social_proof_items }),
-        ...(s.footer_about_text && { footer_about_text: s.footer_about_text }),
-        ...(s.cta_title && { cta_title: s.cta_title }),
-        ...(s.cta_subtitle && { cta_subtitle: s.cta_subtitle }),
-        ...(s.ginegar_section_title && { ginegar_section_title: s.ginegar_section_title }),
-        ...(s.ginegar_section_desc && { ginegar_section_desc: s.ginegar_section_desc }),
-        ...(s.shipping_econt  && { shipping_econt:  parseFloat(s.shipping_econt) }),
-        ...(s.shipping_speedy && { shipping_speedy: parseFloat(s.shipping_speedy) }),
-        // shipping_price = по-малкото от econt/speedy (за CartSystem)
+        ...(s.footer_about_text  && { footer_about_text:  s.footer_about_text }),
+        ...(s.cta_title          && { cta_title:          s.cta_title }),
+        ...(s.cta_subtitle       && { cta_subtitle:       s.cta_subtitle }),
+        ...(s.currency           && { currency:           s.currency }),
+        ...(s.currency_symbol    && { currency_symbol:    s.currency_symbol }),
+        ...(num('shipping_econt')      !== undefined && { shipping_econt:      num('shipping_econt')! }),
+        ...(num('shipping_speedy')     !== undefined && { shipping_speedy:     num('shipping_speedy')! }),
+        ...(num('free_shipping_above') !== undefined && { free_shipping_above: num('free_shipping_above')! }),
+        // shipping_price = min(econt, speedy) — за CartSystem
         ...((s.shipping_econt || s.shipping_speedy) && {
           shipping_price: Math.min(
             s.shipping_econt  ? parseFloat(s.shipping_econt)  : 999,
             s.shipping_speedy ? parseFloat(s.shipping_speedy) : 999,
-          )
+          ),
         }),
-        ...(s.currency        && { currency:        s.currency }),
-        ...(s.currency_symbol && { currency_symbol: s.currency_symbol }),
       }
     }
 
+    // ── Atlas products ────────────────────────────────────────────────────────
     const atlasProducts: AtlasProduct[] = (productsRows || []).map((p: any) => {
-      const productVariants: ProductVariant[] = (variantsRows || [])
-        .filter((v: any) => v.product_id === p.id && v.active !== false)
+      const variants: ProductVariant[] = (variantsRows || [])
+        .filter((v: any) => v.product_id === p.id)
         .map((v: any) => ({
-          id: v.id,
-          product_id: v.product_id,
-          label: v.label,
-          size_liters: parseFloat(v.size_liters),
-          price: parseFloat(v.price),
-          compare_price: parseFloat(v.compare_price || v.price),
+          id: v.id, product_id: v.product_id, label: v.label,
+          size_liters:     parseFloat(v.size_liters),
+          price:           parseFloat(v.price),
+          compare_price:   parseFloat(v.compare_price || v.price),
           price_per_liter: parseFloat(v.price_per_liter || (v.price / v.size_liters).toFixed(2)),
-          stock: v.stock || 0,
+          stock:  v.stock  || 0,
           active: v.active !== false,
         }))
-      const baseVariant = productVariants[0]
+      const base = variants[0]
       return {
-        id: p.id || p.slug, name: p.name, subtitle: p.subtitle || '', desc: p.description || '',
-        badge: p.badge || 'Хит', emoji: p.emoji || '🌿', img: p.image_url || '',
-        price: baseVariant ? baseVariant.price : parseFloat(p.price),
-        comparePrice: baseVariant ? baseVariant.compare_price : parseFloat(p.compare_price || p.price),
-        priceLabel: baseVariant ? baseVariant.price.toFixed(2)  + ' €' : parseFloat(p.price).toFixed(2) + ' €',
+        id: p.id || p.slug, name: p.name, subtitle: p.subtitle || '',
+        desc: p.description || '', badge: p.badge || 'Хит',
+        emoji: p.emoji || '🌿', img: p.image_url || '',
+        price:        base ? base.price         : parseFloat(p.price),
+        comparePrice: base ? base.compare_price : parseFloat(p.compare_price || p.price),
+        priceLabel:   base
+          ? `${base.price.toFixed(2)} ${settings.currency_symbol}`
+          : `${parseFloat(p.price).toFixed(2)} ${settings.currency_symbol}`,
         features: p.features || [],
-        variants: productVariants,
+        variants,
       }
     })
 
+    // ── Affiliate products ────────────────────────────────────────────────────
     const affiliateProducts: AffiliateProduct[] = (affiliateRows || []).map((p: any) => ({
       ...p,
-      bullets: p.bullets || p.features || [],
-      emoji: p.emoji || '',
-      badge_text: p.badge_text || p.badge || '',
-      badge_color: p.badge_color || p.color || '',
+      bullets:        Array.isArray(p.bullets) ? p.bullets : (p.features || []),
+      emoji:          p.emoji          || '',
+      badge_text:     p.badge_text     || p.badge || '',
+      badge_color:    p.badge_color    || p.color || '',
       category_label: p.category_label || p.subtitle || '',
-      tag_text: p.tag_text || '',
-      color: p.color || '#16a34a',
+      tag_text:       p.tag_text       || '',
+      color:          p.color          || '#16a34a',
     }))
+
+    // ── Category links ────────────────────────────────────────────────────────
     const categoryLinks: CategoryLink[] = (categoryRows || []).map((c: any) => ({
       ...c,
       emoji: c.emoji || c.icon || '🌿',
-      href: c.href || c.link || '#',
-      slug: c.slug || c.id,
+      href:  c.href  || c.link || '#',
+      slug:  c.slug  || c.id,
       color: c.color || CAT_COLORS[c.partner || 'default'] || CAT_COLORS.default,
     }))
-    const testimonials: Testimonial[] = testimonialRows || []
-    const faq: FaqItem[] = faqRows || []
+
+    // ── Handbooks ─────────────────────────────────────────────────────────────
     const handbooks: Handbook[] = handbookRows?.length
       ? handbookRows.map((n: any) => ({
-          slug: n.slug, title: n.title, subtitle: n.subtitle || '',
-          emoji: n.emoji || (n.category === 'domati' ? '🍅' : '🌿'),
-          color: n.color || (n.category === 'domati' ? '#dc2626' : '#16a34a'),
-          bg: n.bg || (n.category === 'domati' ? 'linear-gradient(135deg,#dc2626,#b91c1c)' : 'linear-gradient(135deg,#16a34a,#166534)'),
+          slug:     n.slug,
+          title:    n.title,
+          subtitle: n.subtitle || '',
+          emoji:    n.emoji || (n.category === 'domati' ? '🍅' : '🌿'),
+          color:    n.color || (n.category === 'domati' ? '#dc2626' : '#16a34a'),
+          bg:       n.bg    || (n.category === 'domati'
+            ? 'linear-gradient(135deg,#dc2626,#b91c1c)'
+            : 'linear-gradient(135deg,#16a34a,#166534)'),
           badge: n.badge || n.category,
         }))
       : DEFAULT_HANDBOOKS
 
-    const ginegarProduct: GinegarProduct | null = ginegarRows?.[0]
-      ? {
-          id: ginegarRows[0].id,
-          name: ginegarRows[0].name || '',
-          description: ginegarRows[0].description || '',
-          bullets: ginegarRows[0].bullets || ginegarRows[0].features || [],
-          image_url: ginegarRows[0].image_url || '',
-          affiliate_url: ginegarRows[0].affiliate_url || ginegarRows[0].url || '#',
-          active: true,
-        }
-      : null
+    // ── Special sections ──────────────────────────────────────────────────────
+    const specialSections: SpecialSection[] = (specialSectionsRows || []).map((s: any) => ({
+      id:          s.id,
+      slug:        s.slug        || '',
+      title:       s.title       || '',
+      subtitle:    s.subtitle    || '',
+      description: s.description || '',
+      badge_text:  s.badge_text  || '',
+      button_text: s.button_text || '👉 Разгледай',
+      button_url:  s.button_url  || '#',
+      bullets:     Array.isArray(s.bullets) ? s.bullets : [],
+      image_url:   s.image_url   || '',
+      logo_url:    s.logo_url    || '',
+      active:      s.active !== false,
+      sort_order:  s.sort_order  || 0,
+    }))
 
-    return { settings, atlasProducts, affiliateProducts, categoryLinks, testimonials, faq, handbooks, ginegarProduct }
-  } catch (err) {
-    console.error('[getPageData] Supabase error:', err)
     return {
-      settings: DEFAULT_SETTINGS, atlasProducts: [], affiliateProducts: [],
-      categoryLinks: [], testimonials: [], faq: [], handbooks: DEFAULT_HANDBOOKS, ginegarProduct: null,
+      settings, atlasProducts, affiliateProducts,
+      categoryLinks,
+      testimonials: (testimonialRows || []) as Testimonial[],
+      faq:          (faqRows         || []) as FaqItem[],
+      handbooks, specialSections,
+    }
+  } catch (err) {
+    console.error('[getPageData] fatal:', err)
+    return {
+      settings:          DEFAULT_SETTINGS,
+      atlasProducts:     [],
+      affiliateProducts: [],
+      categoryLinks:     [],
+      testimonials:      [],
+      faq:               [],
+      handbooks:         DEFAULT_HANDBOOKS,
+      specialSections:   [],
     }
   }
 }
 
 // ─── SERVER COMPONENT ──────────────────────────────────────────────────────────
 export default async function HomePage() {
-  const { settings, atlasProducts, affiliateProducts, categoryLinks, testimonials, faq, handbooks, ginegarProduct } = await getPageData()
+  const {
+    settings, atlasProducts, affiliateProducts,
+    categoryLinks, testimonials, faq, handbooks, specialSections,
+  } = await getPageData()
 
-  const trustItems: { icon: string; text: string }[] = (() => { try { return JSON.parse(settings.trust_strip_items) } catch { return [] } })()
-  const socialItems: { number: string; label: string }[] = (() => { try { return JSON.parse(settings.social_proof_items) } catch { return [] } })()
+  const trustItems  = safeJson<{ icon: string; text: string }[]>(settings.trust_strip_items, [])
+  const socialItems = safeJson<{ number: string; label: string }[]>(settings.social_proof_items, [])
 
   return (
     <>
-      <style suppressHydrationWarning>{`.hb-input::placeholder{color:rgba(255,255,255,.45)}.hb-input{color:#fff!important}.hb-input:focus{border-color:#86efac!important;outline:none}`}</style>
+      <style suppressHydrationWarning>{`
+        .hb-input::placeholder { color: rgba(255,255,255,.45) }
+        .hb-input { color: #fff !important }
+        .hb-input:focus { border-color: #86efac !important; outline: none }
+      `}</style>
 
-      {/* URGENCY BAR */}
+      {/* ── URGENCY BAR ────────────────────────────────────────────────────── */}
       <div className="urgency-bar">{parseBold(settings.urgency_bar_text)}</div>
 
-      {/* HEADER — client само за scroll + cart */}
-      <HeaderClient shippingPrice={settings.shipping_price} freeShippingAbove={settings.free_shipping_above} />
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <HeaderClient
+        shippingPrice={settings.shipping_price}
+        freeShippingAbove={settings.free_shipping_above}
+      />
 
-      {/* ══ HERO ══ */}
+      {/* ══ HERO ═══════════════════════════════════════════════════════════════ */}
       <section className="hero">
-        <div className="hero-mesh" />
         <div className="hero-dots" />
         <div className="hero-blob hero-blob--tr" />
         <div className="hero-blob hero-blob--bl" />
-        <div className="hero-top-line" />
-
         <div className="hero-inner">
-
-          {/* Лява колона */}
           <div className="hero-left">
+
             <div className="trust-badge">
               <img
                 src={`${CDN}/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg`}
                 alt="Denny"
-                style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(134,239,172,0.6)', flexShrink: 0 }}
+                style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.5)', flexShrink: 0 }}
               />
-              <span>@dennyangelow · {socialItems.find(s => s.label === 'последователи')?.number || '85K'}+ последователи · 8+ год. практика</span>
+              <span>
+                @dennyangelow · {socialItems.find(s => s.label === 'последователи')?.number || '85K'}+ последователи · 8+ год. практика
+              </span>
               <span className="live-dot" />
             </div>
 
             <h1 className="hero-title">{settings.hero_title}</h1>
-            <div className="hero-divider" />
 
             {settings.hero_subtitle && (
-              <p className="hero-subtitle-text">{parseBold(settings.hero_subtitle)}</p>
+              <p style={{ color: 'rgba(255,255,255,0.82)', fontSize: 16, lineHeight: 1.7, margin: '14px 0 18px', maxWidth: 520 }}>
+                {parseBold(settings.hero_subtitle)}
+              </p>
             )}
 
             {settings.hero_warning && (
-              <div className="hero-warning">
-                <span className="hero-warning-icon">⚠️</span>
-                <span>{settings.hero_warning}</span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(220,38,38,0.18)', border: '1px solid rgba(220,38,38,0.35)', borderRadius: 10, padding: '11px 15px', marginBottom: 18 }}>
+                <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+                <span style={{ color: '#fca5a5', fontSize: 14, lineHeight: 1.55 }}>{settings.hero_warning}</span>
               </div>
             )}
 
-            <div className="hero-social-proof">
-              {socialItems.map(({ number, label }) => (
-                <div key={label} className="hero-stat">
-                  <div className="hero-stat-number">{number}</div>
-                  <div className="hero-stat-label">{label}</div>
-                </div>
-              ))}
-            </div>
+            {socialItems.length > 0 && (
+              <div style={{ display: 'flex', gap: 20, marginTop: 6 }}>
+                {socialItems.map(({ number, label }) => (
+                  <div key={label} style={{ textAlign: 'center' }}>
+                    <div style={{ color: '#86efac', fontWeight: 900, fontSize: 20, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{number}</div>
+                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 600, marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Дясна колона */}
           <div className="hero-right">
             <HandbooksPanel handbooks={handbooks} />
           </div>
-
         </div>
       </section>
 
-      {/* ══ TRUST STRIP ══ */}
-      <div className="trust-strip">
-        {trustItems.map(({ icon, text }) => (
-          <div key={text} className="trust-item">
-            <span className="trust-item-icon">{icon}</span>
-            <span>{text}</span>
-          </div>
-        ))}
-      </div>
+      {/* ── TRUST STRIP ────────────────────────────────────────────────────── */}
+      {trustItems.length > 0 && (
+        <div className="trust-strip">
+          {trustItems.map(({ icon, text }) => (
+            <div key={text} className="trust-item"><span>{icon}</span><span>{text}</span></div>
+          ))}
+        </div>
+      )}
 
-
-      {/* CATEGORIES */}
+      {/* ══ CATEGORIES ═════════════════════════════════════════════════════════ */}
       {categoryLinks.length > 0 && (
         <section id="kategorii" className="section-wrap">
           <FadeIn>
@@ -307,9 +418,12 @@ export default async function HomePage() {
               const color = CAT_COLORS[c.partner || 'default'] || CAT_COLORS.default
               return (
                 <FadeIn key={c.slug} delay={i * 55}>
-                  <a href={c.href} target="_blank" rel="noopener noreferrer" className="cat-card cat-card--hover"
+                  <a
+                    href={c.href} target="_blank" rel="noopener noreferrer"
+                    className="cat-card cat-card--hover"
                     data-partner={c.partner} data-slug={c.slug}
-                    style={{ '--cat-color': color } as React.CSSProperties}>
+                    style={{ '--cat-color': color } as React.CSSProperties}
+                  >
                     <span style={{ fontSize: 20, background: color + '18', width: 44, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{c.emoji}</span>
                     <span style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>{c.label}</span>
                     <span style={{ color, fontSize: 16, opacity: 0.7 }}>→</span>
@@ -321,8 +435,8 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* AFFILIATE PRODUCTS */}
-      {affiliateProducts.length > 0 && (
+      {/* ══ AFFILIATE PRODUCTS ═════════════════════════════════════════════════ */}
+      {affiliateProducts.filter(p => p.partner === 'agroapteki').length > 0 && (
         <section id="produkti" className="section-wrap" style={{ paddingTop: 0 }}>
           <FadeIn>
             <div className="section-head">
@@ -333,7 +447,7 @@ export default async function HomePage() {
           </FadeIn>
           <div className="products-grid">
             {affiliateProducts.filter(p => p.partner === 'agroapteki').map((p, i) => {
-              const cardColor = p.color || CAT_COLORS[p.partner] || '#16a34a'
+              const cardColor  = p.color       || CAT_COLORS[p.partner] || '#16a34a'
               const badgeColor = p.badge_color || cardColor
               return (
                 <FadeIn key={p.id} delay={i * 60}>
@@ -366,8 +480,11 @@ export default async function HomePage() {
                           ))}
                         </ul>
                       )}
-                      <a href={p.affiliate_url} target="_blank" rel="noopener noreferrer" data-partner={p.partner} data-slug={p.slug}
-                        style={{ display: 'block', textAlign: 'center', background: cardColor, color: '#fff', padding: '13px 20px', borderRadius: 12, textDecoration: 'none', fontWeight: 800, fontSize: 14.5, marginTop: 'auto' }}>
+                      <a
+                        href={p.affiliate_url} target="_blank" rel="noopener noreferrer"
+                        data-partner={p.partner} data-slug={p.slug}
+                        style={{ display: 'block', textAlign: 'center', background: cardColor, color: '#fff', padding: '13px 20px', borderRadius: 12, textDecoration: 'none', fontWeight: 800, fontSize: 14.5, marginTop: 'auto' }}
+                      >
                         Прочети повече →
                       </a>
                     </div>
@@ -379,152 +496,123 @@ export default async function HomePage() {
         </section>
       )}
 
-     
+      {/* ══ СПЕЦИАЛНИ СЕКЦИИ (от special_sections таблица) ═══════════════════ */}
+      {specialSections.map(sec => (
+        <section key={sec.slug} id={sec.slug} className="ginegar-section">
+          <div className="ginegar-glow" />
+          <div className="ginegar-dots" />
+          <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+            <FadeIn>
+              <div className="ginegar-inner">
 
-      {/* ATLAS TERRA SECTION */}
-{atlasProducts.length > 0 && (
-  <section id="atlas" style={{ 
-    padding: '60px 0', // Намален падниг за по-добро събиране на екран
-    backgroundColor: '#ffffff',
-    position: 'relative'
-  }}>
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
-      
-      <FadeIn>
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          {/* Малък, елегантен Badge */}
-          <div style={{ 
-            display: 'inline-block',
-            background: '#f0fdf4', 
-            color: '#16a34a', 
-            fontSize: 12, 
-            fontWeight: 700, 
-            padding: '4px 12px', 
-            borderRadius: 6,
-            marginBottom: 12,
-            border: '1px solid #dcfce7'
-          }}>
-            🏭 ДИРЕКТНО ОТ ПРОИЗВОДИТЕЛЯ
+                <div className="ginegar-text">
+                  {sec.badge_text && (
+                    <span style={{ background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 30, letterSpacing: '0.08em', textTransform: 'uppercase', display: 'inline-block', marginBottom: 16 }}>
+                      {sec.badge_text}
+                    </span>
+                  )}
+                  <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 3.5vw, 38px)', margin: '0 0 14px', fontWeight: 800, lineHeight: 1.15 }}>
+                    {sec.title}
+                  </h2>
+                  {sec.subtitle && (
+                    <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 10 }}>
+                      {sec.subtitle}
+                    </p>
+                  )}
+                  {sec.description && (
+                    <p style={{ color: 'rgba(255,255,255,0.72)', fontSize: 15, lineHeight: 1.8, marginBottom: sec.bullets.length > 0 ? 22 : 28 }}>
+                      {sec.description}
+                    </p>
+                  )}
+                  {sec.bullets.length > 0 && (
+                    <ul style={{ margin: '0 0 28px', padding: 0, listStyle: 'none' }}>
+                      {sec.bullets.map((f, bi) => (
+                        <li key={bi} style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, padding: '7px 0', display: 'flex', gap: 11, borderBottom: '1px solid rgba(255,255,255,0.07)', alignItems: 'flex-start' }}>
+                          <span style={{ background: '#16a34a', color: '#fff', width: 17, height: 17, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0, marginTop: 1 }}>✓</span>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {sec.button_url && sec.button_text && (
+                    <a href={sec.button_url} target="_blank" rel="noopener noreferrer" className="ginegar-btn">
+                      {sec.button_text}
+                    </a>
+                  )}
+                </div>
+
+                <div className="ginegar-img-wrap">
+                  <div style={{ position: 'absolute', inset: -16, background: 'radial-gradient(circle, rgba(22,163,74,0.22), transparent 70%)', borderRadius: '50%' }} />
+                  {sec.image_url && (
+                    <img
+                      src={sec.image_url}
+                      alt={sec.title}
+                      style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative' }}
+                    />
+                  )}
+                  {sec.logo_url && (
+                    <img
+                      src={sec.logo_url}
+                      alt={`${sec.title} logo`}
+                      style={{ width: 90, marginTop: 16, display: 'block', filter: 'brightness(0) invert(1)', opacity: 0.6 }}
+                    />
+                  )}
+                </div>
+
+              </div>
+            </FadeIn>
           </div>
+        </section>
+      ))}
 
-          <h2 style={{ 
-            fontSize: 'clamp(28px, 4vw, 42px)', 
-            fontWeight: 900, 
-            color: '#111827', 
-            letterSpacing: '-0.03em', // По-сбито за по-модерен вид
-            lineHeight: 1.1,
-            marginBottom: 16
-          }}>
-            Atlas Terra — Професионална Серия
-          </h2>
-          
-          <p style={{ 
-            fontSize: 17, 
-            color: '#4b5563', 
-            maxWidth: 650, 
-            margin: '0 auto',
-            lineHeight: 1.5,
-            fontWeight: 450 // Малко по-плътен текст за лесно четене
-          }}>
-            Три специализирани формули за здрава почва и максимален добив. 
-            Използвани от професионални агрономи, вече достъпни и за твоята градина.
-          </p>
-        </div>
-      </FadeIn>
-
-      {/* Продуктите - CartSystem трябва да е с Grid 3 колони */}
-      <div style={{ 
-        marginTop: 20,
-        position: 'relative',
-        zIndex: 10
-      }}>
-        <CartSystem
-          atlasProducts={atlasProducts}
-          shippingPrice={settings.shipping_price}
-          freeShippingAbove={settings.free_shipping_above}
-          siteEmail={settings.site_email}
-          sitePhone={settings.site_phone}
-        />
-      </div>
-
-      {/* Сбита информация под продуктите */}
-      <FadeIn>
-        <div style={{ 
-          marginTop: 30, 
-          padding: '20px',
-          borderRadius: 20,
-          background: '#f9fafb',
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-          gap: '24px',
-          border: '1px solid #f3f4f6'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-            <span style={{ fontSize: 18 }}>🚚</span> Безплатна доставка над {settings.free_shipping_above} €
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-            <span style={{ fontSize: 18 }}>🛡️</span> Плащане при доставка
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-            <span style={{ fontSize: 18 }}>⚡</span> Експресна пратка (1-2 дни)
-          </div>
-        </div>
-      </FadeIn>
-    </div>
-  </section>
-)}
-
-
-
-{/* GINEGAR СЕКЦИЯ — зарежда от ginegar_products таблица */}
-      <section id="ginegar" className="ginegar-section">
-        <div className="ginegar-glow" />
-        <div className="ginegar-dots" />
-        <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative', zIndex: 1 }}>
-          <FadeIn>
-            <div className="ginegar-inner">
-              <div className="ginegar-text">
-                <span style={{ background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 30, letterSpacing: '0.08em', textTransform: 'uppercase', display: 'inline-block', marginBottom: 16 }}>🏕️ ИЗРАЕЛСКА ТЕХНОЛОГИЯ</span>
-                <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 3.5vw, 38px)', margin: '0 0 14px', fontWeight: 800, lineHeight: 1.15 }}>
-                  {settings.ginegar_section_title || ginegarProduct?.name || 'Ginegar — Премиум Найлон за Оранжерии'}
+      {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
+      {atlasProducts.length > 0 && (
+        <section id="atlas" style={{ padding: '60px 0', backgroundColor: '#ffffff', position: 'relative' }}>
+          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
+            <FadeIn>
+              <div style={{ textAlign: 'center', marginBottom: 40 }}>
+                <div style={{ display: 'inline-block', background: '#f0fdf4', color: '#16a34a', fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 6, marginBottom: 12, border: '1px solid #dcfce7' }}>
+                  🏭 ДИРЕКТНО ОТ ПРОИЗВОДИТЕЛЯ
+                </div>
+                <h2 style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 900, color: '#111827', letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: 16 }}>
+                  Atlas Terra — Професионална Серия
                 </h2>
-                <p style={{ color: 'rgba(255,255,255,0.72)', fontSize: 15, lineHeight: 1.8, marginBottom: 22 }}>
-                  {settings.ginegar_section_desc || ginegarProduct?.description || 'Световен стандарт за здравина, светлина и дълъг живот. GINEGAR не е най-евтиният избор — той е изборът, който излиза най-изгоден с времето.'}
+                <p style={{ fontSize: 17, color: '#4b5563', maxWidth: 650, margin: '0 auto', lineHeight: 1.5 }}>
+                  Три специализирани формули за здрава почва и максимален добив.
+                  Използвани от професионални агрономи, вече достъпни и за твоята градина.
                 </p>
-                <ul style={{ margin: '0 0 28px', padding: 0, listStyle: 'none' }}>
-                  {(ginegarProduct?.bullets?.length
-                    ? ginegarProduct.bullets
-                    : ['9-слойна технология (всеки слой с функция)', 'UV защита и анти-капка ефект', 'Равномерно осветление на растенията', 'По-малко подмяна — по-ниска цена на сезон']
-                  ).map(f => (
-                    <li key={f} style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, padding: '7px 0', display: 'flex', gap: 11, borderBottom: '1px solid rgba(255,255,255,0.07)', alignItems: 'flex-start' }}>
-                      <span style={{ background: '#16a34a', color: '#fff', width: 17, height: 17, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0, marginTop: 1 }}>✓</span>{f}
-                    </li>
-                  ))}
-                </ul>
-                <a href={ginegarProduct?.affiliate_url || 'https://oranjeriata.com/products/polietilen-za-oranjerii/izraelski-polietiolen-za-oranjerii/ginegar'} target="_blank" rel="noopener noreferrer" className="ginegar-btn">
-                  👉 Разгледай фолиата на Ginegar
-                </a>
               </div>
-              <div className="ginegar-img-wrap">
-                <div style={{ position: 'absolute', inset: -16, background: 'radial-gradient(circle, rgba(22,163,74,0.22), transparent 70%)', borderRadius: '50%' }} />
-                <img
-                  src={ginegarProduct?.image_url || `${CDN}/6940e17e0d4a3_pe-film-supflor-ginegar.jpg`}
-                  alt="Ginegar фолио"
-                  style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative' }}
-                />
-                <img
-                  src={`${CDN}/694242e9c1baa_ginegar-logo-mk-group.600x600.png`}
-                  alt="Ginegar logo"
-                  style={{ width: 90, marginTop: 16, display: 'block', filter: 'brightness(0) invert(1)', opacity: 0.6 }}
-                />
-              </div>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
+            </FadeIn>
 
-      {/* TESTIMONIALS */}
+            <div style={{ marginTop: 20, position: 'relative', zIndex: 10 }}>
+              <CartSystem
+                atlasProducts={atlasProducts}
+                shippingPrice={settings.shipping_price}
+                freeShippingAbove={settings.free_shipping_above}
+                siteEmail={settings.site_email}
+                sitePhone={settings.site_phone}
+              />
+            </div>
+
+            <FadeIn>
+              <div style={{ marginTop: 30, padding: '20px', borderRadius: 20, background: '#f9fafb', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '24px', border: '1px solid #f3f4f6' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
+                  <span style={{ fontSize: 18 }}>🚚</span>
+                  Безплатна доставка над {settings.free_shipping_above} {settings.currency_symbol}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
+                  <span style={{ fontSize: 18 }}>🛡️</span> Плащане при доставка
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
+                  <span style={{ fontSize: 18 }}>⚡</span> Експресна пратка (1-2 дни)
+                </div>
+              </div>
+            </FadeIn>
+          </div>
+        </section>
+      )}
+
+      {/* ══ TESTIMONIALS ═══════════════════════════════════════════════════════ */}
       {testimonials.length > 0 && (
         <section id="testimonials" className="section-wrap" style={{ backgroundColor: '#ffffff' }}>
           <FadeIn>
@@ -560,10 +648,10 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* FAQ — client (tabs + accordion) */}
+      {/* ══ FAQ ════════════════════════════════════════════════════════════════ */}
       {faq.length > 0 && <FaqSection faq={faq} />}
 
-      {/* SECOND CTA */}
+      {/* ══ CTA ════════════════════════════════════════════════════════════════ */}
       <section className="cta-section">
         <div className="cta-dots" />
         <div style={{ maxWidth: 520, margin: '0 auto', position: 'relative', textAlign: 'center' }}>
@@ -579,8 +667,10 @@ export default async function HomePage() {
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360, margin: '0 auto' }}>
               {handbooks.map(hb => (
-                <a key={hb.slug} href={`/naruchnik/${hb.slug}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, background: hb.color, color: '#fff', padding: '14px 22px', borderRadius: 14, textDecoration: 'none', fontWeight: 800, fontSize: 15, boxShadow: `0 6px 24px ${hb.color}55`, transition: 'all .2s' }}>
+                <a
+                  key={hb.slug} href={`/naruchnik/${hb.slug}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, background: hb.color, color: '#fff', padding: '14px 22px', borderRadius: 14, textDecoration: 'none', fontWeight: 800, fontSize: 15, boxShadow: `0 6px 24px ${hb.color}55`, transition: 'all .2s' }}
+                >
                   <span style={{ fontSize: 22 }}>{hb.emoji}</span>
                   <span style={{ flex: 1 }}>{hb.title}</span>
                   <span style={{ fontSize: 18, opacity: 0.8 }}>↓</span>
@@ -592,7 +682,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* FOOTER */}
+      {/* ══ FOOTER ═════════════════════════════════════════════════════════════ */}
       <footer className="site-footer">
         <div style={{ maxWidth: 880, margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 28, marginBottom: 36, textAlign: 'left' }}>
@@ -613,7 +703,7 @@ export default async function HomePage() {
               {[
                 { label: '🌿 AgroApteki.bg', href: `https://agroapteki.com/${AFF}` },
                 { label: '🏡 Oranjeriata.bg', href: 'https://oranjeriata.com/' },
-                { label: '🌱 AtlasAgro.eu', href: 'https://atlasagro.eu/' },
+                { label: '🌱 AtlasAgro.eu',   href: 'https://atlasagro.eu/' },
               ].map(l => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener" className="footer-link">{l.label}</a>
               ))}
@@ -626,6 +716,11 @@ export default async function HomePage() {
               {settings.site_phone && (
                 <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.6)', marginBottom: 6 }}>
                   📞 <a href={`tel:${settings.site_phone}`} style={{ color: '#86efac', fontWeight: 600, textDecoration: 'none' }}>{settings.site_phone}</a>
+                </p>
+              )}
+              {settings.whatsapp_number && (
+                <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.6)', marginBottom: 6 }}>
+                  💬 <a href={`https://wa.me/${settings.whatsapp_number}`} target="_blank" rel="noopener" style={{ color: '#86efac', fontWeight: 600, textDecoration: 'none' }}>WhatsApp</a>
                 </p>
               )}
               <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>Пон–Пет, 9:00–17:00 ч.</p>
