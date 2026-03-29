@@ -1,6 +1,9 @@
-/* homepage.css — подобрена версия
-   Добавени: skeleton анимация, CSS hover за карти (без inline JS),
-   footer-link клас, product-card клас, по-добра типография */
+/* homepage.css — v2
+   Промени:
+   - hero-right вече НЕ се крие на мобилен — показва се вертикално под hero текста
+   - добавен .hb-mobile-stack за вертикален изглед на картите
+   - skeleton анимация синхронизирана с реалния layout
+   - нов .naruchnik-page клас и всички naruchnik/ CSS класове */
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -17,6 +20,9 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 @keyframes slideRight{from{opacity:0;transform:translateX(-100%)}to{opacity:1;transform:translateX(0)}}
 @keyframes fadeDown{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
 @keyframes skeleton-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes bounceIn{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 
 /* ── Skeleton Loading ── */
 .skeleton{background:#e5e7eb;border-radius:8px;animation:skeleton-pulse 1.5s ease-in-out infinite}
@@ -51,6 +57,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .hero-blob--bl{bottom:-70px;left:-90px;width:320px;height:320px;background:rgba(255,255,255,.03)}
 .hero-inner{max-width:1200px;margin:0 auto;padding:52px 32px 60px;position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;justify-content:space-between}
 .hero-left{flex:1 1 360px;max-width:560px}
+/* hero-right е видим на всички размери екрани */
 .hero-right{flex:0 0 400px;display:flex;flex-direction:column;gap:14px;align-items:stretch}
 
 /* ── Handbooks Panel ── */
@@ -151,6 +158,86 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .float-cart{position:fixed;bottom:22px;right:22px;z-index:999;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:16px;padding:13px 20px;font-size:14.5px;font-weight:800;cursor:pointer;box-shadow:0 8px 28px rgba(22,163,74,.45);font-family:inherit;transition:all .25s;display:flex;align-items:center;gap:7px}
 .float-cart:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(22,163,74,.5)}
 
+/* ════════════════════════════════════════════
+   НАРЪЧНИК СТРАНИЦА — /naruchnik/[slug]
+   Всички inline стилове извлечени в CSS класове
+   ════════════════════════════════════════════ */
+
+.nar-page-bg{
+  font-family:'DM Sans',sans-serif;
+  background:linear-gradient(145deg,#0c3a1c,#14532d);
+  min-height:100vh;
+  padding:24px;
+}
+
+/* Spinner */
+.nar-spinner-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#0c3a1c,#14532d)}
+.nar-spinner{width:36px;height:36px;border:3px solid rgba(134,239,172,.3);border-top-color:#86efac;border-radius:50%;animation:spin .7s linear infinite}
+
+/* Not found */
+.nar-notfound{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:'DM Sans',sans-serif;background:linear-gradient(145deg,#0c3a1c,#14532d);padding:24px;text-align:center}
+.nar-notfound h1{font-size:22px;font-weight:800;color:#fff}
+.nar-notfound p{color:rgba(255,255,255,.6);font-size:14px}
+.nar-notfound a{color:#86efac;font-weight:700;text-decoration:none;font-size:15px}
+
+/* Card container */
+.nar-card-wrap{width:100%;max-width:560px;margin:0 auto;animation:fadeUp .5s ease}
+.nar-card{background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.4)}
+
+/* Card header */
+.nar-header{background:linear-gradient(135deg,#0f1f16,#1b4332);padding:36px 32px 28px;text-align:center}
+.nar-header-emoji{font-size:32px;margin-bottom:6px}
+.nar-check{width:56px;height:56px;background:#4ade80;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;color:#052e16;margin:0 auto 16px;animation:bounceIn .6s cubic-bezier(.34,1.56,.64,1)}
+.nar-header h1{color:#fff;font-size:21px;font-weight:800;margin-bottom:8px;line-height:1.3}
+.nar-header p{color:rgba(255,255,255,.7);font-size:13.5px;line-height:1.5}
+
+/* Cover image */
+.nar-cover{background:#f8fafb;padding:22px 32px 0;text-align:center}
+.nar-cover img{max-height:190px;max-width:100%;object-fit:contain;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+
+/* Info */
+.nar-info{padding:22px 32px 0}
+.nar-info h2{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:#111;margin-bottom:6px;line-height:1.25}
+.nar-info-sub{font-size:13px;color:#6b7280;font-weight:600;margin-bottom:10px}
+.nar-info-desc{font-size:14px;color:#4b5563;line-height:1.65}
+
+/* Download button */
+.nar-dl-wrap{padding:20px 32px 0}
+.nar-dl-btn{display:block;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border-radius:16px;padding:18px 24px;text-decoration:none;font-weight:900;font-size:17px;text-align:center;box-shadow:0 8px 28px rgba(22,163,74,.35);transition:all .2s}
+.nar-dl-btn:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(22,163,74,.5)}
+.nar-dl-hint{font-size:12px;color:#9ca3af;text-align:center;margin-top:9px;line-height:1.5}
+
+/* What's inside */
+.nar-inside{margin:18px 32px 0;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:16px 20px}
+.nar-inside-label{font-size:11px;font-weight:800;color:#15803d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
+.nar-inside ul{list-style:none;display:flex;flex-direction:column;gap:7px}
+.nar-inside li{font-size:13.5px;color:#166534;font-weight:500;display:flex;gap:8px;align-items:flex-start}
+.nar-inside li .check{color:#16a34a;font-weight:900;flex-shrink:0}
+
+/* Email confirmation */
+.nar-email-confirm{margin:14px 32px 0;background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:12px 16px;font-size:13px;color:#0369a1}
+
+/* Shipping */
+.nar-shipping{margin:16px 32px 0;background:#fafaf8;border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px}
+.nar-shipping-label{font-size:11px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+.nar-shipping-row{display:flex;justify-content:space-between;font-size:13.5px;color:#374151}
+.nar-shipping-row span:last-child{font-weight:700}
+.nar-shipping-free{font-size:13px;color:#16a34a;font-weight:700;margin-top:4px}
+
+/* Other handbooks */
+.nar-others{margin:20px 32px 0;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;padding:18px}
+.nar-others-label{font-size:12px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}
+.nar-others-grid{display:grid;gap:10px}
+.nar-other-card{display:flex;flex-direction:column;align-items:center;gap:7px;padding:13px 10px;background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;text-decoration:none;text-align:center;transition:all .2s}
+.nar-other-card:hover{border-color:#16a34a;box-shadow:0 4px 16px rgba(22,163,74,.2);transform:translateY(-2px)}
+.nar-other-card-emoji{font-size:30px}
+.nar-other-card-title{font-size:12px;font-weight:700;color:#111;line-height:1.3}
+.nar-other-card-cta{font-size:11px;color:#16a34a;font-weight:700}
+
+/* Back link */
+.nar-back{display:block;text-align:center;padding:18px 32px 26px;color:#9ca3af;text-decoration:none;font-size:13.5px;font-weight:600;transition:color .2s}
+.nar-back:hover{color:#86efac}
+
 /* ── Responsive ── */
 @media(max-width:1060px){
   .atlas-grid{grid-template-columns:repeat(2,1fr)!important}
@@ -162,10 +249,34 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 }
 @media(max-width:640px){
   .products-grid,.atlas-grid,.categories-grid,.testimonials-grid{grid-template-columns:1fr!important}
-  .hero-right{display:none}
+
+  /* ─── HERO МОБИЛЕН FIX ───
+     hero-right вече не се крие — показва се под hero-left
+     с компактен изглед на картите */
+  .hero-inner{
+    flex-direction:column;
+    padding:32px 18px 40px;
+    gap:24px;
+  }
+  .hero-left{
+    max-width:100%;
+    flex:none;
+  }
+  .hero-right{
+    flex:none;
+    width:100%;
+    /* Беше display:none — вече показваме */
+  }
+  /* На мобилен картите стават по-компактни */
+  .hb-card{
+    padding:13px 16px;
+  }
+  .hb-card-emoji{font-size:28px}
+  .hb-card-title{font-size:14px}
+  .handbooks-panel{padding:18px}
+
   .header-nav{display:none}
   .mob-btn{display:flex}
-  .hero-inner{padding:40px 18px 48px}
   .section-wrap{padding:48px 18px}
   .atlas-section,.ginegar-section{padding:56px 18px}
   .ginegar-img-wrap{flex:1 1 100%}
@@ -173,8 +284,17 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .cart-drawer{max-width:100%}
   .float-cart{bottom:14px;right:14px;padding:11px 16px;font-size:13.5px}
   .urgency-bar{font-size:11.5px;padding:7px 14px}
+
+  /* Наръчник страница мобилен */
+  .nar-page-bg{padding:16px}
+  .nar-header{padding:28px 20px 22px}
+  .nar-cover{padding:16px 20px 0}
+  .nar-info,.nar-dl-wrap{padding-left:20px;padding-right:20px}
+  .nar-inside,.nar-email-confirm,.nar-shipping,.nar-others{margin-left:16px;margin-right:16px}
+  .nar-others-grid{grid-template-columns:repeat(2,1fr)!important}
 }
 @media(max-width:480px){
   .hero-title{font-size:30px}
   .categories-grid{grid-template-columns:1fr}
+  .nar-others-grid{grid-template-columns:1fr!important}
 }

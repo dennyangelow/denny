@@ -1,7 +1,7 @@
 'use client'
-// app/admin/components/SettingsTab.tsx — v4
+// app/admin/components/SettingsTab.tsx — v5 с auto-save debounce, search, unsaved warning
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { toast } from '@/components/ui/Toast'
 
 interface Props { ordersCount: number; leadsCount: number }
@@ -9,59 +9,113 @@ interface Props { ordersCount: number; leadsCount: number }
 const SECTIONS = [
   {
     id: 'hero', label: '🏠 Главна страница', keys: [
-      { key: 'hero_title',    label: 'Главно заглавие',    type: 'text',     placeholder: 'Искаш едри, здрави и сочни домати?' },
-      { key: 'hero_subtitle', label: 'Подзаглавие',         type: 'textarea', placeholder: 'Описание под заглавието...' },
-      { key: 'hero_warning',  label: 'Предупреждение/Urgency', type: 'text',  placeholder: 'Не рискувай да изхвърлиш продукцията...' },
+      { key: 'hero_title',       label: 'Главно заглавие',       type: 'text',     placeholder: 'Искаш едри, здрави и сочни домати?' },
+      { key: 'hero_subtitle',    label: 'Подзаглавие',           type: 'textarea', placeholder: 'Описание под заглавието...' },
+      { key: 'hero_warning',     label: 'Urgency текст (под Hero)', type: 'text',  placeholder: 'Не рискувай да изхвърлиш продукцията...' },
+      { key: 'urgency_bar_text', label: 'Urgency лента (горе)',  type: 'textarea', placeholder: '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 лв. · 💵 Само наложен платеж' },
+    ]
+  },
+  {
+    id: 'ginegar', label: '🏕️ Ginegar секция', keys: [
+      { key: 'ginegar_section_title', label: 'Заглавие',    type: 'text',     placeholder: 'Ginegar — Качествен Найлон за Оранжерии' },
+      { key: 'ginegar_section_desc',  label: 'Описание',    type: 'textarea', placeholder: 'Световен стандарт за здравина...' },
     ]
   },
   {
     id: 'contacts', label: '📞 Контакти', keys: [
-      { key: 'site_phone',      label: 'Телефон',                    type: 'tel',    placeholder: '+359 88 888 8888' },
-      { key: 'site_email',      label: 'Email за клиенти',            type: 'email',  placeholder: 'support@dennyangelow.com' },
-      { key: 'admin_email',     label: 'Admin email (нови поръчки)',  type: 'email',  placeholder: 'denny@dennyangelow.com' },
-      { key: 'whatsapp_number', label: 'WhatsApp (само цифри)',       type: 'text',   placeholder: '359888888888' },
+      { key: 'site_phone',      label: 'Телефон',                   type: 'tel',    placeholder: '+359 88 888 8888' },
+      { key: 'site_email',      label: 'Email за клиенти',          type: 'email',  placeholder: 'support@dennyangelow.com' },
+      { key: 'admin_email',     label: 'Admin email (нови поръчки)',type: 'email',  placeholder: 'denny@dennyangelow.com' },
+      { key: 'whatsapp_number', label: 'WhatsApp (само цифри)',     type: 'text',   placeholder: '359888888888' },
     ]
   },
   {
     id: 'shipping', label: '📦 Доставка (€)', keys: [
-      { key: 'shipping_econt',         label: 'Цена Еконт (€)',                type: 'number', placeholder: '5.00' },
-      { key: 'shipping_speedy',        label: 'Цена Спиди (€)',                type: 'number', placeholder: '5.50' },
-      { key: 'free_shipping_above',    label: 'Безплатна доставка над (€)',    type: 'number', placeholder: '60' },
+      { key: 'shipping_econt',       label: 'Цена Еконт (€)',             type: 'number', placeholder: '5.00' },
+      { key: 'shipping_speedy',      label: 'Цена Спиди (€)',             type: 'number', placeholder: '5.50' },
+      { key: 'free_shipping_above',  label: 'Безплатна доставка над (€)', type: 'number', placeholder: '60' },
+    ]
+  },
+  {
+    id: 'currency', label: '💶 Валута', keys: [
+      { key: 'currency',        label: 'Валута (код)',   type: 'text', placeholder: 'EUR' },
+      { key: 'currency_symbol', label: 'Символ (€/лв)', type: 'text', placeholder: '€' },
     ]
   },
   {
     id: 'emails', label: '✉️ Email настройки', keys: [
-      { key: 'email_from_name',  label: 'От (Имена)',         type: 'text',  placeholder: 'Denny Angelow' },
-      { key: 'email_from_addr',  label: 'От (Имейл)',         type: 'email', placeholder: 'denny@dennyangelow.com' },
-      { key: 'email_reply_to',   label: 'Reply-To',           type: 'email', placeholder: 'support@dennyangelow.com' },
+      { key: 'email_from_name', label: 'От (Имена)',  type: 'text',  placeholder: 'Denny Angelow' },
+      { key: 'email_from_addr', label: 'От (Имейл)',  type: 'email', placeholder: 'denny@dennyangelow.com' },
+      { key: 'email_reply_to',  label: 'Reply-To',   type: 'email', placeholder: 'support@dennyangelow.com' },
     ]
   },
 ]
 
 function validate(vals: Record<string, string>): string[] {
-  const errors: string[] = []
-  for (const key of ['shipping_econt', 'shipping_speedy', 'free_shipping_above']) {
-    if (vals[key] && (isNaN(parseFloat(vals[key])) || parseFloat(vals[key]) < 0)) {
-      errors.push(`${key}: трябва да е положително число`)
-    }
-  }
-  return errors
+  return ['shipping_econt', 'shipping_speedy', 'free_shipping_above']
+    .filter(key => vals[key] && (isNaN(parseFloat(vals[key])) || parseFloat(vals[key]) < 0))
+    .map(key => `${key}: трябва да е положително число`)
+}
+
+// ─── Auto-save hook ────────────────────────────────────────────────────────────
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(t)
+  }, [value, delay])
+  return debounced
 }
 
 export function SettingsTab({ ordersCount, leadsCount }: Props) {
-  const [vals, setVals]     = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [dirty, setDirty]   = useState(false)
+  const [vals, setVals]             = useState<Record<string, string>>({})
+  const [savedVals, setSavedVals]   = useState<Record<string, string>>({})
+  const [loading, setLoading]       = useState(true)
+  const [saving, setSaving]         = useState(false)
+  const [autoSaving, setAutoSaving] = useState(false)
+  const [search, setSearch]         = useState('')
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(SECTIONS.map(s => s.id)))
+  const isFirstLoad = useRef(true)
+
+  const dirty = useMemo(() =>
+    Object.keys(vals).some(k => vals[k] !== savedVals[k]),
+    [vals, savedVals]
+  )
 
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then(d => {
-      if (d.settings) setVals(d.settings)
+      if (d.settings) { setVals(d.settings); setSavedVals(d.settings) }
       setLoading(false)
     }).catch(() => { toast.error('Грешка при зареждане'); setLoading(false) })
   }, [])
 
-  const set = (key: string, val: string) => { setVals(p => ({ ...p, [key]: val })); setDirty(true) }
+  // Debounced auto-save
+  const debouncedVals = useDebounce(vals, 2000)
+  useEffect(() => {
+    if (isFirstLoad.current) { isFirstLoad.current = false; return }
+    if (!dirty) return
+    const errs = validate(debouncedVals)
+    if (errs.length > 0) return
+    setAutoSaving(true)
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates: debouncedVals }),
+    }).then(res => {
+      if (res.ok) { setSavedVals({ ...debouncedVals }); toast.success('Автоматично запазено ✓') }
+    }).catch(() => {}).finally(() => setAutoSaving(false))
+  }, [debouncedVals])
+
+  // Warn on unload
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirty) { e.preventDefault(); e.returnValue = '' }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
+  const set = (key: string, val: string) => setVals(p => ({ ...p, [key]: val }))
 
   const save = async () => {
     const errs = validate(vals)
@@ -74,18 +128,57 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
         body: JSON.stringify({ updates: vals }),
       })
       if (!res.ok) throw new Error()
+      setSavedVals({ ...vals })
       toast.success('Настройките са запазени!')
-      setDirty(false)
     } catch { toast.error('Грешка при запазване') }
     finally { setSaving(false) }
   }
 
+  const exportSettings = () => {
+    const blob = new Blob([JSON.stringify(vals, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `settings-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    toast.success('Настройките са изтеглени')
+  }
+
+  const importSettings = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const imported = JSON.parse(ev.target?.result as string)
+        setVals(prev => ({ ...prev, ...imported }))
+        toast.success('Настройките са импортирани — провери и запази')
+      } catch { toast.error('Невалиден JSON файл') }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const toggleSection = (id: string) => setExpandedSections(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  })
+
   const triggerSequence = async () => {
     const res = await fetch('/api/leads/sequence')
     const d = await res.json()
-    if (res.ok) toast.success(`Sequence изпълнен: ${d.sent} имейла изпратени`)
+    if (res.ok) toast.success(`Sequence: ${d.sent} имейла изпратени`)
     else toast.error(d.error || 'Грешка')
   }
+
+  // Search filter
+  const filteredSections = useMemo(() => {
+    if (!search.trim()) return SECTIONS
+    const q = search.toLowerCase()
+    return SECTIONS
+      .map(s => ({
+        ...s,
+        keys: s.keys.filter(k => k.label.toLowerCase().includes(q) || k.key.toLowerCase().includes(q)),
+      }))
+      .filter(s => s.keys.length > 0)
+  }, [search])
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: '#6b7280', fontSize: 14 }}>
@@ -95,51 +188,134 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
     </div>
   )
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '10px 14px', border: '1.5px solid #f0f0f0',
+    borderRadius: 9, fontFamily: 'inherit', fontSize: 14, outline: 'none',
+    background: '#f9fafb', color: 'var(--text)', boxSizing: 'border-box',
+    transition: 'border-color .2s',
+  }
+
   return (
     <div style={{ padding: '24px 28px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
+      <style>{`
+        .settings-input:focus{border-color:#2d6a4f!important;background:#fff!important}
+        .settings-textarea:focus{border-color:#2d6a4f!important;background:#fff!important}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+      `}</style>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: 0 }}>Настройки</h1>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>Глобални параметри на системата</p>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Глобални параметри
+            {autoSaving && <span style={{ fontSize: 11, color: '#16a34a', animation: 'pulse 1s infinite' }}>⏳ Запазва...</span>}
+            {!autoSaving && !dirty && <span style={{ fontSize: 11, color: '#9ca3af' }}>✓ Запазено</span>}
+            {!autoSaving && dirty && <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>● Незапазени промени</span>}
+          </p>
         </div>
-        <button onClick={save} disabled={saving || !dirty}
-          style={{ background: dirty ? '#1b4332' : '#d1d5db', color: dirty ? '#fff' : '#6b7280', border: 'none', borderRadius: 10, padding: '10px 22px', fontWeight: 700, fontSize: 14, fontFamily: 'inherit', cursor: dirty ? 'pointer' : 'default', transition: 'all .2s', whiteSpace: 'nowrap' }}>
-          {saving ? '⏳ Запазва...' : '✓ Запази промените'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={exportSettings}
+            style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text)' }}>
+            ↓ Експорт JSON
+          </button>
+          <label style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text)' }}>
+            ↑ Импорт JSON
+            <input type="file" accept=".json" onChange={importSettings} style={{ display: 'none' }} />
+          </label>
+          <button onClick={save} disabled={saving || !dirty}
+            style={{ background: dirty ? '#1b4332' : '#d1d5db', color: dirty ? '#fff' : '#6b7280', border: 'none', borderRadius: 9, padding: '9px 20px', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', cursor: dirty ? 'pointer' : 'default', transition: 'all .2s' }}>
+            {saving ? '⏳ Запазва...' : '✓ Запази'}
+          </button>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
+          <input
+            placeholder="Търси настройка..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ ...inputStyle, paddingLeft: 36, background: '#fff' }}
+            className="settings-input"
+          />
+          {search && (
+            <button onClick={() => setSearch('')}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16, lineHeight: 1 }}>
+              ✕
+            </button>
+          )}
+        </div>
+        {search && (
+          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>
+            {filteredSections.reduce((s, sec) => s + sec.keys.length, 0)} намерени резултата
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, alignItems: 'start' }}>
-        {/* Main settings */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {SECTIONS.map(section => (
-            <div key={section.id} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 22 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', margin: '0 0 18px' }}>{section.label}</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {section.keys.map(k => (
-                  <div key={k.key}>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>{k.label}</label>
-                    {k.type === 'textarea' ? (
-                      <textarea rows={3} value={vals[k.key]||''} onChange={e=>set(k.key,e.target.value)} placeholder={k.placeholder}
-                        style={{ width:'100%', padding:'10px 14px', border:'1.5px solid #f0f0f0', borderRadius:9, fontFamily:'inherit', fontSize:14, outline:'none', transition:'all .2s', background:'#f9fafb', color:'var(--text)', boxSizing:'border-box', resize:'vertical' }}
-                        onFocus={e=>e.target.style.borderColor='#2d6a4f'} onBlur={e=>e.target.style.borderColor='#f0f0f0'}/>
-                    ) : (
-                      <input type={k.type} value={vals[k.key]||''} onChange={e=>set(k.key,e.target.value)} placeholder={k.placeholder}
-                        step={k.type==='number'?'0.01':undefined} min={k.type==='number'?'0':undefined}
-                        style={{ width:'100%', padding:'10px 14px', border:'1.5px solid #f0f0f0', borderRadius:9, fontFamily:'inherit', fontSize:14, outline:'none', transition:'all .2s', background:'#f9fafb', color:'var(--text)', boxSizing:'border-box' }}
-                        onFocus={e=>e.target.style.borderColor='#2d6a4f'} onBlur={e=>e.target.style.borderColor='#f0f0f0'}/>
-                    )}
-                  </div>
-                ))}
-              </div>
+        {/* Settings sections */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {filteredSections.length === 0 ? (
+            <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 40, textAlign: 'center', color: '#9ca3af' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+              Няма настройки за "{search}"
             </div>
-          ))}
+          ) : filteredSections.map(section => {
+            const isExpanded = expandedSections.has(section.id)
+            const sectionDirty = section.keys.some(k => vals[k.key] !== savedVals[k.key])
+
+            return (
+              <div key={section.id} style={{ background: '#fff', border: `1px solid ${sectionDirty ? '#fde68a' : 'var(--border)'}`, borderRadius: 14, overflow: 'hidden', transition: 'border-color .2s' }}>
+                <button onClick={() => toggleSection(section.id)}
+                  style={{ width: '100%', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', margin: 0 }}>{section.label}</h2>
+                    {sectionDirty && <span style={{ fontSize: 10, background: '#fde68a', color: '#92400e', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>Редактирано</span>}
+                  </div>
+                  <span style={{ color: '#9ca3af', fontSize: 12, transition: 'transform .2s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'none' }}>▼</span>
+                </button>
+
+                {isExpanded && (
+                  <div style={{ padding: '0 20px 20px', display: 'flex', flexDirection: 'column', gap: 14, borderTop: '1px solid #f5f5f5' }}>
+                    <div style={{ height: 14 }} />
+                    {section.keys.map(k => {
+                      const isChanged = vals[k.key] !== savedVals[k.key]
+                      return (
+                        <div key={k.key}>
+                          <label style={{ fontSize: 12, fontWeight: 700, color: isChanged ? '#92400e' : '#374151', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                            {k.label}
+                            {isChanged && <span style={{ fontSize: 10, color: '#f59e0b' }}>●</span>}
+                          </label>
+                          {k.type === 'textarea' ? (
+                            <textarea rows={3} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
+                              placeholder={k.placeholder} className="settings-textarea"
+                              style={{ ...inputStyle, resize: 'vertical' }} />
+                          ) : (
+                            <input type={k.type} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
+                              placeholder={k.placeholder} className="settings-input"
+                              step={k.type === 'number' ? '0.01' : undefined}
+                              min={k.type === 'number' ? '0' : undefined}
+                              style={inputStyle} />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
 
         {/* Sidebar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* System status */}
-          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 22 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 16px' }}>📊 Статус</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Status */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 14px' }}>📊 Статус</h2>
             {[
               { label: 'Поръчки',    value: ordersCount, color: '#16a34a' },
               { label: 'Абонати',    value: leadsCount,  color: '#0ea5e9' },
@@ -148,7 +324,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
               { label: 'Email',      value: 'Resend' },
               { label: 'Hosting',    value: 'Vercel' },
             ].map(row => (
-              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid #f5f5f5', fontSize: 13 }}>
+              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: 13 }}>
                 <span style={{ color: 'var(--muted)' }}>{row.label}</span>
                 <span style={{ fontWeight: 700, color: (row as any).color || 'var(--text)' }}>{row.value}</span>
               </div>
@@ -156,51 +332,51 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           </div>
 
           {/* Email sequences */}
-          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 22 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 12px' }}>⚙️ Email Sequences</h2>
-            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14, lineHeight: 1.5 }}>
-              Sequence processor се изпълнява автоматично всеки час (Vercel Cron). Можеш да го стартираш ръчно за тест.
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>⚙️ Email Sequences</h2>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.5 }}>
+              Изпълнява се автоматично всеки час (Vercel Cron). Можеш да го стартираш ръчно.
             </p>
-            <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#166534', marginBottom: 14 }}>
-              📅 Стъпки: Welcome → +2д → +5д → +10д<br/>
-              🛒 Abandoned order: след 24ч без обработка
+            <div style={{ background: '#f0fdf4', borderRadius: 9, padding: '10px 12px', fontSize: 12, color: '#166534', marginBottom: 12, lineHeight: 1.6 }}>
+              📅 Welcome → +2д → +5д → +10д<br/>
+              🛒 Abandoned: след 24ч без обработка
             </div>
-            <button onClick={triggerSequence} style={{ width: '100%', padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+            <button onClick={triggerSequence}
+              style={{ width: '100%', padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
               ▶ Стартирай ръчно
             </button>
           </div>
 
           {/* Quick links */}
-          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 22 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 12px' }}>🔗 Бързи линкове</h2>
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>🔗 Бързи линкове</h2>
             {[
-              { label: 'Supabase Dashboard', url: 'https://app.supabase.com',      icon: '⬡', color: '#3ecf8e' },
-              { label: 'Resend Dashboard',   url: 'https://resend.com/emails',     icon: '✉', color: '#0ea5e9' },
-              { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard',  icon: '▲', color: '#111' },
-              { label: 'Главна страница',    url: '/',                             icon: '◫', color: '#6b7280' },
+              { label: 'Supabase Dashboard', url: 'https://app.supabase.com',     icon: '⬡', color: '#3ecf8e' },
+              { label: 'Resend Dashboard',   url: 'https://resend.com/emails',    icon: '✉', color: '#0ea5e9' },
+              { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard', icon: '▲', color: '#111' },
+              { label: 'Главна страница',    url: '/',                            icon: '◫', color: '#6b7280' },
             ].map(l => (
               <a key={l.url} href={l.url} target="_blank" rel="noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 9, textDecoration: 'none', color: 'var(--text)', fontSize: 13.5, fontWeight: 500, marginBottom: 8, transition: 'all .15s' }}
-                onMouseEnter={e=>(e.currentTarget.style.borderColor='#2d6a4f')}
-                onMouseLeave={e=>(e.currentTarget.style.borderColor='var(--border)')}>
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 9, textDecoration: 'none', color: 'var(--text)', fontSize: 13, fontWeight: 500, marginBottom: 6, transition: 'all .15s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#2d6a4f'; e.currentTarget.style.background = '#f0fdf4' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = '#f8fafc' }}>
                 <span style={{ color: l.color, fontSize: 16 }}>{l.icon}</span>
                 <span style={{ flex: 1 }}>{l.label}</span>
-                <span style={{ color: '#9ca3af', fontSize: 12 }}>↗</span>
+                <span style={{ color: '#9ca3af', fontSize: 11 }}>↗</span>
               </a>
             ))}
           </div>
 
           {/* Security */}
-          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: 20 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 700, color: '#92400e', marginBottom: 12 }}>⚠️ Сигурност</h2>
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: 18 }}>
+            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 10 }}>⚠️ Сигурност</h2>
             {[
-              ['ADMIN_SECRET', 'Задай в Vercel → Settings → Env Vars. Без него /admin е публичен!'],
-              ['RLS в Supabase', 'Row Level Security трябва да е активирана на всички таблици.'],
-              ['Service Role Key', 'Само в server-side (API routes). Никога в client код.'],
-              ['CRON_SECRET', 'Защита на /api/leads/sequence от unauthorized достъп.'],
+              ['ADMIN_SECRET', 'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
+              ['RLS в Supabase', 'Row Level Security трябва да е активирана.'],
+              ['CRON_SECRET',   'Защита на /api/leads/sequence.'],
             ].map(([k, v]) => (
-              <div key={k} style={{ marginBottom: 10, fontSize: 13, color: '#78350f', lineHeight: 1.6 }}>
-                <strong style={{ color: '#92400e', display: 'block', fontSize: 12 }}>{k}</strong>
+              <div key={k} style={{ marginBottom: 8, fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
+                <strong style={{ color: '#92400e', display: 'block', fontSize: 11, textTransform: 'uppercase' }}>{k}</strong>
                 {v}
               </div>
             ))}
