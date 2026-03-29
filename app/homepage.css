@@ -219,18 +219,31 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .hero-warning span:last-child{color:#92400e;font-size:13.5px;line-height:1.6;font-weight:500}
 
 /* Социални числа */
-.hero-social-proof{
-  display:flex;margin-top:8px;
-  border-top:1.5px solid #d1fae5;padding-top:16px;
+.hero-learn{
+  margin-top:20px;
+  border-top:1.5px solid #d1fae5;
+  padding-top:16px;
 }
-.hero-stat{padding:0 20px;border-right:1.5px solid #d1fae5;text-align:center}
-.hero-stat:first-child{padding-left:0}
-.hero-stat:last-child{border-right:none}
-.hero-stat-number{
-  color:#15803d;font-weight:900;font-size:22px;
-  font-family:'Cormorant Garamond',serif;line-height:1;margin-bottom:3px;
+.hero-learn-title{
+  font-size:11px;font-weight:800;color:#6b7280;
+  text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;
 }
-.hero-stat-label{color:#6b7280;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.hero-learn-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+}
+.hero-learn-item{
+  display:flex;align-items:center;gap:9px;
+  font-size:13px;font-weight:600;color:#1f2937;line-height:1.3;
+}
+.hero-learn-icon{
+  width:28px;height:28px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;flex-shrink:0;
+}
+
+@media(max-width:480px){
+  .hero-learn-grid{grid-template-columns:1fr}
+}
 
 /* Стар .about-strip и .chip — запазени за съвместимост */
 .about-strip{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
@@ -469,7 +482,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .products-grid,.atlas-grid,.categories-grid,.testimonials-grid{grid-template-columns:1fr!important}
   .hero-inner{padding:28px 18px 36px;gap:20px}
   .hero-title{font-size:26px}
-  .hero-stat-number{font-size:17px}
+
   .handbooks-panel{padding:18px 16px}
   .hb-card{padding:12px 14px}
   .hb-card-emoji{font-size:28px}

@@ -407,17 +407,36 @@ export default async function HomePage() {
               </div>
             )}
 
-            {/* Social proof числа */}
-            {socialItems.length > 0 && (
-              <div className="hero-social-proof">
-                {socialItems.map(({ number, label }) => (
-                  <div key={label} className="hero-stat">
-                    <div className="hero-stat-number">{number}</div>
-                    <div className="hero-stat-label">{label}</div>
-                  </div>
-                ))}
+            {/* Какво ще научиш */}
+            <div className="hero-learn">
+              <div className="hero-learn-title">{"📖 От наръчниците ще научиш:"}</div>
+              <div className="hero-learn-grid">
+                <div className="hero-learn-item">
+                  <span className="hero-learn-icon" style={{ background: '#fef3c7' }}>{"📅"}</span>
+                  <span>{"Кога и как да садиш и третираш"}</span>
+                </div>
+                <div className="hero-learn-item">
+                  <span className="hero-learn-icon" style={{ background: '#dcfce7' }}>{"🌿"}</span>
+                  <span>{"Кои торове дават реален резултат"}</span>
+                </div>
+                <div className="hero-learn-item">
+                  <span className="hero-learn-icon" style={{ background: '#fee2e2' }}>{"🛡️"}</span>
+                  <span>{"Как да предпазиш от болести"}</span>
+                </div>
+                <div className="hero-learn-item">
+                  <span className="hero-learn-icon" style={{ background: '#e0f2fe' }}>{"💧"}</span>
+                  <span>{"Напояване и поливен режим"}</span>
+                </div>
+                <div className="hero-learn-item">
+                  <span className="hero-learn-icon" style={{ background: '#f3e8ff' }}>{"🪴"}</span>
+                  <span>{"Подвързване и оформяне на стъблото"}</span>
+                </div>
+                <div className="hero-learn-item">
+                  <span className="hero-learn-icon" style={{ background: '#dcfce7' }}>{"🏆"}</span>
+                  <span>{"Стъпки за рекордна реколта"}</span>
+                </div>
               </div>
-            )}
+            </div>
           </div>
 
           <div className="hero-right">
@@ -426,24 +445,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ── TRUST STRIP ────────────────────────────────────────────────────── */}
-      {trustItems.length > 0 && (
-        <div className="trust-strip">
-          <div className="trust-strip-inner">
-            {trustItems.map(({ icon, text, sub }) => (
-              <div key={text} className="trust-item">
-                <div className="trust-item-icon-bg">
-                  <span className="trust-item-icon">{icon}</span>
-                </div>
-                <div className="trust-item-text">
-                  <span className="trust-item-label">{text}</span>
-                  {sub && <span className="trust-item-sub">{sub}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+   
 
       {/* ══ CATEGORIES ═════════════════════════════════════════════════════════ */}
       {categoryLinks.length > 0 && (
@@ -778,3 +780,4 @@ export default async function HomePage() {
     </>
   )
 }
+  

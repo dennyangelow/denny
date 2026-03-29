@@ -133,15 +133,7 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
 
       {/* ── Хедър ── */}
       <div style={{ textAlign: 'center', marginBottom: 16 }}>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          background: '#fef2f2', border: '1.5px solid #fecaca',
-          borderRadius: 20, padding: '5px 14px', marginBottom: 12,
-          fontSize: 11, fontWeight: 800, color: '#dc2626', letterSpacing: '0.04em',
-        }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block', flexShrink: 0 }} />
-          НОВ НАРЪЧНИК ЗА КРАСТАВИЦИ! · ВЕЧЕ Е ДОСТЪПЕН!
-        </div>
+      
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 6 }}>
           <span style={{ fontSize: 26 }}>🎁</span>
@@ -283,17 +275,7 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-          {/* Downloads counter */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 4 }}>
-            <div style={{ display: 'flex' }}>
-              {['🧑‍🌾','👩‍🌾','🧑‍🌾'].map((e, i) => (
-                <span key={i} style={{ fontSize: 16, marginLeft: i > 0 ? -4 : 0 }}>{e}</span>
-              ))}
-            </div>
-            <span style={{ color: '#6b7280', fontSize: 12 }}>
-              <strong style={{ color: '#15803d' }}>{downloads}</strong> изтегляния само днес
-            </span>
-          </div>
+        
 
           {/* Карти */}
           {handbooks.map((hb, idx) => (
