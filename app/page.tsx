@@ -496,7 +496,55 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* ══ СПЕЦИАЛНИ СЕКЦИИ (от special_sections таблица) ═══════════════════ */}
+      
+
+      {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
+      {atlasProducts.length > 0 && (
+        <section id="atlas" style={{ padding: '60px 0', backgroundColor: '#ffffff', position: 'relative' }}>
+          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
+            <FadeIn>
+              <div style={{ textAlign: 'center', marginBottom: 40 }}>
+                <div style={{ display: 'inline-block', background: '#f0fdf4', color: '#16a34a', fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 6, marginBottom: 12, border: '1px solid #dcfce7' }}>
+                  🏭 ДИРЕКТНО ОТ ПРОИЗВОДИТЕЛЯ
+                </div>
+                <h2 style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 900, color: '#111827', letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: 16 }}>
+                  Atlas Terra — Професионална Серия
+                </h2>
+                <p style={{ fontSize: 17, color: '#4b5563', maxWidth: 650, margin: '0 auto', lineHeight: 1.5 }}>
+                  Три специализирани формули за здрава почва и максимален добив.
+                  Използвани от професионални агрономи, вече достъпни и за твоята градина.
+                </p>
+              </div>
+            </FadeIn>
+
+            <div style={{ marginTop: 20, position: 'relative', zIndex: 10 }}>
+              <CartSystem
+                atlasProducts={atlasProducts}
+                shippingPrice={settings.shipping_price}
+                freeShippingAbove={settings.free_shipping_above}
+                siteEmail={settings.site_email}
+                sitePhone={settings.site_phone}
+              />
+            </div>
+
+            <FadeIn>
+              <div style={{ marginTop: 30, padding: '20px', borderRadius: 20, background: '#f9fafb', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '24px', border: '1px solid #f3f4f6' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
+                  <span style={{ fontSize: 18 }}>🚚</span>
+                  Безплатна доставка над {settings.free_shipping_above} {settings.currency_symbol}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
+                  <span style={{ fontSize: 18 }}>🛡️</span> Плащане при доставка
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
+                  <span style={{ fontSize: 18 }}>⚡</span> Експресна пратка (1-2 дни)
+                </div>
+              </div>
+            </FadeIn>
+          </div>
+        </section>
+      )}
+{/* ══ СПЕЦИАЛНИ СЕКЦИИ (от special_sections таблица) ═══════════════════ */}
       {specialSections.map(sec => (
         <section key={sec.slug} id={sec.slug} className="ginegar-section">
           <div className="ginegar-glow" />
@@ -564,54 +612,6 @@ export default async function HomePage() {
           </div>
         </section>
       ))}
-
-      {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
-      {atlasProducts.length > 0 && (
-        <section id="atlas" style={{ padding: '60px 0', backgroundColor: '#ffffff', position: 'relative' }}>
-          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
-            <FadeIn>
-              <div style={{ textAlign: 'center', marginBottom: 40 }}>
-                <div style={{ display: 'inline-block', background: '#f0fdf4', color: '#16a34a', fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 6, marginBottom: 12, border: '1px solid #dcfce7' }}>
-                  🏭 ДИРЕКТНО ОТ ПРОИЗВОДИТЕЛЯ
-                </div>
-                <h2 style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 900, color: '#111827', letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: 16 }}>
-                  Atlas Terra — Професионална Серия
-                </h2>
-                <p style={{ fontSize: 17, color: '#4b5563', maxWidth: 650, margin: '0 auto', lineHeight: 1.5 }}>
-                  Три специализирани формули за здрава почва и максимален добив.
-                  Използвани от професионални агрономи, вече достъпни и за твоята градина.
-                </p>
-              </div>
-            </FadeIn>
-
-            <div style={{ marginTop: 20, position: 'relative', zIndex: 10 }}>
-              <CartSystem
-                atlasProducts={atlasProducts}
-                shippingPrice={settings.shipping_price}
-                freeShippingAbove={settings.free_shipping_above}
-                siteEmail={settings.site_email}
-                sitePhone={settings.site_phone}
-              />
-            </div>
-
-            <FadeIn>
-              <div style={{ marginTop: 30, padding: '20px', borderRadius: 20, background: '#f9fafb', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '24px', border: '1px solid #f3f4f6' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-                  <span style={{ fontSize: 18 }}>🚚</span>
-                  Безплатна доставка над {settings.free_shipping_above} {settings.currency_symbol}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-                  <span style={{ fontSize: 18 }}>🛡️</span> Плащане при доставка
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-                  <span style={{ fontSize: 18 }}>⚡</span> Експресна пратка (1-2 дни)
-                </div>
-              </div>
-            </FadeIn>
-          </div>
-        </section>
-      )}
-
       {/* ══ TESTIMONIALS ═══════════════════════════════════════════════════════ */}
       {testimonials.length > 0 && (
         <section id="testimonials" className="section-wrap" style={{ backgroundColor: '#ffffff' }}>
