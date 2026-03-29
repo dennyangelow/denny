@@ -36,7 +36,7 @@ interface SiteSettings {
 
 interface Handbook {
   slug: string; title: string; subtitle: string
-  emoji: string; color: string; bg: string; badge: string
+  emoji: string; color: string; bg: string; badge: string; image_url?: string
 }
 
 interface ProductVariant {
@@ -271,7 +271,8 @@ async function getPageData() {
           bg:       n.bg    || (n.category === 'domati'
             ? 'linear-gradient(135deg,#dc2626,#b91c1c)'
             : 'linear-gradient(135deg,#16a34a,#166534)'),
-          badge: n.badge || n.category,
+          badge:     n.badge || n.category,
+          image_url: n.image_url || '',
         }))
       : DEFAULT_HANDBOOKS
 
