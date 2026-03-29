@@ -10,7 +10,7 @@ import { FaqSection } from '@/components/client/FaqSection'
 import { FadeIn } from '@/components/marketing/FadeIn'
 import { SafeImg } from '@/components/client/SafeImg'
 import './homepage.css'
-
+export const dynamic = 'force-dynamic'
 // ─── Типове ────────────────────────────────────────────────────────────────────
 interface SiteSettings {
   hero_title: string; hero_subtitle: string; hero_warning: string
