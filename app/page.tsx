@@ -272,7 +272,7 @@ async function getPageData() {
             ? 'linear-gradient(135deg,#dc2626,#b91c1c)'
             : 'linear-gradient(135deg,#16a34a,#166534)'),
           badge:     n.badge || n.category,
-          image_url: n.image_url || '',
+          image_url: n.cover_image_url || '',
         }))
       : DEFAULT_HANDBOOKS
 
