@@ -50,48 +50,126 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .mob-nav-link:hover{background:#f0fdf4;color:#16a34a}
 
 /* ── Hero ── */
-.hero{background:linear-gradient(145deg,#0c3a1c 0%,#14532d 30%,#166534 65%,#15803d 100%);position:relative;overflow:hidden}
-.hero-dots{position:absolute;inset:0;pointer-events:none;opacity:.1;background-image:radial-gradient(circle,rgba(255,255,255,.3) 1px,transparent 1px);background-size:32px 32px}
+@keyframes shimmerGreen{0%{background-position:-200% center}100%{background-position:200% center}}
+@keyframes pulse-glow{0%,100%{opacity:.5}50%{opacity:1}}
+
+/* По-светъл, елегантен фон — изумруден, не горски мрак */
+.hero{
+  background:linear-gradient(135deg,#1a4731 0%,#1e5c3a 40%,#226644 70%,#1e5c3a 100%);
+  position:relative;overflow:hidden;
+}
+.hero-dots{position:absolute;inset:0;pointer-events:none;opacity:.07;background-image:radial-gradient(circle,rgba(255,255,255,.6) 1px,transparent 1px);background-size:30px 30px}
 .hero-blob{position:absolute;border-radius:50%;pointer-events:none}
-.hero-blob--tr{top:-120px;right:-120px;width:460px;height:460px;background:rgba(134,239,172,.06)}
-.hero-blob--bl{bottom:-70px;left:-90px;width:320px;height:320px;background:rgba(255,255,255,.03)}
-.hero-inner{max-width:1200px;margin:0 auto;padding:52px 32px 60px;position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;justify-content:space-between}
-.hero-left{flex:1 1 360px;max-width:560px}
-/* hero-right е видим на всички размери екрани */
-.hero-right{flex:0 0 400px;display:flex;flex-direction:column;gap:14px;align-items:stretch}
+.hero-blob--tr{top:-80px;right:-80px;width:400px;height:400px;background:radial-gradient(circle,rgba(74,222,128,.18),transparent 68%)}
+.hero-blob--bl{bottom:-60px;left:-60px;width:300px;height:300px;background:radial-gradient(circle,rgba(134,239,172,.10),transparent 68%)}
+/* Тънка светло-зелена линия в горния край */
+.hero-top-line{position:absolute;top:0;left:0;right:0;height:2px;pointer-events:none;background:linear-gradient(90deg,transparent 5%,rgba(134,239,172,.7) 40%,rgba(74,222,128,1) 50%,rgba(134,239,172,.7) 60%,transparent 95%)}
+/* mesh светлина */
+.hero-mesh{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 60% 80% at 80% 40%,rgba(74,222,128,.08) 0%,transparent 60%),radial-gradient(ellipse 50% 50% at 10% 80%,rgba(134,239,172,.06) 0%,transparent 60%)}
 
-/* ── Handbooks Panel ── */
-.handbooks-panel{background:rgba(255,255,255,.10);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.20);border-radius:24px;padding:28px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.30)}
-.handbooks-panel-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.handbooks-panel-icon{font-size:28px;line-height:1}
-.handbooks-panel-title{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:800;color:#fff;line-height:1.1}
-.handbooks-panel-sub{font-size:12px;color:rgba(255,255,255,.55);font-weight:600;margin-top:3px;letter-spacing:.03em}
-.hb-card{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.15);border-radius:16px;padding:18px 20px;text-decoration:none;transition:all .25s;cursor:pointer}
-.hb-card:hover{background:rgba(255,255,255,.12);border-color:var(--hb-color,rgba(255,255,255,.3));transform:translateX(4px)}
-.hb-card-emoji{font-size:38px;line-height:1;flex-shrink:0}
-.hb-card-body{flex:1;min-width:0}
-.hb-card-title{color:#fff;font-weight:800;font-size:16px;font-family:'Cormorant Garamond',serif;line-height:1.25;margin-bottom:4px}
-.hb-card-sub{color:rgba(255,255,255,.55);font-size:12px;font-weight:600}
-.hb-card-arrow{flex-shrink:0;width:36px;height:36px;border-radius:10px;background:var(--hb-color,#16a34a);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;transition:transform .2s}
-.hb-card:hover .hb-card-arrow{transform:translateY(2px)}
-.handbooks-panel-footer{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;font-size:11px;color:rgba(255,255,255,.4);font-weight:600}
+/* ── Layout: равни колони ── */
+.hero-inner{
+  max-width:1200px;margin:0 auto;
+  padding:44px 36px 52px;
+  position:relative;z-index:1;
+  display:grid;grid-template-columns:1fr 1fr;gap:44px;
+  align-items:center;
+}
+.hero-left{min-width:0}
+.hero-right{display:flex;flex-direction:column;align-items:stretch;min-width:0}
 
-.trust-badge{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.18);border-radius:28px;padding:6px 14px;backdrop-filter:blur(12px);margin-bottom:18px;flex-wrap:wrap}
-.trust-badge span{color:rgba(255,255,255,.92);font-size:12.5px;font-weight:600}
-.live-dot{width:6px;height:6px;background:#86efac;border-radius:50%;animation:pulse-dot 2s ease-in-out infinite;flex-shrink:0}
-.hero-title{font-family:'Cormorant Garamond',serif;font-size:clamp(32px,4.8vw,54px);color:#fff;margin:0 0 14px;line-height:1.1;font-weight:800}
-.shimmer-text{background:linear-gradient(90deg,#86efac 0%,#fff 40%,#86efac 80%);background-size:200%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 3.5s ease infinite}
+/* ── Trust badge ── */
+.trust-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,.10);border:1px solid rgba(134,239,172,.28);
+  border-radius:100px;padding:6px 14px 6px 7px;
+  backdrop-filter:blur(12px);margin-bottom:16px;flex-wrap:wrap;
+}
+.trust-badge span{color:rgba(255,255,255,.88);font-size:12px;font-weight:600}
+.live-dot{width:7px;height:7px;background:#4ade80;border-radius:50%;box-shadow:0 0 6px rgba(74,222,128,.8);animation:pulse-dot 2s ease-in-out infinite;flex-shrink:0}
+
+/* ── Заглавие — по-малко, компактно ── */
+.hero-title{
+  font-family:'Cormorant Garamond',serif;
+  font-size:clamp(26px,2.6vw,38px);   /* значително по-малко от преди */
+  color:#fff;margin:0 0 10px;
+  line-height:1.15;font-weight:800;letter-spacing:-.01em;
+}
+.shimmer-text{
+  background:linear-gradient(90deg,#a7f3d0 0%,#fff 35%,#6ee7b7 65%,#a7f3d0 100%);
+  background-size:220%;-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;animation:shimmerGreen 4s ease infinite;
+}
+
+/* Разделителна линия */
+.hero-divider{width:40px;height:2px;background:linear-gradient(90deg,#4ade80,rgba(74,222,128,.2));border-radius:2px;margin:12px 0 14px}
+
+/* Подзаглавие */
+.hero-subtitle-text{color:rgba(255,255,255,.78);font-size:14.5px;line-height:1.7;margin:0 0 16px}
+.hero-subtitle-text strong{color:#86efac;font-weight:700}
+
+/* Warning */
+.hero-warning{
+  display:flex;align-items:flex-start;gap:10px;
+  background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.25);
+  border-left:3px solid rgba(248,113,113,.7);
+  border-radius:10px;padding:11px 14px;margin-bottom:18px;
+}
+.hero-warning-icon{font-size:15px;flex-shrink:0;margin-top:1px}
+.hero-warning span:last-child{color:#fca5a5;font-size:13px;line-height:1.55}
+
+/* Социални числа */
+.hero-social-proof{display:flex;margin-top:6px;border-top:1px solid rgba(255,255,255,.10);padding-top:14px}
+.hero-stat{padding:0 18px;border-right:1px solid rgba(255,255,255,.10);text-align:center}
+.hero-stat:first-child{padding-left:0}
+.hero-stat:last-child{border-right:none}
+.hero-stat-number{color:#86efac;font-weight:900;font-size:20px;font-family:'Cormorant Garamond',serif;line-height:1;margin-bottom:2px}
+.hero-stat-label{color:rgba(255,255,255,.42);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+
+/* Стар .about-strip и .chip — запазени за съвместимост */
 .about-strip{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
 .about-item{font-size:12.5px;color:rgba(255,255,255,.78);line-height:1.55}
 .about-item strong{color:#86efac}
 .hero-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:22px}
 .chip{font-size:12.5px;color:rgba(255,255,255,.88);background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);padding:6px 13px;border-radius:22px;display:flex;align-items:center;gap:5px;backdrop-filter:blur(8px)}
 
-/* ── Trust strip ── */
-.trust-strip{background:#fff;border-bottom:1px solid #f0f0f0;padding:12px 24px;display:flex;gap:0;overflow-x:auto;scrollbar-width:none}
+/* ── Handbooks Panel ── */
+.handbooks-panel{
+  background:rgba(255,255,255,.09);
+  backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);
+  border:1px solid rgba(134,239,172,.20);border-radius:22px;
+  padding:24px;width:100%;
+  box-shadow:0 20px 60px rgba(0,0,0,.25),0 1px 0 rgba(134,239,172,.12) inset;
+}
+.handbooks-panel-header{display:flex;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.09)}
+.handbooks-panel-icon{font-size:26px;line-height:1}
+.handbooks-panel-title{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:800;color:#fff;line-height:1.1}
+.handbooks-panel-sub{font-size:11px;color:rgba(255,255,255,.48);font-weight:600;margin-top:3px;letter-spacing:.05em;text-transform:uppercase}
+.hb-card{
+  display:flex;align-items:center;gap:13px;
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);
+  border-radius:15px;padding:16px 18px;text-decoration:none;
+  transition:all .25s cubic-bezier(.22,1,.36,1);cursor:pointer;
+}
+.hb-card:hover{background:rgba(255,255,255,.12);border-color:rgba(134,239,172,.30);transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,.2)}
+.hb-card-emoji{font-size:34px;line-height:1;flex-shrink:0}
+.hb-card-body{flex:1;min-width:0}
+.hb-card-title{color:#fff;font-weight:800;font-size:15px;font-family:'Cormorant Garamond',serif;line-height:1.2;margin-bottom:4px}
+.hb-card-sub{color:rgba(255,255,255,.48);font-size:11.5px;font-weight:600}
+.hb-card-arrow{flex-shrink:0;width:34px;height:34px;border-radius:10px;background:var(--hb-color,#16a34a);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;transition:transform .2s;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+.hb-card:hover .hb-card-arrow{transform:translateY(2px)}
+.handbooks-panel-footer{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);font-size:10.5px;color:rgba(255,255,255,.36);font-weight:600;letter-spacing:.03em}
+
+/* ── Trust strip — светло зелено ── */
+.trust-strip{
+  background:linear-gradient(90deg,#f5fbf7,#f0fdf4,#f5fbf7);
+  border-bottom:1px solid #d1fae5;padding:11px 28px;
+  display:flex;gap:0;overflow-x:auto;scrollbar-width:none;
+}
 .trust-strip::-webkit-scrollbar{display:none}
-.trust-item{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#374151;padding:0 20px;white-space:nowrap;border-right:1px solid #e5e7eb;flex-shrink:0}
+.trust-item{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#166534;padding:0 20px;white-space:nowrap;border-right:1px solid #bbf7d0;flex-shrink:0}
 .trust-item:last-child{border-right:none}
+.trust-item-icon{font-size:14px;line-height:1}
 
 /* ── Sections ── */
 .section-wrap{padding:60px 24px;max-width:1100px;margin:0 auto}
@@ -246,46 +324,28 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .products-grid{grid-template-columns:repeat(2,1fr)!important}
   .testimonials-grid{grid-template-columns:repeat(2,1fr)}
   .categories-grid{grid-template-columns:repeat(2,1fr)}
+  .hero-inner{grid-template-columns:1fr;padding:36px 24px 44px;gap:24px}
+  .hero-title{font-size:clamp(24px,4vw,34px)}
 }
 @media(max-width:640px){
   .products-grid,.atlas-grid,.categories-grid,.testimonials-grid{grid-template-columns:1fr!important}
-
-  /* ─── HERO МОБИЛЕН FIX ───
-     hero-right вече не се крие — показва се под hero-left
-     с компактен изглед на картите */
-  .hero-inner{
-    flex-direction:column;
-    padding:32px 18px 40px;
-    gap:24px;
-  }
-  .hero-left{
-    max-width:100%;
-    flex:none;
-  }
-  .hero-right{
-    flex:none;
-    width:100%;
-    /* Беше display:none — вече показваме */
-  }
-  /* На мобилен картите стават по-компактни */
-  .hb-card{
-    padding:13px 16px;
-  }
+  .hero-inner{padding:28px 18px 36px;gap:20px}
+  .hero-title{font-size:26px}
+  .hero-stat-number{font-size:17px}
+  .handbooks-panel{padding:18px 16px}
+  .hb-card{padding:12px 14px}
   .hb-card-emoji{font-size:28px}
   .hb-card-title{font-size:14px}
-  .handbooks-panel{padding:18px}
-
   .header-nav{display:none}
   .mob-btn{display:flex}
   .section-wrap{padding:48px 18px}
   .atlas-section,.ginegar-section{padding:56px 18px}
   .ginegar-img-wrap{flex:1 1 100%}
-  .trust-strip{padding:10px 18px}
+  .trust-strip{padding:10px 14px}
+  .trust-item{padding:0 12px;font-size:11.5px}
   .cart-drawer{max-width:100%}
   .float-cart{bottom:14px;right:14px;padding:11px 16px;font-size:13.5px}
   .urgency-bar{font-size:11.5px;padding:7px 14px}
-
-  /* Наръчник страница мобилен */
   .nar-page-bg{padding:16px}
   .nar-header{padding:28px 20px 22px}
   .nar-cover{padding:16px 20px 0}
@@ -294,7 +354,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .nar-others-grid{grid-template-columns:repeat(2,1fr)!important}
 }
 @media(max-width:480px){
-  .hero-title{font-size:30px}
+  .hero-title{font-size:23px}
   .categories-grid{grid-template-columns:1fr}
   .nar-others-grid{grid-template-columns:1fr!important}
 }

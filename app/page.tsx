@@ -228,51 +228,68 @@ export default async function HomePage() {
 
       {/* ══ HERO ══ */}
       <section className="hero">
+        <div className="hero-mesh" />
         <div className="hero-dots" />
         <div className="hero-blob hero-blob--tr" />
         <div className="hero-blob hero-blob--bl" />
+        <div className="hero-top-line" />
+
         <div className="hero-inner">
+
+          {/* Лява колона */}
           <div className="hero-left">
             <div className="trust-badge">
-              <img src={`${CDN}/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg`} alt="Denny" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.5)', flexShrink: 0 }} />
+              <img
+                src={`${CDN}/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg`}
+                alt="Denny"
+                style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(134,239,172,0.6)', flexShrink: 0 }}
+              />
               <span>@dennyangelow · {socialItems.find(s => s.label === 'последователи')?.number || '85K'}+ последователи · 8+ год. практика</span>
               <span className="live-dot" />
             </div>
+
             <h1 className="hero-title">{settings.hero_title}</h1>
+            <div className="hero-divider" />
+
             {settings.hero_subtitle && (
-              <p style={{ color: 'rgba(255,255,255,0.82)', fontSize: 16, lineHeight: 1.7, margin: '14px 0 18px', maxWidth: 520 }}>
-                {parseBold(settings.hero_subtitle)}
-              </p>
+              <p className="hero-subtitle-text">{parseBold(settings.hero_subtitle)}</p>
             )}
+
             {settings.hero_warning && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(220,38,38,0.18)', border: '1px solid rgba(220,38,38,0.35)', borderRadius: 10, padding: '11px 15px', marginBottom: 18 }}>
-                <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
-                <span style={{ color: '#fca5a5', fontSize: 14, lineHeight: 1.55 }}>{settings.hero_warning}</span>
+              <div className="hero-warning">
+                <span className="hero-warning-icon">⚠️</span>
+                <span>{settings.hero_warning}</span>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 20, marginTop: 6 }}>
+
+            <div className="hero-social-proof">
               {socialItems.map(({ number, label }) => (
-                <div key={label} style={{ textAlign: 'center' }}>
-                  <div style={{ color: '#86efac', fontWeight: 900, fontSize: 20, fontFamily: "'Cormorant Garamond', serif", lineHeight: 1 }}>{number}</div>
-                  <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 600, marginTop: 2 }}>{label}</div>
+                <div key={label} className="hero-stat">
+                  <div className="hero-stat-number">{number}</div>
+                  <div className="hero-stat-label">{label}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Наръчници панел — client (форма) */}
+          {/* Дясна колона */}
           <div className="hero-right">
             <HandbooksPanel handbooks={handbooks} />
           </div>
+
         </div>
       </section>
 
-      {/* TRUST STRIP */}
+      {/* ══ TRUST STRIP ══ */}
       <div className="trust-strip">
         {trustItems.map(({ icon, text }) => (
-          <div key={text} className="trust-item"><span>{icon}</span><span>{text}</span></div>
+          <div key={text} className="trust-item">
+            <span className="trust-item-icon">{icon}</span>
+            <span>{text}</span>
+          </div>
         ))}
       </div>
+
 
       {/* CATEGORIES */}
       {categoryLinks.length > 0 && (
