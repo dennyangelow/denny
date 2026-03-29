@@ -1,6 +1,6 @@
-// app/api/affiliate-products/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { revalidatePath } from 'next/cache' // 1. Добави този импорт
 
 export async function GET() {
   try {
@@ -17,10 +17,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     
-    // Премахваме всякакви стари или грешни ключове, които биха предизвикали 500 грешка
+    // Премахваме всякакви стари или грешни ключове
     const { id, link, badge, tag, badj, tar, sub_title, color_hex, ...insertData } = body
 
-    // Гарантираме, че данните са правилно мапнати към колоните в Supabase
+    // Гарантираме, че данните са правилно мапнати
     const cleanData = {
       ...insertData,
       affiliate_url: insertData.affiliate_url || link,
@@ -36,6 +36,12 @@ export async function POST(req: NextRequest) {
       .select().single()
       
     if (error) throw error
+
+    // 2. ИЗЧИСТВАНЕ НА КЕША
+    // Това гарантира, че новите партньорски продукти ще се появят 
+    // веднага на сайта след като ги добавиш от админ панела.
+    revalidatePath('/')
+
     return NextResponse.json({ product: data })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

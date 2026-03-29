@@ -12,6 +12,10 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File | null
     const folder = (formData.get('folder') as string) || 'products'
 
+    // (По желание) Веднага след: const folder = ... || 'products'
+const validFolders = ['products', 'testimonials', 'settings', 'handbooks'];
+const finalFolder = validFolders.includes(folder) ? folder : 'misc';
+
     if (!file) {
       return NextResponse.json({ error: 'Няма избран файл' }, { status: 400 })
     }
