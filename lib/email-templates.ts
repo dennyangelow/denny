@@ -195,3 +195,46 @@ export function followUp10Email({ email, name }: EmailParams) {
 
   return { subject, html }
 }
+// Код за потвърждение на поръчка (към клиента)
+export function orderConfirmationEmail({ order, items }: any) {
+  const subject = `Поръчка #${order.order_number} — Denny Angelow`
+  
+  const itemsHtml = items.map((i: any) => 
+    `<li style="font-size:14px;margin-bottom:8px"><strong>${i.product_name}</strong> (x${i.quantity}) — ${i.total_price.toFixed(2)} €</li>`
+  ).join('')
+
+  const html = wrapper(`
+    <h2 style="color:#111;font-size:18px;margin-bottom:12px">Благодарим за поръчката!</h2>
+    <p style="font-size:14px;color:#4b5563;margin-bottom:16px">Здравейте, ${order.customer_name}. Поръчката ви е приета и ще бъде изпратена скоро.</p>
+    <div style="background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px">
+      <p style="font-size:13px;font-weight:700;margin-bottom:8px">ВАШАТА ПОРЪЧКА:</p>
+      <ul style="padding-left:20px;margin:0">${itemsHtml}</ul>
+      <p style="margin-top:12px;font-weight:800;border-top:1px solid #eee;padding-top:8px">ОБЩО: ${order.total.toFixed(2)} €</p>
+    </div>
+    <p style="font-size:13px;color:#6b7280">Доставка до: ${order.customer_city}, ${order.customer_address}</p>
+  `)
+  
+  return { subject, html }
+}
+
+// Код за известие към теб (админа)
+export function adminNotifyEmail({ order, items }: any) {
+  const subject = `НОВА ПОРЪЧКА: #${order.order_number} (${order.customer_name})`
+  
+  const itemsHtml = items.map((i: any) => 
+    `<li>${i.product_name} (x${i.quantity})</li>`
+  ).join('')
+
+  const html = `
+    <h1>Нова поръчка от сайта!</h1>
+    <p><strong>Клиент:</strong> ${order.customer_name}</p>
+    <p><strong>Телефон:</strong> ${order.customer_phone}</p>
+    <p><strong>Адрес:</strong> ${order.customer_city}, ${order.customer_address}</p>
+    <hr>
+    <h3>Продукти:</h3>
+    <ul>${itemsHtml}</ul>
+    <p><strong>Обща сума:</strong> ${order.total.toFixed(2)} €</p>
+  `
+  
+  return { subject, html }
+}

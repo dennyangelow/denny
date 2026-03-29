@@ -7,7 +7,7 @@ import { useState } from 'react'
 
 interface Handbook {
   slug: string; title: string; subtitle: string
-  emoji: string; color: string; bg: string; badge: string
+  emoji: string; color: string; image_url?: string; bg: string; badge: string
 }
 
 export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
@@ -77,7 +77,11 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
             const hb = handbooks.find(h => h.slug === selectedSlug)
             return hb ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 14px', marginBottom: 14 }}>
-                <span style={{ fontSize: 24 }}>{hb.emoji}</span>
+                {hb.image_url ? (
+  <img src={hb.image_url} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover' }} />
+) : (
+  <span style={{ fontSize: 24 }}>{hb.emoji}</span>
+)}
                 <div style={{ flex: 1 }}>
                   <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, lineHeight: 1.3 }}>{hb.title}</div>
                 </div>
@@ -105,19 +109,110 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {handbooks.map((hb) => (
-            <button key={hb.slug} onClick={() => setSelectedSlug(hb.slug)} className="hb-card"
-              style={{ '--hb-color': hb.color, cursor: 'pointer', border: 'none', textAlign: 'left', width: '100%' } as React.CSSProperties}>
-              <div className="hb-card-emoji">{hb.emoji}</div>
-              <div className="hb-card-body">
-                <div className="hb-card-title">{hb.title}</div>
-                <div className="hb-card-sub">{hb.subtitle}</div>
-              </div>
-              <div className="hb-card-arrow">↓</div>
-            </button>
-          ))}
+       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+  {handbooks.map((hb) => (
+    <button
+      key={hb.slug}
+      onClick={() => setSelectedSlug(hb.slug)}
+      className="hb-card"
+      style={{
+        '--hb-color': hb.color,
+        cursor: 'pointer',
+        border: 'none',
+        textAlign: 'left',
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '12px',
+        borderRadius: '14px',
+        background: 'rgba(255, 255, 255, 0.05)',
+        transition: 'transform 0.2s, background 0.2s',
+      } as React.CSSProperties}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+        e.currentTarget.style.transform = 'translateY(-2px)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+        e.currentTarget.style.transform = 'translateY(0)';
+      }}
+    >
+      {/* Контейнер за икона/снимка */}
+      <div 
+        className="hb-card-emoji" 
+        style={{ 
+          width: 48, 
+          height: 48, 
+          flexShrink: 0, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          borderRadius: '10px',
+          overflow: 'hidden',
+          background: 'rgba(255,255,255,0.05)',
+          fontSize: '24px' 
+        }}
+      >
+        {/* ПРОВЕРКА ЗА СНИМКА */}
+        {hb.image_url ? (
+          <img 
+            src={hb.image_url} 
+            alt={hb.title} 
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+            onError={(e) => {
+              // Ако снимката не се зареди, покажи емоджито
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.parentElement!.innerHTML = hb.emoji;
+            }}
+          />
+        ) : (
+          hb.emoji
+        )}
+      </div>
+
+      {/* Текстова част */}
+      <div className="hb-card-body" style={{ flex: 1, overflow: 'hidden' }}>
+        <div 
+          className="hb-card-title" 
+          style={{ 
+            color: '#fff', 
+            fontWeight: 700, 
+            fontSize: '15px', 
+            marginBottom: '2px',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+        >
+          {hb.title}
         </div>
+        <div 
+          className="hb-card-sub" 
+          style={{ 
+            color: 'rgba(255,255,255,0.5)', 
+            fontSize: '12px',
+            lineHeight: '1.3'
+          }}
+        >
+          {hb.subtitle}
+        </div>
+      </div>
+
+      {/* Стрелка */}
+      <div 
+        className="hb-card-arrow" 
+        style={{ 
+          color: 'rgba(255,255,255,0.3)', 
+          fontSize: '18px',
+          paddingRight: '4px' 
+        }}
+      >
+        ↓
+      </div>
+    </button>
+  ))}
+</div>
       )}
 
       <div className="handbooks-panel-footer" style={{ marginTop: 14 }}>
