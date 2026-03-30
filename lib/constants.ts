@@ -21,7 +21,7 @@ export const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: strin
 }
 
 export const COURIER_LABELS: Record<string, { label: string; price: number }> = {
-  econt: { label: 'Еконт',  price: 5.00 },
+  econt:  { label: 'Еконт',  price: 5.00 },
   speedy: { label: 'Спиди', price: 5.50 },
 }
 
@@ -29,12 +29,14 @@ export const ORDER_STATUSES = ['all', 'new', 'confirmed', 'shipped', 'delivered'
 export type OrderStatus = typeof ORDER_STATUSES[number]
 
 export const NAV_ITEMS = [
-  { id: 'dashboard',  icon: '▦',  label: 'Дашборд'    },
-  { id: 'orders',     icon: '◫',  label: 'Поръчки'    },
-  { id: 'leads',      icon: '◉',  label: 'Email листа' },
-  { id: 'content',    icon: '✦',  label: 'Съдържание'  },
-  { id: 'analytics',  icon: '▲',  label: 'Аналитика'  },
-  { id: 'settings',   icon: '◈',  label: 'Настройки'  },
+  { id: 'dashboard',    icon: '▦',  label: 'Дашборд'      },
+  { id: 'orders',       icon: '◫',  label: 'Поръчки'      },
+  { id: 'leads',        icon: '◉',  label: 'Email листа'  },
+  { id: 'content',      icon: '✦',  label: 'Съдържание'   },
+  { id: 'faq',          icon: '❓', label: 'FAQ'           },
+  { id: 'testimonials', icon: '★',  label: 'Отзиви'       },
+  { id: 'analytics',    icon: '▲',  label: 'Аналитика'    },
+  { id: 'settings',     icon: '◈',  label: 'Настройки'    },
 ] as const
 
 export type TabId = typeof NAV_ITEMS[number]['id']

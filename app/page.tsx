@@ -10,7 +10,9 @@ import { FadeIn } from '@/components/marketing/FadeIn'
 import { SafeImg } from '@/components/client/SafeImg'
 import './homepage.css'
 
-export const revalidate = 60
+// revalidate = 0 → страницата винаги е свежа (ISR on-demand чрез revalidatePath)
+// Ако искаш леко кеширане сложи 30, но 0 гарантира мигновени промени от admin
+export const revalidate = 0
 
 // ─── Типове ────────────────────────────────────────────────────────────────────
 interface SiteSettings {
@@ -66,13 +68,32 @@ interface CategoryLink {
 }
 
 interface Testimonial {
-  id: string; name: string; location: string
-  text: string; stars: number; avatar: string
+  id: string
+  name: string
+  location?: string
+  text: string
+  rating: number
+  avatar_url?: string
+  product?: string
+  review_date?: string
 }
 
 interface FaqItem {
   id: string; question: string; answer: string
-  sort_order: number; category: string
+  sort_order: number; category: string; active: boolean
+}
+
+interface FaqCategory {
+  id: string; slug: string; label: string; icon: string; sort_order: number
+}
+
+interface PromoBanner {
+  id: string
+  message: string
+  icon: string
+  color: string
+  text_color: string
+  active: boolean
 }
 
 interface SpecialSection {
@@ -120,6 +141,12 @@ const DEFAULT_HANDBOOKS: Handbook[] = [
   { slug: 'krastavici-visoki-dobivy', title: 'Краставици за Високи Добиви', subtitle: 'Новост',              emoji: '🥒', color: '#16a34a', bg: 'linear-gradient(135deg,#16a34a,#166534)', badge: 'Краставици' },
 ]
 
+const DEFAULT_FAQ_CATEGORIES: FaqCategory[] = [
+  { id: 'atlas',     slug: 'atlas',     label: 'Atlas Terra',        icon: '🌱', sort_order: 1 },
+  { id: 'affiliate', slug: 'affiliate', label: 'Афилиейт & Ginegar', icon: '🏕️', sort_order: 2 },
+  { id: 'delivery',  slug: 'delivery',  label: 'Доставка & Мен',     icon: '🚚', sort_order: 3 },
+]
+
 const CAT_COLORS: Record<string, string> = {
   agroapteki:  '#16a34a',
   oranjeriata: '#0369a1',
@@ -154,9 +181,11 @@ async function getPageData() {
       { data: affiliateRows,       error: e4 },
       { data: categoryRows,        error: e5 },
       { data: testimonialRows,     error: e6 },
+      { data: promoBannersRows,    error: e11 },
       { data: faqRows,             error: e7 },
       { data: handbookRows,        error: e8 },
       { data: specialSectionsRows, error: e9 },
+      { data: faqCategoryRows,     error: e10 },
     ] = await Promise.all([
       supabase.from('settings').select('key,value'),
       supabase.from('products').select('*').eq('active', true).order('sort_order'),
@@ -164,13 +193,17 @@ async function getPageData() {
       supabase.from('affiliate_products').select('*').eq('active', true).order('sort_order'),
       supabase.from('category_links').select('*').eq('active', true).order('sort_order'),
       supabase.from('testimonials').select('*').order('sort_order').limit(9),
-      supabase.from('faq').select('*').order('sort_order'),
+      supabase.from('promo_banners').select('*').eq('active', true).order('sort_order'),
+      // Зареждаме само активните FAQ въпроси за публичната страница
+      supabase.from('faq').select('*').eq('active', true).order('sort_order'),
       supabase.from('naruchnici').select('*').eq('active', true).order('sort_order'),
       supabase.from('special_sections').select('*').eq('active', true).order('sort_order'),
+      // ✅ НОВО: зареждаме faq_categories
+      supabase.from('faq_categories').select('*').order('sort_order'),
     ])
 
     // Log грешки без да счупваме страницата
-    ;[e1,e2,e3,e4,e5,e6,e7,e8,e9].forEach((e, i) => {
+    ;[e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11].forEach((e, i) => {
       if (e) console.error(`[getPageData] query ${i + 1} error:`, e.message)
     })
 
@@ -293,11 +326,45 @@ async function getPageData() {
       sort_order:  s.sort_order  || 0,
     }))
 
+    // ── FAQ categories ────────────────────────────────────────────────────────
+    const faqCategories: FaqCategory[] =
+      faqCategoryRows?.length
+        ? (faqCategoryRows as FaqCategory[])
+        : DEFAULT_FAQ_CATEGORIES
+
+    // ── FAQ items (само активни) ──────────────────────────────────────────────
+    const faq: FaqItem[] = (faqRows || []).map((f: any) => ({
+      id:         f.id,
+      question:   f.question,
+      answer:     f.answer,
+      category:   f.category,
+      sort_order: f.sort_order,
+      active:     f.active !== false,
+    }))
+
+    const promoBanners: PromoBanner[] = (promoBannersRows || []).filter((b: any) => {
+      const now = new Date()
+      const starts = b.starts_at ? new Date(b.starts_at) : null
+      const ends   = b.ends_at   ? new Date(b.ends_at)   : null
+      return (!starts || starts <= now) && (!ends || ends >= now)
+    })
+
     return {
       settings, atlasProducts, affiliateProducts,
       categoryLinks,
-      testimonials: (testimonialRows || []) as Testimonial[],
-      faq:          (faqRows         || []) as FaqItem[],
+      promoBanners,
+      testimonials: (testimonialRows || []).map((t: any) => ({
+        id:          t.id,
+        name:        t.name        || '',
+        location:    t.location    || '',
+        text:        t.text        || '',
+        rating:      t.rating      || 5,
+        avatar_url:  t.avatar_url  || '',
+        product:     t.product     || '',
+        review_date: t.review_date || '',
+      })),
+      faq,
+      faqCategories,
       handbooks, specialSections,
     }
   } catch (err) {
@@ -307,8 +374,10 @@ async function getPageData() {
       atlasProducts:     [],
       affiliateProducts: [],
       categoryLinks:     [],
+      promoBanners:      [],
       testimonials:      [],
       faq:               [],
+      faqCategories:     DEFAULT_FAQ_CATEGORIES,
       handbooks:         DEFAULT_HANDBOOKS,
       specialSections:   [],
     }
@@ -319,7 +388,7 @@ async function getPageData() {
 export default async function HomePage() {
   const {
     settings, atlasProducts, affiliateProducts,
-    categoryLinks, testimonials, faq, handbooks, specialSections,
+    categoryLinks, promoBanners, testimonials, faq, faqCategories, handbooks, specialSections,
   } = await getPageData()
 
   const trustItems  = safeJson<{ icon: string; text: string; sub?: string }[]>(settings.trust_strip_items, [])
@@ -445,7 +514,24 @@ export default async function HomePage() {
         </div>
       </section>
 
-   
+      {/* ── TRUST STRIP ────────────────────────────────────────────────────── */}
+      {trustItems.length > 0 && (
+        <div className="trust-strip">
+          <div className="trust-strip-inner">
+            {trustItems.map(({ icon, text, sub }) => (
+              <div key={text} className="trust-item">
+                <div className="trust-item-icon-bg">
+                  <span className="trust-item-icon">{icon}</span>
+                </div>
+                <div className="trust-item-text">
+                  <span className="trust-item-label">{text}</span>
+                  {sub && <span className="trust-item-sub">{sub}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ══ CATEGORIES ═════════════════════════════════════════════════════════ */}
       {categoryLinks.length > 0 && (
@@ -540,28 +626,71 @@ export default async function HomePage() {
         </section>
       )}
 
-      
+      {/* ══ PROMO BANNERS ══════════════════════════════════════════════════════ */}
+      {promoBanners.length > 0 && (
+        <div style={{ background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+          {promoBanners.map((banner, i) => (
+            <div key={banner.id} style={{
+              background: banner.color,
+              padding: '12px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}>
+              <span style={{ fontSize: 20 }}>{banner.icon}</span>
+              <span style={{ fontSize: 14, color: banner.text_color, fontWeight: 600, textAlign: 'center', lineHeight: 1.5 }}>
+                {(banner.message || '').split(/\*\*(.*?)\*\*/g).map((p, j) =>
+                  j % 2 === 1
+                    ? <strong key={j} style={{ fontWeight: 900 }}>{p}</strong>
+                    : <span key={j}>{p}</span>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
       {atlasProducts.length > 0 && (
-        <section id="atlas" style={{ padding: '60px 0', backgroundColor: '#ffffff', position: 'relative' }}>
-          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px' }}>
+        <section id="atlas" style={{ padding: '72px 0 60px', background: 'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)', position: 'relative', overflow: 'hidden' }}>
+          {/* Subtle background pattern */}
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(22,163,74,.04) 1px, transparent 1px)', backgroundSize: '32px 32px', pointerEvents: 'none' }} />
+
+          <div style={{ maxWidth: 1160, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
             <FadeIn>
-              <div style={{ textAlign: 'center', marginBottom: 40 }}>
-                <div style={{ display: 'inline-block', background: '#f0fdf4', color: '#16a34a', fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 6, marginBottom: 12, border: '1px solid #dcfce7' }}>
-                  🏭 ДИРЕКТНО ОТ ПРОИЗВОДИТЕЛЯ
+              {/* Section label */}
+              <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', border: '1.5px solid #d1fae5', color: '#065f46', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 100, marginBottom: 18, boxShadow: '0 2px 8px rgba(22,163,74,.10)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', display: 'inline-block', animation: 'pulse 2s infinite' }} />
+                  Директно от производителя
                 </div>
-                <h2 style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 900, color: '#111827', letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: 16 }}>
+                <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px, 4.5vw, 52px)', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: 16 }}>
                   Atlas Terra — Професионална Серия
                 </h2>
-                <p style={{ fontSize: 17, color: '#4b5563', maxWidth: 650, margin: '0 auto', lineHeight: 1.5 }}>
-                  Три специализирани формули за здрава почва и максимален добив.
-                  Използвани от професионални агрономи, вече достъпни и за твоята градина.
+                <p style={{ fontSize: 16, color: '#4b5563', maxWidth: 600, margin: '0 auto 24px', lineHeight: 1.7 }}>
+                  Три специализирани биостимулаторни формули, разработени от <strong>български учени</strong>. Сертифицирани за екологично земеделие — Екосхема 3.
                 </p>
+
+                {/* Trust indicators row */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+                  {[
+                    { icon: '🏭', text: 'Произведено в България' },
+                    { icon: '🌿', text: 'Сертифицирано еко' },
+                    { icon: '🔬', text: 'Разработено от учени' },
+                    { icon: '📊', text: 'Безплатен анализ при 60л+' },
+                  ].map(item => (
+                    <div key={item.text} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 100, padding: '6px 14px', fontSize: 12.5, fontWeight: 600, color: '#374151', boxShadow: '0 1px 4px rgba(0,0,0,.04)' }}>
+                      <span style={{ fontSize: 15 }}>{item.icon}</span>
+                      {item.text}
+                    </div>
+                  ))}
+                </div>
               </div>
             </FadeIn>
 
-            <div style={{ marginTop: 20, position: 'relative', zIndex: 10 }}>
+            <div style={{ position: 'relative', zIndex: 10 }}>
               <CartSystem
                 atlasProducts={atlasProducts}
                 shippingPrice={settings.shipping_price}
@@ -571,24 +700,50 @@ export default async function HomePage() {
               />
             </div>
 
+            {/* Soil analysis feature highlight */}
             <FadeIn>
-              <div style={{ marginTop: 30, padding: '20px', borderRadius: 20, background: '#f9fafb', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '24px', border: '1px solid #f3f4f6' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-                  <span style={{ fontSize: 18 }}>🚚</span>
-                  Безплатна доставка над {settings.free_shipping_above} {settings.currency_symbol}
+              <div style={{ marginTop: 32, background: 'linear-gradient(135deg, #14532d, #166534)', borderRadius: 20, padding: '24px 28px', display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center', flex: '1 1 300px' }}>
+                  <div style={{ fontSize: 42, flexShrink: 0 }}>🔬</div>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#fff', marginBottom: 4 }}>
+                      Безплатен анализ на почвата при поръчка над 60 литра
+                    </div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', lineHeight: 1.5 }}>
+                      Почвен, листен и воден анализ от акредитирана лаборатория — включен безплатно с твоята поръчка.
+                    </div>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-                  <span style={{ fontSize: 18 }}>🛡️</span> Плащане при доставка
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {['Почвен анализ', 'Листен анализ', 'Воден анализ'].map(a => (
+                    <div key={a} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#86efac' }}>
+                      ✓ {a}
+                    </div>
+                  ))}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', fontWeight: 600 }}>
-                  <span style={{ fontSize: 18 }}>⚡</span> Експресна пратка (1-2 дни)
-                </div>
+              </div>
+            </FadeIn>
+
+            {/* Bottom trust strip */}
+            <FadeIn>
+              <div style={{ marginTop: 18, padding: '18px 24px', borderRadius: 16, background: '#fff', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '28px', border: '1px solid #f0f0f0', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
+                {[
+                  { icon: '🚚', text: `Безплатна доставка над ${settings.free_shipping_above} ${settings.currency_symbol}` },
+                  { icon: '💵', text: 'Плащане при доставка' },
+                  { icon: '⚡', text: 'Експресна пратка 1–2 дни' },
+                  { icon: '📞', text: 'Лична консултация безплатно' },
+                ].map(item => (
+                  <div key={item.text} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: '#374151', fontWeight: 600 }}>
+                    <span style={{ fontSize: 18 }}>{item.icon}</span>{item.text}
+                  </div>
+                ))}
               </div>
             </FadeIn>
           </div>
         </section>
       )}
-{/* ══ СПЕЦИАЛНИ СЕКЦИИ (от special_sections таблица) ═══════════════════ */}
+
+      {/* ══ СПЕЦИАЛНИ СЕКЦИИ (от special_sections таблица) ═══════════════════ */}
       {specialSections.map(sec => (
         <section key={sec.slug} id={sec.slug} className="ginegar-section">
           <div className="ginegar-glow" />
@@ -656,44 +811,97 @@ export default async function HomePage() {
           </div>
         </section>
       ))}
-      {/* ══ TESTIMONIALS ═══════════════════════════════════════════════════════ */}
+
       {testimonials.length > 0 && (
-        <section id="testimonials" className="section-wrap" style={{ backgroundColor: '#ffffff' }}>
-          <FadeIn>
-            <div className="section-head">
-              <span className="s-tag" style={{ color: '#059669' }}>Отзиви</span>
-              <h2 className="s-title" style={{ color: '#111827' }}>Какво казват фермерите</h2>
-              <p className="s-desc" style={{ color: '#4b5563' }}>Реални резултати от реални хора — без филтри</p>
+        <section id="testimonials" style={{ backgroundColor: '#f7f7f5', padding: '72px 24px' }}>
+          <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+            <FadeIn>
+              <div className="section-head">
+                <span className="s-tag" style={{ color: '#059669' }}>Отзиви</span>
+                <h2 className="s-title" style={{ color: '#111827' }}>Какво казват фермерите</h2>
+                <p className="s-desc" style={{ color: '#6b7280' }}>
+                  Реални резултати от реални хора — без филтри
+                </p>
+                {/* Rating summary pill */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 100, padding: '9px 20px', marginTop: 20, boxShadow: '0 2px 10px rgba(0,0,0,.06)', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {[1,2,3,4,5].map(n => <span key={n} style={{ color: '#f59e0b', fontSize: 15 }}>★</span>)}
+                  </div>
+                  <span style={{ fontWeight: 800, fontSize: 15, color: '#111' }}>5.0</span>
+                  <span style={{ color: '#e5e7eb' }}>|</span>
+                  <span style={{ fontSize: 13, color: '#6b7280' }}>{testimonials.length} верифицирани отзива</span>
+                  <span style={{ fontSize: 11, color: '#059669', fontWeight: 700, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 100, padding: '2px 10px' }}>✓ Проверени</span>
+                </div>
+              </div>
+            </FadeIn>
+
+            <div className="testimonials-grid">
+              {testimonials.map((t, i) => {
+                // Colorful avatars based on first letter
+                const avatarPalette: Record<string, string> = {
+                  А:'#2563eb',Б:'#7c3aed',В:'#db2777',Г:'#ea580c',Д:'#16a34a',
+                  Е:'#0891b2',Ж:'#dc2626',З:'#65a30d',И:'#4f46e5',К:'#b45309',
+                  Л:'#0d9488',М:'#9333ea',Н:'#c2410c',О:'#1d4ed8',П:'#15803d',
+                  Р:'#7e22ce',С:'#be123c',Т:'#0369a1',У:'#a16207',Ф:'#166534',
+                  Х:'#9f1239',Ц:'#1e40af',Ч:'#6d28d9',Ш:'#b91c1c',Щ:'#0f766e',
+                  default:'#374151',
+                }
+                const firstLetter = (t.name?.[0] || '').toUpperCase()
+                const avatarBg = avatarPalette[firstLetter] || avatarPalette.default
+
+                return (
+                  <FadeIn key={t.id} delay={i * 70}>
+                    <article className="testimonial-card">
+                      <span className="testimonial-quote-mark" aria-hidden="true">"</span>
+
+                      {/* Stars + verified */}
+                      <div className="testimonial-stars">
+                        {Array.from({ length: t.rating || 5 }).map((_, j) => (
+                          <span key={j} className="star" aria-hidden="true">★</span>
+                        ))}
+                        <span className="testimonial-verified">✓ Верифициран</span>
+                      </div>
+
+                      {/* Review text */}
+                      <blockquote style={{ margin: 0 }}>
+                        <p className="testimonial-text">„{t.text}"</p>
+                      </blockquote>
+
+                      {/* Product badge */}
+                      {t.product && (
+                        <span className="testimonial-product-badge">🌿 {t.product}</span>
+                      )}
+
+                      {/* Author */}
+                      <div className="testimonial-author">
+                        {t.avatar_url ? (
+                          <img src={t.avatar_url} alt={t.name} className="testimonial-avatar" loading="lazy" />
+                        ) : (
+                          <div className="testimonial-avatar-fallback" style={{ background: avatarBg }}>
+                            {firstLetter || '?'}
+                          </div>
+                        )}
+                        <div>
+                          <div className="testimonial-author-name">{t.name}</div>
+                          <div className="testimonial-author-meta">
+                            {t.location && <span className="testimonial-location">📍 {t.location}</span>}
+                            {t.location && t.review_date && <span className="testimonial-meta-dot" />}
+                            {t.review_date && <span className="testimonial-date">{t.review_date}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  </FadeIn>
+                )
+              })}
             </div>
-          </FadeIn>
-          <div className="testimonials-grid">
-            {testimonials.map((t, i) => (
-              <FadeIn key={t.id} delay={i * 80}>
-                <article className="testimonial-card">
-                  <div style={{ display: 'flex', gap: 4, marginBottom: 16 }} aria-label={`Оценка: ${t.stars} от 5 звезди`}>
-                    {Array.from({ length: t.stars }).map((_, j) => (
-                      <span key={j} aria-hidden="true" style={{ color: '#f59e0b', fontSize: 18 }}>★</span>
-                    ))}
-                  </div>
-                  <blockquote style={{ margin: 0, flexGrow: 1 }}>
-                    <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.6, fontStyle: 'italic', marginBottom: 24 }}>„{t.text}"</p>
-                  </blockquote>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderTop: '1px solid #f3f4f6', paddingTop: 16 }}>
-                    <div style={{ fontSize: 28, lineHeight: 1 }}>{t.avatar}</div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{t.name}</div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>📍 {t.location}</div>
-                    </div>
-                  </div>
-                </article>
-              </FadeIn>
-            ))}
           </div>
         </section>
       )}
 
       {/* ══ FAQ ════════════════════════════════════════════════════════════════ */}
-      {faq.length > 0 && <FaqSection faq={faq} />}
+      {/* ✅ Подаваме и faqCategories за да се показват табовете с категории */}
+      {faq.length > 0 && <FaqSection faq={faq} categories={faqCategories} />}
 
       {/* ══ CTA ════════════════════════════════════════════════════════════════ */}
       <section className="cta-section">
@@ -780,4 +988,3 @@ export default async function HomePage() {
     </>
   )
 }
-  

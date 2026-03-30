@@ -1,4 +1,4 @@
-// app/api/leads/route.ts — v3 с email sequence
+// app/api/leads/route.ts — v4 с поддръжка на множество наръчници
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -26,23 +26,24 @@ export async function POST(req: NextRequest) {
 
     const slug = naruchnik_slug || 'super-domati'
     const now  = new Date().toISOString()
+    const cleanEmail = email.toLowerCase().trim()
 
-    // Upsert lead
+    // ── Стъпка 1: Upsert основните данни (без naruchnik_slug) ──────────────
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
       .upsert(
         {
-          email:            email.toLowerCase().trim(),
-          name:             name?.trim() || null,
-          phone:            phone?.trim() || null,
-          source:           source || 'naruchnik',
-          naruchnik_slug:   slug,
-          utm_source:       utm_source || null,
-          utm_campaign:     utm_campaign || null,
-          downloaded_at:    now,
-          subscribed:       true,
+          email:          cleanEmail,
+          name:           name?.trim() || null,
+          phone:          phone?.trim() || null,
+          source:         source || 'naruchnik',
+          naruchnik_slug: slug,        // последно изтеглен (за backwards compat)
+          utm_source:     utm_source || null,
+          utm_campaign:   utm_campaign || null,
+          downloaded_at:  now,
+          subscribed:     true,
           last_email_sent_at: now,
-          updated_at:       now,
+          updated_at:     now,
         },
         { onConflict: 'email', ignoreDuplicates: false }
       )
@@ -51,7 +52,16 @@ export async function POST(req: NextRequest) {
 
     if (error && error.code !== '23505') throw error
 
-    // Записваме welcome имейл log
+    // ── Стъпка 2: Добави slug-а към масива naruchnici[] ────────────────────
+    // Използваме SQL функцията add_naruchnik която добавя само ако го няма
+    if (lead) {
+      await supabaseAdmin.rpc('add_naruchnik', {
+        p_email: cleanEmail,
+        p_slug:  slug,
+      }).throwOnError()
+    }
+
+    // ── Стъпка 3: Записваме welcome имейл log ──────────────────────────────
     if (lead) {
       try {
         await supabaseAdmin.from('email_logs').insert({
@@ -62,20 +72,21 @@ export async function POST(req: NextRequest) {
         })
       } catch (logError) {
         console.warn('Email log failed, but continuing...', logError)
-      }}
+      }
+    }
 
-    // Изпращаме welcome имейл
+    // ── Стъпка 4: Изпращаме welcome имейл ─────────────────────────────────
     const apiKey = process.env.RESEND_API_KEY
     if (apiKey) {
       const resend = new Resend(apiKey)
       const { subject, html } = welcomeEmail({
-        email: email.trim(),
-        name: name?.trim(),
+        email: cleanEmail,
+        name:  name?.trim(),
         slug,
       })
       await resend.emails.send({
         from: 'Denny Angelow <denny@dennyangelow.com>',
-        to: email.trim(),
+        to:   cleanEmail,
         subject,
         html,
       }).catch(console.error)
@@ -83,9 +94,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-  console.error('Lead error:', error)
-  return NextResponse.json({ error: error?.message || error?.code || String(error) }, { status: 500 })
-}
+    console.error('Lead error:', error)
+    return NextResponse.json({ error: error?.message || error?.code || String(error) }, { status: 500 })
+  }
 }
 
 export async function GET(req: NextRequest) {

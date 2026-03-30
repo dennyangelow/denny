@@ -1,49 +1,188 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v4 с tags, broadcast, segmentation
+// app/admin/components/LeadsTab.tsx — v5
+// + Handbook download stats per наръчник
+// + Multi-handbook badge (🔥 Multi — изтеглил и двата)
+// + Growth chart (последните 30 дни)
+// + UTM analytics panel
+// + Expandable rows с детайли
+// + Сортиране по колони
+// + Филтър по наръчник + multi-downloader
+// + По-добра пагинация
 
 import { useState, useMemo, useCallback } from 'react'
 import type { Lead } from '@/lib/supabase'
 import { toast } from '@/components/ui/Toast'
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 25
+
+const SLUG_EMOJI: Record<string, string> = {
+  'super-domati':             '🍅',
+  'krastavici-visoki-dobivy': '🥒',
+  'chushki':                  '🫑',
+}
+const slugEmoji = (slug: string) => SLUG_EMOJI[slug] || '📗'
+const slugLabel = (slug: string) => {
+  if (slug.includes('domat'))     return 'Домати'
+  if (slug.includes('krastavic')) return 'Краставици'
+  if (slug.includes('chushk'))    return 'Чушки'
+  return slug
+}
 
 interface Props { leads: Lead[] }
+type SortKey = 'created_at' | 'email' | 'name' | 'naruchnik_slug'
+type SortDir = 'asc' | 'desc'
+
+// ── Handbook progress bar ────────────────────────────────────────────────────
+function HandbookBar({ slug, count, max, total }: { slug: string; count: number; max: number; total: number }) {
+  const pct   = max > 0 ? Math.round((count / max) * 100) : 0
+  const share = total > 0 ? Math.round((count / total) * 100) : 0
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{slugEmoji(slug)} {slugLabel(slug)}</span>
+        <span style={{ fontSize: 12, color: '#6b7280' }}><strong style={{ color: '#111' }}>{count}</strong> · {share}%</span>
+      </div>
+      <div style={{ height: 8, background: '#f3f4f6', borderRadius: 99, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#16a34a,#4ade80)', borderRadius: 99, transition: 'width .6s ease' }} />
+      </div>
+    </div>
+  )
+}
 
 export function LeadsTab({ leads }: Props) {
-  const [search, setSearch]           = useState('')
-  const [filter, setFilter]           = useState<'all' | 'subscribed' | 'unsubscribed'>('all')
-  const [page, setPage]               = useState(1)
-  const [broadcastOpen, setBroadcastOpen] = useState(false)
-  const [broadcastSubject, setBroadcastSubject] = useState('')
-  const [broadcastBody, setBroadcastBody]       = useState('')
-  const [broadcastSending, setBroadcastSending] = useState(false)
-  const [selectedTag, setSelectedTag] = useState('')
+  const [search,       setSearch]       = useState('')
+  const [filter,       setFilter]       = useState<'all' | 'subscribed' | 'unsubscribed'>('all')
+  const [slugFilter,   setSlugFilter]   = useState('')
+  const [multiFilter,  setMultiFilter]  = useState(false)
+  const [selectedTag,  setSelectedTag]  = useState('')
+  const [page,         setPage]         = useState(1)
+  const [sortKey,      setSortKey]      = useState<SortKey>('created_at')
+  const [sortDir,      setSortDir]      = useState<SortDir>('desc')
+  const [expandedId,   setExpandedId]   = useState<string | null>(null)
+  const [section,      setSection]      = useState<'list' | 'analytics'>('list')
+  const [broadcastOpen,setBroadcastOpen]= useState(false)
+  const [bSubject,     setBSubject]     = useState('')
+  const [bBody,        setBBody]        = useState('')
+  const [bSending,     setBSending]     = useState(false)
 
-  const allTags = useMemo(() => {
-    const tags = new Set<string>()
-    leads.forEach(l => (l.tags || []).forEach(t => tags.add(t)))
-    return Array.from(tags).sort()
+  // ── All slugs per email — чете от naruchnici[] масива ───────────────────
+  const emailToSlugs = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    leads.forEach(l => {
+      const slugs = new Set<string>()
+      const arr = (l as any).naruchnici as string[] | null
+      if (arr && arr.length > 0) {
+        arr.forEach((s: string) => slugs.add(s))
+      } else if (l.naruchnik_slug) {
+        slugs.add(l.naruchnik_slug)
+      }
+      if (slugs.size > 0) map.set(l.email, slugs)
+    })
+    return map
   }, [leads])
+
+  // ── Unique leads (latest record per email) ────────────────────────────────
+  const uniqueLeads = useMemo(() => {
+    const seen = new Map<string, Lead>()
+    ;[...leads].reverse().forEach(l => seen.set(l.email, l))
+    return Array.from(seen.values()).reverse()
+  }, [leads])
+
+  const allTags  = useMemo(() => {
+    const s = new Set<string>()
+    uniqueLeads.forEach(l => (l.tags || []).forEach(t => s.add(t)))
+    return Array.from(s).sort()
+  }, [uniqueLeads])
+
+  const allSlugs = useMemo(() => {
+    const s = new Set<string>()
+    leads.forEach(l => {
+      const arr = (l as any).naruchnici as string[] | null
+      if (arr && arr.length > 0) arr.forEach((sl: string) => s.add(sl))
+      else if (l.naruchnik_slug) s.add(l.naruchnik_slug)
+    })
+    return Array.from(s).sort()
+  }, [leads])
+
+  // ── Handbook download counts — от naruchnici[] масива ───────────────────
+  const slugCounts = useMemo(() => {
+    const m: Record<string, number> = {}
+    leads.forEach(l => {
+      const arr = (l as any).naruchnici as string[] | null
+      const slugs = (arr && arr.length > 0) ? arr : (l.naruchnik_slug ? [l.naruchnik_slug] : [])
+      slugs.forEach((s: string) => { m[s] = (m[s] || 0) + 1 })
+    })
+    return m
+  }, [leads])
+
+  const totalDownloads = Object.values(slugCounts).reduce((a, b) => a + b, 0)
+  const maxSlugCount   = Math.max(...Object.values(slugCounts), 1)
+
+  // ── Multi-downloaders ─────────────────────────────────────────────────────
+  const multiEmails = useMemo(() =>
+    new Set(Array.from(emailToSlugs.entries()).filter(([, s]) => s.size > 1).map(([e]) => e)),
+    [emailToSlugs])
+
+  // ── Growth (last 30 days) — брои по downloaded_at ───────────────────────
+  const growthData = useMemo(() => {
+    const counts = Array(30).fill(0)
+    const now = Date.now()
+    leads.forEach(l => {
+      const ts = (l as any).downloaded_at || l.created_at
+      const d = Math.floor((now - new Date(ts).getTime()) / 86400000)
+      if (d >= 0 && d < 30) {
+        const arr = (l as any).naruchnici as string[] | null
+        const count = (arr && arr.length > 0) ? arr.length : 1
+        counts[29 - d] += count
+      }
+    })
+    return counts
+  }, [leads])
+
+  const todayCount = growthData[29]
+  const weekCount  = growthData.slice(23).reduce((a, b) => a + b, 0)
+
+  // ── UTM sources ───────────────────────────────────────────────────────────
+  const utmData = useMemo(() => {
+    const m: Record<string, number> = {}
+    leads.forEach(l => { const src = l.utm_source || 'organic'; m[src] = (m[src] || 0) + 1 })
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 6)
+  }, [leads])
+
+  // ── Filtered + sorted ─────────────────────────────────────────────────────
+  const subscribed = useMemo(() => uniqueLeads.filter(l => l.subscribed), [uniqueLeads])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    return leads
+    return uniqueLeads
       .filter(l => filter === 'all' ? true : filter === 'subscribed' ? l.subscribed : !l.subscribed)
-      .filter(l => !selectedTag || (l.tags || []).includes(selectedTag))
-      .filter(l => !q || l.email.toLowerCase().includes(q) || (l.name || '').toLowerCase().includes(q))
-  }, [leads, filter, search, selectedTag])
-
-  const subscribed = useMemo(() => leads.filter(l => l.subscribed), [leads])
+      .filter(l => !selectedTag  || (l.tags || []).includes(selectedTag))
+      .filter(l => !slugFilter   || (emailToSlugs.get(l.email)?.has(slugFilter) ?? false))
+      .filter(l => !multiFilter  || multiEmails.has(l.email))
+      .filter(l => !q || l.email.toLowerCase().includes(q) || (l.name || '').toLowerCase().includes(q) || (l.phone || '').includes(q))
+      .sort((a, b) => {
+        const av = String(a[sortKey] ?? ''), bv = String(b[sortKey] ?? '')
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      })
+  }, [uniqueLeads, filter, selectedTag, slugFilter, multiFilter, search, sortKey, sortDir, multiEmails, emailToSlugs])
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
+  const handleSort = (k: SortKey) => {
+    if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(k); setSortDir('desc') }
+    setPage(1)
+  }
+
+  // ── Export CSV ────────────────────────────────────────────────────────────
   const exportCSV = () => {
     const rows = [
-      ['Имейл','Имена','Телефон','Наръчник','Статус','Тагове','UTM Source','Дата'],
+      ['Имейл','Имена','Телефон','Наръчници','Статус','Тагове','UTM Source','Дата'],
       ...filtered.map(l => [
         l.email, l.name || '', l.phone || '',
-        l.naruchnik_slug || '', l.subscribed ? 'Активен' : 'Отписан',
+        Array.from(emailToSlugs.get(l.email) || []).join(';'),
+        l.subscribed ? 'Активен' : 'Отписан',
         (l.tags || []).join(';'), l.utm_source || '',
         new Date(l.created_at).toLocaleDateString('bg-BG'),
       ]),
@@ -51,204 +190,340 @@ export function LeadsTab({ leads }: Props) {
     const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const a    = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `leads-${new Date().toISOString().slice(0,10)}.csv`
-    a.click()
+    a.href = URL.createObjectURL(blob); a.download = `leads-${new Date().toISOString().slice(0,10)}.csv`; a.click()
     toast.success(`Изтеглени ${filtered.length} контакта`)
   }
 
   const copyEmails = () => {
-    const emails = subscribed.map(l => l.email).join(', ')
-    navigator.clipboard.writeText(emails)
+    navigator.clipboard.writeText(subscribed.map(l => l.email).join(', '))
     toast.success(`${subscribed.length} имейла копирани`)
   }
 
+  // ── Broadcast ─────────────────────────────────────────────────────────────
   const sendBroadcast = useCallback(async () => {
-    if (!broadcastSubject.trim() || !broadcastBody.trim()) {
-      toast.error('Попълни темата и съдържанието')
-      return
-    }
-    setBroadcastSending(true)
+    if (!bSubject.trim() || !bBody.trim()) { toast.error('Попълни темата и съдържанието'); return }
+    setBSending(true)
     try {
-      const res = await fetch('/api/leads/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: broadcastSubject,
-          body:    broadcastBody,
-          tags:    selectedTag ? [selectedTag] : undefined,
-        }),
-      })
+      const res  = await fetch('/api/leads/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: bSubject, body: bBody, tags: selectedTag ? [selectedTag] : undefined }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       toast.success(`✓ Изпратено до ${data.sent} абоната`)
-      setBroadcastOpen(false)
-      setBroadcastSubject('')
-      setBroadcastBody('')
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally {
-      setBroadcastSending(false)
-    }
-  }, [broadcastSubject, broadcastBody, selectedTag])
+      setBroadcastOpen(false); setBSubject(''); setBBody('')
+    } catch (e: any) { toast.error(e.message) }
+    finally { setBSending(false) }
+  }, [bSubject, bBody, selectedTag])
 
+  // ── Styles ────────────────────────────────────────────────────────────────
+  const inp: React.CSSProperties = { padding: '8px 13px', border: '1px solid var(--border)', borderRadius: 9, fontFamily: 'inherit', fontSize: 13, outline: 'none', background: '#fff' }
+  const SortArrow = ({ k }: { k: SortKey }) => (
+    <span style={{ marginLeft: 3, fontSize: 9, opacity: sortKey === k ? 1 : .25 }}>{sortKey === k && sortDir === 'asc' ? '▲' : '▼'}</span>
+  )
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: '24px 28px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18, gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: 0 }}>Email листа</h1>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
-            {subscribed.length} активни · {leads.length} общо
+          <h1 style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-.03em', margin: 0, color: 'var(--text)' }}>Email листа</h1>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 3 }}>
+            {subscribed.length} активни · {uniqueLeads.length} уникални · {totalDownloads} изтегляния · {multiEmails.size} multi-DL
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={copyEmails} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13 }}>
-            📋 Копирай имейли
-          </button>
-          <button onClick={exportCSV} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13 }}>
-            ↓ CSV
-          </button>
-          <button onClick={() => setBroadcastOpen(true)} style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
-            ✉️ Broadcast
-          </button>
+          <button onClick={copyEmails}           style={{ ...inp, cursor: 'pointer' }}>📋 Копирай</button>
+          <button onClick={exportCSV}            style={{ ...inp, cursor: 'pointer' }}>↓ CSV</button>
+          <button onClick={() => setBroadcastOpen(true)} style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, padding: '8px 16px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>✉️ Broadcast</button>
         </div>
       </div>
 
-      {/* Stats cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12, marginBottom: 18 }}>
-        {[
-          { label: 'Активни',    value: subscribed.length,                               color: '#16a34a', bg: '#f0fdf4' },
-          { label: 'Отписани',   value: leads.filter(l => !l.subscribed).length,          color: '#ef4444', bg: '#fef2f2' },
-          { label: 'Конверсия',  value: `${leads.length ? Math.round(subscribed.length/leads.length*100) : 0}%`, color: '#0ea5e9', bg: '#f0f9ff' },
-          { label: 'Имейл теми', value: allTags.length,                                   color: '#8b5cf6', bg: '#faf5ff' },
-        ].map(c => (
-          <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.color}22`, borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: c.color }}>{c.value}</div>
-            <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{c.label}</div>
+      {/* ── Section tabs ── */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {(['list', 'analytics'] as const).map(s => (
+          <button key={s} onClick={() => setSection(s)}
+            style={{ padding: '7px 18px', borderRadius: 9, border: `1px solid ${section===s?'#2d6a4f':'var(--border)'}`, background: section===s?'#2d6a4f':'#fff', color: section===s?'#fff':'var(--muted)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, transition: 'all .15s' }}>
+            {s === 'list' ? '📋 Листа' : '📊 Аналитики'}
+          </button>
+        ))}
+      </div>
+
+      {/* ══════════════ ANALYTICS ══════════════ */}
+      {section === 'analytics' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
+
+          {/* Handbook downloads */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 18 }}>📗 Изтегляния по наръчник</div>
+            {Object.entries(slugCounts).sort((a, b) => b[1]-a[1]).map(([slug, count]) => (
+              <HandbookBar key={slug} slug={slug} count={count} max={maxSlugCount} total={totalDownloads} />
+            ))}
+            {!Object.keys(slugCounts).length && <p style={{ color: '#9ca3af', fontSize: 13 }}>Няма данни</p>}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#9ca3af' }}>
+              <span>Общо изтегляния</span><strong style={{ color: '#111' }}>{totalDownloads}</strong>
+            </div>
           </div>
-        ))}
-      </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          placeholder="🔍 Търси по имейл или имена..."
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1) }}
-          style={{ padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 9, fontFamily: 'inherit', fontSize: 13, width: 260, outline: 'none', background: '#fff' }}
-          onFocus={e => e.target.style.borderColor = '#2d6a4f'}
-          onBlur={e => e.target.style.borderColor = 'var(--border)'}
-        />
-        {(['all','subscribed','unsubscribed'] as const).map(f => (
-          <button key={f} onClick={() => { setFilter(f); setPage(1) }}
-            style={{ padding: '6px 14px', borderRadius: 99, border: `1px solid ${filter===f?'#2d6a4f':'var(--border)'}`, background: filter===f?'#2d6a4f':'#fff', color: filter===f?'#fff':'var(--muted)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 500 }}>
-            {f === 'all' ? 'Всички' : f === 'subscribed' ? 'Активни' : 'Отписани'}
-          </button>
-        ))}
-        {allTags.length > 0 && (
-          <select value={selectedTag} onChange={e => { setSelectedTag(e.target.value); setPage(1) }}
-            style={{ padding: '6px 12px', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'inherit', fontSize: 13, outline: 'none', background: '#fff' }}>
-            <option value="">Всички тагове</option>
-            {allTags.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        )}
-      </div>
+          {/* Growth chart */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>📈 Нови абонати (30 дни)</div>
+            <div style={{ display: 'flex', gap: 20, marginBottom: 16 }}>
+              <div><div style={{ fontSize: 28, fontWeight: 900, color: '#111', letterSpacing: '-.03em' }}>{weekCount}</div><div style={{ fontSize: 11, color: '#6b7280' }}>тази седмица</div></div>
+              <div><div style={{ fontSize: 28, fontWeight: 900, color: '#16a34a', letterSpacing: '-.03em' }}>{todayCount}</div><div style={{ fontSize: 11, color: '#6b7280' }}>днес</div></div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 64 }}>
+              {growthData.map((v, i) => {
+                const maxV = Math.max(...growthData, 1)
+                const h    = Math.max(2, Math.round((v / maxV) * 60))
+                const today = i === 29
+                return <div key={i} title={`${v} lead${v!==1?'s':''}`} style={{ flex: 1, height: h, background: today ? '#16a34a' : v > 0 ? '#86efac' : '#f3f4f6', borderRadius: '3px 3px 0 0', alignSelf: 'flex-end' }} />
+              })}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#d1d5db', marginTop: 4 }}><span>30 дни назад</span><span>Днес</span></div>
+          </div>
 
-      {/* Table */}
-      <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 560 }}>
-            <thead>
-              <tr>
-                {['Имейл','Имена','Наръчник','Тагове','Статус','Дата'].map(h => (
-                  <th key={h} style={{ padding: '11px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid var(--border)', background: '#f9fafb', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {paginated.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Няма резултати</td></tr>
-              )}
-              {paginated.map(l => (
-                <tr key={l.id}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f9fafb'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = ''}
-                >
-                  <td style={{ padding: '10px 14px', borderBottom: '1px solid #f5f5f5' }}>
-                    <a href={`mailto:${l.email}`} style={{ color: '#2d6a4f', fontWeight: 600, textDecoration: 'none', fontSize: 13 }}>{l.email}</a>
-                  </td>
-                  <td style={{ padding: '10px 14px', borderBottom: '1px solid #f5f5f5', fontSize: 13, color: '#374151' }}>
-                    {l.name || <span style={{ color: '#d1d5db' }}>—</span>}
-                    {l.phone && <div style={{ fontSize: 11, color: '#9ca3af' }}>{l.phone}</div>}
-                  </td>
-                  <td style={{ padding: '10px 14px', borderBottom: '1px solid #f5f5f5', fontSize: 12, color: '#6b7280' }}>
-                    {l.naruchnik_slug || '—'}
-                  </td>
-                  <td style={{ padding: '10px 14px', borderBottom: '1px solid #f5f5f5' }}>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {(l.tags || []).map(tag => (
-                        <span key={tag} style={{ fontSize: 10, padding: '2px 7px', background: '#ede9fe', color: '#5b21b6', borderRadius: 99, fontWeight: 700 }}>{tag}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td style={{ padding: '10px 14px', borderBottom: '1px solid #f5f5f5' }}>
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 700, background: l.subscribed ? '#d1fae5' : '#fee2e2', color: l.subscribed ? '#065f46' : '#991b1b' }}>
-                      {l.subscribed ? 'Активен' : 'Отписан'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '10px 14px', borderBottom: '1px solid #f5f5f5', fontSize: 12, color: '#9ca3af', whiteSpace: 'nowrap' }}>
-                    {new Date(l.created_at).toLocaleDateString('bg-BG', { day: '2-digit', month: 'short' })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          {/* Multi-downloaders */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>🔥 Изтеглили повече от 1 наръчник</div>
+            <div style={{ fontSize: 42, fontWeight: 900, color: '#f59e0b', letterSpacing: '-.03em', marginBottom: 4 }}>{multiEmails.size}</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+              от {uniqueLeads.length} уникални ({uniqueLeads.length ? Math.round(multiEmails.size/uniqueLeads.length*100) : 0}%)
+            </div>
+            <button onClick={() => { setMultiFilter(true); setSection('list'); setPage(1) }}
+              style={{ fontSize: 12, padding: '7px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}>
+              Виж тези контакти →
+            </button>
+          </div>
 
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 18 }}>
-          <button disabled={page===1} onClick={() => setPage(p=>p-1)} style={{ padding: '7px 16px', border: '1px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13 }}>← Назад</button>
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{page} / {totalPages}</span>
-          <button disabled={page===totalPages} onClick={() => setPage(p=>p+1)} style={{ padding: '7px 16px', border: '1px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13 }}>Напред →</button>
+          {/* UTM */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 14 }}>🔗 Трафик източници</div>
+            {utmData.map(([src, count]) => {
+              const pct = leads.length ? Math.round(count/leads.length*100) : 0
+              return (
+                <div key={src} style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                    <span style={{ fontWeight: 600, color: '#374151' }}>{src}</span>
+                    <span style={{ color: '#6b7280' }}>{count} · {pct}%</span>
+                  </div>
+                  <div style={{ height: 6, background: '#f3f4f6', borderRadius: 99 }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: '#818cf8', borderRadius: 99 }} />
+                  </div>
+                </div>
+              )
+            })}
+            {!utmData.length && <p style={{ color: '#9ca3af', fontSize: 13 }}>Няма UTM данни</p>}
+          </div>
+
         </div>
       )}
 
-      {/* Broadcast modal */}
+      {/* ══════════════ LIST ══════════════ */}
+      {section === 'list' && (
+        <>
+          {/* Stat cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Уникални',    v: uniqueLeads.length,                              col: '#374151', bg: '#f9fafb' },
+              { label: 'Активни',     v: subscribed.length,                               col: '#16a34a', bg: '#f0fdf4' },
+              { label: 'Отписани',    v: uniqueLeads.filter(l=>!l.subscribed).length,     col: '#ef4444', bg: '#fef2f2' },
+              { label: 'Изтегляния', v: totalDownloads,                                   col: '#f59e0b', bg: '#fffbeb' },
+              { label: '🔥 Multi-DL', v: multiEmails.size,                                col: '#8b5cf6', bg: '#faf5ff' },
+              { label: 'Днес',       v: todayCount,                                       col: '#0ea5e9', bg: '#f0f9ff' },
+            ].map(c => (
+              <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.col}22`, borderRadius: 12, padding: '13px 15px', cursor: c.label==='🔥 Multi-DL' ? 'pointer' : 'default' }}
+                onClick={() => c.label==='🔥 Multi-DL' && (setMultiFilter(!multiFilter), setPage(1))}>
+                <div style={{ fontSize: 24, fontWeight: 900, color: c.col, letterSpacing: '-.03em' }}>{c.v}</div>
+                <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginTop: 2 }}>{c.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input placeholder="🔍 Имейл, имена, телефон..." value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+              style={{ ...inp, width: 260 }} onFocus={e=>e.target.style.borderColor='#2d6a4f'} onBlur={e=>e.target.style.borderColor='var(--border)'} />
+            {(['all','subscribed','unsubscribed'] as const).map(f => (
+              <button key={f} onClick={() => { setFilter(f); setPage(1) }}
+                style={{ padding: '6px 13px', borderRadius: 99, border: `1px solid ${filter===f?'#2d6a4f':'var(--border)'}`, background: filter===f?'#2d6a4f':'#fff', color: filter===f?'#fff':'var(--muted)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600 }}>
+                {f==='all'?'Всички':f==='subscribed'?'✓ Активни':'✗ Отписани'}
+              </button>
+            ))}
+            {allSlugs.length > 1 && (
+              <select value={slugFilter} onChange={e => { setSlugFilter(e.target.value); setPage(1) }} style={{ ...inp, cursor: 'pointer' }}>
+                <option value="">Всички наръчници</option>
+                {allSlugs.map(s => <option key={s} value={s}>{slugEmoji(s)} {slugLabel(s)}</option>)}
+              </select>
+            )}
+            {allTags.length > 0 && (
+              <select value={selectedTag} onChange={e => { setSelectedTag(e.target.value); setPage(1) }} style={{ ...inp, cursor: 'pointer' }}>
+                <option value="">Всички тагове</option>
+                {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+            {multiFilter && (
+              <button onClick={() => { setMultiFilter(false); setPage(1) }}
+                style={{ padding: '6px 12px', borderRadius: 99, border: '1px solid #f59e0b', background: '#fef3c7', color: '#92400e', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700 }}>
+                🔥 Multi-DL ✕
+              </button>
+            )}
+            {(search || filter!=='all' || slugFilter || selectedTag || multiFilter) && (
+              <button onClick={() => { setSearch(''); setFilter('all'); setSlugFilter(''); setSelectedTag(''); setMultiFilter(false); setPage(1) }}
+                style={{ fontSize: 12, color: '#2d6a4f', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, textDecoration: 'underline', padding: 0 }}>
+                Изчисти
+              </button>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 10 }}>Показани: {filtered.length} контакта</div>
+
+          {/* Table */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
+                <thead>
+                  <tr style={{ background: '#f9fafb' }}>
+                    {([
+                      { label: 'Имейл / Имена',  key: 'email'          as SortKey },
+                      { label: 'Наръчници',       key: 'naruchnik_slug' as SortKey },
+                      { label: 'Статус',          key: null },
+                      { label: 'Дата',            key: 'created_at'     as SortKey },
+                    ] as { label: string; key: SortKey | null }[]).map(({ label, key }) => (
+                      <th key={label} onClick={() => key && handleSort(key)}
+                        style={{ padding: '11px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: key?'pointer':'default', userSelect: 'none' }}>
+                        {label}{key && <SortArrow k={key} />}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.length === 0 && (
+                    <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: 48 }}>Няма резултати</td></tr>
+                  )}
+                  {paginated.map(l => {
+                    const slugs    = Array.from(emailToSlugs.get(l.email) || (l.naruchnik_slug ? [l.naruchnik_slug] : []))
+                    const isMulti  = slugs.length > 1
+                    const expanded = expandedId === l.id
+
+                    return (
+                      <>
+                        <tr key={l.id} onClick={() => setExpandedId(expanded ? null : l.id)}
+                          style={{ cursor: 'pointer', background: expanded ? '#f0fdf4' : '' }}
+                          onMouseEnter={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background='#f9fafb' }}
+                          onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background='' }}>
+
+                          {/* Email + name */}
+                          <td style={{ padding: '11px 14px', borderBottom: '1px solid #f5f5f5' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                              <div style={{ width: 32, height: 32, borderRadius: '50%', background: isMulti ? 'linear-gradient(135deg,#f59e0b,#ef4444)' : '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: isMulti ? '#fff' : '#15803d', flexShrink: 0 }}>
+                                {(l.name || l.email)[0].toUpperCase()}
+                              </div>
+                              <div>
+                                <a href={`mailto:${l.email}`} onClick={e => e.stopPropagation()} style={{ color: '#2d6a4f', fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>{l.email}</a>
+                                {l.name  && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{l.name}</div>}
+                                {l.phone && <div style={{ fontSize: 11, color: '#9ca3af' }}>📞 {l.phone}</div>}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Handbook badges */}
+                          <td style={{ padding: '11px 14px', borderBottom: '1px solid #f5f5f5' }}>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                              {slugs.map(slug => (
+                                <span key={slug} style={{ fontSize: 11, padding: '3px 9px', background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 99, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                  {slugEmoji(slug)} {slugLabel(slug)}
+                                </span>
+                              ))}
+                              {isMulti && (
+                                <span style={{ fontSize: 10, padding: '2px 7px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 99, fontWeight: 800 }}>🔥 Multi</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Status + tags */}
+                          <td style={{ padding: '11px 14px', borderBottom: '1px solid #f5f5f5' }}>
+                            <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 99, fontWeight: 700, background: l.subscribed?'#d1fae5':'#fee2e2', color: l.subscribed?'#065f46':'#991b1b' }}>
+                              {l.subscribed ? '✓ Активен' : '✗ Отписан'}
+                            </span>
+                            {(l.tags||[]).length > 0 && (
+                              <div style={{ display: 'flex', gap: 3, marginTop: 4, flexWrap: 'wrap' }}>
+                                {(l.tags||[]).map(tag => (
+                                  <span key={tag} style={{ fontSize: 10, padding: '1px 6px', background: '#ede9fe', color: '#5b21b6', borderRadius: 99, fontWeight: 700 }}>{tag}</span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Date */}
+                          <td style={{ padding: '11px 14px', borderBottom: '1px solid #f5f5f5', fontSize: 12, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                            {new Date(l.created_at).toLocaleDateString('bg-BG', { day: '2-digit', month: 'short', year: '2-digit' })}
+                            {l.utm_source && <div style={{ fontSize: 10, marginTop: 2, color: '#c4b5fd' }}>via {l.utm_source}</div>}
+                          </td>
+                        </tr>
+
+                        {/* Expanded details row */}
+                        {expanded && (
+                          <tr key={`${l.id}-exp`}>
+                            <td colSpan={4} style={{ padding: '10px 14px 14px 56px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+                              <div style={{ display: 'flex', gap: 24, fontSize: 12, color: '#374151', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span><span style={{ color: '#9ca3af', fontWeight: 600 }}>ID: </span><code style={{ fontSize: 11 }}>{l.id}</code></span>
+                                {l.source        && <span><span style={{ color: '#9ca3af', fontWeight: 600 }}>Източник: </span>{l.source}</span>}
+                                {l.utm_source    && <span><span style={{ color: '#9ca3af', fontWeight: 600 }}>UTM: </span>{l.utm_source}{l.utm_campaign ? ` / ${l.utm_campaign}` : ''}</span>}
+                                {l.downloaded_at && <span><span style={{ color: '#9ca3af', fontWeight: 600 }}>Изтеглено: </span>{new Date(l.downloaded_at).toLocaleString('bg-BG')}</span>}
+                                {l.last_email_sent_at && <span><span style={{ color: '#9ca3af', fontWeight: 600 }}>Посл. имейл: </span>{new Date(l.last_email_sent_at).toLocaleString('bg-BG')}</span>}
+                                <a href={`mailto:${l.email}`} onClick={e => e.stopPropagation()}
+                                  style={{ fontSize: 12, color: '#2d6a4f', fontWeight: 700, textDecoration: 'none', padding: '4px 12px', background: '#fff', border: '1px solid #bbf7d0', borderRadius: 7 }}>
+                                  ✉️ Пиши
+                                </a>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 16, flexWrap: 'wrap' }}>
+              <button disabled={page===1}         onClick={() => setPage(1)}         style={{ ...inp, cursor: 'pointer', padding: '6px 11px' }}>«</button>
+              <button disabled={page===1}         onClick={() => setPage(p=>p-1)}    style={{ ...inp, cursor: 'pointer', padding: '6px 14px' }}>← Назад</button>
+              <span style={{ fontSize: 13, color: 'var(--muted)', padding: '0 6px' }}>{page} / {totalPages}</span>
+              <button disabled={page===totalPages} onClick={() => setPage(p=>p+1)}   style={{ ...inp, cursor: 'pointer', padding: '6px 14px' }}>Напред →</button>
+              <button disabled={page===totalPages} onClick={() => setPage(totalPages)} style={{ ...inp, cursor: 'pointer', padding: '6px 11px' }}>»</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Broadcast modal ── */}
       {broadcastOpen && (
-        <div style={{ 
-  position: 'fixed', 
-  inset: 0, 
-  background: 'rgba(0,0,0,.5)', 
-  display: 'flex', 
-  alignItems: 'center', 
-  justifyContent: 'center', 
-  padding: 20, 
-  zIndex: 200 
-}}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 200 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 28, width: '100%', maxWidth: 560, boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>✉️ Broadcast имейл</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0, letterSpacing: '-.02em' }}>✉️ Broadcast имейл</h2>
               <button onClick={() => setBroadcastOpen(false)} style={{ background: '#f5f5f5', border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 14 }}>✕</button>
             </div>
             <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400e' }}>
-              ⚠️ Ще бъде изпратено до <strong>{selectedTag ? filtered.filter(l=>l.subscribed).length : subscribed.length}</strong> активни абоната.
+              ⚠️ До <strong>{selectedTag ? filtered.filter(l=>l.subscribed).length : subscribed.length}</strong> активни абоната.
               {selectedTag && ` (таг: ${selectedTag})`} Използвай <code>{'{{name}}'}</code> за персонализация.
             </div>
             <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Тема</label>
-            <input value={broadcastSubject} onChange={e => setBroadcastSubject(e.target.value)} placeholder="Тема на имейла..."
+            <input value={bSubject} onChange={e => setBSubject(e.target.value)} placeholder="Тема на имейла..."
               style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #e5e7eb', borderRadius: 9, fontFamily: 'inherit', fontSize: 14, outline: 'none', marginBottom: 14, boxSizing: 'border-box' }}
               onFocus={e => e.target.style.borderColor='#2d6a4f'} onBlur={e => e.target.style.borderColor='#e5e7eb'} />
             <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Съдържание (HTML или текст)</label>
-            <textarea value={broadcastBody} onChange={e => setBroadcastBody(e.target.value)} rows={8} placeholder={'Здравей, {{name}}!\n\nСъдържание на имейла...'}
+            <textarea value={bBody} onChange={e => setBBody(e.target.value)} rows={8} placeholder={'Здравей, {{name}}!\n\nСъдържание...'}
               style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #e5e7eb', borderRadius: 9, fontFamily: 'monospace', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
               onFocus={e => e.target.style.borderColor='#2d6a4f'} onBlur={e => e.target.style.borderColor='#e5e7eb'} />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setBroadcastOpen(false)} style={{ padding: '10px 20px', border: '1px solid var(--border)', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14 }}>Отказ</button>
-              <button onClick={sendBroadcast} disabled={broadcastSending}
-                style={{ padding: '10px 24px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 700, opacity: broadcastSending ? .6 : 1 }}>
-                {broadcastSending ? '⏳ Изпраща...' : '✉️ Изпрати'}
+              <button onClick={sendBroadcast} disabled={bSending}
+                style={{ padding: '10px 24px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 700, opacity: bSending?.6:1 }}>
+                {bSending ? '⏳ Изпраща...' : '✉️ Изпрати'}
               </button>
             </div>
           </div>

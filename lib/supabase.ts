@@ -72,6 +72,7 @@ export interface Lead {
   tags?: string[]
   engagement_score?: number
   total_purchases?: number
+  downloaded_at?: string
   last_email_sent_at?: string
   last_email_opened_at?: string
   utm_source?: string

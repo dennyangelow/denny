@@ -1,23 +1,9 @@
-// app/api/faq/[id]/route.ts
+// app/api/faq-categories/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 
 export const dynamic = 'force-dynamic'
-
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const { data, error } = await supabaseAdmin
-    .from('faq')
-    .select('*')
-    .eq('id', params.id)
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 })
-  return NextResponse.json({ item: data })
-}
 
 export async function PATCH(
   req: NextRequest,
@@ -30,7 +16,7 @@ export async function PATCH(
     if (!id) return NextResponse.json({ error: 'Липсва ID' }, { status: 400 })
 
     const { data, error } = await supabaseAdmin
-      .from('faq')
+      .from('faq_categories')
       .update(body)
       .eq('id', id)
       .select()
@@ -39,7 +25,7 @@ export async function PATCH(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     revalidatePath('/')
-    return NextResponse.json({ item: data })
+    return NextResponse.json({ category: data })
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? 'Грешка' }, { status: 500 })
   }
@@ -55,7 +41,7 @@ export async function DELETE(
     if (!id) return NextResponse.json({ error: 'Липсва ID' }, { status: 400 })
 
     const { error } = await supabaseAdmin
-      .from('faq')
+      .from('faq_categories')
       .delete()
       .eq('id', id)
 

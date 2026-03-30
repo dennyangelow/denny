@@ -401,6 +401,35 @@ function CartDrawer({
                     Добави още {fmt(freeShippingAbove - subtotal)} за безплатна доставка
                   </div>
                 )}
+                {/* Soil analysis promo — показва се когато са наблизо до 60л */}
+                {(() => {
+                  const totalLiters = items.reduce((s, i) => s + i.size_liters * i.qty, 0)
+                  if (totalLiters >= 60) {
+                    return (
+                      <div style={{ background: 'linear-gradient(135deg,#14532d,#166534)', borderRadius: 10, padding: '12px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: 22, flexShrink: 0 }}>🔬</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#86efac', marginBottom: 2 }}>БЕЗПЛАТЕН АНАЛИЗ НА ПОЧВАТА!</div>
+                          <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.4 }}>
+                            С тази поръчка ({totalLiters}л) получаваш безплатен почвен, листен и воден анализ от български учени.
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+                  if (totalLiters > 0 && totalLiters < 60) {
+                    const litersLeft = 60 - totalLiters
+                    return (
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 13px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <span style={{ fontSize: 18, flexShrink: 0 }}>🔬</span>
+                        <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.4 }}>
+                          Добави още <strong>{litersLeft}л</strong> и получи <strong>безплатен анализ на почвата</strong>!
+                        </div>
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, fontSize: 18, fontWeight: 900, color: '#111' }}>
                   <span>Общо</span><span style={{ color: '#16a34a' }}>{fmt(total)}</span>
                 </div>

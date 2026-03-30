@@ -1,11 +1,12 @@
 'use client'
-// app/admin/components/ContentTab.tsx — v4 + Специални секции
+// app/admin/components/ContentTab.tsx — v4 + Специални секции + Промо Банери
 
 import { useState, useEffect, useCallback } from 'react'
 import { ImageUpload } from '@/components/ui/ImageUpload'
 import { toast } from '@/components/ui/Toast'
+import { PromoBannersTab } from './PromoBannersTab'
 
-type SubTab = 'naruchnici' | 'affiliate' | 'own' | 'links' | 'special'
+type SubTab = 'naruchnici' | 'affiliate' | 'own' | 'links' | 'special' | 'promos'
 
 interface BaseItem { id: string; [key: string]: any }
 
@@ -24,20 +25,21 @@ interface TabConfig {
   responseKey: string        // ключ в JSON отговора
   imageField?: string
   logoField?: string         // втора снимка (само за special)
+  pdfField?: string          // PDF upload поле
   imageFolder?: string
   fields: FieldDef[]
 }
 
-const CONFIGS: Record<SubTab, TabConfig> = {
+const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
   naruchnici: {
     label: 'Наръчници', api: '/api/naruchnici', responseKey: 'naruchnici',
     imageField: 'cover_image_url', imageFolder: 'naruchnici',
+    pdfField: 'pdf_url',
     fields: [
       { key: 'title',      label: 'Заглавие',    type: 'text',     placeholder: 'Тайните на едрите домати' },
       { key: 'subtitle',   label: 'Подзаглавие', type: 'text',     placeholder: 'Пълен наръчник за...' },
       { key: 'slug',       label: 'Slug (URL)',   type: 'text',     placeholder: 'super-domati' },
       { key: 'description',label: 'Описание',    type: 'textarea', placeholder: 'Описание...' },
-      { key: 'pdf_url',    label: 'PDF URL',      type: 'url',      placeholder: 'https://...' },
       { key: 'category',   label: 'Категория',   type: 'text',     placeholder: 'domati' },
       { key: 'sort_order', label: 'Ред',         type: 'number',   placeholder: '0' },
       { key: 'active',     label: 'Активен',     type: 'checkbox' },
@@ -114,6 +116,7 @@ const SUB_LABELS: Record<SubTab, string> = {
   own:        '🛒 Собствени',
   links:      '🏷️ Линкове',
   special:    '🏕️ Специални секции',
+  promos:     '📣 Промо Банери',
 }
 
 // ─── Input styles ──────────────────────────────────────────────────────────────
@@ -126,6 +129,121 @@ const inp: React.CSSProperties = {
 const focusGreen = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement).style.borderColor = '#2d6a4f')
 const blurGray   = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement).style.borderColor = '#e5e7eb')
 
+// ─── PdfUpload component ───────────────────────────────────────────────────────
+function PdfUpload({ value, onChange }: { value: string; onChange: (url: string) => void }) {
+  const [uploading, setUploading] = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+
+  const handleFile = async (file: File) => {
+    if (file.type !== 'application/pdf') {
+      setError('Моля избери PDF файл.')
+      return
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setError('Файлът е прекалено голям. Максимум 20 MB.')
+      return
+    }
+    setError(null)
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('folder', 'naruchnici/pdf')
+
+      const res = await fetch('/api/upload-pdf', { method: 'POST', body: formData })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || `HTTP ${res.status}`)
+      }
+      const { url } = await res.json()
+      onChange(url)
+    } catch (e: any) {
+      setError('Грешка при качване: ' + e.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    const file = e.dataTransfer.files[0]
+    if (file) handleFile(file)
+  }
+
+  const fileName = value ? value.split('/').pop()?.split('?')[0] : null
+
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+        📄 PDF Файл на наръчника
+      </label>
+
+      {/* Drop zone */}
+      <label
+        onDragOver={e => e.preventDefault()}
+        onDrop={onDrop}
+        style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: 8, padding: '20px 16px', border: '2px dashed #d1fae5', borderRadius: 12,
+          background: uploading ? '#f0fdf4' : '#fafffe', cursor: uploading ? 'default' : 'pointer',
+          transition: 'all .2s', textAlign: 'center',
+        }}
+        onMouseEnter={e => { if (!uploading) (e.currentTarget as HTMLElement).style.borderColor = '#16a34a' }}
+        onMouseLeave={e => { if (!uploading) (e.currentTarget as HTMLElement).style.borderColor = '#d1fae5' }}
+      >
+        <input
+          type="file" accept="application/pdf"
+          style={{ display: 'none' }}
+          disabled={uploading}
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+        />
+
+        {uploading ? (
+          <>
+            <div style={{ width: 24, height: 24, border: '3px solid #d1fae5', borderTopColor: '#16a34a', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
+            <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>Качва се...</span>
+          </>
+        ) : value ? (
+          <>
+            <div style={{ fontSize: 28 }}>✅</div>
+            <span style={{ fontSize: 12, color: '#15803d', fontWeight: 700 }}>PDF качен успешно</span>
+            <span style={{ fontSize: 11, color: '#6b7280', wordBreak: 'break-all', maxWidth: 300 }}>{fileName}</span>
+            <span style={{ fontSize: 11, color: '#16a34a', textDecoration: 'underline' }}>Натисни за да смениш файла</span>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 28 }}>📄</div>
+            <span style={{ fontSize: 13, color: '#374151', fontWeight: 600 }}>Натисни или провлачи PDF тук</span>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>Максимум 20 MB · само .pdf файлове</span>
+          </>
+        )}
+      </label>
+
+      {/* Error */}
+      {error && (
+        <div style={{ marginTop: 6, fontSize: 12, color: '#dc2626', background: '#fee2e2', borderRadius: 7, padding: '6px 10px' }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* Preview link */}
+      {value && !uploading && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <a href={value} target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: 12, color: '#2563eb', textDecoration: 'underline', fontWeight: 600 }}>
+            🔗 Отвори PDF в нов таб
+          </a>
+          <button
+            onClick={() => onChange('')}
+            style={{ fontSize: 11, color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+            Изтрий
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export function ContentTab() {
   const [subTab,   setSubTab]  = useState<SubTab>('naruchnici')
@@ -134,10 +252,11 @@ export function ContentTab() {
   const [editing,  setEditing] = useState<BaseItem | null>(null)
   const [saving,   setSaving]  = useState(false)
 
-  const cfg = CONFIGS[subTab]
+  const cfg = CONFIGS[subTab as Exclude<SubTab, 'promos'>]
 
   // ── Load ──────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
+    if (subTab === 'promos') return
     setLoading(true)
     try {
       const res  = await fetch(cfg.api)
@@ -149,7 +268,7 @@ export function ContentTab() {
     } finally {
       setLoading(false)
     }
-  }, [cfg.api, cfg.responseKey])
+  }, [subTab, cfg?.api, cfg?.responseKey])
 
   useEffect(() => { load(); setEditing(null) }, [subTab])
 
@@ -165,6 +284,7 @@ export function ContentTab() {
     })
     if (cfg.imageField) defaults[cfg.imageField] = ''
     if (cfg.logoField)  defaults[cfg.logoField]  = ''
+    if (cfg.pdfField)   defaults[cfg.pdfField]   = ''
     setEditing(defaults)
   }
 
@@ -228,7 +348,7 @@ export function ContentTab() {
           Съдържание
         </h1>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {(Object.keys(CONFIGS) as SubTab[]).map(t => (
+          {(Object.keys({ ...CONFIGS, promos: true }) as SubTab[]).map(t => (
             <button key={t} onClick={() => setSubTab(t)}
               style={{
                 padding: '8px 16px', borderRadius: 10, cursor: 'pointer',
@@ -243,6 +363,17 @@ export function ContentTab() {
         </div>
       </div>
 
+      {/* Promos tab — самостоятелен render */}
+      {subTab === 'promos' && (
+        <div>
+          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#9a3412', lineHeight: 1.6 }}>
+            📣 <strong>Промо банерите</strong> се показват под собствените продукти (Atlas Terra) на началната страница.
+            Можеш да ги активираш/деактивираш и да задаваш срок на валидност.
+          </div>
+          <PromoBannersTab />
+        </div>
+      )}
+
       {/* Special sections info banner */}
       {subTab === 'special' && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#166534', lineHeight: 1.6 }}>
@@ -251,6 +382,7 @@ export function ContentTab() {
         </div>
       )}
 
+      {subTab !== 'promos' && (
       <div style={{ display: 'grid', gridTemplateColumns: editing ? '1fr 440px' : '1fr', gap: 20 }}>
 
         {/* ── List ── */}
@@ -367,6 +499,14 @@ export function ContentTab() {
                 />
               )}
 
+              {/* PDF upload — само за наръчници */}
+              {cfg.pdfField && (
+                <PdfUpload
+                  value={editing[cfg.pdfField] || ''}
+                  onChange={url => set(cfg.pdfField!, url)}
+                />
+              )}
+
               {/* Form fields */}
               {cfg.fields.map(f => (
                 <div key={f.key}>
@@ -465,6 +605,7 @@ export function ContentTab() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
