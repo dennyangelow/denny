@@ -94,6 +94,7 @@ interface PromoBanner {
   color: string
   text_color: string
   active: boolean
+  display_style?: 'bar' | 'featured'
 }
 
 interface SpecialSection {
@@ -626,31 +627,7 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* ══ PROMO BANNERS ══════════════════════════════════════════════════════ */}
-      {promoBanners.length > 0 && (
-        <div style={{ background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
-          {promoBanners.map((banner, i) => (
-            <div key={banner.id} style={{
-              background: banner.color,
-              padding: '12px 24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              flexWrap: 'wrap',
-            }}>
-              <span style={{ fontSize: 20 }}>{banner.icon}</span>
-              <span style={{ fontSize: 14, color: banner.text_color, fontWeight: 600, textAlign: 'center', lineHeight: 1.5 }}>
-                {(banner.message || '').split(/\*\*(.*?)\*\*/g).map((p, j) =>
-                  j % 2 === 1
-                    ? <strong key={j} style={{ fontWeight: 900 }}>{p}</strong>
-                    : <span key={j}>{p}</span>
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+
 
       {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
       {atlasProducts.length > 0 && (
@@ -690,6 +667,40 @@ export default async function HomePage() {
               </div>
             </FadeIn>
 
+            {/* ── BAR PROMO BANNERS — елегантни ленти под заглавието ── */}
+            {promoBanners.filter(b => b.display_style !== 'featured').length > 0 && (
+              <FadeIn>
+                <div style={{ marginBottom: 28, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {promoBanners.filter(b => b.display_style !== 'featured').map((banner) => (
+                    <div key={banner.id} style={{
+                      background: banner.color,
+                      borderRadius: 12,
+                      display: 'flex',
+                      alignItems: 'stretch',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      boxShadow: `0 3px 14px ${banner.color}44`,
+                      border: '1px solid rgba(255,255,255,0.15)',
+                    }}>
+                      <div style={{ width: 3, background: 'rgba(255,255,255,0.35)', flexShrink: 0 }} />
+                      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%)', pointerEvents: 'none' }} />
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', flex: 1, position: 'relative' }}>
+                        <span style={{ fontSize: 18, flexShrink: 0, filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }}>{banner.icon}</span>
+                        <span style={{ fontSize: 13.5, color: banner.text_color, fontWeight: 500, lineHeight: 1.45, flex: 1 }}>
+                          {(banner.message || '').split(/\*\*(.*?)\*\*/g).map((p, j) =>
+                            j % 2 === 1
+                              ? <strong key={j} style={{ fontWeight: 800 }}>{p}</strong>
+                              : <span key={j}>{p}</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </FadeIn>
+            )}
+
             <div style={{ position: 'relative', zIndex: 10 }}>
               <CartSystem
                 atlasProducts={atlasProducts}
@@ -700,43 +711,111 @@ export default async function HomePage() {
               />
             </div>
 
-            {/* Soil analysis feature highlight */}
+            {/* Featured promo banners — луксозни карти под продуктите */}
+            {promoBanners.filter(b => b.display_style === 'featured').length > 0 && (
+              <div style={{ marginTop: 32, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+                {promoBanners.filter(b => b.display_style === 'featured').map(banner => {
+                  const parseBoldLocal = (text: string) =>
+                    text.split(/\*\*(.*?)\*\*/g).map((p, i) =>
+                      i % 2 === 1
+                        ? <strong key={i} style={{ color: banner.text_color, fontWeight: 900 }}>{p}</strong>
+                        : <span key={i}>{p}</span>
+                    )
+                  const parts = banner.message.split('\n')
+                  const mainText = parts[0] || banner.message
+                  const subText  = parts.slice(1).join('\n') || ''
+                  return (
+                    <FadeIn key={banner.id}>
+                      <div style={{
+                        background: banner.color,
+                        borderRadius: 20,
+                        padding: 0,
+                        position: 'relative',
+                        overflow: 'hidden',
+                        boxShadow: `0 12px 40px ${banner.color}55, 0 2px 8px rgba(0,0,0,0.08)`,
+                        border: '1px solid rgba(255,255,255,0.18)',
+                      }}>
+                        {/* Top gradient accent */}
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.5), rgba(255,255,255,0.1))', pointerEvents: 'none' }} />
+                        {/* Decorative circles */}
+                        <div style={{ position: 'absolute', right: -50, top: -50, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
+                        <div style={{ position: 'absolute', right: 40, bottom: -70, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
+                        <div style={{ position: 'absolute', left: -20, bottom: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
+                        {/* Shimmer */}
+                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%, rgba(255,255,255,0.03) 100%)', pointerEvents: 'none' }} />
+
+                        <div style={{ padding: '18px 22px 16px', position: 'relative' }}>
+                          {/* Header row */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: subText ? 8 : 0 }}>
+                            {/* Icon */}
+                            <div style={{
+                              width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+                              background: 'rgba(255,255,255,0.18)',
+                              backdropFilter: 'blur(12px)',
+                              border: '1.5px solid rgba(255,255,255,0.28)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 22,
+                              boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                            }}>{banner.icon}</div>
+
+                            {/* Main text */}
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: banner.text_color, lineHeight: 1.4, letterSpacing: '-0.01em' }}>
+                                {parseBoldLocal(mainText)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Sub text */}
+                          {subText && (
+                            <div style={{
+                              marginLeft: 58,
+                              fontSize: 12,
+                              color: banner.text_color,
+                              opacity: 0.68,
+                              lineHeight: 1.5,
+                              fontStyle: 'italic',
+                            }}>
+                              {parseBoldLocal(subText)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </FadeIn>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Bottom trust strip — елегантна лента */}
             <FadeIn>
-              <div style={{ marginTop: 32, background: 'linear-gradient(135deg, #14532d, #166534)', borderRadius: 20, padding: '24px 28px', display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center', flex: '1 1 300px' }}>
-                  <div style={{ fontSize: 42, flexShrink: 0 }}>🔬</div>
-                  <div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: '#fff', marginBottom: 4 }}>
-                      Безплатен анализ на почвата при поръчка над 60 литра
-                    </div>
-                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', lineHeight: 1.5 }}>
-                      Почвен, листен и воден анализ от акредитирана лаборатория — включен безплатно с твоята поръчка.
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  {['Почвен анализ', 'Листен анализ', 'Воден анализ'].map(a => (
-                    <div key={a} style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#86efac' }}>
-                      ✓ {a}
+              <div style={{
+                marginTop: 20,
+                borderRadius: 18,
+                background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)',
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 2px 16px rgba(0,0,0,0.05)',
+                overflow: 'hidden',
+                position: 'relative',
+              }}>
+                {/* Top accent line */}
+                <div style={{ height: 3, background: 'linear-gradient(90deg, #d1fae5, #16a34a, #d1fae5)', position: 'absolute', top: 0, left: 0, right: 0 }} />
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0, padding: '14px 20px 12px' }}>
+                  {[
+                    { icon: '🚚', text: `Безплатна доставка над ${settings.free_shipping_above} ${settings.currency_symbol}`, color: '#16a34a' },
+                    { icon: '💵', text: 'Плащане при доставка', color: '#2563eb' },
+                    { icon: '⚡', text: 'Експресна пратка 1–2 дни', color: '#d97706' },
+                    { icon: '📞', text: 'Лична консултация безплатно', color: '#7c3aed' },
+                  ].map((item, idx) => (
+                    <div key={item.text} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 16px', position: 'relative' }}>
+                      {idx > 0 && <div style={{ position: 'absolute', left: 0, top: '15%', bottom: '15%', width: 1, background: '#e5e7eb' }} />}
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: item.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
+                        {item.icon}
+                      </div>
+                      <span style={{ fontSize: 12.5, color: '#374151', fontWeight: 600, whiteSpace: 'nowrap' }}>{item.text}</span>
                     </div>
                   ))}
                 </div>
-              </div>
-            </FadeIn>
-
-            {/* Bottom trust strip */}
-            <FadeIn>
-              <div style={{ marginTop: 18, padding: '18px 24px', borderRadius: 16, background: '#fff', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '28px', border: '1px solid #f0f0f0', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
-                {[
-                  { icon: '🚚', text: `Безплатна доставка над ${settings.free_shipping_above} ${settings.currency_symbol}` },
-                  { icon: '💵', text: 'Плащане при доставка' },
-                  { icon: '⚡', text: 'Експресна пратка 1–2 дни' },
-                  { icon: '📞', text: 'Лична консултация безплатно' },
-                ].map(item => (
-                  <div key={item.text} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: '#374151', fontWeight: 600 }}>
-                    <span style={{ fontSize: 18 }}>{item.icon}</span>{item.text}
-                  </div>
-                ))}
               </div>
             </FadeIn>
           </div>

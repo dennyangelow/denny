@@ -16,12 +16,14 @@ interface PromoBanner {
   starts_at: string | null
   ends_at: string | null
   sort_order: number
+  display_style: 'bar' | 'featured'
 }
 
 const EMPTY: PromoBanner = {
   id: '', title: '', message: '', icon: '🎁',
   color: '#15803d', text_color: '#ffffff',
   active: true, starts_at: null, ends_at: null, sort_order: 0,
+  display_style: 'bar',
 }
 
 const inp: React.CSSProperties = {
@@ -240,6 +242,9 @@ export function PromoBannersTab() {
                       ) : (
                         <span style={{ fontSize: 10, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 99, fontWeight: 700 }}>✗ Скрит</span>
                       )}
+                      <span style={{ fontSize: 10, padding: '2px 8px', background: item.display_style === 'featured' ? '#e0f2fe' : '#f3e8ff', color: item.display_style === 'featured' ? '#0369a1' : '#7c3aed', borderRadius: 99, fontWeight: 700 }}>
+                        {item.display_style === 'featured' ? '🟩 Карта' : '📢 Лента'}
+                      </span>
                     </div>
                     <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.message.replace(/\*\*/g, '')}
@@ -292,12 +297,40 @@ export function PromoBannersTab() {
 
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>
-                Съобщение * <span style={{ fontWeight: 400, color: '#9ca3af' }}>— използвай **текст** за получер</span>
+                {editing.display_style === 'featured' ? 'Заглавие на картата *' : 'Съобщение *'}
+                <span style={{ fontWeight: 400, color: '#9ca3af' }}> — използвай **текст** за получер</span>
               </label>
-              <textarea rows={3} value={editing.message} onChange={e => set('message', e.target.value)}
-                placeholder="При поръчка на **60 литра** получаваш **безплатен анализ**..."
+              <textarea rows={editing.display_style === 'featured' ? 2 : 3}
+                value={editing.display_style === 'featured' ? editing.message.split('\n')[0] || '' : editing.message}
+                onChange={e => {
+                  if (editing.display_style === 'featured') {
+                    const sub = editing.message.split('\n').slice(1).join('\n')
+                    set('message', e.target.value + (sub ? '\n' + sub : ''))
+                  } else {
+                    set('message', e.target.value)
+                  }
+                }}
+                placeholder={editing.display_style === 'featured'
+                  ? 'Безплатен анализ на почвата при поръчка над **60 литра**'
+                  : 'При поръчка на **60 литра** получаваш **безплатен анализ**...'}
                 style={{ ...inp, resize: 'vertical' }} />
             </div>
+
+            {editing.display_style === 'featured' && (
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>
+                  Подзаглавие <span style={{ fontWeight: 400, color: '#9ca3af' }}>(незадължително)</span>
+                </label>
+                <textarea rows={2}
+                  value={editing.message.split('\n').slice(1).join('\n')}
+                  onChange={e => {
+                    const main = editing.message.split('\n')[0] || ''
+                    set('message', main + (e.target.value ? '\n' + e.target.value : ''))
+                  }}
+                  placeholder="Почвен, листен и воден анализ от акредитирана лаборатория — включен безплатно с твоята поръчка."
+                  style={{ ...inp, resize: 'vertical' }} />
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <div>
@@ -344,6 +377,40 @@ export function PromoBannersTab() {
                   onChange={e => set('ends_at', e.target.value ? new Date(e.target.value).toISOString() : null)}
                   style={inp} />
                 <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>Остави празно за без краен срок</div>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 8 }}>Вид на банера</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => set('display_style', 'bar')}
+                  style={{
+                    padding: '10px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 13, fontWeight: 600, textAlign: 'left', transition: 'all .15s',
+                    border: `2px solid ${editing.display_style !== 'featured' ? '#2d6a4f' : '#e5e7eb'}`,
+                    background: editing.display_style !== 'featured' ? '#f0fdf4' : '#fff',
+                    color: editing.display_style !== 'featured' ? '#14532d' : '#6b7280',
+                  }}>
+                  <div style={{ fontSize: 16, marginBottom: 3 }}>📢</div>
+                  <div style={{ fontWeight: 700 }}>Лента горе</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Показва се над продуктите</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => set('display_style', 'featured')}
+                  style={{
+                    padding: '10px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 13, fontWeight: 600, textAlign: 'left', transition: 'all .15s',
+                    border: `2px solid ${editing.display_style === 'featured' ? '#2d6a4f' : '#e5e7eb'}`,
+                    background: editing.display_style === 'featured' ? '#f0fdf4' : '#fff',
+                    color: editing.display_style === 'featured' ? '#14532d' : '#6b7280',
+                  }}>
+                  <div style={{ fontSize: 16, marginBottom: 3 }}>🟩</div>
+                  <div style={{ fontWeight: 700 }}>Карта под продукти</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Зелена карта с бутони</div>
+                </button>
               </div>
             </div>
 
