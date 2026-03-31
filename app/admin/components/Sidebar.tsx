@@ -1,8 +1,15 @@
 'use client'
-// app/admin/components/Sidebar.tsx
+// app/admin/components/Sidebar.tsx — с добавен 📣 Маркетинг таб
 
 import { NAV_ITEMS, type TabId } from '@/lib/constants'
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Забележка: Добави 'marketing' към NAV_ITEMS в lib/constants.ts:
+//
+//   { id: 'marketing', label: 'Маркетинг', icon: '📣' },
+//
+// И добави 'marketing' към type TabId в същия файл.
+// ──────────────────────────────────────────────────────────────────────────────
 
 interface Props {
   tab: TabId
@@ -34,6 +41,7 @@ export function Sidebar({ tab, setTab, newOrders, mobileOpen, setMobileOpen }: P
         .nav-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0;opacity:.7}
         .nav-item--active .nav-icon{opacity:1}
         .nav-badge{background:#ef4444;color:#fff;border-radius:99px;font-size:10px;padding:2px 6px;font-weight:700;margin-left:auto;animation:pulse-badge 2s infinite}
+        .nav-badge--green{background:#16a34a;animation:none}
         @keyframes pulse-badge{0%,100%{opacity:1}50%{opacity:.7}}
         .sidebar-footer{padding:14px 10px;border-top:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;gap:4px}
         .sidebar-footer-btn{display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.35);font-size:12px;text-decoration:none;background:none;border:none;cursor:pointer;font-family:inherit;padding:8px 10px;border-radius:6px;width:100%;transition:all .2s;text-align:left}
@@ -74,6 +82,10 @@ export function Sidebar({ tab, setTab, newOrders, mobileOpen, setMobileOpen }: P
               <span>{item.label}</span>
               {item.id === 'orders' && newOrders > 0 && (
                 <span className="nav-badge">{newOrders}</span>
+              )}
+              {/* Маркетинг таб — показва брой активни оферти */}
+              {item.id === 'marketing' && (
+                <span className="nav-badge nav-badge--green" style={{ fontSize: 9 }}>NEW</span>
               )}
             </button>
           ))}

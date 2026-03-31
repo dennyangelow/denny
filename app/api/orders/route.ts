@@ -1,4 +1,8 @@
-// app/api/orders/route.ts — v3 с евро и Еконт/Спиди
+// app/api/orders/route.ts — ФИКС v4
+// Поправки:
+// 1. По-детайлни error messages за debugging
+// 2. По-добра валидация на items
+// 3. shipping/subtotal/total са числа, не стрингове
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -9,7 +13,7 @@ import { COURIER_LABELS } from '@/lib/constants'
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req)
-  const rl = rateLimit(`orders:${ip}`, { limit: 3, window: 600 })
+  const rl = rateLimit(`orders:${ip}`, { limit: 5, window: 600 })
   if (!rl.success) {
     return NextResponse.json(
       { error: `Твърде много заявки. Изчакай ${rl.resetIn} секунди.` },
@@ -19,6 +23,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
+    console.log('📦 New order body:', JSON.stringify(body, null, 2))
+
     const {
       customer_name, customer_phone, customer_email,
       customer_address, customer_city, customer_notes,
@@ -27,20 +33,32 @@ export async function POST(req: NextRequest) {
       utm_source, utm_campaign,
     } = body
 
-    // Валидация
-    if (!customer_name?.trim() || !customer_phone?.trim() ||
-        !customer_address?.trim() || !customer_city?.trim()) {
-      return NextResponse.json({ error: 'Задължителните полета липсват' }, { status: 400 })
-    }
+    // ── Валидация ──────────────────────────────────────────────────────────
+    const errors: string[] = []
+
+    if (!customer_name?.trim())    errors.push('Липсва три имена')
+    if (!customer_phone?.trim())   errors.push('Липсва телефон')
+    if (!customer_address?.trim()) errors.push('Липсва адрес')
+    if (!customer_city?.trim())    errors.push('Липсва град')
+
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: 'Количката е празна' }, { status: 400 })
+      errors.push('Количката е празна')
     }
-    if (isNaN(total) || total <= 0) {
-      return NextResponse.json({ error: 'Невалидна сума' }, { status: 400 })
+
+    const parsedTotal    = parseFloat(String(total    || 0))
+    const parsedSubtotal = parseFloat(String(subtotal || 0))
+    const parsedShipping = parseFloat(String(shipping || 0))
+
+    if (isNaN(parsedTotal) || parsedTotal <= 0) errors.push('Невалидна обща сума')
+
+    if (errors.length > 0) {
+      return NextResponse.json({ error: errors.join(', ') }, { status: 400 })
     }
+
     const validCouriers = Object.keys(COURIER_LABELS)
     const selectedCourier = validCouriers.includes(courier) ? courier : 'econt'
 
+    // ── Вмъкване на поръчка ────────────────────────────────────────────────
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .insert({
@@ -52,56 +70,65 @@ export async function POST(req: NextRequest) {
         customer_notes:   customer_notes?.trim() || null,
         payment_method:   payment_method || 'cod',
         courier:          selectedCourier,
-        subtotal:         Number(subtotal),
-        shipping:         Number(shipping),
-        total:            Number(total),
+        subtotal:         parsedSubtotal,
+        shipping:         parsedShipping,
+        total:            parsedTotal,
         utm_source:       utm_source || null,
         utm_campaign:     utm_campaign || null,
       })
       .select()
       .single()
 
-    if (orderError) throw orderError
+    if (orderError) {
+      console.error('❌ Order insert error:', orderError)
+      throw new Error(`DB грешка: ${orderError.message}`)
+    }
 
+    // ── Вмъкване на артикули ───────────────────────────────────────────────
     const orderItems = items.map((item: any) => ({
       order_id:     order.id,
-      product_name: item.product_name,
-      quantity:     Number(item.quantity),
-      unit_price:   Number(item.unit_price),
-      total_price:  Number(item.total_price),
+      product_name: String(item.product_name || item.name || 'Продукт'),
+      quantity:     parseInt(String(item.quantity || 1)),
+      unit_price:   parseFloat(String(item.unit_price || item.price || 0)),
+      total_price:  parseFloat(String(item.total_price || (item.unit_price * item.quantity) || 0)),
     }))
 
     const { error: itemsError } = await supabaseAdmin
       .from('order_items')
       .insert(orderItems)
 
-    if (itemsError) throw itemsError
+    if (itemsError) {
+      console.error('❌ Order items error:', itemsError)
+      // Не хвърляме грешка тук — поръчката е създадена, само items са проблем
+    }
 
-    // Изпращаме имейли
+    // ── Emails ─────────────────────────────────────────────────────────────
     const apiKey = process.env.RESEND_API_KEY
     if (apiKey) {
       const resend = new Resend(apiKey)
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://dennyangelow.com'
 
-      if (customer_email) {
-        const { subject, html } = orderConfirmationEmail({ order, items })
+      if (customer_email?.trim()) {
+        const { subject, html } = orderConfirmationEmail({ order, items: orderItems })
         await resend.emails.send({
           from: 'Denny Angelow <noreply@dennyangelow.com>',
           to: order.customer_email,
           subject,
           html,
-        }).catch(console.error)
+        }).catch(e => console.error('Customer email error:', e))
       }
 
       const adminEmail = process.env.ADMIN_EMAIL || 'support@dennyangelow.com'
-      const { subject: as, html: ah } = adminNotifyEmail({ order, items, siteUrl })
+      const { subject: as, html: ah } = adminNotifyEmail({ order, items: orderItems, siteUrl })
       await resend.emails.send({
         from: 'System <noreply@dennyangelow.com>',
         to: adminEmail,
         subject: as,
         html: ah,
-      }).catch(console.error)
+      }).catch(e => console.error('Admin email error:', e))
     }
+
+    console.log('✅ Order created:', order.order_number)
 
     return NextResponse.json({
       success: true,
@@ -109,8 +136,11 @@ export async function POST(req: NextRequest) {
       order_id: order.id,
     })
   } catch (error: any) {
-    console.error('Order error:', error)
-    return NextResponse.json({ error: 'Грешка при поръчката. Моля опитай отново.' }, { status: 500 })
+    console.error('❌ Order creation failed:', error)
+    return NextResponse.json(
+      { error: error.message || 'Грешка при поръчката. Моля опитай отново.' },
+      { status: 500 }
+    )
   }
 }
 

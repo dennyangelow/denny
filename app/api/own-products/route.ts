@@ -1,6 +1,7 @@
+// app/api/own-products/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { revalidatePath } from 'next/cache' // 1. Добави този импорт
+import { revalidatePath } from 'next/cache'
 
 export async function GET() {
   try {
@@ -19,22 +20,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
 
-    const { id, ...rest } = body
-    const payload = id ? { id, ...rest } : rest
+    // Никога не пращаме id при insert — оставяме Supabase да го генерира
+    const { id, ...insertData } = body
 
     const { data, error } = await supabaseAdmin
       .from('products')
-      .insert(payload)
+      .insert(insertData)
       .select()
       .single()
-      
+
     if (error) throw error
 
-    // 2. ИЗЧИСТВАНЕ НА КЕША:
-    // Когато добавиш нов продукт, началната страница ще се прегенерира,
-    // за да го включи в списъка веднага.
     revalidatePath('/')
-
     return NextResponse.json({ product: data }, { status: 201 })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

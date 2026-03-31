@@ -30,12 +30,13 @@ export type OrderStatus = typeof ORDER_STATUSES[number]
 
 export const NAV_ITEMS = [
   { id: 'dashboard',    icon: '▦',  label: 'Дашборд'      },
+  { id: 'analytics',    icon: '▲',  label: 'Аналитика'    },
   { id: 'orders',       icon: '◫',  label: 'Поръчки'      },
   { id: 'leads',        icon: '◉',  label: 'Email листа'  },
-  { id: 'content',      icon: '✦',  label: 'Съдържание'   },
+  { id: 'content',      icon: '✦',  label: 'Продукти'   },
+  { id: 'marketing', label: 'Маркетинг', icon: '📣' },
   { id: 'faq',          icon: '❓', label: 'FAQ'           },
   { id: 'testimonials', icon: '★',  label: 'Отзиви'       },
-  { id: 'analytics',    icon: '▲',  label: 'Аналитика'    },
   { id: 'settings',     icon: '◈',  label: 'Настройки'    },
 ] as const
 

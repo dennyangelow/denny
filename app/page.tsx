@@ -982,36 +982,7 @@ export default async function HomePage() {
       {/* ✅ Подаваме и faqCategories за да се показват табовете с категории */}
       {faq.length > 0 && <FaqSection faq={faq} categories={faqCategories} />}
 
-      {/* ══ CTA ════════════════════════════════════════════════════════════════ */}
-      <section className="cta-section">
-        <div className="cta-dots" />
-        <div style={{ maxWidth: 520, margin: '0 auto', position: 'relative', textAlign: 'center' }}>
-          <FadeIn>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 14, fontSize: 40 }}>
-              <span>🍅</span><span>🥒</span>
-            </div>
-            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 4vw, 38px)', margin: '0 0 12px', fontWeight: 800 }}>
-              {settings.cta_title}
-            </h2>
-            <p style={{ color: 'rgba(255,255,255,0.78)', fontSize: 15, lineHeight: 1.7, marginBottom: 28 }}>
-              {parseBold(settings.cta_subtitle)}
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360, margin: '0 auto' }}>
-              {handbooks.map(hb => (
-                <a
-                  key={hb.slug} href={`/naruchnik/${hb.slug}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, background: hb.color, color: '#fff', padding: '14px 22px', borderRadius: 14, textDecoration: 'none', fontWeight: 800, fontSize: 15, boxShadow: `0 6px 24px ${hb.color}55`, transition: 'all .2s' }}
-                >
-                  <span style={{ fontSize: 22 }}>{hb.emoji}</span>
-                  <span style={{ flex: 1 }}>{hb.title}</span>
-                  <span style={{ fontSize: 18, opacity: 0.8 }}>↓</span>
-                </a>
-              ))}
-            </div>
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 18 }}>🔒 Без спам · Без регистрация · Директно сваляне</p>
-          </FadeIn>
-        </div>
-      </section>
+     
 
       {/* ══ FOOTER ═════════════════════════════════════════════════════════════ */}
       <footer className="site-footer">

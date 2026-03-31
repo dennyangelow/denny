@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { ImageUpload } from '@/components/ui/ImageUpload'
 import { toast } from '@/components/ui/Toast'
 import { PromoBannersTab } from './PromoBannersTab'
+import { OwnProductsTab } from './OwnProductsTab'
 
 type SubTab = 'naruchnici' | 'affiliate' | 'own' | 'links' | 'special' | 'promos'
 
@@ -70,10 +71,15 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
     fields: [
       { key: 'name',          label: 'Наименование',   type: 'text',     placeholder: 'Atlas Terra' },
       { key: 'slug',          label: 'Slug',           type: 'text',     placeholder: 'atlas-terra' },
+      { key: 'subtitle',      label: 'Подзаглавие',    type: 'text',     placeholder: 'Биостимулант...' },
+      { key: 'badge',         label: 'Badge',          type: 'text',     placeholder: 'Хит' },
+      { key: 'emoji',         label: 'Emoji',          type: 'text',     placeholder: '🌿' },
       { key: 'description',   label: 'Описание',       type: 'textarea', placeholder: 'Описание...' },
-      { key: 'price',         label: 'Цена (лв.)',     type: 'number',   placeholder: '14.90' },
-      { key: 'compare_price', label: 'Стара цена (лв.)', type: 'number', placeholder: '18.00' },
-      { key: 'unit',          label: 'Мерна единица',  type: 'text',     placeholder: 'кг' },
+      { key: 'features',      label: 'Предимства (по едно на ред)', type: 'bullets', placeholder: 'Повишава добива\nПодобрява почвата' },
+      { key: 'category',      label: 'Категория',      type: 'text',     placeholder: 'atlas' },
+      { key: 'price',         label: 'Цена (€)',       type: 'number',   placeholder: '14.90' },
+      { key: 'compare_price', label: 'Стара цена (€)', type: 'number',   placeholder: '18.00' },
+      { key: 'unit',          label: 'Мерна единица',  type: 'text',     placeholder: 'л.' },
       { key: 'stock',         label: 'Наличност',      type: 'number',   placeholder: '100' },
       { key: 'sort_order',    label: 'Ред',            type: 'number',   placeholder: '0' },
       { key: 'active',        label: 'Активен',        type: 'checkbox' },
@@ -374,6 +380,9 @@ export function ContentTab() {
         </div>
       )}
 
+      {/* Own products — dedicated full component with variants */}
+      {subTab === 'own' && <OwnProductsTab />}
+
       {/* Special sections info banner */}
       {subTab === 'special' && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#166534', lineHeight: 1.6 }}>
@@ -382,7 +391,7 @@ export function ContentTab() {
         </div>
       )}
 
-      {subTab !== 'promos' && (
+      {subTab !== 'promos' && subTab !== 'own' && (
       <div style={{ display: 'grid', gridTemplateColumns: editing ? '1fr 440px' : '1fr', gap: 20 }}>
 
         {/* ── List ── */}

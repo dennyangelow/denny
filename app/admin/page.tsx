@@ -11,6 +11,7 @@ import { AnalyticsTab }       from './components/AnalyticsTab'
 import { SettingsTab }        from './components/SettingsTab'
 import { FaqTab }             from './components/FaqTab'
 import { TestimonialsTab }    from './components/TestimonialsTab'
+import { MarketingTab }       from './components/MarketingTab'
 import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
@@ -156,6 +157,7 @@ export default function AdminPage() {
 
           {tab === 'leads'        && <LeadsTab leads={leads} />}
           {tab === 'content'      && <ContentTab />}
+          {tab === 'marketing'    && <MarketingTab />}
           {tab === 'faq'          && <FaqTab />}
           {tab === 'testimonials' && <TestimonialsTab />}
           {tab === 'analytics'    && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}
