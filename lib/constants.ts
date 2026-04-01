@@ -42,8 +42,11 @@ export const NAV_ITEMS = [
 
 export type TabId = typeof NAV_ITEMS[number]['id']
 
-// Валута — само евро
-export const CURRENCY = '€'
-export function formatPrice(amount: number): string {
-  return `${Number(amount).toFixed(2)} €`
+// Валута — чете от settings (currency_symbol)
+// За server components използвай lib/currency.ts → formatPriceAsync()
+// За admin панела (client) използвай тази функция с подаден символ
+export const CURRENCY = '€'  // default fallback
+
+export function formatPrice(amount: number, symbol = '€'): string {
+  return `${Number(amount).toFixed(2)} ${symbol}`
 }

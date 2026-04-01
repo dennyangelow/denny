@@ -114,12 +114,12 @@ const DEFAULT_SETTINGS: SiteSettings = {
   shipping_econt:      5.00,
   shipping_speedy:     5.50,
   free_shipping_above: 60,
-  currency:            'BGN',
-  currency_symbol:     'лв.',
+  currency:            'EUR',
+  currency_symbol:     '€',
   site_email:          'support@dennyangelow.com',
   site_phone:          '+359 876238623',
   whatsapp_number:     '359876238623',
-  urgency_bar_text:    '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 лв. · 💵 Само наложен платеж',
+  urgency_bar_text:    '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 € · 💵 Само наложен платеж',
   trust_strip_items:   JSON.stringify([
     { icon: '📗', text: 'Безплатни наръчници', sub: 'Домати & Краставици' },
     { icon: '🚚', text: 'Еконт · Спиди', sub: 'Доставка до вратата' },
@@ -708,6 +708,7 @@ export default async function HomePage() {
                 freeShippingAbove={settings.free_shipping_above}
                 siteEmail={settings.site_email}
                 sitePhone={settings.site_phone}
+                currencySymbol={settings.currency_symbol}
               />
             </div>
 

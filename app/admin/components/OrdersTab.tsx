@@ -3,7 +3,8 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { Order } from '@/lib/supabase'
-import { STATUS_LABELS, PAYMENT_LABELS, COURIER_LABELS, ORDER_STATUSES, formatPrice, type OrderStatus } from '@/lib/constants'
+import { STATUS_LABELS, PAYMENT_LABELS, COURIER_LABELS, ORDER_STATUSES, type OrderStatus } from '@/lib/constants'
+import { useCurrency } from './CurrencyContext'
 import { OrderModal } from './OrderModal'
 import { toast } from '@/components/ui/Toast'
 
@@ -101,6 +102,7 @@ function SortTh({ label, field, sort, dir, onSort }: {
 }
 
 export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrder }: Props) {
+  const { fmt: formatPrice } = useCurrency()
   const [filter, setFilter]     = useState<OrderStatus>('all')
   const [search, setSearch]     = useState('')
   const [page, setPage]         = useState(1)

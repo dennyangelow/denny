@@ -9,7 +9,8 @@ import {
 import type { AffiliateAnalytics } from '@/lib/supabase'
 import type { PageViewStats } from '@/hooks/useAdminData'
 import type { Order } from '@/lib/supabase'
-import { STATUS_LABELS, formatPrice } from '@/lib/constants'
+import { STATUS_LABELS } from '@/lib/constants'
+import { useCurrency } from './CurrencyContext'
 
 const COLORS = ['#16a34a','#0ea5e9','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#10b981']
 
@@ -98,6 +99,7 @@ const Card = ({ id, title, children, onExport }: { id?: string; title: string; c
 )
 
 export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
+  const { fmt: formatPrice } = useCurrency()
   const [range, setRange] = useState<Range>(30)
 
   const cutoff = useMemo(() => {

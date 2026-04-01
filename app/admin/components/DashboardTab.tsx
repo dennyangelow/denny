@@ -8,7 +8,8 @@ import {
 } from 'recharts'
 import type { AdminStats, PageViewStats } from '@/hooks/useAdminData'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
-import { STATUS_LABELS, formatPrice } from '@/lib/constants'
+import { STATUS_LABELS } from '@/lib/constants'
+import { useCurrency } from './CurrencyContext'
 
 interface Props {
   stats:       AdminStats
@@ -67,6 +68,7 @@ export function DashboardTab({
   stats, orders, leads, analytics, pageViews,
   onRefresh, onViewOrder, onTabChange, loading = false,
 }: Props) {
+  const { fmt: formatPrice } = useCurrency()
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
   const recentOrders = useMemo(() => orders.slice(0, 8), [orders])
 

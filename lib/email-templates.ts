@@ -189,7 +189,7 @@ export function followUp10Email({ email, name }: EmailParams) {
       </a>
     </div>
     <p style="font-size:12px;color:#9ca3af;text-align:center;margin:8px 0 0">
-      Безплатна доставка при поръчка над 60 лв. | Еконт / Спиди
+      Безплатна доставка при поръчка над 60 € | Еконт / Спиди
     </p>
   `)
 

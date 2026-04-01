@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { Order } from '@/lib/supabase'
-import { STATUS_LABELS, PAYMENT_LABELS, PAYMENT_STATUS_LABELS, COURIER_LABELS, formatPrice } from '@/lib/constants'
+import { STATUS_LABELS, PAYMENT_LABELS, PAYMENT_STATUS_LABELS, COURIER_LABELS } from '@/lib/constants'
+import { useCurrency } from './CurrencyContext'
 import { toast } from '@/components/ui/Toast'
 
 interface Props {
@@ -61,6 +62,7 @@ function StatusTimeline({ currentStatus }: { currentStatus: string }) {
 }
 
 export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: Props) {
+  const { fmt: formatPrice, symbol: currencySymbol } = useCurrency()
   const [savingStatus,   setSavingStatus]   = useState(false)
   const [savingPayment,  setSavingPayment]  = useState(false)
   const [savingTracking, setSavingTracking] = useState(false)

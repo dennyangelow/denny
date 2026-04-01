@@ -11,7 +11,7 @@ const SECTIONS = [
   {
     id: 'hero', label: '🏠 Главна страница',
     keys: [
-      { key: 'urgency_bar_text', label: 'Urgency лента (горе)',         type: 'textarea', placeholder: '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 лв. · 💵 Само наложен платеж', hint: 'Поддържа **bold** форматиране' },
+      { key: 'urgency_bar_text', label: 'Urgency лента (горе)',         type: 'textarea', placeholder: '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 € · 💵 Само наложен платеж', hint: 'Поддържа **bold** форматиране' },
       { key: 'hero_title',       label: 'Главно заглавие',              type: 'text',     placeholder: 'Искаш едри, здрави и сочни домати?' },
       { key: 'hero_subtitle',    label: 'Подзаглавие (под заглавието)', type: 'textarea', placeholder: 'Без болести, без гниене...', hint: 'Поддържа **bold** форматиране' },
       { key: 'hero_warning',     label: 'Warning кутия (под subtitle)', type: 'text',     placeholder: 'Не рискувай да изхвърлиш продукцията...', hint: 'Показва се в червена кутия с ⚠️' },
@@ -32,16 +32,16 @@ const SECTIONS = [
   {
     id: 'shipping', label: '📦 Доставка',
     keys: [
-      { key: 'shipping_econt',      label: 'Цена Еконт (лв.)',           type: 'number', placeholder: '5.00' },
-      { key: 'shipping_speedy',     label: 'Цена Спиди (лв.)',           type: 'number', placeholder: '5.50' },
-      { key: 'free_shipping_above', label: 'Безплатна доставка над (лв.)', type: 'number', placeholder: '60', hint: 'shipping_price в CartSystem = min(econt, speedy)' },
+      { key: 'shipping_econt',      label: 'Цена Еконт',           type: 'number', placeholder: '5.00' },
+      { key: 'shipping_speedy',     label: 'Цена Спиди',           type: 'number', placeholder: '5.50' },
+      { key: 'free_shipping_above', label: 'Безплатна доставка над', type: 'number', placeholder: '60', hint: 'shipping_price в CartSystem = min(econt, speedy)' },
     ],
   },
   {
     id: 'currency', label: '💶 Валута',
     keys: [
       { key: 'currency',        label: 'Валута (код)',      type: 'text', placeholder: 'BGN', hint: 'Напр. BGN, EUR, USD' },
-      { key: 'currency_symbol', label: 'Символ за показване', type: 'text', placeholder: 'лв.', hint: 'Показва се след сумата — лв., €, $' },
+      { key: 'currency_symbol', label: 'Символ за показване', type: 'text', placeholder: '€', hint: 'Показва се след сумата — €, лв., $' },
     ],
   },
   {

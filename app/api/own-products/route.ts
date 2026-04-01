@@ -3,12 +3,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const includeVariants = req.nextUrl.searchParams.get('include_variants') === 'true'
+
+    // Ако е поискано — правим join с product_variants
+    const selectQuery = includeVariants
+      ? '*, product_variants(id, label, size_liters, price, compare_price, price_per_liter, stock, sort_order, active)'
+      : '*'
+
     const { data, error } = await supabaseAdmin
       .from('products')
-      .select('*')
+      .select(selectQuery)
       .order('sort_order', { ascending: true })
+
     if (error) throw error
     return NextResponse.json({ products: data || [] })
   } catch (error: any) {

@@ -1,7 +1,8 @@
 'use client'
 // app/admin/components/MarketingTab.tsx — v4 redesign
 
-import { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from 'react'
+import React, { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from 'react'
+import { useCurrency } from './CurrencyContext'
 import { toast, ToastContainer } from '@/components/ui/Toast'
 
 // ─── Типове ───────────────────────────────────────────────────────────────────
@@ -13,11 +14,13 @@ export interface UpsellOffer {
   title: string
   description: string
   emoji: string
+  image_url?: string
   badge_text?: string
   badge_color?: string
   trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
   trigger_value?: string
   offer_product_id?: string
+  offer_variant_id?: string
   discount_pct?: number
   sort_order: number
 }
@@ -32,6 +35,9 @@ export interface MarketingSettings {
   post_purchase_delay: number
   offers: UpsellOffer[]
 }
+
+interface ProductVariant { id: string; label: string; size_liters: number; price: number; compare_price?: number }
+interface OwnProduct { id: string; name: string; emoji?: string; image_url?: string; price?: number; variants?: ProductVariant[] }
 
 const DEFAULT_SETTINGS: MarketingSettings = {
   upsell_enabled: true,
@@ -64,9 +70,9 @@ function genId() {
 }
 
 const EMPTY_OFFER = (type: UpsellOffer['type'] = 'cart_upsell', sortOrder = 0): UpsellOffer => ({
-  id: genId(), type, active: true, title: '', description: '', emoji: '🌿',
+  id: genId(), type, active: true, title: '', description: '', emoji: '🌿', image_url: '',
   badge_text: '', badge_color: '#16a34a', trigger_type: 'always',
-  trigger_value: '', offer_product_id: '', discount_pct: 0, sort_order: sortOrder,
+  trigger_value: '', offer_product_id: '', offer_variant_id: '', discount_pct: 0, sort_order: sortOrder,
 })
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
@@ -199,27 +205,250 @@ function StatCard({ icon, label, active, total, color, bg, onClick }: { icon: st
 
 // ─── Progress Preview ─────────────────────────────────────────────────────────
 
-function ProgressPreview({ goal, current, label }: { goal: number; current: number; label: string }) {
+function ProgressPreview({ goal, current, label, currencySymbol = '€' }: { goal: number; current: number; label: string; currencySymbol?: string }) {
   const pct = Math.min(100, (current / goal) * 100)
   return (
     <div style={{ background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', border: '1px solid #bbf7d0', borderRadius: 14, padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 13 }}>
         <span style={{ fontWeight: 700, color: '#166534' }}>🚚 {label}</span>
-        <span style={{ color: '#6b7280', fontSize: 12 }}>Остават {(goal - current).toFixed(0)} лв.</span>
+        <span style={{ color: '#6b7280', fontSize: 12 }}>Остават {(goal - current).toFixed(0)} {currencySymbol}</span>
       </div>
       <div style={{ background: 'rgba(255,255,255,.6)', borderRadius: 99, height: 10, overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg,#16a34a,#4ade80)', borderRadius: 99 }} />
       </div>
-      <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 6, textAlign: 'right' as const }}>{current} / {goal} лв.</div>
+      <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 6, textAlign: 'right' as const }}>{current} / {goal} {currencySymbol}</div>
     </div>
   )
 }
 
+
+// ─── Image Upload ─────────────────────────────────────────────────────────────
+
+function ImageUpload({ value, onChange }: { value: string; onChange: (url: string) => void }) {
+  const [uploading, setUploading] = useState(false)
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { toast.error('Файлът е твърде голям (макс 5MB)'); return }
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('folder', 'marketing')   // ← папка в Supabase Storage
+      const res = await fetch('/api/uploads', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      onChange(data.url)
+      toast.success('✅ Снимката е качена!')
+    } catch (err: any) {
+      toast.error(`❌ Грешка: ${err.message}`)
+    } finally {
+      setUploading(false)
+      // Reset input за да може да се качи същия файл пак
+      e.target.value = ''
+    }
+  }
+  return (
+    <div>
+      <Label hint="JPG, PNG, WebP — макс. 5MB">Снимка на офертата</Label>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <div style={{ width: 68, height: 68, borderRadius: 12, border: '1.5px dashed #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+          {value ? <img src={value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 22, opacity: 0.35 }}>🖼️</span>}
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ display: 'block', padding: '9px 14px', border: `1.5px dashed ${uploading ? '#16a34a' : '#e2e8f0'}`, borderRadius: 12, cursor: uploading ? 'not-allowed' : 'pointer', textAlign: 'center' as const, background: uploading ? '#f0fdf4' : '#f8fafc', transition: 'all .15s' }}
+            onMouseEnter={e => { if (!uploading) { (e.currentTarget as HTMLElement).style.borderColor = '#16a34a'; (e.currentTarget as HTMLElement).style.background = '#f0fdf4' } }}
+            onMouseLeave={e => { if (!uploading) { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; (e.currentTarget as HTMLElement).style.background = '#f8fafc' } }}>
+            <input type="file" accept="image/jpeg,image/jpg,image/png,image/webp" onChange={handleFile} disabled={uploading} style={{ display: 'none' }} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: uploading ? '#16a34a' : '#64748b' }}>
+              {uploading ? '⏳ Качване...' : '📷 Качи от устройство'}
+            </div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>или постни URL по-долу</div>
+          </label>
+          <Field value={value} onChange={onChange} placeholder="https://..." style={{ marginTop: 8, fontSize: 12 }} />
+          {value && (
+            <button onClick={() => onChange('')}
+              style={{ marginTop: 5, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+              🗑 Премахни снимката
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Product Picker ───────────────────────────────────────────────────────────
+
+function ProductVariantPicker({
+  productId, variantId, onProductChange, onVariantChange, products, currencySymbol = '€'
+}: {
+  productId: string; variantId: string
+  onProductChange: (id: string) => void; onVariantChange: (id: string) => void
+  products: OwnProduct[]
+  currencySymbol?: string
+}) {
+  // LOCAL state — кликовете са мигновени, не зависят от parent re-render
+  const [localPid, setLocalPid] = useState(productId)
+  const [localVid, setLocalVid] = useState(variantId)
+
+  // Sync incoming props → local само при mount или реална промяна отвън
+  useEffect(() => { setLocalPid(productId) }, [productId])
+  useEffect(() => { setLocalVid(variantId) }, [variantId])
+
+  const selProduct = products.find(p => p.id === localPid)
+  const variants   = selProduct?.variants || []
+  const selVariant = variants.find(v => v.id === localVid)
+
+  function pickProduct(pid: string) {
+    const next = localPid === pid ? '' : pid
+    setLocalPid(next)
+    setLocalVid('')
+    onProductChange(next)
+    onVariantChange('')
+  }
+
+  function pickVariant(vid: string) {
+    const next = localVid === vid ? '' : vid
+    setLocalVid(next)
+    onVariantChange(next)
+  }
+
+  return (
+    <div>
+      <Label hint="Клик за избор">Офериран продукт & вариант</Label>
+
+      {/* Product buttons */}
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, marginBottom: 8 }}>
+        {products.length === 0 && (
+          <div style={{ padding: 12, color: '#94a3b8', fontSize: 13, border: '1px dashed #e2e8f0', borderRadius: 10 }}>Зареждане...</div>
+        )}
+        {products.map(p => {
+          const isSel = p.id === localPid
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => pickProduct(p.id)}
+              style={{
+                width: '100%', padding: '10px 14px', textAlign: 'left' as const,
+                border: `2px solid ${isSel ? '#16a34a' : '#e2e8f0'}`,
+                borderRadius: 10, background: isSel ? '#f0fdf4' : '#fff',
+                cursor: 'pointer', fontFamily: 'inherit', fontSize: 13.5,
+                display: 'flex', alignItems: 'center', gap: 10,
+                fontWeight: isSel ? 700 : 500,
+                color: isSel ? '#16a34a' : '#0f172a',
+                transition: 'all .15s',
+              }}
+            >
+              {p.image_url
+                ? <img src={p.image_url} alt="" style={{ width: 30, height: 30, borderRadius: 7, objectFit: 'cover', flexShrink: 0 }} />
+                : <span style={{ fontSize: 20, flexShrink: 0 }}>{p.emoji || '📦'}</span>
+              }
+              <span style={{ flex: 1 }}>{p.name}</span>
+              {isSel && <span style={{ fontSize: 14, color: '#16a34a' }}>✓</span>}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Variant buttons — shown only when product is selected */}
+      {selProduct && variants.length > 0 && (
+        <div style={{ marginBottom: 8, padding: '12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 8 }}>📦 Избери вариант</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+            {variants.map(v => {
+              const isSel = v.id === localVid
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => pickVariant(v.id)}
+                  style={{
+                    padding: '8px 16px', border: `2px solid ${isSel ? '#16a34a' : '#e2e8f0'}`,
+                    borderRadius: 10, background: isSel ? '#f0fdf4' : '#fff',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 2,
+                  }}
+                >
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: isSel ? '#16a34a' : '#0f172a' }}>{v.label}</span>
+                  <span style={{ fontSize: 11, color: isSel ? '#15803d' : '#64748b', fontWeight: 600 }}>{Number(v.price).toFixed(2)} {currencySymbol || '€'}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {selProduct && variants.length === 0 && (
+        <div style={{ padding: '8px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, color: '#92400e', marginBottom: 8 }}>
+          ⚠️ Продуктът няма варианти
+        </div>
+      )}
+
+      {selProduct && (
+        <div style={{ padding: '10px 12px', background: '#f0fdf4', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #bbf7d0', marginTop: 4 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, overflow: 'hidden', background: '#fff', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {selProduct.image_url ? <img src={selProduct.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 16 }}>{selProduct.emoji || '📦'}</span>}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#15803d' }}>{selProduct.name}</div>
+            {selVariant
+              ? <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>✓ {selVariant.label} — {Number(selVariant.price).toFixed(2)} {currencySymbol || '€'}</div>
+              : <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>⚠️ Избери вариант</div>
+            }
+          </div>
+          <button
+            type="button"
+            onClick={() => { pickProduct(''); setLocalVid(''); onProductChange(''); onVariantChange('') }}
+            style={{ fontSize: 12, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, padding: '4px 8px' }}
+          >✕</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ─── ProductPicker (legacy fallback) ─────────────────────────────────────────
+function ProductPicker({ value, onChange, products, currencySymbol = '€' }: { value: string; onChange: (id: string) => void; products: OwnProduct[]; currencySymbol?: string }) {
+  const sel = products.find(p => p.id === value)
+  return (
+    <div>
+      <Label hint="Избери от твоите продукти в таб Продукти">Оферен продукт</Label>
+      <div style={{ position: 'relative' }}>
+        <select value={value} onChange={e => onChange(e.target.value)}
+          style={{ width: '100%', padding: '10px 14px', paddingLeft: sel?.image_url ? 48 : 14, border: '1.5px solid #e2e8f0', borderRadius: 12, fontFamily: 'inherit', fontSize: 13.5, background: '#fff', color: value ? '#0f172a' : '#94a3b8', outline: 'none', cursor: 'pointer', appearance: 'none' as any }}>
+          <option value="">— Избери продукт —</option>
+          {products.map(p => <option key={p.id} value={p.id}>{p.emoji ? `${p.emoji} ` : ''}{p.name}{p.price ? ` — ${p.price.toFixed(2)} ${currencySymbol}` : ''}</option>)}
+        </select>
+        {sel?.image_url && (
+          <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 28, height: 28, borderRadius: 6, overflow: 'hidden', pointerEvents: 'none' }}>
+            <img src={sel.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+        )}
+        <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8', fontSize: 11 }}>▼</div>
+      </div>
+      {sel && (
+        <div style={{ marginTop: 8, padding: '10px 12px', background: '#f8fafc', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #f1f5f9' }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, overflow: 'hidden', background: '#fff', flexShrink: 0, border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {sel.image_url ? <img src={sel.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 18 }}>{sel.emoji || '📦'}</span>}
+          </div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{sel.name}</div>{sel.price && <div style={{ fontSize: 11.5, color: '#16a34a', fontWeight: 600 }}>{sel.price.toFixed(2)} {currencySymbol || '€'}</div>}</div>
+          <button onClick={() => onChange('')} style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>✕</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 // ─── OfferCard ────────────────────────────────────────────────────────────────
 
-function OfferCard({ offer, index, total, onUpdate, onDelete, onMove }: {
+function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, currencySymbol = '€' }: {
   offer: UpsellOffer; index: number; total: number
-  onUpdate: (o: UpsellOffer) => void; onDelete: () => void; onMove: (dir: 1 | -1) => void
+  onUpdate: (o: UpsellOffer) => void; onDelete: () => void; onMove: (dir: 1 | -1) => void; products: OwnProduct[]
+  currencySymbol?: string
 }) {
   const [open, setOpen] = useState(false)
   const meta = TYPE_META[offer.type]
@@ -228,9 +457,9 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove }: {
 
   return (
     <div style={{ border: `1.5px solid ${offer.active ? meta.color + '25' : '#f1f5f9'}`, borderRadius: 16, background: offer.active ? '#fff' : '#fafafa', overflow: 'hidden', transition: 'all .2s', marginBottom: 8, boxShadow: offer.active ? `0 2px 12px ${meta.color}08` : 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', cursor: 'pointer' }} onClick={() => setOpen(o => !o)}>
-        <div style={{ width: 38, height: 38, borderRadius: 11, background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, border: `1px solid ${meta.color}15` }}>
-          {offer.emoji || meta.icon}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px' }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0, border: `1px solid ${meta.color}15`, overflow: 'hidden' }}>
+          {offer.image_url ? <img src={offer.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : offer.emoji || meta.icon}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 700, color: offer.active ? '#0f172a' : '#94a3b8', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -293,14 +522,24 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove }: {
             </div>
             {offer.trigger_type !== 'always' && (
               <div>
-                <Label hint={offer.trigger_type === 'product_in_cart' ? 'product_id' : 'сума в лв.'}>Стойност</Label>
+                <Label hint={offer.trigger_type === 'product_in_cart' ? 'product_id' : `сума в ${currencySymbol}`}>Стойност</Label>
                 <Field value={offer.trigger_value || ''} onChange={v => onUpdate({ ...offer, trigger_value: v })} placeholder={offer.trigger_type === 'product_in_cart' ? 'uuid...' : '60'} />
               </div>
             )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-            <div><Label hint="ID от Products таб">Оферен продукт ID</Label><Field value={offer.offer_product_id || ''} onChange={v => onUpdate({ ...offer, offer_product_id: v })} placeholder="uuid..." /></div>
-            <div><Label hint="0 = без отстъпка">Отстъпка %</Label><Field type="number" value={offer.discount_pct || 0} onChange={v => onUpdate({ ...offer, discount_pct: Math.max(0, Math.min(100, Number(v))) })} placeholder="0" /></div>
+          <div style={{ marginTop: 12 }}>
+            <ProductVariantPicker
+              productId={offer.offer_product_id || ''}
+              variantId={offer.offer_variant_id || ''}
+              onProductChange={v => onUpdate({ ...offer, offer_product_id: v, offer_variant_id: '' })}
+              onVariantChange={v => onUpdate({ ...offer, offer_variant_id: v })}
+              products={products}
+              currencySymbol={currencySymbol}
+            />
+          </div>
+          <div style={{ marginTop: 12, maxWidth: 200 }}><Label hint="0 = без отстъпка">Отстъпка %</Label><Field type="number" value={offer.discount_pct || 0} onChange={v => onUpdate({ ...offer, discount_pct: Math.max(0, Math.min(100, Number(v))) })} placeholder="0" /></div>
+          <div style={{ marginTop: 12 }}>
+            <ImageUpload value={offer.image_url || ''} onChange={v => onUpdate({ ...offer, image_url: v })} />
           </div>
           <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
             <button onClick={onDelete}
@@ -319,6 +558,7 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove }: {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function MarketingTab() {
+  const { symbol: currencySymbol, fmt: fmtCurrency } = useCurrency()
   const [settings, setSettings]     = useState<MarketingSettings>(DEFAULT_SETTINGS)
   const [saving, setSaving]         = useState(false)
   const [loading, setLoading]       = useState(true)
@@ -326,20 +566,50 @@ export function MarketingTab() {
   const [hasChanges, setHasChanges] = useState(false)
   const [section, setSection]       = useState<'general' | 'offers' | 'preview'>('general')
   const [savedSnapshot, setSavedSnapshot] = useState<string>('')
+  const [ownProducts, setOwnProducts] = useState<OwnProduct[]>([])
 
   const fetchSettings = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await fetch('/api/marketing', { cache: 'no-store' })
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
-      const data = await res.json()
-      const merged = { ...DEFAULT_SETTINGS, ...data }
-      if (!Array.isArray(merged.offers)) merged.offers = []
-      setSettings(merged)
-      setSavedSnapshot(JSON.stringify(merged))
-    } catch (err: any) {
-      setError(err.message || 'Неизвестна грешка')
-      setSavedSnapshot(JSON.stringify(DEFAULT_SETTINGS))
+      const [mktRes, prodRes] = await Promise.allSettled([
+        fetch('/api/marketing', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+        Promise.all([
+          fetch('/api/own-products').then(r => r.ok ? r.json() : { products: [] }),
+          fetch('/api/own-products/variants?admin=1').then(r => r.ok ? r.json() : { variants: [] }),
+        ]).then(([pData, vData]) => ({ products: pData.products || [], allVariants: vData.variants || [] })),
+      ])
+      if (mktRes.status === 'fulfilled') {
+        const merged = { ...DEFAULT_SETTINGS, ...mktRes.value }
+        if (!Array.isArray(merged.offers)) merged.offers = []
+        setSettings(merged)
+        setSavedSnapshot(JSON.stringify(merged))
+      } else {
+        setError((mktRes as any).reason?.message || 'Грешка при зареждане')
+        setSavedSnapshot(JSON.stringify(DEFAULT_SETTINGS))
+      }
+
+      if (prodRes.status === 'fulfilled') {
+        const { products: rawProds, allVariants } = (prodRes as any).value
+        setOwnProducts((rawProds || []).map((p: any) => {
+          const rawVariants: any[] = (allVariants || []).filter((v: any) => v.product_id === p.id)
+          return {
+            id: p.id,
+            name: p.name,
+            emoji: p.emoji,
+            image_url: p.image_url,
+            price: p.price,
+            variants: rawVariants
+              .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+              .map((v: any) => ({
+                id: v.id,
+                label: v.label || (v.size_liters ? `${v.size_liters}л` : 'Вариант'),
+                size_liters: v.size_liters,
+                price: Number(v.price) || 0,
+                compare_price: v.compare_price,
+              })),
+          }
+        }))
+      }
     } finally { setLoading(false) }
   }, [])
 
@@ -491,7 +761,7 @@ export function MarketingTab() {
                   <Toggle checked={settings.progress_bar_enabled} onChange={v => setSettings(s => ({ ...s, progress_bar_enabled: v }))} label="Включи progress bar" />
                   {settings.progress_bar_enabled && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 18 }}>
-                      <div><Label hint="Сума в лв.">Цел (лв.)</Label><Field type="number" value={settings.progress_goal_amount} onChange={v => setSettings(s => ({ ...s, progress_goal_amount: Number(v) }))} placeholder="60" /></div>
+                      <div><Label hint={`Сума в ${currencySymbol}`}>{`Цел (${currencySymbol})`}</Label><Field type="number" value={settings.progress_goal_amount} onChange={v => setSettings(s => ({ ...s, progress_goal_amount: Number(v) }))} placeholder="60" /></div>
                       <div><Label hint='Напр. "Безплатна доставка"'>Текст на целта</Label><Field value={settings.progress_goal_label} onChange={v => setSettings(s => ({ ...s, progress_goal_label: v }))} placeholder="Безплатна доставка" /></div>
                     </div>
                   )}
@@ -537,6 +807,8 @@ export function MarketingTab() {
                           const gi = settings.offers.findIndex(o => o.id === offer.id)
                           return (
                             <OfferCard key={offer.id} offer={offer} index={gi} total={settings.offers.length}
+                              products={ownProducts}
+                              currencySymbol={currencySymbol}
                               onUpdate={u => updateOffer(offer.id, u)} onDelete={() => deleteOffer(offer.id)} onMove={dir => moveOffer(gi, dir)} />
                           )
                         })
@@ -550,37 +822,121 @@ export function MarketingTab() {
             {/* ── Преглед ── */}
             {section === 'preview' && (
               <div className="mkt-card">
-                <p className="mkt-title">👁 Визуален преглед</p>
-                <p className="mkt-sub">Така изглеждат офертите на клиентите</p>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
+                  <p className="mkt-title">👁 Визуален преглед</p>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', background: '#f8fafc', padding: '4px 12px', borderRadius: 99, border: '1px solid #f1f5f9' }}>
+                    Така изглеждат офертите на клиентите
+                  </span>
+                </div>
+                <p className="mkt-sub">Симулация на количката и предложенията</p>
 
+                {/* Progress Bar Preview */}
                 {settings.progress_bar_enabled && (
                   <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>📊 Progress Bar (пример при 38 лв.)</div>
-                    <ProgressPreview goal={settings.progress_goal_amount} current={38} label={settings.progress_goal_label} />
+                    <div style={{ fontSize: 10.5, fontWeight: 800, color: '#16a34a', textTransform: 'uppercase' as const, letterSpacing: '0.07em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '2px 8px' }}>📊 Progress Bar — пример при 38 {currencySymbol}</span>
+                    </div>
+                    <ProgressPreview goal={settings.progress_goal_amount} current={38} label={settings.progress_goal_label} currencySymbol={currencySymbol} />
                   </div>
                 )}
 
                 {settings.offers.filter(o => o.active).length === 0 && !settings.progress_bar_enabled ? (
-                  <div style={{ textAlign: 'center', padding: '40px 0', color: '#cbd5e1' }}>
-                    <div style={{ fontSize: 40, marginBottom: 10 }}>🎯</div>
-                    <div style={{ fontSize: 14 }}>Няма активни оферти. Добави в таб &ldquo;Оферти&rdquo;.</div>
+                  <div style={{ textAlign: 'center', padding: '50px 0', color: '#cbd5e1', border: '2px dashed #f1f5f9', borderRadius: 16 }}>
+                    <div style={{ fontSize: 44, marginBottom: 12 }}>🎯</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Няма активни оферти</div>
+                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Добави в таб „Оферти" и включи ги</div>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {settings.offers.filter(o => o.active).map(offer => {
-                      const meta = TYPE_META[offer.type]
+                  <>
+                    {/* Group by type */}
+                    {(['cart_upsell', 'cross_sell', 'post_purchase'] as UpsellOffer['type'][]).map(type => {
+                      const typeOffers = settings.offers.filter(o => o.active && o.type === type)
+                      if (typeOffers.length === 0) return null
+                      const meta = TYPE_META[type]
                       return (
-                        <div key={offer.id} style={{ display: 'flex', gap: 12, alignItems: 'center', background: meta.bg, border: `1.5px solid ${meta.color}20`, borderRadius: 14, padding: '13px 16px' }}>
-                          <div style={{ width: 42, height: 42, borderRadius: 12, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0, boxShadow: `0 2px 8px ${meta.color}15` }}>{offer.emoji}</div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>{offer.title || '(без заглавие)'}</div>
-                            {offer.description && <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.4, marginTop: 2 }}>{offer.description}</div>}
+                        <div key={type} style={{ marginBottom: 20 }}>
+                          {/* Section header */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '6px 12px', background: meta.bg, borderRadius: 10, border: `1px solid ${meta.color}20` }}>
+                            <span style={{ fontSize: 14 }}>{meta.icon}</span>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: meta.color, textTransform: 'uppercase' as const, letterSpacing: '0.07em' }}>{meta.label}</span>
+                            <span style={{ fontSize: 11, color: meta.color, opacity: 0.6, fontWeight: 500 }}>{meta.desc}</span>
+                            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: meta.color, background: `${meta.color}15`, padding: '2px 8px', borderRadius: 99 }}>{typeOffers.length}</span>
                           </div>
-                          <Chip color={meta.color} bg="#fff">{meta.icon} {meta.label}</Chip>
+                          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                            {typeOffers.map(offer => {
+                              const selProduct = ownProducts.find(p => p.id === offer.offer_product_id)
+                              const selVariant = selProduct?.variants?.find(v => v.id === offer.offer_variant_id)
+                              return (
+                                <div key={offer.id} style={{
+                                  display: 'flex', gap: 12, alignItems: 'center',
+                                  background: '#fff', border: `1.5px solid ${meta.color}20`,
+                                  borderRadius: 14, padding: '14px 16px',
+                                  boxShadow: `0 2px 10px ${meta.color}08`,
+                                  transition: 'transform .15s',
+                                }}>
+                                  {/* Image / Emoji */}
+                                  <div style={{ width: 46, height: 46, borderRadius: 12, background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0, boxShadow: `0 2px 8px ${meta.color}15`, overflow: 'hidden', border: `1px solid ${meta.color}15` }}>
+                                    {offer.image_url
+                                      ? <img src={offer.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                      : offer.emoji}
+                                  </div>
+                                  {/* Content */}
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, marginBottom: 3 }}>
+                                      <span style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>{offer.title || '(без заглавие)'}</span>
+                                      {offer.badge_text && (
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: offer.badge_color || '#16a34a', padding: '2px 8px', borderRadius: 99 }}>{offer.badge_text}</span>
+                                      )}
+                                    </div>
+                                    {offer.description && <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.4, marginBottom: 5 }}>{offer.description}</div>}
+                                    {/* Product + Variant pill */}
+                                    {selProduct && (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                                        <span style={{ fontSize: 11, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '2px 8px', color: '#475569', fontWeight: 600 }}>
+                                          {selProduct.emoji} {selProduct.name}
+                                        </span>
+                                        {selVariant && (
+                                          <span style={{ fontSize: 11, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '2px 8px', color: '#15803d', fontWeight: 700 }}>
+                                            📦 {selVariant.label} — {selVariant.price.toFixed(2)} {currencySymbol}
+                                          </span>
+                                        )}
+                                        {offer.discount_pct ? (
+                                          <span style={{ fontSize: 11, background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '2px 8px', color: '#dc2626', fontWeight: 700 }}>
+                                            -{offer.discount_pct}%
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Type badge */}
+                                  <div style={{ flexShrink: 0 }}>
+                                    <span style={{ fontSize: 10, fontWeight: 800, color: meta.color, background: meta.bg, padding: '4px 10px', borderRadius: 99, border: `1px solid ${meta.color}25`, whiteSpace: 'nowrap' as const }}>
+                                      {meta.icon} {meta.label}
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
                         </div>
                       )
                     })}
-                  </div>
+
+                    {/* Summary footer */}
+                    <div style={{ marginTop: 8, padding: '12px 16px', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', border: '1px solid #bbf7d0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 18 }}>✅</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>{settings.offers.filter(o => o.active).length} активни оферти</div>
+                        <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>
+                          {[
+                            settings.upsell_enabled && 'Cart Upsell ✓',
+                            settings.cross_sell_enabled && 'Cross-sell ✓',
+                            settings.post_purchase_enabled && 'Post-purchase ✓',
+                          ].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}

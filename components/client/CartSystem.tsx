@@ -20,6 +20,7 @@ interface UpsellOffer {
   title: string
   description: string
   emoji: string
+  image_url?: string
   badge_text?: string
   badge_color?: string
   trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
@@ -65,6 +66,7 @@ interface Props {
   freeShippingAbove: number
   siteEmail: string
   sitePhone: string
+  currencySymbol?: string  // от settings.currency_symbol — по подразбиране '€'
 }
 
 // ─── localStorage Cart Persistence ───────────────────────────────────────────
@@ -102,8 +104,11 @@ function clearCartStorage() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmt = (n: number) => n.toFixed(2) + ' лв.'
-const fmtLiter = (n: number) => n.toFixed(2) + ' лв./л'
+// currency symbol се задава от CartSystem компонента чрез setCurrencySymbol()
+// никога повече хардкодирано 'лв.' — идва от settings.currency_symbol в БД
+let _currencySymbol = '€'
+const fmt = (n: number) => n.toFixed(2) + ' ' + _currencySymbol
+const fmtLiter = (n: number) => n.toFixed(2) + ' ' + _currencySymbol + '/л'
 
 function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): boolean {
   if (!offer.active) return false
@@ -172,8 +177,10 @@ function InlineOfferCard({
   }
 
   return (
-    <div style={{ display: 'flex', gap: 11, alignItems: 'center', background: `linear-gradient(135deg,${c}08,${c}03)`, border: `1.5px solid ${c}25`, borderRadius: 12, padding: '11px 13px', marginBottom: 8 }}>
-      <div style={{ fontSize: 26, flexShrink: 0 }}>{offer.emoji}</div>
+    <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: `linear-gradient(135deg,${c}08,${c}03)`, border: `1.5px solid ${c}25`, borderRadius: 14, padding: '12px 14px', marginBottom: 8 }}>
+      <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, overflow: 'hidden', background: c + '12', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, border: `1px solid ${c}20` }}>
+        {(offer as any).image_url ? <img src={(offer as any).image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : offer.emoji}
+      </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 2 }}>
           <span style={{ fontSize: 13, fontWeight: 800, color: '#111' }}>{offer.title}</span>
@@ -501,18 +508,25 @@ function CartDrawer({
     <>
       <style>{`
         .cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;backdrop-filter:blur(3px)}
-        .cart-drawer{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:460px;background:#fff;z-index:501;display:flex;flex-direction:column;box-shadow:-12px 0 60px rgba(0,0,0,.18);animation:slideIn .28s ease}
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
+        .cart-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:500;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+        .cart-drawer{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:480px;background:#fff;z-index:501;display:flex;flex-direction:column;box-shadow:-20px 0 80px rgba(0,0,0,.2);animation:slideIn .3s cubic-bezier(.4,0,.2,1);font-family:'Outfit','DM Sans',sans-serif}
         @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        .cart-inner{flex:1;overflow-y:auto;padding:18px 20px}
-        .cart-footer{padding:14px 20px 18px;border-top:1px solid #f0f0f0;background:#fafafa}
-        .cart-input{width:100%;padding:10px 13px;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;color:#111;background:#fff;transition:border-color .2s}
-        .cart-input:focus{border-color:#16a34a}
-        .cart-btn-primary{width:100%;padding:14px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;transition:opacity .2s}
-        .cart-btn-primary:disabled{opacity:.55;cursor:not-allowed}
-        .cart-btn-primary:hover:not(:disabled){opacity:.9}
-        .cart-btn-secondary{width:100%;padding:11px;background:#f5f5f5;color:#374151;border:none;border-radius:12px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;margin-top:8px}
-        @media(max-width:460px){.cart-drawer{max-width:100%}}
+        .cart-inner{flex:1;overflow-y:auto;padding:20px 22px;overscroll-behavior:contain}
+        .cart-inner::-webkit-scrollbar{width:4px}
+        .cart-inner::-webkit-scrollbar-thumb{background:#e2e8f0;border-radius:99px}
+        .cart-footer{padding:16px 22px 22px;border-top:1.5px solid #f1f5f9;background:#fff}
+        .cart-input{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;color:#0f172a;background:#fff;transition:border-color .15s,box-shadow .15s}
+        .cart-input:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.1)}
+        .cart-input::placeholder{color:#cbd5e1}
+        .cart-btn-primary{width:100%;padding:15px;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:14px;font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;transition:all .2s;box-shadow:0 4px 16px rgba(22,163,74,.3);letter-spacing:-.01em}
+        .cart-btn-primary:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+        .cart-btn-primary:hover:not(:disabled){filter:brightness(1.05);transform:translateY(-1px);box-shadow:0 8px 24px rgba(22,163,74,.4)}
+        .cart-btn-secondary{width:100%;padding:12px;background:#f8fafc;color:#64748b;border:1.5px solid #f1f5f9;border-radius:14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;margin-top:8px;transition:all .15s}
+        .cart-btn-secondary:hover{background:#f1f5f9;color:#0f172a}
+        .cart-item{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #f8fafc;align-items:center}
+        .cart-item:last-child{border-bottom:none}
+        @media(max-width:480px){.cart-drawer{max-width:100%}}
       `}</style>
 
       {postPurchaseOffer && (
@@ -525,11 +539,21 @@ function CartDrawer({
       <div className="cart-overlay" onClick={onClose} />
       <div className="cart-drawer">
         {/* Header */}
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff' }}>
-          <div style={{ fontWeight: 800, fontSize: 16, color: '#111' }}>
-            {done ? '✅ Поръчката е приета!' : step === 'cart' ? `🛒 Количка (${items.length})` : '📦 Финализирай поръчката'}
+        <div style={{ padding: '18px 22px', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: done ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#0f172a,#1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+              {done ? '✅' : step === 'cart' ? '🛒' : '📦'}
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', letterSpacing: '-.01em' }}>
+                {done ? 'Поръчката е приета!' : step === 'cart' ? `Количка` : 'Финализирай поръчката'}
+              </div>
+              {!done && step === 'cart' && items.length > 0 && <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 1 }}>{items.length} {items.length === 1 ? 'продукт' : 'продукта'}</div>}
+            </div>
           </div>
-          <button onClick={onClose} style={{ width: 32, height: 32, border: 'none', background: '#f5f5f5', borderRadius: 8, cursor: 'pointer', fontSize: 16, color: '#6b7280' }}>✕</button>
+          <button onClick={onClose} style={{ width: 34, height: 34, border: 'none', background: '#f8fafc', borderRadius: 10, cursor: 'pointer', fontSize: 15, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f1f5f9' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc' }}>✕</button>
         </div>
 
         {/* ── Успех ── */}
@@ -555,25 +579,34 @@ function CartDrawer({
           <>
             <div className="cart-inner">
               {items.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: 14, paddingTop: 64 }}>
-                  <div style={{ fontSize: 52, marginBottom: 12 }}>🛒</div>
-                  Количката е празна
+                <div style={{ textAlign: 'center', paddingTop: 64, paddingBottom: 32 }}>
+                  <div style={{ fontSize: 56, marginBottom: 16 }}>🛒</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>Количката е празна</div>
+                  <div style={{ fontSize: 13, color: '#94a3b8' }}>Разгледай продуктите и добави нещо</div>
                 </div>
               ) : items.map(item => (
-                <div key={item.variantId} style={{ display: 'flex', gap: 12, padding: '13px 0', borderBottom: '1px solid #f5f5f5', alignItems: 'center' }}>
-                  <div style={{ width: 54, height: 54, flexShrink: 0, borderRadius: 10, overflow: 'hidden', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {item.img ? <img src={item.img} alt={item.productName} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 26 }}>{item.emoji}</span>}
+                <div key={item.variantId} className="cart-item">
+                  <div style={{ width: 62, height: 62, flexShrink: 0, borderRadius: 14, overflow: 'hidden', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0' }}>
+                    {item.img ? <img src={item.img} alt={item.productName} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 28 }}>{item.emoji}</span>}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.productName}</div>
-                    <div style={{ fontSize: 11.5, color: '#6b7280' }}>{item.variantLabel}</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: '#16a34a', marginTop: 3 }}>{fmt(item.price * item.qty)}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 2, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.productName}</div>
+                    <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>{item.variantLabel}</div>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: '#16a34a', marginTop: 4, letterSpacing: '-.01em' }}>{fmt(item.price * item.qty)}</div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                    <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)} style={{ width: 28, height: 28, border: '1.5px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                    <span style={{ fontSize: 13, fontWeight: 700, minWidth: 18, textAlign: 'center' }}>{item.qty}</span>
-                    <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)} style={{ width: 28, height: 28, border: '1.5px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-                    <button onClick={() => onRemove(item.variantId)} style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: '#fee2e2', color: '#dc2626', cursor: 'pointer', fontSize: 13 }}>✕</button>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: '#f8fafc', borderRadius: 10, padding: '3px', border: '1px solid #f1f5f9' }}>
+                      <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)} style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>−</button>
+                      <span style={{ fontSize: 13, fontWeight: 800, minWidth: 22, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
+                      <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)} style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>+</button>
+                    </div>
+                    <button onClick={() => onRemove(item.variantId)} style={{ fontSize: 10.5, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 6, transition: 'color .15s' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8' }}>Премахни</button>
                   </div>
                 </div>
               ))}
@@ -611,14 +644,14 @@ function CartDrawer({
                   </div>
                 )}
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 13, color: '#6b7280' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#64748b', fontWeight: 500 }}>
                   <span>Продукти</span><span>{fmt(subtotal)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontSize: 13, color: '#6b7280' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontSize: 13, color: '#64748b', fontWeight: 500 }}>
                   <span>Доставка</span>
                   <span>{shipping === 0 ? <span style={{ color: '#16a34a', fontWeight: 700 }}>Безплатна 🎉</span> : fmt(shipping)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14, fontSize: 18, fontWeight: 900, color: '#111', paddingTop: 8, borderTop: '2px solid #f0f0f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, fontSize: 20, fontWeight: 900, color: '#0f172a', paddingTop: 10, borderTop: '2px solid #f1f5f9', letterSpacing: '-.02em' }}>
                   <span>Общо</span><span style={{ color: '#16a34a' }}>{fmt(total)}</span>
                 </div>
                 <button className="cart-btn-primary" onClick={() => setStep('checkout')}>Продължи към поръчка →</button>
@@ -659,8 +692,8 @@ function CartDrawer({
                 </div>
               )}
 
-              <div style={{ background: '#f9fafb', borderRadius: 12, padding: 14, marginTop: 4 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#6b7280', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Резюме</div>
+              <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 18px', marginTop: 4, border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', marginBottom: 12, textTransform: 'uppercase' as const, letterSpacing: '0.08em' }}>Резюме на поръчката</div>
                 {items.map(i => (
                   <div key={i.variantId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5, color: '#374151', gap: 8 }}>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{i.emoji} {i.productName} {i.variantLabel} ×{i.qty}</span>
@@ -689,7 +722,10 @@ function CartDrawer({
 
 // ─── MAIN CartSystem ──────────────────────────────────────────────────────────
 
-export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone }: Props) {
+export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone, currencySymbol = '€' }: Props) {
+  // Задаваме символа за целия модул при всеки render
+  _currencySymbol = currencySymbol
+
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(null)

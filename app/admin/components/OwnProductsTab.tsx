@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ImageUpload } from '@/components/ui/ImageUpload'
 import { toast } from '@/components/ui/Toast'
+import { useCurrency } from './CurrencyContext'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Product {
@@ -95,6 +96,7 @@ const calcPPL = (price: number | null, liters: number | null): number | null => 
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export function OwnProductsTab() {
+  const { symbol: currencySymbol } = useCurrency()
   const [products,  setProducts]  = useState<Product[]>([])
   const [variants,  setVariants]  = useState<Variant[]>([])
   const [loading,   setLoading]   = useState(true)
@@ -313,7 +315,7 @@ export function OwnProductsTab() {
                     <code style={{ background: '#f3f4f6', padding: '1px 6px', borderRadius: 4, fontSize: 11 }}>{p.slug}</code>
                     {pvs.length > 0 ? (
                       <span style={{ color: '#374151' }}>
-                        {pvs.map(v => `${v.label}: ${v.price ? v.price + ' €' : '—'}`).join(' · ')}
+                        {pvs.map(v => `${v.label}: ${v.price ? v.price + ' ' + currencySymbol : '—'}`).join(' · ')}
                       </span>
                     ) : p.price !== null ? (
                       <span style={{ color: '#374151', fontWeight: 600 }}>{p.price} €</span>
