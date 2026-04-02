@@ -869,20 +869,39 @@ export default async function HomePage() {
                 </div>
 
                 <div className="ginegar-img-wrap">
-                  <div style={{ position: 'absolute', inset: -16, background: 'radial-gradient(circle, rgba(22,163,74,0.22), transparent 70%)', borderRadius: '50%' }} />
-                  {sec.image_url && (
+                  {/* Decorative glow — always behind */}
+                  <div style={{ position: 'absolute', inset: -24, background: 'radial-gradient(circle, rgba(22,163,74,0.18), transparent 70%)', borderRadius: '50%', zIndex: 0, pointerEvents: 'none' }} />
+
+                  {/* Главна снимка */}
+                  {sec.image_url && sec.image_url.startsWith('http') && (
                     <img
                       src={sec.image_url}
                       alt={sec.title}
-                      style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative' }}
+                      style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1, display: 'block', objectFit: 'contain' }}
                     />
                   )}
-                  {sec.logo_url && (
-                    <img
-                      src={sec.logo_url}
-                      alt={`${sec.title} logo`}
-                      style={{ width: 90, marginTop: 16, display: 'block', filter: 'brightness(0) invert(1)', opacity: 0.6 }}
-                    />
+
+                  {/* Лого — бяла елегантна карта за четимост */}
+                  {sec.logo_url && sec.logo_url.startsWith('http') && (
+                    <div style={{
+                      marginTop: 12,
+                      position: 'relative',
+                      zIndex: 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: '#ffffff',
+                      borderRadius: 18,
+                      padding: '14px 28px',
+                      boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2)',
+                    }}>
+                      <SafeImg
+                        src={sec.logo_url}
+                        alt={`${sec.title} logo`}
+                        fallbackEmoji=""
+                        style={{ height: 52, width: 'auto', maxWidth: 180, objectFit: 'contain', display: 'block' }}
+                      />
+                    </div>
                   )}
                 </div>
 
