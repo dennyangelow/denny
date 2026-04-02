@@ -7,8 +7,7 @@
 // ✅ Offer "added" state persists across drawer open/close
 // ✅ Checkout summary shows all savings
 
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { useState, useCallback, useEffect } from 'react'
 
 // ─── CartHeaderButton — drop-in replacement for the header cart button ────────
 // Usage in HeaderClient: replace the static <button className="cart-btn"> with:
@@ -253,110 +252,103 @@ function OfferCard({
     offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false
   )
   const meta = OFFER_META[offer.type]
-
-  // Check if already in cart — persistent across drawer open/close
   const alreadyInCart = !!variant && cartItems.some(i => i.variantId === variant.id)
+  const canAdd = !!product && !!variant && !alreadyInCart
+  const imgSrc = offer.image_url || product?.img || ''
 
-  const discountedPrice = variant && offer.discount_pct
-    ? +(variant.price * (1 - offer.discount_pct / 100)).toFixed(2)
-    : variant?.price ?? 0
-
-  const hasDiscount = offer.discount_pct && offer.discount_pct > 0
+  // Ценова логика: discount_pct от офертата ИЛИ compare_price от варианта
+  const variantPrice    = variant?.price ?? 0
+  const variantCompare  = Number(variant?.compare_price ?? 0)
+  const hasPctDiscount  = !!(offer.discount_pct && offer.discount_pct > 0)
+  const discountedPrice = hasPctDiscount
+    ? +(variantPrice * (1 - offer.discount_pct! / 100)).toFixed(2)
+    : variantPrice
+  // Стара цена: от compare_price на варианта (ако е > актуалната) или от оригиналната преди pct
+  const oldPrice = hasPctDiscount
+    ? variantPrice                                      // pct намаление → показваме редовната
+    : variantCompare > variantPrice ? variantCompare : 0 // compare_price от варианта
+  const showOld    = oldPrice > discountedPrice
+  const savePct    = showOld && oldPrice > 0
+    ? Math.round(((oldPrice - discountedPrice) / oldPrice) * 100)
+    : 0
 
   const handleAdd = () => {
     if (!product || !variant || alreadyInCart) return
     onAddToCart({
       productId: product.id, variantId: variant.id, productName: product.name,
-      variantLabel: variant.label + (hasDiscount ? ` (-${offer.discount_pct}%)` : ''),
+      variantLabel: variant.label + (hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
       price: discountedPrice,
-      comparePrice: Number(variant.compare_price) > Number(variant.price)
-        ? Number(variant.compare_price)
-        : Number(variant.price),
-      qty: 1, emoji: product.emoji,
-      img: product.img || '', size_liters: variant.size_liters,
+      comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice,
+      qty: 1, emoji: product.emoji, img: product.img || '', size_liters: variant.size_liters,
     })
   }
-
-  const canAdd = !!product && !!variant && !alreadyInCart
 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10,
-      background: '#fff',
-      border: '1px solid #f1f5f9',
-      borderRadius: 14,
-      padding: '10px 12px',
-      boxShadow: '0 1px 4px rgba(0,0,0,.04)',
-      transition: 'box-shadow .2s',
-      position: 'relative',
-      overflow: 'hidden',
+      background: '#fff', border: `1.5px solid ${meta.color}20`,
+      borderLeft: `3px solid ${meta.color}`, borderRadius: 12,
+      padding: '8px 10px 8px 9px',
     }}>
-      {/* Left accent bar */}
+      {/* Снимка */}
       <div style={{
-        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-        background: meta.color, borderRadius: '14px 0 0 14px',
-      }} />
-
-      {/* Image / Emoji */}
-      <div style={{
-        width: 40, height: 40, borderRadius: 10, flexShrink: 0, overflow: 'hidden',
-        background: `${meta.color}10`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-        marginLeft: 4,
+        width: 40, height: 40, borderRadius: 9, flexShrink: 0, overflow: 'hidden',
+        background: `${meta.color}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+        border: `1px solid ${meta.color}18`,
       }}>
-        {offer.image_url
-          ? <img src={offer.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        {imgSrc
+          ? <img src={imgSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} />
           : <span>{offer.emoji || meta.icon}</span>}
       </div>
 
-      {/* Text */}
+      {/* Текст — 2 реда */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Badge only (no type label) */}
-        {offer.badge_text && (
-          <div style={{ marginBottom: 2 }}>
-            <span style={{
-              fontSize: 9, fontWeight: 800, color: '#fff',
-              background: offer.badge_color || meta.color,
-              padding: '1px 6px', borderRadius: 99,
-            }}>{offer.badge_text}</span>
-          </div>
-        )}
-        <div style={{
-          fontSize: 12.5, fontWeight: 700, color: '#0f172a',
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          lineHeight: 1.3,
-        }}>{offer.title}</div>
-
-        {/* Price */}
-        {canAdd && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-            <span style={{ fontSize: 13, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
-            {hasDiscount && (
-              <>
-                <span style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through', fontWeight: 500 }}>{fmt(variant!.price)}</span>
-                <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 4 }}>
-                  -{offer.discount_pct}%
+        {/* Ред 1: заглавие + badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+            {offer.title}
+          </span>
+          {offer.badge_text && (
+            <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 6px', borderRadius: 99, flexShrink: 0 }}>
+              {offer.badge_text}
+            </span>
+          )}
+        </div>
+        {/* Ред 2: Продукт · вариант · нова цена ~~стара~~ -X% */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
+          {product && (
+            <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' as const }}>{product.name}</span>
+          )}
+          {variant && (
+            <>
+              <span style={{ color: '#d1d5db', fontSize: 10 }}>·</span>
+              <span style={{ fontSize: 10.5, color: '#94a3b8', whiteSpace: 'nowrap' as const }}>{variant.label}</span>
+              <span style={{ color: '#d1d5db', fontSize: 10 }}>·</span>
+              <span style={{ fontSize: 12.5, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
+              {showOld && (
+                <span style={{ fontSize: 10.5, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(oldPrice)}</span>
+              )}
+              {savePct > 0 && (
+                <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 5 }}>
+                  -{savePct}%
                 </span>
-              </>
-            )}
-          </div>
-        )}
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Add button */}
-      <button
-        onClick={handleAdd}
-        disabled={!canAdd}
+      {/* Бутон */}
+      <button onClick={handleAdd} disabled={!canAdd}
         style={{
-          width: 32, height: 32, borderRadius: 10, border: 'none', flexShrink: 0,
+          width: 32, height: 32, borderRadius: 9, border: 'none', flexShrink: 0,
           background: alreadyInCart ? '#059669' : canAdd ? meta.color : '#e2e8f0',
           color: '#fff', cursor: !canAdd ? 'default' : 'pointer',
-          fontFamily: 'inherit', fontSize: alreadyInCart ? 14 : 18, fontWeight: 900,
+          fontFamily: 'inherit', fontSize: alreadyInCart ? 14 : 20, fontWeight: 900,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           transition: 'all .2s',
-          boxShadow: canAdd ? `0 2px 8px ${meta.color}40` : 'none',
-        }}
-      >
+          boxShadow: canAdd && !alreadyInCart ? `0 2px 8px ${meta.color}45` : 'none',
+        }}>
         {alreadyInCart ? '✓' : '+'}
       </button>
     </div>
@@ -649,17 +641,11 @@ function OffersGroup({
   if (allOffers.length === 0) return null
 
   return (
-    <div style={{
-      background: 'linear-gradient(135deg,#fafafa,#f8f9ff)',
-      border: '1px solid #f0f0f8',
-      borderRadius: 16, padding: '12px', marginBottom: 12,
-    }}>
-      <div style={{
-        fontSize: 10, fontWeight: 800, color: '#94a3b8',
-        textTransform: 'uppercase' as const, letterSpacing: '0.09em',
-        marginBottom: 8,
-      }}>✨ Може да те заинтересува</div>
-      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 7 }}>
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: '0.09em', marginBottom: 7 }}>
+        ✨ Може да те заинтересува
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
         {allOffers.map(offer => (
           <OfferCard key={offer.id} offer={offer} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={cartItems} />
         ))}
@@ -691,10 +677,6 @@ function CartDrawer({
   const [orderNumber, setOrderNumber] = useState('')
   const [error, setError]         = useState('')
   const [postPurchaseOffer, setPostPurchaseOffer] = useState<UpsellOffer | null>(null)
-  const [mounted, setMounted]     = useState(false)
-
-  // Mount for portal
-  useEffect(() => { setMounted(true) }, [])
 
   // Close on Escape key
   useEffect(() => {
@@ -764,12 +746,12 @@ function CartDrawer({
     } finally { setSubmitting(false) }
   }
 
-  const drawerContent = (
+  return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
-        .cart-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:2147483646;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-        .cart-drawer{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:480px;background:#fff;z-index:2147483647;display:flex;flex-direction:column;box-shadow:-20px 0 80px rgba(0,0,0,.2);animation:slideIn .3s cubic-bezier(.4,0,.2,1);font-family:'Outfit','DM Sans',sans-serif}
+        .cart-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+        .cart-drawer{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:480px;background:#fff;z-index:9999;display:flex;flex-direction:column;box-shadow:-20px 0 80px rgba(0,0,0,.2);animation:slideIn .3s cubic-bezier(.4,0,.2,1);font-family:'Outfit','DM Sans',sans-serif}
         @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
         .cart-inner{flex:1;overflow-y:auto;padding:20px 22px;overscroll-behavior:contain}
         .cart-inner::-webkit-scrollbar{width:4px}
@@ -1110,9 +1092,6 @@ function CartDrawer({
       </div>
     </>
   )
-
-  if (!mounted) return null
-  return createPortal(drawerContent, document.body)
 }
 
 // ─── MAIN CartSystem ──────────────────────────────────────────────────────────
