@@ -657,3 +657,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .categories-grid{grid-template-columns:1fr}
   .nar-others-grid{grid-template-columns:1fr!important}
 }
+
+/* Cart button badge */
+.cart-btn-badge{display:inline-flex;align-items:center;justify-content:center;background:#dc2626;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:900;margin-left:2px;line-height:1}
+.cart-btn-badge--hidden{display:none}

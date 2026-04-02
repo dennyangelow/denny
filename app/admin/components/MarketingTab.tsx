@@ -51,9 +51,9 @@ const DEFAULT_SETTINGS: MarketingSettings = {
 }
 
 const TYPE_META: Record<UpsellOffer['type'], { label: string; icon: string; color: string; bg: string; desc: string }> = {
-  cart_upsell:   { label: 'Cart Upsell',   icon: '⬆️', color: '#7c3aed', bg: '#f5f3ff', desc: 'Показва се вътре в количката' },
-  cross_sell:    { label: 'Cross-sell',    icon: '🔀', color: '#0369a1', bg: '#eff6ff', desc: 'Допълващ продукт в количката' },
-  post_purchase: { label: 'Post-purchase', icon: '🎁', color: '#dc2626', bg: '#fff1f2', desc: 'Оферта след потвърждение' },
+  cart_upsell:   { label: 'Cart Upsell',   icon: '⬆️', color: '#7c3aed', bg: '#f5f3ff', desc: 'По-голямо/по-добро от вече добавено (upgrade на съществуващ продукт)' },
+  cross_sell:    { label: 'Cross-sell',    icon: '🔀', color: '#0369a1', bg: '#eff6ff', desc: 'Различен продукт, допълващ поръчката (напр. тор + биостимулатор)' },
+  post_purchase: { label: 'Post-purchase', icon: '🎁', color: '#dc2626', bg: '#fff1f2', desc: 'Оферта след потвърждение — отделна поръчка' },
 }
 
 const TRIGGER_META: Record<UpsellOffer['trigger_type'], string> = {
@@ -288,29 +288,19 @@ function ProductVariantPicker({
   products: OwnProduct[]
   currencySymbol?: string
 }) {
-  // LOCAL state — кликовете са мигновени, не зависят от parent re-render
-  const [localPid, setLocalPid] = useState(productId)
-  const [localVid, setLocalVid] = useState(variantId)
-
-  // Sync incoming props → local само при mount или реална промяна отвън
-  useEffect(() => { setLocalPid(productId) }, [productId])
-  useEffect(() => { setLocalVid(variantId) }, [variantId])
-
-  const selProduct = products.find(p => p.id === localPid)
+  // Fully controlled — props are the single source of truth
+  const selProduct = products.find((p: OwnProduct) => p.id === productId)
   const variants   = selProduct?.variants || []
-  const selVariant = variants.find(v => v.id === localVid)
+  const selVariant = variants.find((v: ProductVariant) => v.id === variantId)
 
   function pickProduct(pid: string) {
-    const next = localPid === pid ? '' : pid
-    setLocalPid(next)
-    setLocalVid('')
+    const next = productId === pid ? '' : pid
     onProductChange(next)
     onVariantChange('')
   }
 
   function pickVariant(vid: string) {
-    const next = localVid === vid ? '' : vid
-    setLocalVid(next)
+    const next = variantId === vid ? '' : vid
     onVariantChange(next)
   }
 
@@ -324,7 +314,7 @@ function ProductVariantPicker({
           <div style={{ padding: 12, color: '#94a3b8', fontSize: 13, border: '1px dashed #e2e8f0', borderRadius: 10 }}>Зареждане...</div>
         )}
         {products.map(p => {
-          const isSel = p.id === localPid
+          const isSel = p.id === productId
           return (
             <button
               key={p.id}
@@ -358,7 +348,7 @@ function ProductVariantPicker({
           <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 8 }}>📦 Избери вариант</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
             {variants.map(v => {
-              const isSel = v.id === localVid
+              const isSel = v.id === variantId
               return (
                 <button
                   key={v.id}
@@ -400,7 +390,7 @@ function ProductVariantPicker({
           </div>
           <button
             type="button"
-            onClick={() => { pickProduct(''); setLocalVid(''); onProductChange(''); onVariantChange('') }}
+            onClick={() => { onProductChange(''); onVariantChange('') }}
             style={{ fontSize: 12, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, padding: '4px 8px' }}
           >✕</button>
         </div>
@@ -445,12 +435,12 @@ function ProductPicker({ value, onChange, products, currencySymbol = '€' }: { 
 
 // ─── OfferCard ────────────────────────────────────────────────────────────────
 
-function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, currencySymbol = '€' }: {
+function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, currencySymbol = '€', open, onToggleOpen }: {
   offer: UpsellOffer; index: number; total: number
-  onUpdate: (o: UpsellOffer) => void; onDelete: () => void; onMove: (dir: 1 | -1) => void; products: OwnProduct[]
+  onUpdate: (patch: Partial<UpsellOffer>) => void; onDelete: () => void; onMove: (dir: 1 | -1) => void; products: OwnProduct[]
   currencySymbol?: string
+  open: boolean; onToggleOpen: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const meta = TYPE_META[offer.type]
   const isFirst = index === 0
   const isLast  = index === total - 1
@@ -476,11 +466,11 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
             style={{ width: 28, height: 28, border: 'none', background: '#f8fafc', borderRadius: 8, cursor: isFirst ? 'not-allowed' : 'pointer', opacity: isFirst ? 0.3 : 0.7, fontSize: 12 }}>↑</button>
           <button onClick={e => { e.stopPropagation(); onMove(1) }} disabled={isLast}
             style={{ width: 28, height: 28, border: 'none', background: '#f8fafc', borderRadius: 8, cursor: isLast ? 'not-allowed' : 'pointer', opacity: isLast ? 0.3 : 0.7, fontSize: 12 }}>↓</button>
-          <div onClick={e => { e.stopPropagation(); onUpdate({ ...offer, active: !offer.active }) }}
+          <div onClick={e => { e.stopPropagation(); onUpdate({ active: !offer.active }) }}
             style={{ width: 42, height: 24, borderRadius: 99, background: offer.active ? '#16a34a' : '#e2e8f0', position: 'relative', cursor: 'pointer', transition: 'background .2s', marginLeft: 2 }}>
             <div style={{ position: 'absolute', top: 2, left: offer.active ? 20 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
           </div>
-          <button onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+          <button onClick={e => { e.stopPropagation(); onToggleOpen() }}
             style={{ width: 28, height: 28, border: 'none', background: open ? meta.color + '15' : '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 11, color: open ? meta.color : '#64748b', transition: 'all .15s', marginLeft: 2 }}>
             {open ? '▲' : '▼'}
           </button>
@@ -492,30 +482,30 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginTop: 16 }}>
             <div>
               <Label>Тип оферта</Label>
-              <select value={offer.type} onChange={e => onUpdate({ ...offer, type: e.target.value as UpsellOffer['type'] })}
+              <select value={offer.type} onChange={e => onUpdate({ type: e.target.value as UpsellOffer['type'] })}
                 style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #e2e8f0', borderRadius: 12, fontFamily: 'inherit', fontSize: 13, background: '#fff', color: '#0f172a', outline: 'none' }}>
                 {(Object.keys(TYPE_META) as UpsellOffer['type'][]).map(t => <option key={t} value={t}>{TYPE_META[t].icon} {TYPE_META[t].label}</option>)}
               </select>
             </div>
-            <div><Label>Emoji</Label><Field value={offer.emoji} onChange={v => onUpdate({ ...offer, emoji: v })} placeholder="🌿" /></div>
+            <div><Label>Emoji</Label><Field value={offer.emoji} onChange={v => onUpdate({ emoji: v })} placeholder="🌿" /></div>
           </div>
-          <div style={{ marginTop: 12 }}><Label>Заглавие *</Label><Field value={offer.title} onChange={v => onUpdate({ ...offer, title: v })} placeholder="Добави 20л и спести 15%" /></div>
-          <div style={{ marginTop: 12 }}><Label>Описание</Label><Field value={offer.description} onChange={v => onUpdate({ ...offer, description: v })} placeholder="Кратко убедително съобщение..." rows={2} /></div>
+          <div style={{ marginTop: 12 }}><Label>Заглавие *</Label><Field value={offer.title} onChange={v => onUpdate({ title: v })} placeholder="Добави 20л и спести 15%" /></div>
+          <div style={{ marginTop: 12 }}><Label>Описание</Label><Field value={offer.description} onChange={v => onUpdate({ description: v })} placeholder="Кратко убедително съобщение..." rows={2} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-            <div><Label hint='Напр. "Само днес"'>Badge текст</Label><Field value={offer.badge_text || ''} onChange={v => onUpdate({ ...offer, badge_text: v })} placeholder="Само днес" /></div>
+            <div><Label hint='Напр. "Само днес"'>Badge текст</Label><Field value={offer.badge_text || ''} onChange={v => onUpdate({ badge_text: v })} placeholder="Само днес" /></div>
             <div>
               <Label>Badge цвят</Label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input type="color" value={offer.badge_color || '#16a34a'} onChange={e => onUpdate({ ...offer, badge_color: e.target.value })}
+                <input type="color" value={offer.badge_color || '#16a34a'} onChange={e => onUpdate({ badge_color: e.target.value })}
                   style={{ width: 40, height: 40, border: '1.5px solid #e2e8f0', borderRadius: 10, padding: 3, cursor: 'pointer', flexShrink: 0 }} />
-                <Field value={offer.badge_color || '#16a34a'} onChange={v => onUpdate({ ...offer, badge_color: v })} style={{ flex: 1 }} />
+                <Field value={offer.badge_color || '#16a34a'} onChange={v => onUpdate({ badge_color: v })} style={{ flex: 1 }} />
               </div>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
             <div>
               <Label>Тригер</Label>
-              <select value={offer.trigger_type} onChange={e => onUpdate({ ...offer, trigger_type: e.target.value as UpsellOffer['trigger_type'] })}
+              <select value={offer.trigger_type} onChange={e => onUpdate({ trigger_type: e.target.value as UpsellOffer['trigger_type'] })}
                 style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #e2e8f0', borderRadius: 12, fontFamily: 'inherit', fontSize: 13, background: '#fff', color: '#0f172a', outline: 'none' }}>
                 {(Object.keys(TRIGGER_META) as UpsellOffer['trigger_type'][]).map(t => <option key={t} value={t}>{TRIGGER_META[t]}</option>)}
               </select>
@@ -523,7 +513,7 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
             {offer.trigger_type !== 'always' && (
               <div>
                 <Label hint={offer.trigger_type === 'product_in_cart' ? 'product_id' : `сума в ${currencySymbol}`}>Стойност</Label>
-                <Field value={offer.trigger_value || ''} onChange={v => onUpdate({ ...offer, trigger_value: v })} placeholder={offer.trigger_type === 'product_in_cart' ? 'uuid...' : '60'} />
+                <Field value={offer.trigger_value || ''} onChange={v => onUpdate({ trigger_value: v })} placeholder={offer.trigger_type === 'product_in_cart' ? 'uuid...' : '60'} />
               </div>
             )}
           </div>
@@ -531,15 +521,28 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
             <ProductVariantPicker
               productId={offer.offer_product_id || ''}
               variantId={offer.offer_variant_id || ''}
-              onProductChange={v => onUpdate({ ...offer, offer_product_id: v, offer_variant_id: '' })}
-              onVariantChange={v => onUpdate({ ...offer, offer_variant_id: v })}
+              onProductChange={v => {
+                // Авто-копира снимката на продукта в офертата
+                const selProd = products.find((p: OwnProduct) => p.id === v)
+                const autoImg = selProd?.image_url || ''
+                onUpdate({ offer_product_id: v, offer_variant_id: '', image_url: autoImg || offer.image_url })
+              }}
+              onVariantChange={v => onUpdate({ offer_variant_id: v })}
               products={products}
               currencySymbol={currencySymbol}
             />
           </div>
-          <div style={{ marginTop: 12, maxWidth: 200 }}><Label hint="0 = без отстъпка">Отстъпка %</Label><Field type="number" value={offer.discount_pct || 0} onChange={v => onUpdate({ ...offer, discount_pct: Math.max(0, Math.min(100, Number(v))) })} placeholder="0" /></div>
+          <div style={{ marginTop: 12, maxWidth: 200 }}><Label hint="0 = без отстъпка">Отстъпка %</Label><Field type="number" value={offer.discount_pct || 0} onChange={v => onUpdate({ discount_pct: Math.max(0, Math.min(100, Number(v))) })} placeholder="0" /></div>
           <div style={{ marginTop: 12 }}>
-            <ImageUpload value={offer.image_url || ''} onChange={v => onUpdate({ ...offer, image_url: v })} />
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 6 }}>
+              Снимка на офертата
+              {offer.offer_product_id && offer.image_url && (
+                <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: '#16a34a', background: '#f0fdf4', padding: '1px 7px', borderRadius: 5, border: '1px solid #bbf7d0', textTransform: 'none' }}>
+                  ✓ Авто от продукт
+                </span>
+              )}
+            </div>
+            <ImageUpload value={offer.image_url || ''} onChange={v => onUpdate({ image_url: v })} />
           </div>
           <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
             <button onClick={onDelete}
@@ -567,6 +570,15 @@ export function MarketingTab() {
   const [section, setSection]       = useState<'general' | 'offers' | 'preview'>('general')
   const [savedSnapshot, setSavedSnapshot] = useState<string>('')
   const [ownProducts, setOwnProducts] = useState<OwnProduct[]>([])
+  // Пази кои OfferCard-ове са отворени — извън компонента за да не се reset-ват при onUpdate
+  const [openOfferIds, setOpenOfferIds] = useState<Set<string>>(new Set())
+  const toggleOfferOpen = useCallback((id: string) => {
+    setOpenOfferIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }, [])
 
   const fetchSettings = useCallback(async () => {
     setLoading(true); setError(null)
@@ -629,7 +641,8 @@ export function MarketingTab() {
     } finally { setSaving(false) }
   }
 
-  const updateOffer = useCallback((id: string, u: UpsellOffer) => setSettings(s => ({ ...s, offers: s.offers.map(o => o.id === id ? u : o) })), [])
+  const updateOffer = useCallback((id: string, patch: Partial<UpsellOffer>) =>
+    setSettings(s => ({ ...s, offers: s.offers.map(o => o.id === id ? { ...o, ...patch } : o) })), [])
   const deleteOffer = useCallback((id: string) => setSettings(s => ({ ...s, offers: s.offers.filter(o => o.id !== id) })), [])
   const addOffer    = useCallback((type: UpsellOffer['type']) => setSettings(s => ({ ...s, offers: [...s.offers, EMPTY_OFFER(type, s.offers.length)] })), [])
   const moveOffer   = useCallback((index: number, dir: 1 | -1) => setSettings(s => {
@@ -809,7 +822,9 @@ export function MarketingTab() {
                             <OfferCard key={offer.id} offer={offer} index={gi} total={settings.offers.length}
                               products={ownProducts}
                               currencySymbol={currencySymbol}
-                              onUpdate={u => updateOffer(offer.id, u)} onDelete={() => deleteOffer(offer.id)} onMove={dir => moveOffer(gi, dir)} />
+                              open={openOfferIds.has(offer.id)}
+                              onToggleOpen={() => toggleOfferOpen(offer.id)}
+                              onUpdate={patch => updateOffer(offer.id, patch)} onDelete={() => deleteOffer(offer.id)} onMove={dir => moveOffer(gi, dir)} />
                           )
                         })
                       )}

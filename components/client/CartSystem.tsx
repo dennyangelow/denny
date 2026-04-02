@@ -1,17 +1,57 @@
 'use client'
-// components/client/CartSystem.tsx — ФИКС v2
-// Поправки:
-// 1. ❌ Махнат import от admin компонент (причиняваше webpack crash)
-//    → Типовете са дефинирани локално тук
-// 2. ❌ 500 грешка при поръчка — items полетата бяха объркани
-//    → Правилна структура: product_name, quantity, unit_price, total_price
-// 3. ❌ Количката се губеше при refresh
-//    → localStorage persistence с 7-дневен TTL
-// 4. ✅ По-добри error messages при неуспешна поръчка
+// components/client/CartSystem.tsx
+// Fixes:
+// ✅ z-index 9999 — drawer above sticky header
+// ✅ Window events for header button connection
+// ✅ Floating button removed — header button used instead
+// ✅ Offer "added" state persists across drawer open/close
+// ✅ Checkout summary shows all savings
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
-// ─── Типове (НЕ се импортират от admin!) ─────────────────────────────────────
+// ─── CartHeaderButton — drop-in replacement for the header cart button ────────
+// Usage in HeaderClient: replace the static <button className="cart-btn"> with:
+//   import { CartHeaderButton } from '@/components/client/CartSystem'
+//   <CartHeaderButton />
+
+export function CartHeaderButton() {
+  const [count, setCount] = useState(0)
+
+  useEffect(() => {
+    // Load count from localStorage on mount
+    try {
+      const raw = localStorage.getItem('denny_cart_v2')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        const total = Array.isArray(parsed.items)
+          ? parsed.items.reduce((s: number, i: any) => s + (i.quantity || i.qty || 0), 0)
+          : 0
+        setCount(total)
+      }
+    } catch {}
+
+    // Listen for count updates from CartSystem
+    const handler = (e: Event) => setCount((e as CustomEvent).detail)
+    window.addEventListener('cart:count', handler)
+    return () => window.removeEventListener('cart:count', handler)
+  }, [])
+
+  return (
+    <button
+      className={`cart-btn${count > 0 ? ' cart-btn--active' : ''}`}
+      onClick={() => window.dispatchEvent(new Event('cart:open'))}
+      aria-label={`Количка${count > 0 ? ` (${count})` : ''}`}
+    >
+      🛒 Количка
+      {count > 0 && (
+        <span className="cart-btn-badge">{count}</span>
+      )}
+    </button>
+  )
+}
+
+// ─── Типове ───────────────────────────────────────────────────────────────────
 
 interface UpsellOffer {
   id: string
@@ -26,6 +66,7 @@ interface UpsellOffer {
   trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
   trigger_value?: string
   offer_product_id?: string
+  offer_variant_id?: string
   discount_pct?: number
   sort_order: number
 }
@@ -56,7 +97,7 @@ interface AtlasProduct {
 
 interface CartItem {
   productId: string; variantId: string; productName: string
-  variantLabel: string; price: number; qty: number
+  variantLabel: string; price: number; comparePrice: number; qty: number
   emoji: string; img: string; size_liters: number
 }
 
@@ -66,13 +107,13 @@ interface Props {
   freeShippingAbove: number
   siteEmail: string
   sitePhone: string
-  currencySymbol?: string  // от settings.currency_symbol — по подразбиране '€'
+  currencySymbol?: string
 }
 
-// ─── localStorage Cart Persistence ───────────────────────────────────────────
+// ─── localStorage ─────────────────────────────────────────────────────────────
 
 const CART_KEY = 'denny_cart_v2'
-const CART_TTL = 7 * 24 * 60 * 60 * 1000 // 7 дни
+const CART_TTL = 7 * 24 * 60 * 60 * 1000
 
 function loadCartFromStorage(): CartItem[] {
   if (typeof window === 'undefined') return []
@@ -81,20 +122,15 @@ function loadCartFromStorage(): CartItem[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (Date.now() - (parsed.savedAt || 0) > CART_TTL) {
-      localStorage.removeItem(CART_KEY)
-      return []
+      localStorage.removeItem(CART_KEY); return []
     }
     return Array.isArray(parsed.items) ? parsed.items : []
-  } catch {
-    return []
-  }
+  } catch { return [] }
 }
 
 function saveCartToStorage(items: CartItem[]) {
   if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem(CART_KEY, JSON.stringify({ items, savedAt: Date.now() }))
-  } catch {}
+  try { localStorage.setItem(CART_KEY, JSON.stringify({ items, savedAt: Date.now() })) } catch {}
 }
 
 function clearCartStorage() {
@@ -104,11 +140,15 @@ function clearCartStorage() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// currency symbol се задава от CartSystem компонента чрез setCurrencySymbol()
-// никога повече хардкодирано 'лв.' — идва от settings.currency_symbol в БД
-let _currencySymbol = '€'
-const fmt = (n: number) => n.toFixed(2) + ' ' + _currencySymbol
-const fmtLiter = (n: number) => n.toFixed(2) + ' ' + _currencySymbol + '/л'
+function makeFmt(sym: string) {
+  return {
+    fmt: (n: number) => n.toFixed(2) + ' ' + sym,
+    fmtLiter: (n: number) => n.toFixed(2) + ' ' + sym + '/л',
+  }
+}
+
+// Module-scope fallback — not used directly; each component receives fmt/fmtLiter as props
+// derived from currencySymbol read from the DB via page.tsx → CartSystem prop
 
 function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): boolean {
   if (!offer.active) return false
@@ -121,91 +161,203 @@ function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): 
   }
 }
 
-// ─── Progress Bar ─────────────────────────────────────────────────────────────
+// ─── ЕДИННА Progress Bar (чете goal от settings, не е hardcode) ───────────────
 
-function CartProgressBar({ current, goal, label }: { current: number; goal: number; label: string }) {
-  const pct = Math.min(100, (current / goal) * 100)
-  const left = goal - current
-  const done = current >= goal
+function CartProgressBar({
+  subtotal,
+  freeShippingAbove,
+  ms,
+  fmt,
+}: {
+  subtotal: number
+  freeShippingAbove: number
+  ms: MarketingSettings | null
+  fmt: (n: number) => string
+}) {
+  // Използваме goal от settings ако е включена progress bar, иначе freeShippingAbove
+  const goal = ms?.progress_bar_enabled
+    ? (ms.progress_goal_amount || freeShippingAbove)
+    : freeShippingAbove
+  const label = ms?.progress_goal_label || 'Безплатна доставка'
+  const pct   = Math.min(100, (subtotal / goal) * 100)
+  const left  = goal - subtotal
+  const done  = subtotal >= goal
 
   return (
     <div style={{
-      background: done ? 'linear-gradient(135deg,#14532d,#166534)' : '#f0fdf4',
-      border: done ? 'none' : '1px solid #bbf7d0',
-      borderRadius: 10, padding: '10px 13px', marginBottom: 12, transition: 'all .3s',
+      background: done
+        ? 'linear-gradient(135deg,#14532d,#166534)'
+        : 'linear-gradient(135deg,#f0fdf4,#f7fef9)',
+      border: done ? 'none' : '1.5px solid #bbf7d0',
+      borderRadius: 14, padding: '12px 16px', marginBottom: 14,
+      transition: 'all .4s cubic-bezier(.4,0,.2,1)',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 12.5 }}>
-        <span style={{ fontWeight: 700, color: done ? '#86efac' : '#166534' }}>
-          {done ? `🎉 ${label} отключена!` : `🚚 ${label}`}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontWeight: 800, fontSize: 13, color: done ? '#86efac' : '#166534', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 16 }}>{done ? '🎉' : '🚚'}</span>
+          {done ? `${label} отключена!` : label}
         </span>
-        {!done && <span style={{ color: '#6b7280', fontSize: 11.5 }}>остават {fmt(left)}</span>}
+        {!done && (
+          <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>
+            остават <strong style={{ color: '#16a34a' }}>{fmt(left)}</strong>
+          </span>
+        )}
       </div>
-      <div style={{ background: done ? 'rgba(255,255,255,.15)' : '#dcfce7', borderRadius: 99, height: 7, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: done ? 'linear-gradient(90deg,#4ade80,#86efac)' : 'linear-gradient(90deg,#16a34a,#4ade80)', borderRadius: 99, transition: 'width .5s cubic-bezier(.4,0,.2,1)' }} />
+      <div style={{
+        background: done ? 'rgba(255,255,255,.15)' : 'rgba(255,255,255,.7)',
+        borderRadius: 99, height: 8, overflow: 'hidden',
+        boxShadow: 'inset 0 1px 3px rgba(0,0,0,.06)',
+      }}>
+        <div style={{
+          width: `${pct}%`, height: '100%',
+          background: done
+            ? 'linear-gradient(90deg,#4ade80,#86efac)'
+            : 'linear-gradient(90deg,#16a34a,#4ade80)',
+          borderRadius: 99,
+          transition: 'width .6s cubic-bezier(.4,0,.2,1)',
+          boxShadow: done ? 'none' : '0 0 8px rgba(22,163,74,.4)',
+        }} />
       </div>
+      {!done && (
+        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+          <span>Текущо: <strong style={{ color: '#166534' }}>{fmt(subtotal)}</strong></span>
+          <span>Цел: <strong>{fmt(goal)}</strong></span>
+        </div>
+      )}
     </div>
   )
 }
 
-// ─── Inline Upsell/Cross-sell Card ───────────────────────────────────────────
+// ─── Offer Cards — Beautiful compact design ────────────────────────────────────
 
-function InlineOfferCard({
-  offer, products, onAddToCart,
-}: { offer: UpsellOffer; products: AtlasProduct[]; onAddToCart: (item: CartItem) => void }) {
+const OFFER_META = {
+  cart_upsell: {
+    color: '#7c3aed', pill: '#f5f3ff', pillText: '#6d28d9',
+    icon: '⬆️', label: 'Ъпгрейд',
+  },
+  cross_sell: {
+    color: '#0369a1', pill: '#eff6ff', pillText: '#1d4ed8',
+    icon: '🔀', label: 'Добавя се с',
+  },
+  post_purchase: {
+    color: '#dc2626', pill: '#fff1f2', pillText: '#be123c',
+    icon: '⚡', label: 'Само веднъж',
+  },
+}
+
+function OfferCard({
+  offer, products, onAddToCart, fmt, cartItems,
+}: { offer: UpsellOffer; products: AtlasProduct[]; onAddToCart: (item: CartItem) => void; fmt: (n: number) => string; cartItems: CartItem[] }) {
   const product = products.find(p => p.id === offer.offer_product_id)
-  const variant = product?.variants?.find(v => v.active !== false)
-  const [added, setAdded] = useState(false)
+  const variant = product?.variants?.find(v =>
+    offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false
+  )
+  const meta = OFFER_META[offer.type]
+
+  // Check if already in cart — persistent across drawer open/close
+  const alreadyInCart = !!variant && cartItems.some(i => i.variantId === variant.id)
 
   const discountedPrice = variant && offer.discount_pct
     ? +(variant.price * (1 - offer.discount_pct / 100)).toFixed(2)
     : variant?.price ?? 0
 
-  const colorMap: Record<UpsellOffer['type'], string> = {
-    cart_upsell: '#7c3aed', cross_sell: '#0369a1', post_purchase: '#dc2626',
-  }
-  const c = colorMap[offer.type]
+  const hasDiscount = offer.discount_pct && offer.discount_pct > 0
 
   const handleAdd = () => {
-    if (!product || !variant) return
+    if (!product || !variant || alreadyInCart) return
     onAddToCart({
       productId: product.id, variantId: variant.id, productName: product.name,
-      variantLabel: variant.label + (offer.discount_pct ? ` (-${offer.discount_pct}%)` : ''),
-      price: discountedPrice, qty: 1, emoji: product.emoji,
+      variantLabel: variant.label + (hasDiscount ? ` (-${offer.discount_pct}%)` : ''),
+      price: discountedPrice,
+      comparePrice: Number(variant.compare_price) > Number(variant.price)
+        ? Number(variant.compare_price)
+        : Number(variant.price),
+      qty: 1, emoji: product.emoji,
       img: product.img || '', size_liters: variant.size_liters,
     })
-    setAdded(true)
   }
 
+  const canAdd = !!product && !!variant && !alreadyInCart
+
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: `linear-gradient(135deg,${c}08,${c}03)`, border: `1.5px solid ${c}25`, borderRadius: 14, padding: '12px 14px', marginBottom: 8 }}>
-      <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, overflow: 'hidden', background: c + '12', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, border: `1px solid ${c}20` }}>
-        {(offer as any).image_url ? <img src={(offer as any).image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : offer.emoji}
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      background: '#fff',
+      border: '1px solid #f1f5f9',
+      borderRadius: 14,
+      padding: '10px 12px',
+      boxShadow: '0 1px 4px rgba(0,0,0,.04)',
+      transition: 'box-shadow .2s',
+      position: 'relative',
+      overflow: 'hidden',
+    }}>
+      {/* Left accent bar */}
+      <div style={{
+        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+        background: meta.color, borderRadius: '14px 0 0 14px',
+      }} />
+
+      {/* Image / Emoji */}
+      <div style={{
+        width: 40, height: 40, borderRadius: 10, flexShrink: 0, overflow: 'hidden',
+        background: `${meta.color}10`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+        marginLeft: 4,
+      }}>
+        {offer.image_url
+          ? <img src={offer.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <span>{offer.emoji || meta.icon}</span>}
       </div>
+
+      {/* Text */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 2 }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#111' }}>{offer.title}</span>
-          {offer.badge_text && (
-            <span style={{ fontSize: 9.5, fontWeight: 900, color: '#fff', background: offer.badge_color || c, padding: '2px 7px', borderRadius: 99, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              {offer.badge_text}
-            </span>
-          )}
-        </div>
-        {offer.description && <div style={{ fontSize: 11.5, color: '#6b7280', lineHeight: 1.4, marginBottom: 3 }}>{offer.description}</div>}
-        {product && variant && (
-          <div style={{ fontSize: 12, fontWeight: 700, color: c }}>
-            {offer.discount_pct ? (
-              <><span style={{ textDecoration: 'line-through', color: '#9ca3af', fontWeight: 500 }}>{fmt(variant.price)}</span>{' '}{fmt(discountedPrice)}{' '}<span style={{ background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 5, fontSize: 10 }}>-{offer.discount_pct}%</span></>
-            ) : fmt(variant.price)}
+        {/* Badge only (no type label) */}
+        {offer.badge_text && (
+          <div style={{ marginBottom: 2 }}>
+            <span style={{
+              fontSize: 9, fontWeight: 800, color: '#fff',
+              background: offer.badge_color || meta.color,
+              padding: '1px 6px', borderRadius: 99,
+            }}>{offer.badge_text}</span>
           </div>
         )}
-        {!product && offer.offer_product_id && <div style={{ fontSize: 11, color: '#f59e0b' }}>⚠️ Продуктът не е намерен</div>}
+        <div style={{
+          fontSize: 12.5, fontWeight: 700, color: '#0f172a',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          lineHeight: 1.3,
+        }}>{offer.title}</div>
+
+        {/* Price */}
+        {canAdd && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+            <span style={{ fontSize: 13, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
+            {hasDiscount && (
+              <>
+                <span style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through', fontWeight: 500 }}>{fmt(variant!.price)}</span>
+                <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 4 }}>
+                  -{offer.discount_pct}%
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Add button */}
       <button
         onClick={handleAdd}
-        disabled={added || !product || !variant}
-        style={{ padding: '7px 13px', background: added ? '#059669' : (!product || !variant) ? '#d1d5db' : c, color: '#fff', border: 'none', borderRadius: 8, fontWeight: 800, fontSize: 12, cursor: added || !product || !variant ? 'default' : 'pointer', fontFamily: 'inherit', flexShrink: 0, transition: 'background .2s', whiteSpace: 'nowrap' }}
+        disabled={!canAdd}
+        style={{
+          width: 32, height: 32, borderRadius: 10, border: 'none', flexShrink: 0,
+          background: alreadyInCart ? '#059669' : canAdd ? meta.color : '#e2e8f0',
+          color: '#fff', cursor: !canAdd ? 'default' : 'pointer',
+          fontFamily: 'inherit', fontSize: alreadyInCart ? 14 : 18, fontWeight: 900,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all .2s',
+          boxShadow: canAdd ? `0 2px 8px ${meta.color}40` : 'none',
+        }}
       >
-        {added ? '✓ Добавено' : '+ Добави'}
+        {alreadyInCart ? '✓' : '+'}
       </button>
     </div>
   )
@@ -214,16 +366,21 @@ function InlineOfferCard({
 // ─── Post-purchase Modal ──────────────────────────────────────────────────────
 
 function PostPurchaseModal({
-  offer, products, onAccept, onDismiss, customerData,
+  offer, products, onAccept, onDismiss, customerData, fmt,
 }: {
   offer: UpsellOffer; products: AtlasProduct[]
   onAccept: () => void; onDismiss: () => void
   customerData: { name: string; phone: string; city: string; address: string; notes: string; courier: string }
+  fmt: (n: number) => string
 }) {
   const product = products.find(p => p.id === offer.offer_product_id)
-  const variant = product?.variants?.find(v => v.active !== false)
+  const variant = product?.variants?.find(v =>
+    (offer as any).offer_variant_id
+      ? v.id === (offer as any).offer_variant_id
+      : v.active !== false
+  )
   const [adding, setAdding] = useState(false)
-  const [done, setDone] = useState(false)
+  const [done, setDone]     = useState(false)
 
   const discountedPrice = variant && offer.discount_pct
     ? +(variant.price * (1 - offer.discount_pct / 100)).toFixed(2)
@@ -237,37 +394,26 @@ function PostPurchaseModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name:    customerData.name,
-          customer_phone:   customerData.phone,
-          customer_city:    customerData.city,
-          customer_address: customerData.address,
-          customer_notes:   `[POST-PURCHASE UPSELL] ${customerData.notes}`.trim(),
-          courier:          customerData.courier,
-          payment_method:   'cod',
+          customer_name: customerData.name, customer_phone: customerData.phone,
+          customer_city: customerData.city, customer_address: customerData.address,
+          customer_notes: `[POST-PURCHASE UPSELL] ${customerData.notes}`.trim(),
+          courier: customerData.courier, payment_method: 'cod',
           items: [{
             product_name: `${product.name} — ${variant.label} (Post-purchase upsell)`,
-            quantity:     1,
-            unit_price:   discountedPrice,
-            total_price:  discountedPrice,
+            quantity: 1, unit_price: discountedPrice, total_price: discountedPrice,
           }],
-          subtotal: discountedPrice,
-          shipping: 0,
-          total:    discountedPrice,
+          subtotal: discountedPrice, shipping: 0, total: discountedPrice,
         }),
       })
       setDone(true)
       setTimeout(onAccept, 1800)
-    } catch {
-      onDismiss()
-    } finally {
-      setAdding(false)
-    }
+    } catch { onDismiss() } finally { setAdding(false) }
   }
 
   return (
     <>
       <style>{`@keyframes ppIn{from{transform:translateY(40px) scale(.95);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}`}</style>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 600, backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 10000, backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
         <div style={{ background: '#fff', borderRadius: 22, width: '100%', maxWidth: 400, overflow: 'hidden', animation: 'ppIn .4s cubic-bezier(.34,1.56,.64,1)', boxShadow: '0 32px 80px rgba(0,0,0,.3)' }}>
           <div style={{ background: 'linear-gradient(135deg,#dc2626,#b91c1c)', padding: '20px 22px 18px' }}>
             <div style={{ fontSize: 10, fontWeight: 900, color: 'rgba(255,255,255,.6)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>⚡ Специална оферта само веднъж</div>
@@ -291,7 +437,10 @@ function PostPurchaseModal({
                   <div style={{ fontSize: 12, color: '#6b7280' }}>{variant.label}</div>
                   <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 7 }}>
                     <span style={{ fontSize: 18, fontWeight: 900, color: '#dc2626' }}>{fmt(discountedPrice)}</span>
-                    {offer.discount_pct ? <><span style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(variant.price)}</span><span style={{ fontSize: 10, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '2px 6px', borderRadius: 6 }}>-{offer.discount_pct}%</span></> : null}
+                    {offer.discount_pct ? <>
+                      <span style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(variant.price)}</span>
+                      <span style={{ fontSize: 10, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '2px 6px', borderRadius: 6 }}>-{offer.discount_pct}%</span>
+                    </> : null}
                   </div>
                 </div>
               </div>
@@ -308,14 +457,14 @@ function PostPurchaseModal({
   )
 }
 
-// ─── Product Card ─────────────────────────────────────────────────────────────
+// ─── Product Card (на началната страница) ────────────────────────────────────
 
-function ProductCard({ product, onAddToCart }: { product: AtlasProduct; onAddToCart: (item: CartItem) => void }) {
+function ProductCard({ product, onAddToCart, fmt, fmtLiter }: { product: AtlasProduct; onAddToCart: (item: CartItem) => void; fmt: (n: number) => string; fmtLiter: (n: number) => string }) {
   const variants = (product.variants || []).filter(v => v.active !== false)
   const [selectedVariantId, setSelectedVariantId] = useState(variants[0]?.id || '')
   const [added, setAdded] = useState(false)
-  const selectedVariant = variants.find(v => v.id === selectedVariantId) ?? variants[0]
-  const discount = selectedVariant && selectedVariant.compare_price > selectedVariant.price
+  const selectedVariant   = variants.find(v => v.id === selectedVariantId) ?? variants[0]
+  const discount          = selectedVariant && selectedVariant.compare_price > selectedVariant.price
     ? Math.round(((selectedVariant.compare_price - selectedVariant.price) / selectedVariant.compare_price) * 100) : 0
 
   const handleAdd = () => {
@@ -323,7 +472,11 @@ function ProductCard({ product, onAddToCart }: { product: AtlasProduct; onAddToC
     onAddToCart({
       productId: product.id, variantId: selectedVariant.id,
       productName: product.name, variantLabel: selectedVariant.label,
-      price: selectedVariant.price, qty: 1, emoji: product.emoji,
+      price: selectedVariant.price,
+      comparePrice: Number(selectedVariant.compare_price) > Number(selectedVariant.price)
+        ? Number(selectedVariant.compare_price)
+        : 0,
+      qty: 1, emoji: product.emoji,
       img: product.img || '', size_liters: selectedVariant.size_liters,
     })
     setAdded(true)
@@ -363,15 +516,15 @@ function ProductCard({ product, onAddToCart }: { product: AtlasProduct; onAddToC
             <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Избери количество:</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {variants.map(v => {
-                const sel = v.id === selectedVariantId
+                const sel     = v.id === selectedVariantId
                 const savePct = v.compare_price > v.price ? Math.round(((v.compare_price - v.price) / v.compare_price) * 100) : 0
                 return (
                   <button key={v.id} onClick={() => setSelectedVariantId(v.id)}
                     style={{ flex: '1 1 calc(50% - 4px)', padding: '10px 12px', borderRadius: 12, border: sel ? '2px solid #16a34a' : '1.5px solid #e5e7eb', background: sel ? '#f0fdf4' : '#fafafa', cursor: 'pointer', textAlign: 'left', transition: 'all .15s', fontFamily: 'inherit' }}>
                     <div style={{ fontSize: 13, fontWeight: 800, color: sel ? '#15803d' : '#374151' }}>{v.label}</div>
                     <div style={{ fontSize: 16, fontWeight: 900, color: sel ? '#16a34a' : '#111', marginTop: 2 }}>{fmt(v.price)}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                      <span style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(v.compare_price)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                      {v.compare_price > v.price && <span style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(v.compare_price)}</span>}
                       <span style={{ fontSize: 11, fontWeight: 700, color: '#059669', background: '#d1fae5', padding: '1px 6px', borderRadius: 6 }}>{fmtLiter(v.price_per_liter)}</span>
                     </div>
                     {savePct > 0 && v.size_liters >= 20 && <div style={{ fontSize: 10, fontWeight: 800, color: '#dc2626', marginTop: 3 }}>🔥 Спестяваш {savePct}%</div>}
@@ -390,7 +543,14 @@ function ProductCard({ product, onAddToCart }: { product: AtlasProduct; onAddToC
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 22, fontWeight: 900, color: '#16a34a' }}>{fmt(selectedVariant.price)}</div>
-              {selectedVariant.compare_price > selectedVariant.price && <div style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(selectedVariant.compare_price)}</div>}
+              {selectedVariant.compare_price > selectedVariant.price && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
+                  <span style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(selectedVariant.compare_price)}</span>
+                  <span style={{ fontSize: 10, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 5 }}>
+                    -{Math.round(((selectedVariant.compare_price - selectedVariant.price) / selectedVariant.compare_price) * 100)}%
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -404,11 +564,115 @@ function ProductCard({ product, onAddToCart }: { product: AtlasProduct; onAddToC
   )
 }
 
+// ─── Cart Item Row (с compare_price) ─────────────────────────────────────────
+
+function CartItemRow({
+  item, onUpdateQty, onRemove, fmt,
+}: {
+  item: CartItem
+  onUpdateQty: (id: string, qty: number) => void
+  onRemove: (id: string) => void
+  fmt: (n: number) => string
+}) {
+  const saving = item.comparePrice > item.price
+    ? (item.comparePrice - item.price) * item.qty
+    : 0
+
+  return (
+    <div style={{ display: 'flex', gap: 14, padding: '14px 0', borderBottom: '1px solid #f8fafc', alignItems: 'flex-start' }}>
+      <div style={{ width: 62, height: 62, flexShrink: 0, borderRadius: 14, overflow: 'hidden', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0' }}>
+        {item.img
+          ? <img src={item.img} alt={item.productName} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          : <span style={{ fontSize: 28 }}>{item.emoji}</span>}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 2, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.productName}</div>
+        <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500, marginBottom: 4 }}>{item.variantLabel}</div>
+
+        {/* Цена с compare price */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+          <span style={{ fontSize: 15, fontWeight: 900, color: '#16a34a', letterSpacing: '-.01em' }}>{fmt(item.price * item.qty)}</span>
+          {item.comparePrice > item.price && (
+            <>
+              <span style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(item.comparePrice * item.qty)}</span>
+              <span style={{ fontSize: 10, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 5 }}>
+                -{Math.round(((item.comparePrice - item.price) / item.comparePrice) * 100)}%
+              </span>
+            </>
+          )}
+        </div>
+
+        {saving > 0 && (
+          <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 700, marginTop: 3 }}>
+            🏷 Спестяваш {fmt(saving)}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: '#f8fafc', borderRadius: 10, padding: '3px', border: '1px solid #f1f5f9' }}>
+          <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)}
+            style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>−</button>
+          <span style={{ fontSize: 13, fontWeight: 800, minWidth: 22, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
+          <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)}
+            style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>+</button>
+        </div>
+        <button onClick={() => onRemove(item.variantId)}
+          style={{ fontSize: 10.5, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 6, transition: 'color .15s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8' }}>Премахни</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Offers Section (collapsible, compact) ────────────────────────────────────
+
+// ─── Offers Group — compact, no accordion ──────────────────────────────────────
+
+function OffersGroup({
+  upsellOffers, crossSellOffers, products, onAddToCart, fmt, cartItems,
+}: {
+  upsellOffers: UpsellOffer[]
+  crossSellOffers: UpsellOffer[]
+  products: AtlasProduct[]
+  onAddToCart: (item: CartItem) => void
+  fmt: (n: number) => string
+  cartItems: CartItem[]
+}) {
+  const allOffers = [...upsellOffers, ...crossSellOffers]
+  if (allOffers.length === 0) return null
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg,#fafafa,#f8f9ff)',
+      border: '1px solid #f0f0f8',
+      borderRadius: 16, padding: '12px', marginBottom: 12,
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 800, color: '#94a3b8',
+        textTransform: 'uppercase' as const, letterSpacing: '0.09em',
+        marginBottom: 8,
+      }}>✨ Може да те заинтересува</div>
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 7 }}>
+        {allOffers.map(offer => (
+          <OfferCard key={offer.id} offer={offer} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={cartItems} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Cart Drawer ──────────────────────────────────────────────────────────────
 
 function CartDrawer({
   items, shippingPrice, freeShippingAbove, sitePhone,
-  onClose, onUpdateQty, onRemove, onAddToCart, onClearCart, products, marketingSettings,
+  onClose, onUpdateQty, onRemove, onAddToCart, onClearCart, products, marketingSettings, currencySymbol,
 }: {
   items: CartItem[]; shippingPrice: number; freeShippingAbove: number; sitePhone: string
   onClose: () => void
@@ -418,79 +682,77 @@ function CartDrawer({
   onClearCart: () => void
   products: AtlasProduct[]
   marketingSettings: MarketingSettings | null
+  currencySymbol?: string
 }) {
-  const [step, setStep] = useState<'cart' | 'checkout'>('cart')
-  const [form, setForm] = useState({ name: '', phone: '', city: '', address: '', notes: '', courier: 'econt' })
+  const [step, setStep]           = useState<'cart' | 'checkout'>('cart')
+  const [form, setForm]           = useState({ name: '', phone: '', city: '', address: '', notes: '', courier: 'econt' })
   const [submitting, setSubmitting] = useState(false)
-  const [done, setDone] = useState(false)
+  const [done, setDone]           = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError]         = useState('')
   const [postPurchaseOffer, setPostPurchaseOffer] = useState<UpsellOffer | null>(null)
+  const [mounted, setMounted]     = useState(false)
+
+  // Mount for portal
+  useEffect(() => { setMounted(true) }, [])
+
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const { fmt, fmtLiter } = makeFmt(currencySymbol ?? '€')
 
   const subtotal    = items.reduce((s, i) => s + i.price * i.qty, 0)
+  const totalSavings = items.reduce((s, i) => {
+    return i.comparePrice > i.price ? s + (i.comparePrice - i.price) * i.qty : s
+  }, 0)
   const shipping    = subtotal >= freeShippingAbove ? 0 : shippingPrice
   const total       = subtotal + shipping
   const totalLiters = items.reduce((s, i) => s + i.size_liters * i.qty, 0)
   const ms          = marketingSettings
 
-  const inlineOffers: UpsellOffer[] = ms ? [
-    ...(ms.upsell_enabled     ? ms.offers.filter(o => o.type === 'cart_upsell' && offerMatches(o, items, subtotal)) : []),
-    ...(ms.cross_sell_enabled ? ms.offers.filter(o => o.type === 'cross_sell'  && offerMatches(o, items, subtotal)) : []),
-  ] : []
+  // Разделяме уpsell и cross-sell визуално
+  const upsellOffers: UpsellOffer[] = ms?.upsell_enabled
+    ? ms.offers.filter(o => o.type === 'cart_upsell' && offerMatches(o, items, subtotal)) : []
+  const crossSellOffers: UpsellOffer[] = ms?.cross_sell_enabled
+    ? ms.offers.filter(o => o.type === 'cross_sell' && offerMatches(o, items, subtotal)) : []
 
   const handleOrder = async () => {
     if (!form.name.trim() || !form.phone.trim() || !form.city.trim() || !form.address.trim()) {
-      setError('Моля попълни всички задължителни полета (имена, телефон, град, адрес).')
-      return
+      setError('Моля попълни всички задължителни полета (имена, телефон, град, адрес).'); return
     }
-    setSubmitting(true)
-    setError('')
-
+    setSubmitting(true); setError('')
     try {
-      // ── Правилна структура на items ──────────────────────────────────────
       const orderItems = items.map(i => ({
         product_name: `${i.productName} — ${i.variantLabel}`,
-        quantity:     i.qty,
-        unit_price:   i.price,
-        total_price:  +(i.price * i.qty).toFixed(2),
+        quantity:    i.qty,
+        unit_price:  i.price,
+        total_price: +(i.price * i.qty).toFixed(2),
       }))
-
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name:    form.name.trim(),
-          customer_phone:   form.phone.trim(),
-          customer_city:    form.city.trim(),
-          customer_address: form.address.trim(),
-          customer_notes:   form.notes.trim() || null,
-          courier:          form.courier,
-          payment_method:   'cod',
-          items:            orderItems,
-          subtotal:         +subtotal.toFixed(2),
-          shipping:         +shipping.toFixed(2),
-          total:            +total.toFixed(2),
+          customer_name: form.name.trim(), customer_phone: form.phone.trim(),
+          customer_city: form.city.trim(), customer_address: form.address.trim(),
+          customer_notes: form.notes.trim() || null,
+          courier: form.courier, payment_method: 'cod',
+          items: orderItems, subtotal: +subtotal.toFixed(2),
+          shipping: +shipping.toFixed(2), total: +total.toFixed(2),
         }),
       })
-
-      // ── Детайлна грешка ──────────────────────────────────────────────────
       if (!res.ok) {
         let errMsg = `Грешка ${res.status}`
-        try {
-          const errData = await res.json()
-          errMsg = errData.error || errMsg
-        } catch {}
+        try { const errData = await res.json(); errMsg = errData.error || errMsg } catch {}
         throw new Error(errMsg)
       }
-
       const data = await res.json()
       setOrderNumber(data.order_number || '')
       setDone(true)
-
-      // Изчисти количката от localStorage
       onClearCart()
-
-      // Post-purchase оферта
       if (ms?.post_purchase_enabled) {
         const pp = ms.offers.filter(o => o.type === 'post_purchase' && offerMatches(o, items, subtotal))
         if (pp.length > 0) {
@@ -499,18 +761,15 @@ function CartDrawer({
       }
     } catch (err: any) {
       setError(err.message || 'Грешка при изпращане. Моля опитай отново.')
-    } finally {
-      setSubmitting(false)
-    }
+    } finally { setSubmitting(false) }
   }
 
-  return (
+  const drawerContent = (
     <>
       <style>{`
-        .cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;backdrop-filter:blur(3px)}
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
-        .cart-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:500;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-        .cart-drawer{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:480px;background:#fff;z-index:501;display:flex;flex-direction:column;box-shadow:-20px 0 80px rgba(0,0,0,.2);animation:slideIn .3s cubic-bezier(.4,0,.2,1);font-family:'Outfit','DM Sans',sans-serif}
+        .cart-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:2147483646;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+        .cart-drawer{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:480px;background:#fff;z-index:2147483647;display:flex;flex-direction:column;box-shadow:-20px 0 80px rgba(0,0,0,.2);animation:slideIn .3s cubic-bezier(.4,0,.2,1);font-family:'Outfit','DM Sans',sans-serif}
         @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
         .cart-inner{flex:1;overflow-y:auto;padding:20px 22px;overscroll-behavior:contain}
         .cart-inner::-webkit-scrollbar{width:4px}
@@ -524,8 +783,8 @@ function CartDrawer({
         .cart-btn-primary:hover:not(:disabled){filter:brightness(1.05);transform:translateY(-1px);box-shadow:0 8px 24px rgba(22,163,74,.4)}
         .cart-btn-secondary{width:100%;padding:12px;background:#f8fafc;color:#64748b;border:1.5px solid #f1f5f9;border-radius:14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;margin-top:8px;transition:all .15s}
         .cart-btn-secondary:hover{background:#f1f5f9;color:#0f172a}
-        .cart-item{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #f8fafc;align-items:center}
-        .cart-item:last-child{border-bottom:none}
+        .cart-close-btn{width:40px;height:40px;border:none;background:#f1f5f9;border-radius:12px;cursor:pointer;font-size:18px;color:#475569;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;line-height:1}
+        .cart-close-btn:hover{background:#e2e8f0;color:#0f172a;transform:scale(1.08)}
         @media(max-width:480px){.cart-drawer{max-width:100%}}
       `}</style>
 
@@ -533,6 +792,7 @@ function CartDrawer({
         <PostPurchaseModal
           offer={postPurchaseOffer} products={products} customerData={form}
           onAccept={() => setPostPurchaseOffer(null)} onDismiss={() => setPostPurchaseOffer(null)}
+          fmt={fmt}
         />
       )}
 
@@ -546,14 +806,17 @@ function CartDrawer({
             </div>
             <div>
               <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', letterSpacing: '-.01em' }}>
-                {done ? 'Поръчката е приета!' : step === 'cart' ? `Количка` : 'Финализирай поръчката'}
+                {done ? 'Поръчката е приета!' : step === 'cart' ? 'Количка' : 'Финализирай поръчката'}
               </div>
-              {!done && step === 'cart' && items.length > 0 && <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 1 }}>{items.length} {items.length === 1 ? 'продукт' : 'продукта'}</div>}
+              {!done && step === 'cart' && items.length > 0 && (
+                <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 1 }}>
+                  {items.length} {items.length === 1 ? 'продукт' : 'продукта'}
+                  {totalSavings > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> · спестяваш {fmt(totalSavings)}</span>}
+                </div>
+              )}
             </div>
           </div>
-          <button onClick={onClose} style={{ width: 34, height: 34, border: 'none', background: '#f8fafc', borderRadius: 10, cursor: 'pointer', fontSize: 15, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f1f5f9' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc' }}>✕</button>
+          <button onClick={onClose} className="cart-close-btn" aria-label="Затвори количката">✕</button>
         </div>
 
         {/* ── Успех ── */}
@@ -577,7 +840,8 @@ function CartDrawer({
         /* ── Количка ── */
         ) : step === 'cart' ? (
           <>
-            <div className="cart-inner">
+            {/* Scrollable items area with max height */}
+            <div className="cart-inner" style={{ maxHeight: 'calc(100vh - 420px)', minHeight: 80 }}>
               {items.length === 0 ? (
                 <div style={{ textAlign: 'center', paddingTop: 64, paddingBottom: 32 }}>
                   <div style={{ fontSize: 56, marginBottom: 16 }}>🛒</div>
@@ -585,39 +849,19 @@ function CartDrawer({
                   <div style={{ fontSize: 13, color: '#94a3b8' }}>Разгледай продуктите и добави нещо</div>
                 </div>
               ) : items.map(item => (
-                <div key={item.variantId} className="cart-item">
-                  <div style={{ width: 62, height: 62, flexShrink: 0, borderRadius: 14, overflow: 'hidden', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0' }}>
-                    {item.img ? <img src={item.img} alt={item.productName} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 28 }}>{item.emoji}</span>}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 2, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.productName}</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>{item.variantLabel}</div>
-                    <div style={{ fontSize: 15, fontWeight: 900, color: '#16a34a', marginTop: 4, letterSpacing: '-.01em' }}>{fmt(item.price * item.qty)}</div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: '#f8fafc', borderRadius: 10, padding: '3px', border: '1px solid #f1f5f9' }}>
-                      <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)} style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>−</button>
-                      <span style={{ fontSize: 13, fontWeight: 800, minWidth: 22, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
-                      <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)} style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>+</button>
-                    </div>
-                    <button onClick={() => onRemove(item.variantId)} style={{ fontSize: 10.5, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 6, transition: 'color .15s' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8' }}>Премахни</button>
-                  </div>
-                </div>
+                <CartItemRow
+                  key={item.variantId}
+                  item={item}
+                  onUpdateQty={onUpdateQty}
+                  onRemove={onRemove}
+                  fmt={fmt}
+                />
               ))}
             </div>
 
             {items.length > 0 && (
               <div className="cart-footer">
-                {ms?.progress_bar_enabled && (
-                  <CartProgressBar current={subtotal} goal={ms.progress_goal_amount} label={ms.progress_goal_label} />
-                )}
-
+                {/* Анализ на почвата banner */}
                 {totalLiters >= 60 ? (
                   <div style={{ background: 'linear-gradient(135deg,#14532d,#166534)', borderRadius: 10, padding: '11px 13px', marginBottom: 10, display: 'flex', gap: 9, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 20, flexShrink: 0 }}>🔬</span>
@@ -635,25 +879,74 @@ function CartDrawer({
                   </div>
                 ) : null}
 
-                {inlineOffers.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7 }}>✨ Може да те заинтересува</div>
-                    {inlineOffers.map(offer => (
-                      <InlineOfferCard key={offer.id} offer={offer} products={products} onAddToCart={onAddToCart} />
-                    ))}
-                  </div>
-                )}
+                {/* Offers — upsell + cross-sell combined */}
+                <OffersGroup
+                  upsellOffers={upsellOffers}
+                  crossSellOffers={crossSellOffers}
+                  products={products}
+                  onAddToCart={onAddToCart}
+                  fmt={fmt}
+                  cartItems={items}
+                />
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#64748b', fontWeight: 500 }}>
-                  <span>Продукти</span><span>{fmt(subtotal)}</span>
+                {/* Обобщение на цените */}
+                <div style={{ background: '#f8fafc', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#64748b', fontWeight: 500 }}>
+                    <span>Продукти</span><span>{fmt(subtotal)}</span>
+                  </div>
+                  {totalSavings > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#059669', fontWeight: 700 }}>
+                      <span>🏷 Спестяваш</span><span>-{fmt(totalSavings)}</span>
+                    </div>
+                  )}
+
+                  {/* Доставка ред с вграден мини прогрес бар */}
+                  <div style={{ borderTop: totalSavings > 0 ? '1px solid #f1f5f9' : 'none', paddingTop: totalSavings > 0 ? 8 : 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: shipping === 0 ? 0 : 5, fontSize: 13 }}>
+                      <span style={{ color: '#64748b', fontWeight: 500 }}>🚚 Доставка</span>
+                      <span>
+                        {shipping === 0
+                          ? <span style={{ color: '#16a34a', fontWeight: 800 }}>Безплатна 🎉</span>
+                          : <span style={{ fontWeight: 700, color: '#0f172a' }}>{fmt(shipping)}</span>
+                        }
+                      </span>
+                    </div>
+                    {shipping > 0 && (() => {
+                      const goal = ms?.progress_bar_enabled ? (ms.progress_goal_amount || freeShippingAbove) : freeShippingAbove
+                      const pct  = Math.min(100, (subtotal / goal) * 100)
+                      const left = goal - subtotal
+                      return (
+                        <div>
+                          <div style={{ background: 'rgba(0,0,0,.06)', borderRadius: 99, height: 5, overflow: 'hidden', marginBottom: 4 }}>
+                            <div style={{
+                              width: `${pct}%`, height: '100%',
+                              background: 'linear-gradient(90deg,#16a34a,#4ade80)',
+                              borderRadius: 99,
+                              transition: 'width .6s cubic-bezier(.4,0,.2,1)',
+                            }} />
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Добави още <strong style={{ color: '#16a34a' }}>{fmt(left)}</strong> за безплатна</span>
+                            <span>{fmt(goal)}</span>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontSize: 13, color: '#64748b', fontWeight: 500 }}>
-                  <span>Доставка</span>
-                  <span>{shipping === 0 ? <span style={{ color: '#16a34a', fontWeight: 700 }}>Безплатна 🎉</span> : fmt(shipping)}</span>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, fontSize: 22, fontWeight: 900, color: '#0f172a', letterSpacing: '-.02em' }}>
+                  <span>Общо</span>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: '#16a34a' }}>{fmt(total)}</div>
+                    {totalSavings > 0 && (
+                      <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 700 }}>
+                        Пести {fmt(totalSavings)} спрямо редовна цена
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, fontSize: 20, fontWeight: 900, color: '#0f172a', paddingTop: 10, borderTop: '2px solid #f1f5f9', letterSpacing: '-.02em' }}>
-                  <span>Общо</span><span style={{ color: '#16a34a' }}>{fmt(total)}</span>
-                </div>
+
                 <button className="cart-btn-primary" onClick={() => setStep('checkout')}>Продължи към поръчка →</button>
               </div>
             )}
@@ -663,46 +956,145 @@ function CartDrawer({
         ) : (
           <>
             <div className="cart-inner">
-              <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 13px' }}>
-                💵 Поръчката е с <strong>наложен платеж</strong>. Плащаш при получаване.
+              {/* COD banner */}
+              <div style={{ background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', border: '1.5px solid #bbf7d0', borderRadius: 14, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>💵</span>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: '#15803d' }}>Наложен платеж</div>
+                  <div style={{ fontSize: 11.5, color: '#166534', marginTop: 1 }}>Плащаш само при получаване — без предплащане</div>
+                </div>
               </div>
 
-              <input className="cart-input" placeholder="Имена *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-              <input className="cart-input" placeholder="Телефон *" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-              <input className="cart-input" placeholder="Град *" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
-              <input className="cart-input" placeholder="Адрес *" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
-
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Куриер</div>
+              {/* Section: Данни за доставка */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 12 }}>👤 Данни за доставка</div>
+                <input className="cart-input" placeholder="Имена *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                <input className="cart-input" placeholder="Телефон *" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {[{ value: 'econt', label: '📦 Еконт' }, { value: 'speedy', label: '🚀 Спиди' }].map(c => (
+                  <input className="cart-input" placeholder="Град *" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} style={{ flex: 1 }} />
+                  <input className="cart-input" placeholder="Адрес *" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} style={{ flex: 2 }} />
+                </div>
+              </div>
+
+              {/* Section: Куриер */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 10 }}>🚚 Куриер</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[{ value: 'econt', label: 'Еконт', emoji: '📦' }, { value: 'speedy', label: 'Спиди', emoji: '🚀' }].map(c => (
                     <button key={c.value} onClick={() => setForm(f => ({ ...f, courier: c.value }))}
-                      style={{ flex: 1, padding: 10, border: `1.5px solid ${form.courier === c.value ? '#16a34a' : '#e5e7eb'}`, borderRadius: 10, background: form.courier === c.value ? '#f0fdf4' : '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, fontSize: 13, color: form.courier === c.value ? '#15803d' : '#374151', transition: 'all .15s' }}>
-                      {c.label}
+                      style={{
+                        flex: 1, padding: '12px 10px',
+                        border: `2px solid ${form.courier === c.value ? '#16a34a' : '#e5e7eb'}`,
+                        borderRadius: 12,
+                        background: form.courier === c.value ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : '#fafafa',
+                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: 800, fontSize: 14,
+                        color: form.courier === c.value ? '#15803d' : '#374151',
+                        transition: 'all .15s',
+                        display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 4,
+                        boxShadow: form.courier === c.value ? '0 0 0 3px rgba(22,163,74,.1)' : 'none',
+                      }}>
+                      <span style={{ fontSize: 22 }}>{c.emoji}</span>
+                      <span>{c.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <textarea className="cart-input" placeholder="Бележки (по желание)" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ resize: 'vertical' }} />
+              {/* Бележки */}
+              <div style={{ marginBottom: 4 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 10 }}>💬 Бележки (по желание)</div>
+                <textarea className="cart-input" placeholder="Допълнителни инструкции, пожелания..." rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ resize: 'vertical' }} />
+              </div>
 
               {error && (
-                <div style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start', lineHeight: 1.5 }}>
-                  <span style={{ flexShrink: 0 }}>⚠️</span> {error}
+                <div style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 12, padding: '12px 16px', fontSize: 13, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'flex-start', lineHeight: 1.5, border: '1px solid #fecaca' }}>
+                  <span style={{ flexShrink: 0, fontSize: 16 }}>⚠️</span>
+                  <span>{error}</span>
                 </div>
               )}
 
-              <div style={{ background: '#f8fafc', borderRadius: 16, padding: '16px 18px', marginTop: 4, border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', marginBottom: 12, textTransform: 'uppercase' as const, letterSpacing: '0.08em' }}>Резюме на поръчката</div>
-                {items.map(i => (
-                  <div key={i.variantId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5, color: '#374151', gap: 8 }}>
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{i.emoji} {i.productName} {i.variantLabel} ×{i.qty}</span>
-                    <span style={{ fontWeight: 700, flexShrink: 0 }}>{fmt(i.price * i.qty)}</span>
+              {/* ── Резюме на поръчката — красиво и елегантно ── */}
+              <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 20, overflow: 'hidden', marginTop: 8, marginBottom: 4 }}>
+                {/* Header */}
+                <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.5)', letterSpacing: '0.1em', textTransform: 'uppercase' as const }}>📋 Резюме на поръчката</div>
+                </div>
+
+                {/* Products list */}
+                <div style={{ padding: '12px 20px' }}>
+                  {items.map((i, idx) => (
+                    <div key={i.variantId} style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      paddingBottom: idx < items.length - 1 ? 10 : 0,
+                      marginBottom: idx < items.length - 1 ? 10 : 0,
+                      borderBottom: idx < items.length - 1 ? '1px solid rgba(255,255,255,.06)' : 'none',
+                    }}>
+                      {/* Product image */}
+                      <div style={{
+                        width: 52, height: 52, flexShrink: 0, borderRadius: 12,
+                        overflow: 'hidden', background: 'rgba(255,255,255,.06)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        border: '1px solid rgba(255,255,255,.1)',
+                      }}>
+                        {i.img
+                          ? <img src={i.img} alt={i.productName} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} />
+                          : <span style={{ fontSize: 24 }}>{i.emoji}</span>}
+                      </div>
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.productName}</div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', marginTop: 2 }}>{i.variantLabel} · ×{i.qty}</div>
+                        {i.comparePrice > i.price && (
+                          <div style={{ fontSize: 10.5, color: '#4ade80', fontWeight: 700, marginTop: 2 }}>
+                            🏷 спестяваш {fmt((i.comparePrice - i.price) * i.qty)}
+                          </div>
+                        )}
+                      </div>
+                      {/* Price */}
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: '#4ade80' }}>{fmt(i.price * i.qty)}</div>
+                        {i.comparePrice > i.price && (
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textDecoration: 'line-through', marginTop: 1 }}>{fmt(i.comparePrice * i.qty)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Totals */}
+                <div style={{ background: 'rgba(0,0,0,.25)', padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                  {totalSavings > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#4ade80', fontWeight: 700, marginBottom: 8 }}>
+                      <span>🏷 Спестяваш</span>
+                      <span>-{fmt(totalSavings)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'rgba(255,255,255,.6)', marginBottom: 10, alignItems: 'center' }}>
+                    <span>🚚 Доставка ({form.courier === 'econt' ? 'Еконт' : 'Спиди'})</span>
+                    <span>
+                      {shipping === 0
+                        ? <span style={{ color: '#4ade80', fontWeight: 800 }}>Безплатна 🎉</span>
+                        : <span style={{ fontWeight: 700, color: '#f1f5f9' }}>{fmt(shipping)}</span>
+                      }
+                    </span>
                   </div>
-                ))}
-                <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: 16 }}>
-                  <span>Общо с доставка</span>
-                  <span style={{ color: '#16a34a' }}>{fmt(total)}</span>
+                  {shipping > 0 && (
+                    <div style={{ fontSize: 11, color: '#fbbf24', fontWeight: 600, marginBottom: 10, background: 'rgba(251,191,36,.1)', border: '1px solid rgba(251,191,36,.2)', borderRadius: 8, padding: '6px 12px' }}>
+                      💡 Добави {fmt(freeShippingAbove - subtotal)} още за безплатна доставка
+                    </div>
+                  )}
+                  {/* Total */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid rgba(255,255,255,.1)', paddingTop: 12 }}>
+                    <span style={{ fontWeight: 800, fontSize: 16, color: '#f1f5f9' }}>Общо</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 900, fontSize: 24, color: '#4ade80', lineHeight: 1 }}>{fmt(total)}</div>
+                      {totalSavings > 0 && (
+                        <div style={{ fontSize: 10.5, color: '#fca5a5', fontWeight: 700, marginTop: 3 }}>
+                          Пести {fmt(totalSavings)} спрямо редовна цена
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -718,27 +1110,25 @@ function CartDrawer({
       </div>
     </>
   )
+
+  if (!mounted) return null
+  return createPortal(drawerContent, document.body)
 }
 
 // ─── MAIN CartSystem ──────────────────────────────────────────────────────────
 
-export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone, currencySymbol = '€' }: Props) {
-  // Задаваме символа за целия модул при всеки render
-  _currencySymbol = currencySymbol
-
-  const [cartItems, setCartItems] = useState<CartItem[]>([])
-  const [drawerOpen, setDrawerOpen] = useState(false)
+export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone, currencySymbol }: Props) {
+  const [cartItems, setCartItems]               = useState<CartItem[]>([])
+  const [drawerOpen, setDrawerOpen]             = useState(false)
   const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(null)
-  const [hydrated, setHydrated] = useState(false)
+  const [hydrated, setHydrated]                 = useState(false)
 
-  // ── Зареди количката от localStorage при mount ───────────────────────────
   useEffect(() => {
     const saved = loadCartFromStorage()
     if (saved.length > 0) setCartItems(saved)
     setHydrated(true)
   }, [])
 
-  // ── Зареди marketing settings ────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/marketing', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
@@ -782,37 +1172,33 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
   }, [])
 
   const totalItems = cartItems.reduce((s, i) => s + i.qty, 0)
+  const { fmt, fmtLiter } = makeFmt(currencySymbol ?? '€')
 
-  // Не рендирай floating button преди hydration (избягва mismatch)
+  // Listen for header cart button click
+  useEffect(() => {
+    const handler = () => setDrawerOpen(true)
+    window.addEventListener('cart:open', handler)
+    return () => window.removeEventListener('cart:open', handler)
+  }, [])
+
+  // Dispatch cart count to header whenever it changes
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('cart:count', { detail: totalItems }))
+  }, [totalItems])
+
   if (!hydrated) return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
       {atlasProducts.map(product => (
-        <ProductCard key={product.id} product={product} onAddToCart={addToCart} />
+        <ProductCard key={product.id} product={product} onAddToCart={addToCart} fmt={fmt} fmtLiter={fmtLiter} />
       ))}
     </div>
   )
 
   return (
     <>
-      <style>{`
-        @keyframes pulse{0%,100%{transform:scale(1);box-shadow:0 8px 32px rgba(22,163,74,.4)}50%{transform:scale(1.04);box-shadow:0 12px 40px rgba(22,163,74,.55)}}
-      `}</style>
-
-      {totalItems > 0 && !drawerOpen && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 400 }}>
-          <button
-            onClick={() => setDrawerOpen(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 50, padding: '13px 20px', fontWeight: 800, fontSize: 15, cursor: 'pointer', boxShadow: '0 8px 32px rgba(22,163,74,.4)', fontFamily: 'inherit', animation: 'pulse 2s infinite' }}
-          >
-            🛒 <span>{totalItems} в количката</span>
-            <span style={{ background: '#dc2626', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900 }}>{totalItems}</span>
-          </button>
-        </div>
-      )}
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
         {atlasProducts.map(product => (
-          <ProductCard key={product.id} product={product} onAddToCart={addToCart} />
+          <ProductCard key={product.id} product={product} onAddToCart={addToCart} fmt={fmt} fmtLiter={fmtLiter} />
         ))}
       </div>
 
@@ -829,6 +1215,7 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
           onClearCart={clearCart}
           products={atlasProducts}
           marketingSettings={marketingSettings}
+          currencySymbol={currencySymbol}
         />
       )}
     </>
