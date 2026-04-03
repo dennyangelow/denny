@@ -597,12 +597,13 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: { product: AtlasPr
 // ─── Cart Item Row (с compare_price) ─────────────────────────────────────────
 
 function CartItemRow({
-  item, onUpdateQty, onRemove, fmt,
+  item, onUpdateQty, onRemove, fmt, hideOfferBadge,
 }: {
   item: CartItem
   onUpdateQty: (id: string, qty: number) => void
   onRemove: (id: string) => void
   fmt: (n: number) => string
+  hideOfferBadge?: boolean
 }) {
   const saving = item.comparePrice > item.price
     ? (item.comparePrice - item.price) * item.qty
@@ -620,7 +621,7 @@ function CartItemRow({
         <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 2, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.productName}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, flexWrap: 'wrap' as const }}>
           <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>{item.variantLabel}</span>
-          {item.fromOffer && (
+          {item.fromOffer && !hideOfferBadge && (
             <span style={{ fontSize: 9.5, fontWeight: 800, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ede9fe', padding: '1px 7px', borderRadius: 99 }}>
               ✨ Специална оферта
             </span>
@@ -805,7 +806,7 @@ function CartDrawer({
         .cart-overlay{
           position:fixed;inset:0;
           background:rgba(15,23,42,.6);
-          z-index:9998;
+          z-index:99999;
           backdrop-filter:blur(4px);
           -webkit-backdrop-filter:blur(4px);
         }
@@ -819,7 +820,7 @@ function CartDrawer({
           width:100%;
           max-width:480px;
           background:#fff;
-          z-index:9999;
+          z-index:100000;
           display:flex;
           flex-direction:column;
           box-shadow:-20px 0 80px rgba(0,0,0,.25);
@@ -859,9 +860,10 @@ function CartDrawer({
         }
         @media(max-width:600px){
           .cart-header{
-            padding:16px 16px 14px;
-            /* Safe area top за iPhone notch */
-            padding-top:calc(16px + env(safe-area-inset-top,0px));
+            padding:14px 16px 14px;
+            /* Safe area top за iPhone notch — критично! */
+            padding-top:max(14px, env(safe-area-inset-top, 14px));
+            min-height:64px;
           }
         }
 
@@ -956,13 +958,13 @@ function CartDrawer({
         /* ── Close бутон ── */
         .cart-close-btn{
           width:44px;
-          height:44px; /* 44px minimum tap target */
-          border:none;
-          background:#f1f5f9;
+          height:44px;
+          border:2px solid #e2e8f0;
+          background:#f8fafc;
           border-radius:12px;
           cursor:pointer;
           font-size:18px;
-          color:#475569;
+          color:#334155;
           display:flex;
           align-items:center;
           justify-content:center;
@@ -970,8 +972,18 @@ function CartDrawer({
           flex-shrink:0;
           touch-action:manipulation;
           -webkit-tap-highlight-color:transparent;
+          font-weight:700;
         }
-        .cart-close-btn:active{background:#e2e8f0;color:#0f172a;transform:scale(.95)}
+        .cart-close-btn:hover{background:#fee2e2;border-color:#fca5a5;color:#dc2626}
+        .cart-close-btn:active{background:#e2e8f0;color:#0f172a;transform:scale(.92)}
+        @media(max-width:600px){
+          .cart-close-btn{
+            width:48px;
+            height:48px;
+            font-size:20px;
+            border-radius:14px;
+          }
+        }
 
         /* ── Courier buttons на мобилни ── */
         @media(max-width:600px){
@@ -993,23 +1005,49 @@ function CartDrawer({
       <div className="cart-drawer">
         {/* Header */}
         <div className="cart-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: done ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#0f172a,#1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
-              {done ? '✅' : step === 'cart' ? '🛒' : '📦'}
-            </div>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', letterSpacing: '-.01em' }}>
-                {done ? 'Поръчката е приета!' : step === 'cart' ? 'Количка' : 'Финализирай поръчката'}
-              </div>
-              {!done && step === 'cart' && items.length > 0 && (
-                <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 1 }}>
-                  {items.length} {items.length === 1 ? 'продукт' : 'продукта'}
-                  {totalSavings > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> · спестяваш {fmt(totalSavings)}</span>}
+          {/* Mobile drag indicator */}
+          <style>{`
+            .cart-drag-handle {
+              display: none;
+            }
+            @media(max-width:600px){
+              .cart-drag-handle {
+                display: block;
+                width: 36px;
+                height: 4px;
+                background: #e2e8f0;
+                border-radius: 99px;
+                margin: 0 auto 12px;
+              }
+              .cart-header-wrap {
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+              }
+            }
+          `}</style>
+          <div className="cart-header-wrap" style={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="cart-drag-handle"></div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 11, background: done ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#0f172a,#1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flexShrink: 0 }}>
+                  {done ? '✅' : step === 'cart' ? '🛒' : '📦'}
                 </div>
-              )}
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', letterSpacing: '-.01em' }}>
+                    {done ? 'Поръчката е приета!' : step === 'cart' ? 'Количка' : 'Финализирай поръчката'}
+                  </div>
+                  {!done && step === 'cart' && items.length > 0 && (
+                    <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 1 }}>
+                      {items.length} {items.length === 1 ? 'продукт' : 'продукта'}
+                      {totalSavings > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> · спестяваш {fmt(totalSavings)}</span>}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button onClick={onClose} className="cart-close-btn" aria-label="Затвори количката">✕</button>
             </div>
           </div>
-          <button onClick={onClose} className="cart-close-btn" aria-label="Затвори количката">✕</button>
         </div>
 
         {/* ── Успех ── */}
@@ -1206,48 +1244,49 @@ function CartDrawer({
                 </div>
               )}
 
-              {/* ── Резюме на поръчката — красиво и елегантно ── */}
-              <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: 20, overflow: 'hidden', marginTop: 8, marginBottom: 4 }}>
+              {/* ── Резюме на поръчката — елегантно, светло ── */}
+              <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 20, overflow: 'hidden', marginTop: 8, marginBottom: 4 }}>
                 {/* Header */}
-                <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.5)', letterSpacing: '0.1em', textTransform: 'uppercase' as const }}>📋 Резюме на поръчката</div>
+                <div style={{ padding: '14px 18px 12px', borderBottom: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 15 }}>📋</span>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>Резюме на поръчката</div>
                 </div>
 
                 {/* Products list */}
-                <div style={{ padding: '12px 20px' }}>
+                <div style={{ padding: '10px 18px' }}>
                   {items.map((i, idx) => (
                     <div key={i.variantId} style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
+                      display: 'flex', alignItems: 'center', gap: 11,
                       paddingBottom: idx < items.length - 1 ? 10 : 0,
                       marginBottom: idx < items.length - 1 ? 10 : 0,
-                      borderBottom: idx < items.length - 1 ? '1px solid rgba(255,255,255,.06)' : 'none',
+                      borderBottom: idx < items.length - 1 ? '1px solid #e2e8f0' : 'none',
                     }}>
                       {/* Product image */}
                       <div style={{
-                        width: 52, height: 52, flexShrink: 0, borderRadius: 12,
-                        overflow: 'hidden', background: 'rgba(255,255,255,.06)',
+                        width: 48, height: 48, flexShrink: 0, borderRadius: 10,
+                        overflow: 'hidden', background: '#fff',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        border: '1px solid rgba(255,255,255,.1)',
+                        border: '1.5px solid #e2e8f0',
                       }}>
                         {i.img
                           ? <img src={i.img} alt={i.productName} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} />
-                          : <span style={{ fontSize: 24 }}>{i.emoji}</span>}
+                          : <span style={{ fontSize: 22 }}>{i.emoji}</span>}
                       </div>
                       {/* Info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.productName}</div>
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', marginTop: 2 }}>{i.variantLabel} · ×{i.qty}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.productName}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>{i.variantLabel} · ×{i.qty}</div>
                         {i.comparePrice > i.price && (
-                          <div style={{ fontSize: 10.5, color: '#4ade80', fontWeight: 700, marginTop: 2 }}>
+                          <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 700, marginTop: 2 }}>
                             🏷 спестяваш {fmt((i.comparePrice - i.price) * i.qty)}
                           </div>
                         )}
                       </div>
                       {/* Price */}
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: '#4ade80' }}>{fmt(i.price * i.qty)}</div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: '#16a34a' }}>{fmt(i.price * i.qty)}</div>
                         {i.comparePrice > i.price && (
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textDecoration: 'line-through', marginTop: 1 }}>{fmt(i.comparePrice * i.qty)}</div>
+                          <div style={{ fontSize: 11, color: '#cbd5e1', textDecoration: 'line-through', marginTop: 1 }}>{fmt(i.comparePrice * i.qty)}</div>
                         )}
                       </div>
                     </div>
@@ -1255,34 +1294,34 @@ function CartDrawer({
                 </div>
 
                 {/* Totals */}
-                <div style={{ background: 'rgba(0,0,0,.25)', padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
+                <div style={{ background: '#fff', padding: '14px 18px', borderTop: '1.5px solid #e2e8f0' }}>
                   {totalSavings > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#4ade80', fontWeight: 700, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#059669', fontWeight: 700, marginBottom: 8 }}>
                       <span>🏷 Спестяваш</span>
                       <span>-{fmt(totalSavings)}</span>
                     </div>
                   )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'rgba(255,255,255,.6)', marginBottom: 10, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', fontWeight: 500, marginBottom: 10, alignItems: 'center' }}>
                     <span>🚚 Доставка ({form.courier === 'econt' ? 'Еконт' : 'Спиди'})</span>
                     <span>
                       {shipping === 0
-                        ? <span style={{ color: '#4ade80', fontWeight: 800 }}>Безплатна 🎉</span>
-                        : <span style={{ fontWeight: 700, color: '#f1f5f9' }}>{fmt(shipping)}</span>
+                        ? <span style={{ color: '#16a34a', fontWeight: 800 }}>Безплатна 🎉</span>
+                        : <span style={{ fontWeight: 700, color: '#0f172a' }}>{fmt(shipping)}</span>
                       }
                     </span>
                   </div>
                   {shipping > 0 && (
-                    <div style={{ fontSize: 11, color: '#fbbf24', fontWeight: 600, marginBottom: 10, background: 'rgba(251,191,36,.1)', border: '1px solid rgba(251,191,36,.2)', borderRadius: 8, padding: '6px 12px' }}>
+                    <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600, marginBottom: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 12px' }}>
                       💡 Добави {fmt(freeShippingAbove - subtotal)} още за безплатна доставка
                     </div>
                   )}
                   {/* Total */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid rgba(255,255,255,.1)', paddingTop: 12 }}>
-                    <span style={{ fontWeight: 800, fontSize: 16, color: '#f1f5f9' }}>Общо</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: 12 }}>
+                    <span style={{ fontWeight: 800, fontSize: 15, color: '#0f172a' }}>Общо</span>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 900, fontSize: 24, color: '#4ade80', lineHeight: 1 }}>{fmt(total)}</div>
+                      <div style={{ fontWeight: 900, fontSize: 24, color: '#16a34a', lineHeight: 1, letterSpacing: '-.02em' }}>{fmt(total)}</div>
                       {totalSavings > 0 && (
-                        <div style={{ fontSize: 10.5, color: '#fca5a5', fontWeight: 700, marginTop: 3 }}>
+                        <div style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 700, marginTop: 3 }}>
                           Пести {fmt(totalSavings)} спрямо редовна цена
                         </div>
                       )}
@@ -1364,9 +1403,9 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
   const totalItems = cartItems.reduce((s, i) => s + i.qty, 0)
   const { fmt, fmtLiter } = makeFmt(currencySymbol ?? '€')
 
-  // Listen for header cart button click
+  // Listen for header cart button click — toggle open/close
   useEffect(() => {
-    const handler = () => setDrawerOpen(true)
+    const handler = () => setDrawerOpen(prev => !prev)
     window.addEventListener('cart:open', handler)
     return () => window.removeEventListener('cart:open', handler)
   }, [])
