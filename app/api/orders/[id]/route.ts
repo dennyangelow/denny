@@ -1,12 +1,94 @@
-// app/api/orders/[id]/route.ts — v3 с abandoned order check
+// app/api/orders/[id]/route.ts — v4 MERGED
+// ✅ PATCH поддържа 2 режима:
+//    1. Status/tracking update (status, payment_status, tracking_number, courier)
+//    2. Post-purchase upsell (add_items, add_to_total, offer_type, add_to_notes)
+// ✅ Tracking имейл при shipped
+// ✅ GET с order_items
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { Resend } from 'resend'
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const body = await req.json()
+    const orderId = params.id
+    const body    = await req.json()
+
+    // ── 1. POST-PURCHASE UPSELL режим ────────────────────────────────────────
+    // Разпознаваме по наличието на add_items или add_to_total
+    if (body.add_items || body.add_to_total !== undefined) {
+      const {
+        add_items,
+        offer_type,
+        add_to_notes,
+        add_to_total,
+      } = body
+
+      // Взимаме оригиналната поръчка
+      const { data: order, error: fetchError } = await supabaseAdmin
+        .from('orders')
+        .select('*, order_items(*)')
+        .eq('id', orderId)
+        .single()
+
+      if (fetchError || !order) {
+        return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+      }
+
+      // Добавяме новите items
+      if (add_items && Array.isArray(add_items) && add_items.length > 0) {
+        const newItems = add_items.map((item: any) => ({
+          order_id:     orderId,
+          product_name: item.product_name,
+          quantity:     item.quantity,
+          unit_price:   item.unit_price,
+          total_price:  item.total_price,
+        }))
+
+        const { error: itemsError } = await supabaseAdmin
+          .from('order_items')
+          .insert(newItems)
+
+        if (itemsError) {
+          console.error('Error inserting post-purchase items:', itemsError)
+          return NextResponse.json({ error: itemsError.message }, { status: 500 })
+        }
+      }
+
+      // Update-ваме поръчката: total, offer_type, notes
+      const newTotal = (order.total || 0) + (add_to_total || 0)
+      const newNotes = [
+        order.customer_notes || '',
+        add_to_notes || '',
+      ].filter(Boolean).join(' ').trim()
+
+      const { error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update({
+          total:                    +newTotal.toFixed(2),
+          offer_type:               offer_type || order.offer_type || null,
+          customer_notes:           newNotes || null,
+          has_post_purchase_upsell: true,
+          updated_at:               new Date().toISOString(),
+        })
+        .eq('id', orderId)
+
+      if (updateError) {
+        console.error('Error updating order (upsell):', updateError)
+        return NextResponse.json({ error: updateError.message }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        success:   true,
+        order_id:  orderId,
+        new_total: newTotal,
+      })
+    }
+
+    // ── 2. STATUS / TRACKING UPDATE режим ────────────────────────────────────
     const updates: Record<string, any> = {}
 
     if (body.status !== undefined)           updates.status           = body.status
@@ -19,6 +101,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     updates.updated_at = new Date().toISOString()
 
+    // Ако няма реални промени (само updated_at), връщаме success без DB call
     if (Object.keys(updates).length === 1) {
       return NextResponse.json({ success: true })
     }
@@ -26,7 +109,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { data, error } = await supabaseAdmin
       .from('orders')
       .update(updates)
-      .eq('id', params.id)
+      .eq('id', orderId)
       .select()
       .single()
 
@@ -65,11 +148,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     return NextResponse.json({ success: true, order: data })
   } catch (error: any) {
+    console.error('PATCH /api/orders/[id] error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   const { data, error } = await supabaseAdmin
     .from('orders')
     .select('*, order_items(*)')
