@@ -99,6 +99,7 @@ interface CartItem {
   variantLabel: string; price: number; comparePrice: number; qty: number
   emoji: string; img: string; size_liters: number
   fromOffer?: boolean
+  offerType?: 'cart_upsell' | 'cross_sell'
 }
 
 interface Props {
@@ -289,6 +290,7 @@ function OfferCard({
       comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice,
       qty: 1, emoji: product.emoji, img: product.img || '', size_liters: variant.size_liters,
       fromOffer: true,
+      offerType: offer.type === 'cross_sell' ? 'cross_sell' : 'cart_upsell',
     })
     setJustAdded(true)
     setTimeout(() => setJustAdded(false), 1800)
@@ -607,8 +609,8 @@ function CartItemRow({
     : 0
 
   return (
-    <div style={{ display: 'flex', gap: 14, padding: '14px 0', borderBottom: '1px solid #f8fafc', alignItems: 'flex-start' }}>
-      <div style={{ width: 62, height: 62, flexShrink: 0, borderRadius: 14, overflow: 'hidden', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0' }}>
+    <div style={{ display: 'flex', gap: 12, padding: '14px 0', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
+      <div style={{ width: 58, height: 58, flexShrink: 0, borderRadius: 12, overflow: 'hidden', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0' }}>
         {item.img
           ? <img src={item.img} alt={item.productName} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           : <span style={{ fontSize: 28 }}>{item.emoji}</span>}
@@ -645,22 +647,18 @@ function CartItemRow({
         )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: '#f8fafc', borderRadius: 10, padding: '3px', border: '1px solid #f1f5f9' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: '#f1f5f9', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
           <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)}
-            style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>−</button>
-          <span style={{ fontSize: 13, fontWeight: 800, minWidth: 22, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
+            style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, fontFamily: 'inherit', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' as any }}>−</button>
+          <span style={{ fontSize: 14, fontWeight: 800, minWidth: 26, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
           <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)}
-            style={{ width: 28, height: 28, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 16, fontFamily: 'inherit', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#e2e8f0' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>+</button>
+            style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, fontFamily: 'inherit', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' as any }}>+</button>
         </div>
         <button onClick={() => onRemove(item.variantId)}
-          style={{ fontSize: 10.5, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 6, transition: 'color .15s' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#dc2626' }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8' }}>Премахни</button>
+          style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 8px', borderRadius: 6, WebkitTapHighlightColor: 'transparent' as any }}>
+          🗑
+        </button>
       </div>
     </div>
   )
@@ -763,7 +761,16 @@ function CartDrawer({
         body: JSON.stringify({
           customer_name: form.name.trim(), customer_phone: form.phone.trim(),
           customer_city: form.city.trim(), customer_address: form.address.trim(),
-          customer_notes: form.notes.trim() || null,
+          customer_notes: (() => {
+            const hasUpsell   = items.some(i => i.fromOffer && (i as any).offerType === 'cart_upsell')
+            const hasCross    = items.some(i => i.fromOffer && (i as any).offerType === 'cross_sell')
+            const hasAnyOffer = items.some(i => i.fromOffer)
+            const markers: string[] = []
+            if (hasUpsell || (hasAnyOffer && !hasCross)) markers.push('[CART-UPSELL]')
+            if (hasCross) markers.push('[CROSS-SELL]')
+            const base = form.notes.trim()
+            return markers.length > 0 ? [base,...markers].filter(Boolean).join(' ').trim() : base || null
+          })(),
           courier: form.courier, payment_method: 'cod',
           items: orderItems, subtotal: +subtotal.toFixed(2),
           shipping: +shipping.toFixed(2), total: +total.toFixed(2),
@@ -793,25 +800,185 @@ function CartDrawer({
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
-        .cart-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-        .cart-drawer{position:fixed;right:0;top:0;bottom:0;width:100%;max-width:480px;background:#fff;z-index:9999;display:flex;flex-direction:column;box-shadow:-20px 0 80px rgba(0,0,0,.2);animation:slideIn .3s cubic-bezier(.4,0,.2,1);font-family:'Outfit','DM Sans',sans-serif}
-        @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
-        @keyframes offerFadeOut{0%{opacity:1}70%{opacity:1}100%{opacity:0}}
-        .cart-inner{flex:1;overflow-y:auto;padding:20px 22px;overscroll-behavior:contain}
-        .cart-inner::-webkit-scrollbar{width:4px}
+
+        /* ── Overlay ── */
+        .cart-overlay{
+          position:fixed;inset:0;
+          background:rgba(15,23,42,.6);
+          z-index:9998;
+          backdrop-filter:blur(4px);
+          -webkit-backdrop-filter:blur(4px);
+        }
+
+        /* ── Drawer — desktop ── */
+        .cart-drawer{
+          position:fixed;
+          right:0;
+          top:0;
+          bottom:0;
+          width:100%;
+          max-width:480px;
+          background:#fff;
+          z-index:9999;
+          display:flex;
+          flex-direction:column;
+          box-shadow:-20px 0 80px rgba(0,0,0,.25);
+          animation:cartSlideIn .3s cubic-bezier(.4,0,.2,1);
+          font-family:'Outfit','DM Sans',sans-serif;
+          /* Safe area iOS */
+          padding-bottom:env(safe-area-inset-bottom,0px);
+        }
+
+        /* ── Drawer — мобилни: пълен екран slide-up от дъното ── */
+        @media(max-width:600px){
+          .cart-drawer{
+            top:0;
+            left:0;
+            right:0;
+            bottom:0;
+            max-width:100%;
+            border-radius:0;
+            animation:cartSlideUp .32s cubic-bezier(.4,0,.2,1);
+          }
+        }
+
+        @keyframes cartSlideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+        @keyframes cartSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+
+        /* ── Header — sticky, винаги видим ── */
+        .cart-header{
+          padding:14px 18px;
+          border-bottom:1.5px solid #f1f5f9;
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          background:#fff;
+          flex-shrink:0;
+          position:relative;
+          z-index:2;
+        }
+        @media(max-width:600px){
+          .cart-header{
+            padding:16px 16px 14px;
+            /* Safe area top за iPhone notch */
+            padding-top:calc(16px + env(safe-area-inset-top,0px));
+          }
+        }
+
+        /* ── Scrollable съдържание ── */
+        .cart-inner{
+          flex:1;
+          overflow-y:auto;
+          -webkit-overflow-scrolling:touch;
+          overscroll-behavior:contain;
+          padding:16px 20px;
+          min-height:0; /* важно за flex scroll! */
+        }
+        .cart-inner::-webkit-scrollbar{width:3px}
         .cart-inner::-webkit-scrollbar-thumb{background:#e2e8f0;border-radius:99px}
-        .cart-footer{padding:16px 22px 22px;border-top:1.5px solid #f1f5f9;background:#fff}
-        .cart-input{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px;color:#0f172a;background:#fff;transition:border-color .15s,box-shadow .15s}
+        @media(max-width:600px){
+          .cart-inner{padding:14px 16px;}
+        }
+
+        /* ── Footer — sticky дъно ── */
+        .cart-footer{
+          padding:14px 20px 18px;
+          border-top:1.5px solid #f1f5f9;
+          background:#fff;
+          flex-shrink:0;
+          /* Safe area iOS home indicator */
+          padding-bottom:max(18px,env(safe-area-inset-bottom,18px));
+        }
+        @media(max-width:600px){
+          .cart-footer{padding:12px 16px max(16px,env(safe-area-inset-bottom,16px));}
+        }
+
+        /* ── Inputs ── */
+        .cart-input{
+          width:100%;
+          padding:13px 14px;
+          border:1.5px solid #e2e8f0;
+          border-radius:12px;
+          font-family:inherit;
+          font-size:16px; /* 16px на мобилни — предотвратява zoom при focus! */
+          outline:none;
+          box-sizing:border-box;
+          margin-bottom:10px;
+          color:#0f172a;
+          background:#fff;
+          transition:border-color .15s,box-shadow .15s;
+          -webkit-appearance:none;
+          appearance:none;
+        }
         .cart-input:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.1)}
         .cart-input::placeholder{color:#cbd5e1}
-        .cart-btn-primary{width:100%;padding:15px;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;border-radius:14px;font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;transition:all .2s;box-shadow:0 4px 16px rgba(22,163,74,.3);letter-spacing:-.01em}
+
+        /* ── Бутони ── */
+        .cart-btn-primary{
+          width:100%;
+          padding:16px;
+          background:linear-gradient(135deg,#16a34a,#15803d);
+          color:#fff;
+          border:none;
+          border-radius:14px;
+          font-weight:800;
+          font-size:15px;
+          cursor:pointer;
+          font-family:inherit;
+          transition:all .2s;
+          box-shadow:0 4px 16px rgba(22,163,74,.3);
+          letter-spacing:-.01em;
+          touch-action:manipulation;
+          -webkit-tap-highlight-color:transparent;
+        }
         .cart-btn-primary:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
-        .cart-btn-primary:hover:not(:disabled){filter:brightness(1.05);transform:translateY(-1px);box-shadow:0 8px 24px rgba(22,163,74,.4)}
-        .cart-btn-secondary{width:100%;padding:12px;background:#f8fafc;color:#64748b;border:1.5px solid #f1f5f9;border-radius:14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;margin-top:8px;transition:all .15s}
-        .cart-btn-secondary:hover{background:#f1f5f9;color:#0f172a}
-        .cart-close-btn{width:40px;height:40px;border:none;background:#f1f5f9;border-radius:12px;cursor:pointer;font-size:18px;color:#475569;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;line-height:1}
-        .cart-close-btn:hover{background:#e2e8f0;color:#0f172a;transform:scale(1.08)}
-        @media(max-width:480px){.cart-drawer{max-width:100%}}
+        .cart-btn-primary:hover:not(:disabled){filter:brightness(1.05);box-shadow:0 8px 24px rgba(22,163,74,.4)}
+        .cart-btn-primary:active:not(:disabled){transform:scale(.98)}
+
+        .cart-btn-secondary{
+          width:100%;
+          padding:13px;
+          background:#f8fafc;
+          color:#64748b;
+          border:1.5px solid #f1f5f9;
+          border-radius:14px;
+          font-weight:700;
+          font-size:14px;
+          cursor:pointer;
+          font-family:inherit;
+          margin-top:8px;
+          transition:all .15s;
+          touch-action:manipulation;
+          -webkit-tap-highlight-color:transparent;
+        }
+        .cart-btn-secondary:active{background:#f1f5f9;color:#0f172a}
+
+        /* ── Close бутон ── */
+        .cart-close-btn{
+          width:44px;
+          height:44px; /* 44px minimum tap target */
+          border:none;
+          background:#f1f5f9;
+          border-radius:12px;
+          cursor:pointer;
+          font-size:18px;
+          color:#475569;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          transition:all .15s;
+          flex-shrink:0;
+          touch-action:manipulation;
+          -webkit-tap-highlight-color:transparent;
+        }
+        .cart-close-btn:active{background:#e2e8f0;color:#0f172a;transform:scale(.95)}
+
+        /* ── Courier buttons на мобилни ── */
+        @media(max-width:600px){
+          .courier-grid{flex-direction:row!important;gap:8px!important}
+          .cart-city-addr{flex-direction:column!important;gap:0!important}
+          .cart-city-addr .cart-input{margin-bottom:10px}
+        }
       `}</style>
 
       {postPurchaseOffer && (
@@ -825,7 +992,7 @@ function CartDrawer({
       <div className="cart-overlay" onClick={onClose} />
       <div className="cart-drawer">
         {/* Header */}
-        <div style={{ padding: '18px 22px', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff' }}>
+        <div className="cart-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: done ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#0f172a,#1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
               {done ? '✅' : step === 'cart' ? '🛒' : '📦'}
@@ -866,8 +1033,8 @@ function CartDrawer({
         /* ── Количка ── */
         ) : step === 'cart' ? (
           <>
-            {/* Scrollable items area with max height */}
-            <div className="cart-inner" style={{ maxHeight: 'calc(100vh - 420px)', minHeight: 80 }}>
+            {/* Scrollable items area */}
+            <div className="cart-inner">
               {items.length === 0 ? (
                 <div style={{ textAlign: 'center', paddingTop: 64, paddingBottom: 32 }}>
                   <div style={{ fontSize: 56, marginBottom: 16 }}>🛒</div>
@@ -996,7 +1163,7 @@ function CartDrawer({
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 12 }}>👤 Данни за доставка</div>
                 <input className="cart-input" placeholder="Имена *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
                 <input className="cart-input" placeholder="Телефон *" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div className="cart-city-addr" style={{ display: 'flex', gap: 8 }}>
                   <input className="cart-input" placeholder="Град *" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} style={{ flex: 1 }} />
                   <input className="cart-input" placeholder="Адрес *" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} style={{ flex: 2 }} />
                 </div>

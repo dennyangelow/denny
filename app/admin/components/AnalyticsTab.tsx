@@ -22,17 +22,27 @@ interface Props {
   orders:    Order[]
 }
 
-// ─── Offer detection (mirror from OrdersTab) ───────────────────────────────────
-function isPostPurchaseOrder(o: Order) {
-  return !!o.customer_notes?.includes('[POST-PURCHASE UPSELL]')
+// ─── ЦЕНТРАЛИЗИРАНА OFFER DETECTION (идентична с OrdersTab) ───────────────────
+// Primary: notes markers записани от checkout
+// Fallback: product_name patterns
+
+type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell' | null
+
+function getOfferType(o: Order): OfferType {
+  const notes = o.customer_notes || ''
+  if (notes.includes('[POST-PURCHASE UPSELL]')) return 'post_purchase'
+  if (notes.includes('[CART-UPSELL]'))          return 'cart_upsell'
+  if (notes.includes('[CROSS-SELL]'))           return 'cross_sell'
+  if (notes.includes('[HAS-OFFER]'))            return 'cart_upsell'
+  // Fallback by product name
+  const items = o.order_items || []
+  if (items.some(i => (i.product_name || '').toLowerCase().includes('upsell'))) return 'cart_upsell'
+  if (items.some(i => (i.product_name || '').toLowerCase().includes('cross')))  return 'cross_sell'
+  if (items.some(i => /\(-\d+%\)/.test(i.product_name || '')))                 return 'cross_sell'
+  return null
 }
-function hasOfferItem(o: Order) {
-  return (o.order_items || []).some(i =>
-    i.product_name?.includes('(-') ||
-    i.product_name?.toLowerCase().includes('upsell') ||
-    i.product_name?.toLowerCase().includes('cross')
-  )
-}
+
+
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 function MetricCard({ label, value, prev, color, icon }: {
@@ -224,20 +234,18 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
 
   // ── 🆕 OFFER ANALYTICS ────────────────────────────────────────────────────
   const offerStats = useMemo(() => {
-    const active    = orders.filter(o => o.status !== 'cancelled')
-    const withOffer = active.filter(o => hasOfferItem(o) || isPostPurchaseOrder(o))
-    const postPurch = active.filter(isPostPurchaseOrder)
-    const upsell    = active.filter(o =>
-      !isPostPurchaseOrder(o) &&
-      (o.order_items || []).some(i => i.product_name?.toLowerCase().includes('upsell'))
-    )
-    const crossSell = active.filter(o =>
-      !isPostPurchaseOrder(o) &&
-      !(o.order_items || []).some(i => i.product_name?.toLowerCase().includes('upsell')) &&
-      hasOfferItem(o)
-    )
+    const active     = orders.filter(o => o.status !== 'cancelled')
+    const postPurch  = active.filter(o => getOfferType(o) === 'post_purchase')
+    const upsell     = active.filter(o => getOfferType(o) === 'cart_upsell')
+    const crossSell  = active.filter(o => getOfferType(o) === 'cross_sell')
+    const withOffer  = active.filter(o => getOfferType(o) !== null)
+
+    // ❗ За основните метрики (приход, брой поръчки) изключваме post-purchase
+    // защото те са нова отделна поръчка — не трябва да се броят двойно
+    // в "нормалния" приход. Те се показват САМО в offer analytics секцията.
     const offerRev  = withOffer.reduce((s, o) => s + Number(o.total), 0)
     const totalRev  = active.reduce((s, o) => s + Number(o.total), 0)
+    // offerRate = % от активните поръчки, rate на оферти
     const offerRate = active.length ? Math.round(withOffer.length / active.length * 100) : 0
     const revShare  = totalRev ? Math.round(offerRev / totalRev * 100) : 0
 
@@ -251,12 +259,12 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
     active.forEach(o => {
       const d = o.created_at.slice(0, 10)
       if (!dailyMap[d]) return
-      if (hasOfferItem(o) || isPostPurchaseOrder(o)) dailyMap[d].offer++
+      if (getOfferType(o) !== null) dailyMap[d].offer++
       else dailyMap[d].normal++
     })
     const dailyChart = Object.entries(dailyMap).map(([date, v]) => ({ date: date.slice(5), ...v }))
 
-    // Offer type pie
+    // Offer type pie — показва всичките 3 типа
     const typePie = [
       { name: '⚡ Post-purchase', value: postPurch.length, color: '#dc2626' },
       { name: '⬆️ Ъпсел',        value: upsell.length,    color: '#7c3aed' },
@@ -321,9 +329,12 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
             <OfferStatCard icon="⚡" label="POST-PURCHASE"
               gradient="linear-gradient(135deg,#dc2626,#b91c1c)"
               value={offerStats.postPurch.length} sub="след поръчка" />
-            <OfferStatCard icon="⬆️" label="ЪПСЕЛ / КРОС-СЕЛ"
+            <OfferStatCard icon="⬆️" label="ЪПСЕЛ"
+              gradient="linear-gradient(135deg,#7c3aed,#5b21b6)"
+              value={offerStats.upsell.length} sub="upgrade в количката" />
+            <OfferStatCard icon="🔀" label="КРОС-СЕЛ"
               gradient="linear-gradient(135deg,#0369a1,#1d4ed8)"
-              value={offerStats.upsell.length + offerStats.crossSell.length} sub="в количката" />
+              value={offerStats.crossSell.length} sub="допълващ продукт" />
             <OfferStatCard icon="💶" label="ПРИХОД ОТ ОФЕРТИ"
               gradient="linear-gradient(135deg,#059669,#047857)"
               value={formatPrice(offerStats.offerRev)}

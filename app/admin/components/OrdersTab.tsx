@@ -1,5 +1,5 @@
 'use client'
-// app/admin/components/OrdersTab.tsx — v5 с sorting, inline status edit, column density
+// app/admin/components/OrdersTab.tsx — v6 с правилна offer detection по notes маркери
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { Order } from '@/lib/supabase'
@@ -13,30 +13,48 @@ const PAGE_SIZE = 15
 type SortField = 'date' | 'total' | 'name' | 'status'
 type SortDir   = 'asc' | 'desc'
 
-// ─── Offer detection helpers ───────────────────────────────────────────────────
-function isPostPurchaseOrder(o: Order) {
-  return !!o.customer_notes?.includes('[POST-PURCHASE UPSELL]')
-}
-function hasUpsellItem(o: Order) {
-  return (o.order_items || []).some(i =>
-    i.product_name?.includes('upsell') ||
-    i.product_name?.toLowerCase().includes('post-purchase') ||
-    i.product_name?.includes('(-') // варианти добавени от оферта имат (-X%)
+// ─── ЦЕНТРАЛИЗИРАНА OFFER DETECTION ───────────────────────────────────────────
+// Checkout трябва да записва маркери в customer_notes:
+//   [POST-PURCHASE UPSELL]  → post-purchase оферта (нова отделна поръчка)
+//   [CART-UPSELL]           → cart upsell (upgrade в количката)
+//   [CROSS-SELL]            → cross-sell (допълващ продукт в количката)
+//
+// Fallback: ако checkout не маркира → detection по product_name
+
+export type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell' | null
+
+export function getOfferType(o: Order): OfferType {
+  const notes = o.customer_notes || ''
+  // Primary: notes markers (set by checkout)
+  if (notes.includes('[POST-PURCHASE UPSELL]')) return 'post_purchase'
+  if (notes.includes('[CART-UPSELL]'))          return 'cart_upsell'
+  if (notes.includes('[CROSS-SELL]'))           return 'cross_sell'
+  if (notes.includes('[HAS-OFFER]'))            return 'cart_upsell'
+
+  // Fallback: product_name patterns (legacy / manual)
+  const items = o.order_items || []
+  const hasDiscountMarker = items.some(i => /\(-\d+%\)/.test(i.product_name || ''))
+  const hasUpsellName     = items.some(i =>
+    (i.product_name || '').toLowerCase().includes('upsell')
   )
-}
-function hasOfferItem(o: Order) {
-  // Items whose product_name contains special offer markers
-  return (o.order_items || []).some(i =>
-    i.product_name?.includes('(-') ||
-    i.product_name?.toLowerCase().includes('upsell') ||
-    i.product_name?.toLowerCase().includes('cross')
+  const hasCrossName = items.some(i =>
+    (i.product_name || '').toLowerCase().includes('cross')
   )
-}
-function getOfferType(o: Order): 'post_purchase' | 'upsell' | 'cross_sell' | null {
-  if (isPostPurchaseOrder(o)) return 'post_purchase'
-  if ((o.order_items || []).some(i => i.product_name?.toLowerCase().includes('upsell'))) return 'upsell'
-  if (hasOfferItem(o)) return 'cross_sell'
+  if (hasUpsellName)     return 'cart_upsell'
+  if (hasCrossName)      return 'cross_sell'
+  if (hasDiscountMarker) return 'cross_sell'
   return null
+}
+
+export function hasAnyOffer(o: Order): boolean {
+  return getOfferType(o) !== null
+}
+
+// ─── Offer type metadata ───────────────────────────────────────────────────────
+export const OFFER_META: Record<NonNullable<OfferType>, { label: string; icon: string; color: string; bg: string; border: string }> = {
+  post_purchase: { label: 'Post-purchase', icon: '⚡', color: '#dc2626', bg: '#fff1f2', border: '#fecaca' },
+  cart_upsell:   { label: 'Ъпсел',         icon: '⬆️', color: '#7c3aed', bg: '#f5f3ff', border: '#ede9fe' },
+  cross_sell:    { label: 'Крос-сел',       icon: '🔀', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
 }
 
 interface Props {
@@ -129,17 +147,17 @@ function SortTh({ label, field, sort, dir, onSort }: {
 
 export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrder }: Props) {
   const { fmt: formatPrice } = useCurrency()
-  const [filter, setFilter]     = useState<OrderStatus>('all')
-  const [offerFilter, setOfferFilter] = useState<'all' | 'has_offer' | 'post_purchase'>('all')
-  const [search, setSearch]     = useState('')
-  const [page, setPage]         = useState(1)
-  const [selected, setSelected] = useState<Order | null>(null)
-  const [checked, setChecked]   = useState<Set<string>>(new Set())
+  const [filter, setFilter]         = useState<OrderStatus>('all')
+  const [offerFilter, setOfferFilter] = useState<'all' | 'has_offer' | 'post_purchase' | 'cart_upsell' | 'cross_sell'>('all')
+  const [search, setSearch]         = useState('')
+  const [page, setPage]             = useState(1)
+  const [selected, setSelected]     = useState<Order | null>(null)
+  const [checked, setChecked]       = useState<Set<string>>(new Set())
   const [bulkStatus, setBulkStatus] = useState('')
   const [bulkLoading, setBulkLoading] = useState(false)
-  const [sort, setSort]         = useState<SortField>('date')
-  const [sortDir, setSortDir]   = useState<SortDir>('desc')
-  const [density, setDensity]   = useState<'comfortable' | 'compact'>('comfortable')
+  const [sort, setSort]             = useState<SortField>('date')
+  const [sortDir, setSortDir]       = useState<SortDir>('desc')
+  const [density, setDensity]       = useState<'comfortable' | 'compact'>('comfortable')
 
   useEffect(() => { if (initialOrder) setSelected(initialOrder) }, [initialOrder])
 
@@ -148,19 +166,24 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
     else { setSort(field); setSortDir('desc') }
   }
 
+  // ── Offer stats (всички поръчки, не само филтрираните) ─────────────────────
   const offerStats = useMemo(() => {
-    const all = orders.filter(o => o.status !== 'cancelled')
-    const withOffer = all.filter(o => hasOfferItem(o) || isPostPurchaseOrder(o))
-    const postPurch = all.filter(isPostPurchaseOrder)
-    const upsellCross = all.filter(o => !isPostPurchaseOrder(o) && hasOfferItem(o))
+    const active     = orders.filter(o => o.status !== 'cancelled')
+    const postPurch  = active.filter(o => getOfferType(o) === 'post_purchase')
+    const cartUpsell = active.filter(o => getOfferType(o) === 'cart_upsell')
+    const crossSell  = active.filter(o => getOfferType(o) === 'cross_sell')
+    const withOffer  = active.filter(o => getOfferType(o) !== null)
+
     const offerRevenue = withOffer.reduce((s, o) => s + Number(o.total), 0)
-    const totalRevenue = all.reduce((s, o) => s + Number(o.total), 0)
+    const totalRevenue = active.reduce((s, o) => s + Number(o.total), 0)
+
     return {
-      total: withOffer.length,
-      postPurch: postPurch.length,
-      upsellCross: upsellCross.length,
+      total:       withOffer.length,
+      postPurch:   postPurch.length,
+      cartUpsell:  cartUpsell.length,
+      crossSell:   crossSell.length,
       offerRevenue,
-      offerRate: all.length ? Math.round(withOffer.length / all.length * 100) : 0,
+      offerRate:    active.length ? Math.round(withOffer.length / active.length * 100) : 0,
       revenueShare: totalRevenue ? Math.round(offerRevenue / totalRevenue * 100) : 0,
     }
   }, [orders])
@@ -170,8 +193,10 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
     let result = orders
       .filter(o => filter === 'all' || o.status === filter)
       .filter(o => {
-        if (offerFilter === 'has_offer') return hasOfferItem(o) || isPostPurchaseOrder(o)
-        if (offerFilter === 'post_purchase') return isPostPurchaseOrder(o)
+        if (offerFilter === 'has_offer')     return getOfferType(o) !== null
+        if (offerFilter === 'post_purchase') return getOfferType(o) === 'post_purchase'
+        if (offerFilter === 'cart_upsell')   return getOfferType(o) === 'cart_upsell'
+        if (offerFilter === 'cross_sell')    return getOfferType(o) === 'cross_sell'
         return true
       })
       .filter(o => !q ||
@@ -192,8 +217,8 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
     return result
   }, [orders, filter, offerFilter, search, sort, sortDir])
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages   = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated    = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalRevenue = filtered.filter(o => o.status !== 'cancelled').reduce((s, o) => s + Number(o.total), 0)
 
   const toggleCheck = (id: string) => setChecked(prev => {
@@ -214,15 +239,20 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
 
   const exportCSV = () => {
     const rows = [
-      ['Номер','Клиент','Телефон','Имейл','Адрес','Град','Куриер','Плащане','Статус','Статус плащане','Сума (€)','Дата'],
-      ...filtered.map(o => [
-        o.order_number, o.customer_name, o.customer_phone,
-        o.customer_email || '', o.customer_address, o.customer_city,
-        o.courier ? COURIER_LABELS[o.courier]?.label : 'Еконт',
-        PAYMENT_LABELS[o.payment_method], STATUS_LABELS[o.status]?.label,
-        o.payment_status, Number(o.total).toFixed(2),
-        new Date(o.created_at).toLocaleDateString('bg-BG'),
-      ]),
+      ['Номер','Клиент','Телефон','Имейл','Адрес','Град','Куриер','Плащане','Статус','Статус плащане','Оферта','Сума (€)','Дата'],
+      ...filtered.map(o => {
+        const ot = getOfferType(o)
+        return [
+          o.order_number, o.customer_name, o.customer_phone,
+          o.customer_email || '', o.customer_address, o.customer_city,
+          o.courier ? COURIER_LABELS[o.courier]?.label : 'Еконт',
+          PAYMENT_LABELS[o.payment_method], STATUS_LABELS[o.status]?.label,
+          o.payment_status,
+          ot ? OFFER_META[ot].label : '—',
+          Number(o.total).toFixed(2),
+          new Date(o.created_at).toLocaleDateString('bg-BG'),
+        ]
+      }),
     ]
     const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
@@ -239,10 +269,10 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         .order-tr{transition:background .1s;cursor:pointer}
         .order-tr:hover td{background:#f9fafb!important}
         .filter-btn{transition:all .15s;cursor:pointer;font-family:inherit}
-        .offer-badge{display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:99px}
+        .offer-badge{display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:99px;border:1px solid}
       `}</style>
 
-      {/* Offer performance bar */}
+      {/* ── Offer performance bar ──────────────────────────────────────── */}
       {offerStats.total > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 140, background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', borderRadius: 13, padding: '13px 16px', color: '#fff' }}>
@@ -255,10 +285,15 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
             <div style={{ fontSize: 26, fontWeight: 900, lineHeight: 1 }}>{offerStats.postPurch}</div>
             <div style={{ fontSize: 11, opacity: .7, marginTop: 3 }}>след поръчка</div>
           </div>
+          <div style={{ flex: 1, minWidth: 140, background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', borderRadius: 13, padding: '13px 16px', color: '#fff' }}>
+            <div style={{ fontSize: 11, opacity: .7, fontWeight: 700, marginBottom: 4 }}>⬆️ ЪПСЕЛ</div>
+            <div style={{ fontSize: 26, fontWeight: 900, lineHeight: 1 }}>{offerStats.cartUpsell}</div>
+            <div style={{ fontSize: 11, opacity: .7, marginTop: 3 }}>upgrade в количката</div>
+          </div>
           <div style={{ flex: 1, minWidth: 140, background: 'linear-gradient(135deg,#0369a1,#1d4ed8)', borderRadius: 13, padding: '13px 16px', color: '#fff' }}>
-            <div style={{ fontSize: 11, opacity: .7, fontWeight: 700, marginBottom: 4 }}>⬆️ ЪПСЕЛ / КРОС-СЕЛ</div>
-            <div style={{ fontSize: 26, fontWeight: 900, lineHeight: 1 }}>{offerStats.upsellCross}</div>
-            <div style={{ fontSize: 11, opacity: .7, marginTop: 3 }}>в количката</div>
+            <div style={{ fontSize: 11, opacity: .7, fontWeight: 700, marginBottom: 4 }}>🔀 КРОС-СЕЛ</div>
+            <div style={{ fontSize: 26, fontWeight: 900, lineHeight: 1 }}>{offerStats.crossSell}</div>
+            <div style={{ fontSize: 11, opacity: .7, marginTop: 3 }}>допълващ продукт</div>
           </div>
           <div style={{ flex: 1, minWidth: 140, background: 'linear-gradient(135deg,#059669,#047857)', borderRadius: 13, padding: '13px 16px', color: '#fff' }}>
             <div style={{ fontSize: 11, opacity: .7, fontWeight: 700, marginBottom: 4 }}>💶 ПРИХОД ОТ ОФЕРТИ</div>
@@ -276,7 +311,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </div>
       )}
 
-      {/* Header */}
+      {/* ── Header ────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: 0 }}>Поръчки</h1>
@@ -285,7 +320,6 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Density toggle */}
           <div style={{ display: 'flex', background: '#f3f4f6', borderRadius: 8, padding: 3, gap: 2 }}>
             {(['comfortable', 'compact'] as const).map(d => (
               <button key={d} onClick={() => setDensity(d)}
@@ -309,7 +343,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </div>
       </div>
 
-      {/* Filter tabs */}
+      {/* ── Status filter tabs ─────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         {ORDER_STATUSES.map(s => {
           const count    = orders.filter(o => s === 'all' ? true : o.status === s).length
@@ -330,13 +364,15 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         })}
       </div>
 
-      {/* Offer filter row */}
+      {/* ── Offer filter row ──────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', marginRight: 2 }}>📣 Оферти:</span>
         {([
-          { key: 'all',           label: 'Всички', color: '#6b7280', bg: '#f3f4f6' },
-          { key: 'has_offer',     label: '✨ С оферта', color: '#7c3aed', bg: '#f5f3ff' },
+          { key: 'all',           label: 'Всички',          color: '#6b7280', bg: '#f3f4f6' },
+          { key: 'has_offer',     label: '✨ С оферта',      color: '#7c3aed', bg: '#f5f3ff' },
           { key: 'post_purchase', label: '⚡ Post-purchase', color: '#dc2626', bg: '#fff1f2' },
+          { key: 'cart_upsell',   label: '⬆️ Ъпсел',        color: '#7c3aed', bg: '#f5f3ff' },
+          { key: 'cross_sell',    label: '🔀 Крос-сел',      color: '#1d4ed8', bg: '#eff6ff' },
         ] as const).map(opt => (
           <button key={opt.key} className="filter-btn"
             onClick={() => { setOfferFilter(opt.key); setPage(1) }}
@@ -351,7 +387,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         ))}
       </div>
 
-      {/* Bulk bar */}
+      {/* ── Bulk bar ──────────────────────────────────────────────────── */}
       {checked.size > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>{checked.size} избрани</span>
@@ -371,22 +407,22 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </div>
       )}
 
-      {/* Table */}
+      {/* ── Table ─────────────────────────────────────────────────────── */}
       <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 680 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 700 }}>
             <thead>
               <tr>
                 <th style={{ width: 40, padding: '11px 14px', background: '#f9fafb', borderBottom: '1px solid var(--border)' }}>
                   <input type="checkbox" checked={checked.size === paginated.length && paginated.length > 0} onChange={toggleAll} style={{ cursor: 'pointer' }} />
                 </th>
-                <SortTh label="Номер"   field="date"   sort={sort} dir={sortDir} onSort={handleSort} />
-                <SortTh label="Клиент"  field="name"   sort={sort} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Номер"  field="date"   sort={sort} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Клиент" field="name"   sort={sort} dir={sortDir} onSort={handleSort} />
                 <th style={{ padding: '11px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid var(--border)', background: '#f9fafb', whiteSpace: 'nowrap' }}>Куриер</th>
-                <SortTh label="Статус"  field="status" sort={sort} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Статус" field="status" sort={sort} dir={sortDir} onSort={handleSort} />
                 <th style={{ padding: '11px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid var(--border)', background: '#f9fafb', whiteSpace: 'nowrap' }}>📣 Оферта</th>
-                <SortTh label="Сума"    field="total"  sort={sort} dir={sortDir} onSort={handleSort} />
-                <SortTh label="Дата"    field="date"   sort={sort} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Сума"   field="total"  sort={sort} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Дата"   field="date"   sort={sort} dir={sortDir} onSort={handleSort} />
               </tr>
             </thead>
             <tbody>
@@ -397,55 +433,55 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
               )}
               {paginated.map(o => {
                 const offerType = getOfferType(o)
+                const offerM    = offerType ? OFFER_META[offerType] : null
                 return (
-                <tr key={o.id} className="order-tr"
-                  style={{ background: checked.has(o.id) ? '#f0fdf4' : '' }}>
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={e => e.stopPropagation()}>
-                    <input type="checkbox" checked={checked.has(o.id)} onChange={() => toggleCheck(o.id)} style={{ cursor: 'pointer' }} />
-                  </td>
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}>{o.order_number}</span>
-                  </td>
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{o.customer_name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{o.customer_phone}</div>
-                  </td>
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5', fontSize: 12, color: '#6b7280' }} onClick={() => setSelected(o)}>
-                    {o.courier ? COURIER_LABELS[o.courier]?.label : 'Еконт'}
-                  </td>
-                  {/* Inline status — click stops propagation */}
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={e => e.stopPropagation()}>
-                    <InlineStatusSelect order={o} onStatusChange={onStatusChange} />
-                  </td>
-                  {/* Offer badge */}
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
-                    {offerType === 'post_purchase' && (
-                      <span className="offer-badge" style={{ background: '#fff1f2', color: '#dc2626', border: '1px solid #fecaca' }}>⚡ Post-purchase</span>
-                    )}
-                    {offerType === 'upsell' && (
-                      <span className="offer-badge" style={{ background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ede9fe' }}>⬆️ Ъпсел</span>
-                    )}
-                    {offerType === 'cross_sell' && (
-                      <span className="offer-badge" style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>🔀 Крос-сел</span>
-                    )}
-                    {!offerType && (
-                      <span style={{ fontSize: 11, color: '#d1d5db' }}>—</span>
-                    )}
-                  </td>
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5', fontWeight: 700, textAlign: 'right', color: '#16a34a', whiteSpace: 'nowrap' }} onClick={() => setSelected(o)}>
-                    {formatPrice(o.total)}
-                  </td>
-                  <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }} onClick={() => setSelected(o)}>
-                    {new Date(o.created_at).toLocaleDateString('bg-BG', { day: '2-digit', month: 'short' })}
-                  </td>
-                </tr>
-              )})}
+                  <tr key={o.id} className="order-tr"
+                    style={{ background: checked.has(o.id) ? '#f0fdf4' : offerType === 'post_purchase' ? '#fffbfb' : '' }}>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={checked.has(o.id)} onChange={() => toggleCheck(o.id)} style={{ cursor: 'pointer' }} />
+                    </td>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}>{o.order_number}</span>
+                    </td>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{o.customer_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{o.customer_phone}</div>
+                    </td>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5', fontSize: 12, color: '#6b7280' }} onClick={() => setSelected(o)}>
+                      {o.courier ? COURIER_LABELS[o.courier]?.label : 'Еконт'}
+                    </td>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={e => e.stopPropagation()}>
+                      <InlineStatusSelect order={o} onStatusChange={onStatusChange} />
+                    </td>
+                    {/* Offer badge */}
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
+                      {offerM ? (
+                        <span className="offer-badge" style={{
+                          background: offerM.bg,
+                          color: offerM.color,
+                          borderColor: offerM.border,
+                        }}>
+                          {offerM.icon} {offerM.label}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#d1d5db' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5', fontWeight: 700, textAlign: 'right', color: '#16a34a', whiteSpace: 'nowrap' }} onClick={() => setSelected(o)}>
+                      {formatPrice(o.total)}
+                    </td>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }} onClick={() => setSelected(o)}>
+                      {new Date(o.created_at).toLocaleDateString('bg-BG', { day: '2-digit', month: 'short' })}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Pagination */}
+      {/* ── Pagination ────────────────────────────────────────────────── */}
       {totalPages > 1 && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 18 }}>
           <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
@@ -468,6 +504,18 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
             style={{ padding: '7px 16px', border: '1px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, opacity: page === totalPages ? .4 : 1 }}>
             Напред →
           </button>
+        </div>
+      )}
+
+      {/* ── Checkout маркери инфо ─────────────────────────────────────── */}
+      {offerStats.total === 0 && orders.length > 0 && (
+        <div style={{ marginTop: 20, padding: '14px 18px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, fontSize: 12, color: '#92400e' }}>
+          <strong>💡 Как checkout-ът маркира оферти в customer_notes:</strong>
+          <div style={{ marginTop: 6, fontFamily: 'monospace', lineHeight: 2 }}>
+            <div><code>[POST-PURCHASE UPSELL]</code> — post-purchase оферта (нова поръчка)</div>
+            <div><code>[CART-UPSELL]</code> — cart upsell (upgrade в количката)</div>
+            <div><code>[CROSS-SELL]</code> — cross-sell (допълващ продукт)</div>
+          </div>
         </div>
       )}
 
