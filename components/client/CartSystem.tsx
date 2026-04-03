@@ -426,7 +426,9 @@ function PostPurchaseModal({
         body: JSON.stringify({
           customer_name: customerData.name, customer_phone: customerData.phone,
           customer_city: customerData.city, customer_address: customerData.address,
-          customer_notes: `[POST-PURCHASE UPSELL] ${customerData.notes}`.trim(),
+          customer_notes: `[POST-PURCHASE UPSELL]${customerData.notes ? ' ' + customerData.notes : ''}`.trim(),
+          // offer_type за admin панела — показва се в колона "ОФЕРТА"
+          offer_type: 'post_purchase',
           courier: customerData.courier, payment_method: 'cod',
           items: [{
             product_name: `${product.name} — ${variant.label} (Post-purchase upsell)`,
@@ -756,6 +758,15 @@ function CartDrawer({
         unit_price:  i.price,
         total_price: +(i.price * i.qty).toFixed(2),
       }))
+
+      // Определяме offer_type за admin панела
+      const hasUpsell   = items.some(i => i.fromOffer && i.offerType === 'cart_upsell')
+      const hasCross    = items.some(i => i.fromOffer && i.offerType === 'cross_sell')
+      const hasAnyOffer = items.some(i => i.fromOffer)
+      const offerMarkers: string[] = []
+      if (hasUpsell || (hasAnyOffer && !hasCross)) offerMarkers.push('[CART-UPSELL]')
+      if (hasCross) offerMarkers.push('[CROSS-SELL]')
+
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -763,15 +774,11 @@ function CartDrawer({
           customer_name: form.name.trim(), customer_phone: form.phone.trim(),
           customer_city: form.city.trim(), customer_address: form.address.trim(),
           customer_notes: (() => {
-            const hasUpsell   = items.some(i => i.fromOffer && (i as any).offerType === 'cart_upsell')
-            const hasCross    = items.some(i => i.fromOffer && (i as any).offerType === 'cross_sell')
-            const hasAnyOffer = items.some(i => i.fromOffer)
-            const markers: string[] = []
-            if (hasUpsell || (hasAnyOffer && !hasCross)) markers.push('[CART-UPSELL]')
-            if (hasCross) markers.push('[CROSS-SELL]')
             const base = form.notes.trim()
-            return markers.length > 0 ? [base,...markers].filter(Boolean).join(' ').trim() : base || null
+            return offerMarkers.length > 0 ? [base,...offerMarkers].filter(Boolean).join(' ').trim() : base || null
           })(),
+          // offer_type поле — admin панелът го използва за колоната "ОФЕРТА"
+          offer_type: hasUpsell ? 'cart_upsell' : hasCross ? 'cross_sell' : null,
           courier: form.courier, payment_method: 'cod',
           items: orderItems, subtotal: +subtotal.toFixed(2),
           shipping: +shipping.toFixed(2), total: +total.toFixed(2),
@@ -802,68 +809,82 @@ function CartDrawer({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
 
-        /* ── Overlay ── */
+        /* ── КРИТИЧНО: cart drawer трябва да е над site header ── */
+        /* Site header е z-index:200 — ние използваме 100000 */
         .cart-overlay{
           position:fixed;inset:0;
-          background:rgba(15,23,42,.6);
-          z-index:99999;
-          backdrop-filter:blur(4px);
-          -webkit-backdrop-filter:blur(4px);
+          background:rgba(15,23,42,.55);
+          z-index:99998;
+          backdrop-filter:blur(3px);
+          -webkit-backdrop-filter:blur(3px);
+          cursor:pointer;
         }
 
-        /* ── Drawer — desktop ── */
+        /* ── Drawer — десктоп: slide от дясно ── */
         .cart-drawer{
           position:fixed;
           right:0;
           top:0;
           bottom:0;
           width:100%;
-          max-width:480px;
+          max-width:460px;
           background:#fff;
-          z-index:100000;
+          z-index:99999;
           display:flex;
           flex-direction:column;
-          box-shadow:-20px 0 80px rgba(0,0,0,.25);
-          animation:cartSlideIn .3s cubic-bezier(.4,0,.2,1);
+          box-shadow:-24px 0 80px rgba(0,0,0,.22);
+          animation:cartSlideIn .28s cubic-bezier(.4,0,.2,1);
           font-family:'Outfit','DM Sans',sans-serif;
-          /* Safe area iOS */
-          padding-bottom:env(safe-area-inset-bottom,0px);
+          overscroll-behavior:none;
         }
 
-        /* ── Drawer — мобилни: пълен екран slide-up от дъното ── */
-        @media(max-width:600px){
+        /* ── Drawer — мобилни: пълен екран ── */
+        @media(max-width:640px){
           .cart-drawer{
-            top:0;
+            top:0 !important;
             left:0;
             right:0;
             bottom:0;
             max-width:100%;
             border-radius:0;
-            animation:cartSlideUp .32s cubic-bezier(.4,0,.2,1);
+            animation:cartSlideUp .3s cubic-bezier(.4,0,.2,1);
           }
         }
 
-        @keyframes cartSlideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+        @keyframes cartSlideIn{from{transform:translateX(105%);opacity:.5}to{transform:translateX(0);opacity:1}}
         @keyframes cartSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 
-        /* ── Header — sticky, винаги видим ── */
+        /* ── Header — sticky вътре в drawer ── */
         .cart-header{
-          padding:14px 18px;
+          padding:16px 20px 14px;
           border-bottom:1.5px solid #f1f5f9;
           display:flex;
-          align-items:center;
-          justify-content:space-between;
+          flex-direction:column;
           background:#fff;
           flex-shrink:0;
-          position:relative;
-          z-index:2;
+          /* sticky вътре в flex контейнер */
+          position:sticky;
+          top:0;
+          z-index:10;
         }
-        @media(max-width:600px){
+        @media(max-width:640px){
           .cart-header{
-            padding:14px 16px 14px;
-            /* Safe area top за iPhone notch — критично! */
-            padding-top:max(14px, env(safe-area-inset-top, 14px));
-            min-height:64px;
+            /* Safe area top — критично за iPhone notch/Dynamic Island! */
+            padding-top:max(16px, env(safe-area-inset-top, 16px));
+          }
+        }
+
+        /* ── Drag handle — само мобилни ── */
+        .cart-drag-handle{
+          display:none;
+        }
+        @media(max-width:640px){
+          .cart-drag-handle{
+            display:block;
+            width:40px;height:4px;
+            background:#e2e8f0;
+            border-radius:99px;
+            margin:0 auto 12px;
           }
         }
 
@@ -874,25 +895,27 @@ function CartDrawer({
           -webkit-overflow-scrolling:touch;
           overscroll-behavior:contain;
           padding:16px 20px;
-          min-height:0; /* важно за flex scroll! */
+          min-height:0;
         }
         .cart-inner::-webkit-scrollbar{width:3px}
         .cart-inner::-webkit-scrollbar-thumb{background:#e2e8f0;border-radius:99px}
-        @media(max-width:600px){
+        @media(max-width:640px){
           .cart-inner{padding:14px 16px;}
         }
 
         /* ── Footer — sticky дъно ── */
         .cart-footer{
-          padding:14px 20px 18px;
+          padding:14px 20px;
           border-top:1.5px solid #f1f5f9;
           background:#fff;
           flex-shrink:0;
-          /* Safe area iOS home indicator */
-          padding-bottom:max(18px,env(safe-area-inset-bottom,18px));
+          padding-bottom:max(18px, env(safe-area-inset-bottom, 18px));
         }
-        @media(max-width:600px){
-          .cart-footer{padding:12px 16px max(16px,env(safe-area-inset-bottom,16px));}
+        @media(max-width:640px){
+          .cart-footer{
+            padding:12px 16px;
+            padding-bottom:max(20px, env(safe-area-inset-bottom, 20px));
+          }
         }
 
         /* ── Inputs ── */
@@ -955,16 +978,18 @@ function CartDrawer({
         }
         .cart-btn-secondary:active{background:#f1f5f9;color:#0f172a}
 
-        /* ── Close бутон ── */
+        /* ── Close бутон — ВИНАГИ видим, голям tap target ── */
         .cart-close-btn{
+          min-width:44px;
+          min-height:44px;
           width:44px;
           height:44px;
-          border:2px solid #e2e8f0;
+          border:1.5px solid #e2e8f0;
           background:#f8fafc;
           border-radius:12px;
           cursor:pointer;
-          font-size:18px;
-          color:#334155;
+          font-size:16px;
+          color:#475569;
           display:flex;
           align-items:center;
           justify-content:center;
@@ -972,22 +997,32 @@ function CartDrawer({
           flex-shrink:0;
           touch-action:manipulation;
           -webkit-tap-highlight-color:transparent;
-          font-weight:700;
+          font-weight:800;
+          line-height:1;
         }
-        .cart-close-btn:hover{background:#fee2e2;border-color:#fca5a5;color:#dc2626}
-        .cart-close-btn:active{background:#e2e8f0;color:#0f172a;transform:scale(.92)}
-        @media(max-width:600px){
+        .cart-close-btn:hover{
+          background:#fee2e2;
+          border-color:#fca5a5;
+          color:#dc2626;
+        }
+        .cart-close-btn:active{
+          transform:scale(.90);
+          background:#fecaca;
+        }
+        @media(max-width:640px){
           .cart-close-btn{
+            min-width:48px;
+            min-height:48px;
             width:48px;
             height:48px;
-            font-size:20px;
+            font-size:18px;
             border-radius:14px;
+            border-width:2px;
           }
         }
 
-        /* ── Courier buttons на мобилни ── */
-        @media(max-width:600px){
-          .courier-grid{flex-direction:row!important;gap:8px!important}
+        /* ── Courier buttons ── */
+        @media(max-width:640px){
           .cart-city-addr{flex-direction:column!important;gap:0!important}
           .cart-city-addr .cart-input{margin-bottom:10px}
         }
@@ -1005,48 +1040,32 @@ function CartDrawer({
       <div className="cart-drawer">
         {/* Header */}
         <div className="cart-header">
-          {/* Mobile drag indicator */}
-          <style>{`
-            .cart-drag-handle {
-              display: none;
-            }
-            @media(max-width:600px){
-              .cart-drag-handle {
-                display: block;
-                width: 36px;
-                height: 4px;
-                background: #e2e8f0;
-                border-radius: 99px;
-                margin: 0 auto 12px;
-              }
-              .cart-header-wrap {
-                display: flex;
-                flex-direction: column;
-                width: 100%;
-              }
-            }
-          `}</style>
-          <div className="cart-header-wrap" style={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div className="cart-drag-handle"></div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 38, height: 38, borderRadius: 11, background: done ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#0f172a,#1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flexShrink: 0 }}>
-                  {done ? '✅' : step === 'cart' ? '🛒' : '📦'}
-                </div>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', letterSpacing: '-.01em' }}>
-                    {done ? 'Поръчката е приета!' : step === 'cart' ? 'Количка' : 'Финализирай поръчката'}
-                  </div>
-                  {!done && step === 'cart' && items.length > 0 && (
-                    <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 1 }}>
-                      {items.length} {items.length === 1 ? 'продукт' : 'продукта'}
-                      {totalSavings > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> · спестяваш {fmt(totalSavings)}</span>}
-                    </div>
-                  )}
-                </div>
+          <div className="cart-drag-handle" />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <div style={{
+                width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+                background: done ? 'linear-gradient(135deg,#16a34a,#15803d)' : step === 'checkout' ? 'linear-gradient(135deg,#0369a1,#1d4ed8)' : 'linear-gradient(135deg,#0f172a,#1e293b)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17,
+              }}>
+                {done ? '✅' : step === 'cart' ? '🛒' : '📦'}
               </div>
-              <button onClick={onClose} className="cart-close-btn" aria-label="Затвори количката">✕</button>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', letterSpacing: '-.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {done ? 'Поръчката е приета!' : step === 'cart' ? 'Количка' : 'Финализирай поръчката'}
+                </div>
+                {!done && step === 'cart' && items.length > 0 && (
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
+                    {items.reduce((s, i) => s + i.qty, 0)} бр.
+                    {totalSavings > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> · -{fmt(totalSavings)}</span>}
+                  </div>
+                )}
+                {!done && step === 'checkout' && (
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>Стъпка 2 от 2</div>
+                )}
+              </div>
             </div>
+            <button onClick={onClose} className="cart-close-btn" aria-label="Затвори количката">✕</button>
           </div>
         </div>
 
