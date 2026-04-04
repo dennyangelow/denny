@@ -335,33 +335,35 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .trust-item-label{font-size:12.5px;font-weight:700;color:#166534;line-height:1.2;letter-spacing:.01em}
 .trust-item-sub{font-size:10.5px;font-weight:500;color:#6b7280;line-height:1.2}
 
-@media(min-width:641px){
-  .trust-item{white-space:nowrap}
-  .trust-item-label,.trust-item-sub{white-space:nowrap}
-}
+@keyframes trust-marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 
 @media(max-width:640px){
-  .trust-strip-inner{display:grid;grid-template-columns:1fr 1fr;overflow-x:unset}
+  .trust-strip{overflow:hidden}
+  .trust-strip-inner{
+    display:flex;flex-wrap:nowrap;
+    width:max-content;max-width:none;margin:0;
+    animation:trust-marquee 16s linear infinite;
+  }
+  .trust-strip:active .trust-strip-inner{animation-play-state:paused}
   .trust-item{
-    min-width:unset;padding:12px 12px;
-    border-right:1px solid #e8f5e9;border-bottom:1px solid #e8f5e9;
-    flex:unset;white-space:normal;align-items:flex-start;
-  }
-  .trust-item:nth-child(2n){border-right:none}
-  .trust-item:nth-last-child(-n+2):nth-child(odd),
-  .trust-item:nth-last-child(-n+2):nth-child(even){border-bottom:none}
-  /* Последен нечетен — не го разтягай, остава вляво нормален */
-  .trust-item:last-child:nth-child(odd){
-    grid-column:auto;justify-content:flex-start;
+    flex:0 0 auto;min-width:unset;
+    padding:12px 18px;
     border-right:1px solid #e8f5e9;border-bottom:none;
+    white-space:nowrap;align-items:center;
   }
-  .trust-item-label{font-size:12px;white-space:normal;word-break:break-word}
-  .trust-item-sub{font-size:10px;white-space:normal;word-break:break-word}
-  .trust-item-icon-bg{width:30px;height:30px;flex-shrink:0}
+  .trust-item:last-child{border-right:1px solid #e8f5e9}
+  /* дублираните items (само за marquee) — видими само на мобилен */
+  .trust-item-clone{display:flex}
+  .trust-item-label{font-size:12px}
+  .trust-item-sub{font-size:10px}
+  .trust-item-icon-bg{width:30px;height:30px}
   .trust-item-icon{font-size:14px}
 }
-@media(min-width:641px) and (max-width:900px){
-  .trust-item{min-width:150px;padding:13px 18px;flex:0 0 auto}
+@media(min-width:641px){
+  /* дублираните items са скрити на десктоп */
+  .trust-item-clone{display:none}
+  .trust-item{white-space:nowrap}
+  .trust-item-label,.trust-item-sub{white-space:nowrap}
 }
 
 /* ── Sections ── */

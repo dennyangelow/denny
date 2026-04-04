@@ -519,8 +519,21 @@ export default async function HomePage() {
       {trustItems.length > 0 && (
         <div className="trust-strip">
           <div className="trust-strip-inner">
+            {/* Оригинални items */}
             {trustItems.map(({ icon, text, sub }) => (
               <div key={text} className="trust-item">
+                <div className="trust-item-icon-bg">
+                  <span className="trust-item-icon">{icon}</span>
+                </div>
+                <div className="trust-item-text">
+                  <span className="trust-item-label">{text}</span>
+                  {sub && <span className="trust-item-sub">{sub}</span>}
+                </div>
+              </div>
+            ))}
+            {/* Клонирани items — само за безшевен marquee на мобилен, скрити на десктоп */}
+            {trustItems.map(({ icon, text, sub }) => (
+              <div key={`clone-${text}`} className="trust-item trust-item-clone" aria-hidden="true">
                 <div className="trust-item-icon-bg">
                   <span className="trust-item-icon">{icon}</span>
                 </div>
