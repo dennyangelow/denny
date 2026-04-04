@@ -1,15 +1,29 @@
 'use client'
-// components/client/CartSystem.tsx — v6 FINAL
-// ✅ Мобилни: цял екран top:0, хедъра на количката НЕ се крие зад сайт хедъра
+// components/client/CartSystem.tsx — v7 FINAL
+// ✅ Мобилни: цял екран top:0 — менюто СЕ КРИЕ ЗАД количката (z-index fix)
+// ✅ Inline top стил НЕ се прилага на мобилни (overrideва !important)
+// ✅ Discord изпраща СЛЕД post-purchase (включва приетия ъпсел)
+// ✅ Post-purchase PATCH изпраща Discord update с новия артикул
 // ✅ Продуктите в количката се виждат на мобилни (scroll fix)
 // ✅ 🔬 Анализ на почвата — на мобилни само ако има артикул от оферта
-// ✅ Discord webhook при поръчка — embed с пълни данни
 // ✅ Десктоп: drawer под хедъра, динамично измерен (работи с urgency bar)
 // ✅ Оферта badge в резюмето Стъпка 2
-// ✅ Post-purchase upsell — PATCH към оригиналната поръчка
 // ✅ autoComplete атрибути на полетата
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+
+// ── Детекция на мобилен (≤640px) — синхронна, без flash ──────────────────────
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)')
+    setIsMobile(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isMobile
+}
 
 // ── Динамично измерване на долния ръб на .site-header ─────────────────────────
 function useHeaderBottom() {
@@ -190,6 +204,27 @@ async function sendDiscordNotification(order: {
   }
 }
 
+// ─── Discord: Post-purchase update ───────────────────────────────────────────
+// Изпраща UPDATE в Discord когато клиентът приеме post-purchase офертата
+async function sendDiscordPostPurchaseUpdate(orderNumber: string, productName: string, price: number, currencySymbol: string) {
+  try {
+    const fmt = (n: number) => `${n.toFixed(2)} ${currencySymbol}`
+    const embed = {
+      title: `⚡ Post-Purchase Upsell приет — Поръчка #${orderNumber}`,
+      color: 0xdc2626,
+      fields: [
+        { name: '✅ Добавен артикул', value: `**${productName}**\n💰 ${fmt(price)}`, inline: false },
+      ],
+      footer: { text: `dennyangelow.com • ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}` },
+    }
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embeds: [embed] }),
+    })
+  } catch (e) { console.error('Discord post-purchase webhook error:', e) }
+}
+
 // ─── Body scroll lock ─────────────────────────────────────────────────────────
 function useLockBodyScroll(lock: boolean) {
   useEffect(() => {
@@ -302,10 +337,10 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
 }
 
 // ─── Post-purchase Modal ──────────────────────────────────────────────────────
-function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData, originalOrderId, fmt }: {
+function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData, originalOrderId, originalOrderNumber, currencySymbol, fmt }: {
   offer: UpsellOffer; products: AtlasProduct[]; onAccept: () => void; onDismiss: () => void
   customerData: { name: string; phone: string; city: string; address: string; notes: string; courier: string }
-  originalOrderId: string; fmt: (n: number) => string
+  originalOrderId: string; originalOrderNumber: string; currencySymbol: string; fmt: (n: number) => string
 }) {
   const product = products.find(p => p.id === offer.offer_product_id)
   const variant = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
@@ -316,7 +351,10 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
     if (!product || !variant) { onDismiss(); return }
     setAdding(true)
     try {
-      await fetch(`/api/orders/${originalOrderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ add_items: [{ product_name: `${product.name} — ${variant.label} (Post-purchase upsell)`, quantity: 1, unit_price: discountedPrice, total_price: discountedPrice }], offer_type: 'post_purchase', add_to_notes: '[POST-PURCHASE UPSELL]', add_to_total: discountedPrice }) })
+      const productName = `${product.name} — ${variant.label} (Post-purchase upsell)`
+      await fetch(`/api/orders/${originalOrderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ add_items: [{ product_name: productName, quantity: 1, unit_price: discountedPrice, total_price: discountedPrice }], offer_type: 'post_purchase', add_to_notes: '[POST-PURCHASE UPSELL]', add_to_total: discountedPrice }) })
+      // ── Discord update за приетия post-purchase ────────────────────────────
+      await sendDiscordPostPurchaseUpdate(originalOrderNumber, productName, discountedPrice, currencySymbol)
       setDone(true); setTimeout(onAccept, 1800)
     } catch { onDismiss() } finally { setAdding(false) }
   }
@@ -526,6 +564,7 @@ function CartDrawer({
   const innerRef = useRef<HTMLDivElement>(null)
 
   const headerBottom = useHeaderBottom()
+  const isMobile     = useIsMobile()
   useLockBodyScroll(true)
 
   useEffect(() => {
@@ -594,8 +633,8 @@ function CartDrawer({
       setOrderNumber(newOrderNumber); setOrderId(newOrderId)
       setDone(true); onClearCart()
 
-      // ── Discord известие ──────────────────────────────────────────────────
-      await sendDiscordNotification({
+      // ── Discord известие (non-blocking — не чакаме да се покаже post-purchase) ─
+      void sendDiscordNotification({
         order_number: newOrderNumber, customer_name: form.name.trim(),
         customer_phone: form.phone.trim(), customer_city: form.city.trim(),
         customer_address: form.address.trim(), customer_notes: notesValue,
@@ -750,21 +789,27 @@ function CartDrawer({
         @media (max-width: 640px) {
           .cart-city-addr { flex-direction: column !important; gap: 0 !important }
           .cart-city-addr .cart-input { margin-bottom: 7px }
-          /* Анализ на почвата — крие се ако НЯМА офертен артикул */
+          /* Потискаме mob-nav (z-index:199) — overlay-ът е z-index:999998 */
+          /* Двата елемента вече са под overlay автоматично — без нужда от override */
+          /* Soil analysis — скрива се ако НЯМА офертен артикул */
           .soil-analysis-hide-mobile { display: none !important; }
         }
       `}</style>
 
       {postPurchaseOffer && (
         <PostPurchaseModal offer={postPurchaseOffer} products={products} customerData={form}
-          originalOrderId={orderId} onAccept={() => setPostPurchaseOffer(null)}
+          originalOrderId={orderId} originalOrderNumber={orderNumber} currencySymbol={sym}
+          onAccept={() => setPostPurchaseOffer(null)}
           onDismiss={() => setPostPurchaseOffer(null)} fmt={fmt} />
       )}
 
-      <div className="cart-overlay" onClick={onClose} style={{ top: headerBottom } as React.CSSProperties} />
+      {/* На мобилни НЕ слагаме inline top — CSS вече казва top:0 !important
+          Inline style override-ва !important и хедъра би пречил */}
+      <div className="cart-overlay" onClick={onClose}
+        style={isMobile ? undefined : { top: headerBottom } as React.CSSProperties} />
 
       <div className="cart-drawer" role="dialog" aria-modal="true" aria-label="Количка"
-        style={{ top: headerBottom } as React.CSSProperties}>
+        style={isMobile ? undefined : { top: headerBottom } as React.CSSProperties}>
 
         {/* ── HEADER ── */}
         <div className="cart-header">
