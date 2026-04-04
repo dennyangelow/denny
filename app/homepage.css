@@ -319,7 +319,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .trust-item{
   display:flex;align-items:center;gap:10px;
   padding:14px 26px;flex:1;min-width:160px;
-  white-space:nowrap;border-right:1px solid #e8f5e9;
+  border-right:1px solid #e8f5e9;
   cursor:default;
 }
 .trust-item:last-child{border-right:none}
@@ -335,12 +335,30 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .trust-item-label{font-size:12.5px;font-weight:700;color:#166534;line-height:1.2;letter-spacing:.01em}
 .trust-item-sub{font-size:10.5px;font-weight:500;color:#6b7280;line-height:1.2}
 
+@media(min-width:641px){
+  .trust-item{white-space:nowrap}
+  .trust-item-label,.trust-item-sub{white-space:nowrap}
+}
+
 @media(max-width:640px){
   .trust-strip-inner{display:grid;grid-template-columns:1fr 1fr;overflow-x:unset}
-  .trust-item{min-width:unset;padding:12px 16px;border-right:1px solid #e8f5e9;border-bottom:1px solid #e8f5e9;flex:unset}
+  .trust-item{
+    min-width:unset;padding:12px 12px;
+    border-right:1px solid #e8f5e9;border-bottom:1px solid #e8f5e9;
+    flex:unset;white-space:normal;align-items:flex-start;
+  }
   .trust-item:nth-child(2n){border-right:none}
-  .trust-item:nth-last-child(-n+2){border-bottom:none}
-  .trust-item:last-child:nth-child(odd){grid-column:span 2;justify-content:center;border-right:none}
+  .trust-item:nth-last-child(-n+2):nth-child(odd),
+  .trust-item:nth-last-child(-n+2):nth-child(even){border-bottom:none}
+  /* Последен нечетен — не го разтягай, остава вляво нормален */
+  .trust-item:last-child:nth-child(odd){
+    grid-column:auto;justify-content:flex-start;
+    border-right:1px solid #e8f5e9;border-bottom:none;
+  }
+  .trust-item-label{font-size:12px;white-space:normal;word-break:break-word}
+  .trust-item-sub{font-size:10px;white-space:normal;word-break:break-word}
+  .trust-item-icon-bg{width:30px;height:30px;flex-shrink:0}
+  .trust-item-icon{font-size:14px}
 }
 @media(min-width:641px) and (max-width:900px){
   .trust-item{min-width:150px;padding:13px 18px;flex:0 0 auto}
