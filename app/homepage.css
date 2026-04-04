@@ -175,6 +175,9 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .tb-live-label{font-size:10px;font-weight:800;color:#15803d;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 
 /* Мобилен responsive */
+@media(max-width:640px){
+  .trust-badge-new{max-width:calc(100vw - 36px);overflow-x:auto}
+}
 @media(max-width:520px){
   .tb-stat{padding:8px 10px}
   .tb-stat-num{font-size:12px}
@@ -182,6 +185,13 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .tb-live{padding:0 9px}
   .tb-live-label{display:none}
   .tb-avatar-wrap{padding:5px 9px 5px 5px}
+}
+@media(max-width:400px){
+  .tb-stat{padding:7px 8px}
+  .tb-stat-num{font-size:11px}
+  .tb-stat-label{font-size:8px}
+  .tb-avatar-img,.tb-avatar-fallback{width:28px;height:28px}
+  .tb-handle{font-size:11.5px}
 }
 
 /* ── Заглавие ── */
@@ -208,6 +218,9 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 /* Подзаглавие */
 .hero-subtitle-text{color:#4b5563;font-size:15.5px;line-height:1.8;margin:0 0 20px;font-weight:400;letter-spacing:.005em}
 .hero-subtitle-text strong{color:#15803d;font-weight:600}
+@media(max-width:400px){
+  .hero-subtitle-text{font-size:14.5px;line-height:1.7}
+}
 
 /* Warning */
 .hero-warning{
@@ -245,6 +258,10 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 @media(max-width:480px){
   .hero-learn-grid{grid-template-columns:1fr}
 }
+@media(max-width:360px){
+  .hero-learn-item{font-size:12px}
+  .hero-learn-icon{width:24px;height:24px;font-size:12px}
+}
 
 /* Стар .about-strip и .chip — запазени за съвместимост */
 .about-strip{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
@@ -279,6 +296,12 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .hb-card-arrow{flex-shrink:0;width:36px;height:36px;border-radius:11px;background:var(--hb-color,#16a34a);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;transition:transform .2s;box-shadow:0 4px 12px rgba(22,163,74,.25)}
 .hb-card:hover .hb-card-arrow{transform:translateY(2px)}
 .handbooks-panel-footer{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1.5px solid #d1fae5;font-size:10.5px;color:#9ca3af;font-weight:600;letter-spacing:.03em}
+@media(max-width:360px){
+  .handbooks-panel{padding:18px 14px}
+  .hb-card{padding:13px 14px;gap:10px}
+  .hb-card-title{font-size:14.5px}
+  .hb-card-emoji{font-size:30px}
+}
 
 /* ── Trust strip ── */
 .trust-strip{
@@ -521,6 +544,11 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .faq-icon{flex-shrink:0;width:26px;height:26px;border-radius:7px;background:#f0fdf4;color:#16a34a;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:900;line-height:1;transition:background .2s,color .2s}
 .faq-open .faq-icon{background:#16a34a;color:#fff}
 .faq-a{padding:0 22px 20px;font-size:14.5px;color:#4b5563;line-height:1.9;animation:faqOpen .2s ease;font-weight:400}
+@media(max-width:480px){
+  .faq-q{font-size:14px;padding:15px 16px;gap:10px}
+  .faq-a{padding:0 16px 16px;font-size:13.5px}
+  .faq-icon{width:24px;height:24px;font-size:17px}
+}
 
 /* ── CTA ── */
 .cta-section{background:linear-gradient(145deg,#14532d 0%,#15803d 100%);padding:64px 24px;position:relative;overflow:hidden}
@@ -528,6 +556,9 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 
 /* ── Footer ── */
 .site-footer{background:#0f1f14;color:rgba(255,255,255,.7);padding:56px 24px 32px}
+@media(max-width:480px){
+  .site-footer{padding:40px 16px 24px}
+}
 .footer-link{display:block;margin-bottom:8px;color:rgba(255,255,255,.55);text-decoration:none;font-size:13.5px;font-weight:500;transition:color .2s;letter-spacing:.005em}
 .footer-link:hover{color:#86efac}
 
