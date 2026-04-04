@@ -317,28 +317,30 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
   if (wasAdded && alreadyInCart) return null
 
   return (
-    <div style={{ background: '#fff', border: `1.5px solid ${meta.color}22`, borderLeft: `3px solid ${meta.color}`, borderRadius: 13, padding: '10px 12px 10px 11px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-      <div style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, overflow: 'hidden', background: `${meta.color}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, border: `1px solid ${meta.color}20`, marginTop: 2 }}>
+    <div style={{ background: '#fff', border: `1.5px solid ${meta.color}22`, borderLeft: `3px solid ${meta.color}`, borderRadius: 11, padding: '8px 10px 8px 10px', display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, overflow: 'hidden', background: `${meta.color}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, border: `1px solid ${meta.color}20` }}>
         {imgSrc ? <img src={imgSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} /> : <span>{offer.emoji || meta.icon}</span>}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 800, color: '#0f172a', lineHeight: 1.3, marginBottom: 3 }}>{offer.title}</div>
-        {offer.description && <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4, marginBottom: 4 }}>{offer.description}</div>}
-        {product && variant && <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginBottom: 4 }}>{product.name}<span style={{ color: '#d1d5db', margin: '0 4px' }}>·</span>{variant.label}</div>}
-        {variant && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 13, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
-            {showOld && <span style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(oldPrice)}</span>}
-            {savePct > 0 && <span style={{ fontSize: 9.5, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 5 }}>-{savePct}%</span>}
-            {offer.badge_text && <span style={{ fontSize: 9.5, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 7px', borderRadius: 99 }}>{offer.badge_text}</span>}
-          </div>
-        )}
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', lineHeight: 1.25, marginBottom: 2 }}>
+          {offer.title}
+          {offer.description && <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 500, marginLeft: 4 }}>{offer.description}</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
+          {product && variant && <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{variant.label}</span>}
+          {variant && <>
+            <span style={{ fontSize: 12, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
+            {showOld && <span style={{ fontSize: 10, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(oldPrice)}</span>}
+            {savePct > 0 && <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 4 }}>-{savePct}%</span>}
+            {offer.badge_text && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 6px', borderRadius: 99 }}>{offer.badge_text}</span>}
+          </>}
+        </div>
       </div>
-      <div style={{ flexShrink: 0, alignSelf: 'center', minWidth: 64 }}>
+      <div style={{ flexShrink: 0, alignSelf: 'center', minWidth: 60 }}>
         {justAdded ? (
-          <div style={{ fontSize: 11, fontWeight: 800, color: '#059669', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 9, padding: '5px 8px', textAlign: 'center' as const }}>✓ Добавен</div>
+          <div style={{ fontSize: 10.5, fontWeight: 800, color: '#059669', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 8, padding: '4px 7px', textAlign: 'center' as const }}>✓ Добавен</div>
         ) : (
-          <button onClick={handleAdd} disabled={alreadyInCart} style={{ height: 34, borderRadius: 9, border: 'none', background: alreadyInCart ? '#059669' : meta.color, color: '#fff', cursor: alreadyInCart ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '0 12px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, transition: 'all .2s', boxShadow: !alreadyInCart ? `0 2px 8px ${meta.color}45` : 'none', whiteSpace: 'nowrap' as const }}>
+          <button onClick={handleAdd} disabled={alreadyInCart} style={{ height: 30, borderRadius: 8, border: 'none', background: alreadyInCart ? '#059669' : meta.color, color: '#fff', cursor: alreadyInCart ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 800, padding: '0 10px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, transition: 'all .2s', boxShadow: !alreadyInCart ? `0 2px 8px ${meta.color}45` : 'none', whiteSpace: 'nowrap' as const }}>
             {alreadyInCart ? '✓ Добавен' : '+ Добави'}
           </button>
         )}
@@ -459,8 +461,8 @@ function OffersGroup({ upsellOffers, crossSellOffers, products, onAddToCart, fmt
   const allOffers = [...upsellOffers, ...crossSellOffers]
   if (allOffers.length === 0) return null
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: '0.09em', marginBottom: 6 }}>✨ Може да те заинтересува</div>
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ fontSize: 9.5, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: '0.09em', marginBottom: 4 }}>✨ Може да те заинтересува</div>
       <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
         {allOffers.map(offer => <OfferCard key={offer.id} offer={offer} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={cartItems} />)}
       </div>
@@ -713,14 +715,16 @@ function CartDrawer({
           flex-shrink: 0; position: sticky; top: 0; z-index: 10;
         }
         @media (max-width: 640px) {
-          .cart-header { padding-top: max(14px, env(safe-area-inset-top, 14px)); }
+          /* На мобилни хедърът е само drag handle — скриваме title+X */
+          .cart-header { padding: 8px 0 0; border-bottom: none; }
+          .cart-header-content { display: none !important; }
         }
 
         .cart-drag-handle { display: none; }
         @media (max-width: 640px) {
           .cart-drag-handle {
             display: block; width: 36px; height: 4px;
-            background: #e2e8f0; border-radius: 99px; margin: 0 auto 10px;
+            background: #e2e8f0; border-radius: 99px; margin: 0 auto 6px;
           }
         }
 
@@ -825,7 +829,7 @@ function CartDrawer({
         {/* ── HEADER ── */}
         <div className="cart-header">
           <div className="cart-drag-handle" />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 10 }}>
+          <div className="cart-header-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
               <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: done ? 'linear-gradient(135deg,#16a34a,#15803d)' : step === 'checkout' ? 'linear-gradient(135deg,#0369a1,#1d4ed8)' : 'linear-gradient(135deg,#0f172a,#1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
                 {done ? '✅' : step === 'cart' ? '🛒' : '📦'}
