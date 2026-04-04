@@ -265,6 +265,11 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                       {offerM.label.split(' ').slice(0, 2).join(' ')}
                     </span>
                   )}
+                  {(order as any).invoice?.type && (order as any).invoice.type !== 'none' && (
+                    <span style={{ padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 800, background: '#faf5ff', color: '#6d28d9', border: '1px solid #ede9fe' }}>
+                      🧾 Фактура
+                    </span>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -361,6 +366,75 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                         <div className="info-value" style={{ color: '#92400e' }}>{order.customer_notes}</div>
                       </div>
                     )}
+                    {(order as any).invoice && (order as any).invoice.type !== 'none' && (() => {
+                      const inv = (order as any).invoice
+                      const isCompany = inv.type === 'company'
+                      return (
+                        <div className="info-item" style={{ gridColumn: '1/-1', background: 'linear-gradient(135deg,#faf5ff,#f3e8ff)', border: '1.5px solid #c4b5fd', borderRadius: 12, padding: 0, overflow: 'hidden' }}>
+                          {/* Header */}
+                          <div style={{ padding: '8px 14px', background: '#7c3aed', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 14 }}>🧾</span>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                              Фактура — {isCompany ? 'Фирма' : 'Физическо лице'}
+                            </span>
+                          </div>
+                          {/* Body */}
+                          <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {isCompany ? (
+                              <>
+                                <div style={{ fontSize: 14, fontWeight: 800, color: '#3b0764' }}>{inv.company_name}</div>
+                                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 2 }}>
+                                  <div>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '.05em' }}>ЕИК </span>
+                                    <span style={{ fontSize: 12.5, fontFamily: 'monospace', color: '#1e1b4b', fontWeight: 700 }}>{inv.company_eik}</span>
+                                  </div>
+                                  {inv.company_mol && (
+                                    <div>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '.05em' }}>МОЛ </span>
+                                      <span style={{ fontSize: 12.5, color: '#1e1b4b' }}>{inv.company_mol}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                {inv.company_address && (
+                                  <div style={{ fontSize: 12, color: '#5b21b6' }}>📍 {inv.company_address}</div>
+                                )}
+                                {/* ДДС */}
+                                <div style={{ marginTop: 4, padding: '5px 10px', borderRadius: 7, display: 'inline-flex', alignItems: 'center', gap: 6, background: inv.company_vat_registered ? '#f0fdf4' : '#fef2f2', border: `1px solid ${inv.company_vat_registered ? '#bbf7d0' : '#fecaca'}`, alignSelf: 'flex-start' }}>
+                                  <span style={{ fontSize: 12 }}>{inv.company_vat_registered ? '✅' : '❌'}</span>
+                                  <span style={{ fontSize: 11.5, fontWeight: 700, color: inv.company_vat_registered ? '#15803d' : '#dc2626' }}>
+                                    {inv.company_vat_registered ? 'ДДС регистрирана' : 'Без ДДС регистрация'}
+                                  </span>
+                                  {inv.company_vat_registered && inv.company_vat_number && (
+                                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#166534', background: '#dcfce7', padding: '1px 6px', borderRadius: 4 }}>
+                                      {inv.company_vat_number}
+                                    </span>
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ fontSize: 14, fontWeight: 800, color: '#3b0764' }}>{inv.person_names}</div>
+                                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 2 }}>
+                                  <div>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '.05em' }}>ЕГН </span>
+                                    <span style={{ fontSize: 12.5, fontFamily: 'monospace', color: '#1e1b4b', fontWeight: 700 }}>{inv.person_egn}</span>
+                                  </div>
+                                  {inv.person_phone && (
+                                    <div>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '.05em' }}>ТЕЛ </span>
+                                      <span style={{ fontSize: 12.5, color: '#1e1b4b' }}>{inv.person_phone}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                {inv.person_address && (
+                                  <div style={{ fontSize: 12, color: '#5b21b6' }}>📍 {inv.person_address}</div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })()}
                     {(order.utm_source || order.utm_campaign) && (
                       <div className="info-item">
                         <div className="info-label">UTM</div>

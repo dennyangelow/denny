@@ -1,14 +1,10 @@
 'use client'
-// components/client/CartSystem.tsx — v8
-// ✅ TypeScript fix: offer_type null → undefined (ts2322)
+// components/client/CartSystem.tsx — v11
+// ✅ Фактура: redesign — красив accordion с иконки и анимации
+// ✅ ДДС регистрация: чек + незадължително поле за ДДС номер (BG...)
+// ✅ Всички invoice полета → /api/orders + Discord embed
+// ✅ Само Еконт офис; тежки пратки предупреждение
 // ✅ Discord: само 1 съобщение на поръчка
-//    - Ако НЯМа post-purchase оферта → изпраща след 3с
-//    - Ако ИМА post-purchase оферта → чака 60с
-//      • Клиентът приема → handleAccept изпраща с post_purchase поле (отменя таймера)
-//      • Клиентът отказва → onDismiss изпраща веднага без pp (отменя таймера)
-//      • Таймаут 60с → изпраща без pp автоматично
-// ✅ Мобилни: цял екран top:0 — менюто СЕ КРИЕ ЗАД количката (z-index fix)
-// ✅ Десктоп: drawer под хедъра, динамично измерен (работи с urgency bar)
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 
@@ -104,6 +100,24 @@ interface CartItem {
   price: number; comparePrice: number; qty: number; emoji: string; img: string; size_liters: number
   fromOffer?: boolean; offerType?: 'cart_upsell' | 'cross_sell'
 }
+// ─── Фактура ──────────────────────────────────────────────────────────────────
+type InvoiceType = 'none' | 'company' | 'person'
+interface InvoiceData {
+  type: InvoiceType
+  // Фирма
+  company_name?:    string
+  company_eik?:     string
+  company_address?: string
+  company_mol?:     string
+  company_vat_registered?: boolean  // ДДС регистрация
+  company_vat_number?:     string   // BG123456789
+  // Физическо лице
+  person_names?:   string
+  person_egn?:     string
+  person_address?: string
+  person_phone?:   string
+}
+
 interface Props {
   atlasProducts: AtlasProduct[]; shippingPrice: number; freeShippingAbove: number
   siteEmail: string; sitePhone: string; currencySymbol?: string
@@ -148,6 +162,214 @@ function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): 
   }
 }
 
+// ─── Еконт типове ─────────────────────────────────────────────────────────────
+interface EcontCity   { id: number; name: string; postCode: string; regionName: string }
+interface EcontOffice { id: number; code: string; name: string; address: string; phones: string; workingTimeFrom: string; workingTimeTo: string }
+
+// ─── EcontOfficePicker ────────────────────────────────────────────────────────
+function EcontOfficePicker({ onSelect }: {
+  onSelect: (city: string, office: string, officeCode: string) => void
+}) {
+  const [cityQuery, setCityQuery]     = useState('')
+  const [cities, setCities]           = useState<EcontCity[]>([])
+  const [citiesLoading, setCitiesLoading] = useState(false)
+  const [citiesLoaded, setCitiesLoaded]   = useState(false)
+  const [showCities, setShowCities]   = useState(false)
+  const [selectedCity, setSelectedCity]   = useState<EcontCity | null>(null)
+
+  const [offices, setOffices]         = useState<EcontOffice[]>([])
+  const [officesLoading, setOfficesLoading] = useState(false)
+  const [selectedOffice, setSelectedOffice] = useState<EcontOffice | null>(null)
+  const [showOffices, setShowOffices] = useState(false)
+  const [officeQuery, setOfficeQuery] = useState('')
+
+  const cityRef   = useRef<HTMLDivElement>(null)
+  const officeRef = useRef<HTMLDivElement>(null)
+
+  // Зареждаме градовете веднъж при монтиране
+  useEffect(() => {
+    if (citiesLoaded) return
+    setCitiesLoading(true)
+    fetch('/api/econt/cities')
+      .then(r => r.ok ? r.json() : { cities: [] })
+      .then(d => { setCities(d.cities || []); setCitiesLoaded(true) })
+      .catch(() => {})
+      .finally(() => setCitiesLoading(false))
+  }, [citiesLoaded])
+
+  // Затваряме dropdown при клик извън
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!cityRef.current?.contains(e.target as Node))   setShowCities(false)
+      if (!officeRef.current?.contains(e.target as Node)) setShowOffices(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Зареждаме офисите при избор на град
+  useEffect(() => {
+    if (!selectedCity) return
+    setOfficesLoading(true)
+    setOffices([]); setSelectedOffice(null); setOfficeQuery('')
+    fetch(`/api/econt/offices?cityId=${selectedCity.id}`)
+      .then(r => r.ok ? r.json() : { offices: [] })
+      .then(d => setOffices(d.offices || []))
+      .catch(() => {})
+      .finally(() => setOfficesLoading(false))
+  }, [selectedCity])
+
+  const filteredCities = cityQuery.length >= 1
+    ? cities.filter(c =>
+        c.name.toLowerCase().startsWith(cityQuery.toLowerCase()) ||
+        c.postCode?.startsWith(cityQuery)
+      ).slice(0, 40)
+    : []
+
+  const filteredOffices = officeQuery.length >= 1
+    ? offices.filter(o =>
+        o.name.toLowerCase().includes(officeQuery.toLowerCase()) ||
+        o.address.toLowerCase().includes(officeQuery.toLowerCase()) ||
+        o.code.includes(officeQuery)
+      )
+    : offices
+
+  const handleCitySelect = (city: EcontCity) => {
+    setSelectedCity(city)
+    setCityQuery(city.name)
+    setShowCities(false)
+  }
+
+  const handleOfficeSelect = (office: EcontOffice) => {
+    setSelectedOffice(office)
+    setOfficeQuery('')
+    setShowOffices(false)
+    if (selectedCity) {
+      onSelect(
+        selectedCity.name,
+        `Офис Еконт: ${office.name}, ${office.address}`,
+        office.code,
+      )
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* ── Търсене на град ── */}
+      <div ref={cityRef} style={{ position: 'relative' }}>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>📍</span>
+          <input
+            className="cart-input"
+            style={{ paddingLeft: 32, marginBottom: 0 }}
+            placeholder={citiesLoading ? 'Зареждане...' : 'Напиши град...'}
+            value={cityQuery}
+            onChange={e => {
+              setCityQuery(e.target.value)
+              setShowCities(true)
+              if (selectedCity && e.target.value !== selectedCity.name) {
+                setSelectedCity(null); setSelectedOffice(null)
+              }
+            }}
+            onFocus={() => setShowCities(true)}
+            autoComplete="off"
+          />
+          {selectedCity && (
+            <span style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#16a34a' }}>✓</span>
+          )}
+        </div>
+        {showCities && filteredCities.length > 0 && (
+          <div style={{ position: 'absolute', zIndex: 9999, top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 11, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 220, overflowY: 'auto', marginTop: 4 }}>
+            {filteredCities.map(city => (
+              <div key={city.id} onMouseDown={() => handleCitySelect(city)}
+                style={{ padding: '9px 13px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>{city.name}</span>
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>{city.postCode}{city.regionName ? ` · ${city.regionName}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {showCities && cityQuery.length >= 2 && filteredCities.length === 0 && !citiesLoading && (
+          <div style={{ position: 'absolute', zIndex: 9999, top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 11, boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: '12px 14px', marginTop: 4, fontSize: 12.5, color: '#94a3b8', textAlign: 'center' }}>
+            Няма намерен град
+          </div>
+        )}
+      </div>
+
+      {/* ── Избор на офис ── */}
+      {selectedCity && (
+        <div ref={officeRef} style={{ position: 'relative' }}>
+          {officesLoading ? (
+            <div style={{ padding: '10px 13px', fontSize: 12.5, color: '#94a3b8', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', textAlign: 'center' }}>
+              ⏳ Зареждане на офиси за {selectedCity.name}...
+            </div>
+          ) : offices.length === 0 ? (
+            <div style={{ padding: '10px 13px', fontSize: 12.5, color: '#dc2626', background: '#fff1f2', borderRadius: 10, border: '1px solid #fecaca' }}>
+              ⚠️ Няма намерени офиси за {selectedCity.name}
+            </div>
+          ) : (
+            <>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>🏢</span>
+                <input
+                  className="cart-input"
+                  style={{ paddingLeft: 32, marginBottom: 0, borderColor: selectedOffice ? '#16a34a' : undefined }}
+                  placeholder={selectedOffice ? selectedOffice.name : `Търси офис в ${selectedCity.name}... (${offices.length} налични)`}
+                  value={officeQuery}
+                  onChange={e => { setOfficeQuery(e.target.value); setShowOffices(true) }}
+                  onFocus={() => setShowOffices(true)}
+                  autoComplete="off"
+                />
+                {selectedOffice && (
+                  <span style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#16a34a' }}>✓</span>
+                )}
+              </div>
+
+              {/* Избран офис — показваме детайлите */}
+              {selectedOffice && !showOffices && (
+                <div style={{ marginTop: 6, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 9, fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, color: '#15803d' }}>{selectedOffice.name}</div>
+                  <div style={{ color: '#166534', marginTop: 2 }}>{selectedOffice.address}</div>
+                  {selectedOffice.workingTimeFrom && (
+                    <div style={{ color: '#4ade80', marginTop: 1, fontSize: 11 }}>
+                      🕐 {selectedOffice.workingTimeFrom} – {selectedOffice.workingTimeTo}
+                    </div>
+                  )}
+                  <button onMouseDown={() => { setSelectedOffice(null); setOfficeQuery(''); onSelect('', '', '') }}
+                    style={{ marginTop: 5, fontSize: 11, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+                    Промени офис
+                  </button>
+                </div>
+              )}
+
+              {showOffices && (
+                <div style={{ position: 'absolute', zIndex: 9999, top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 11, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 260, overflowY: 'auto', marginTop: 4 }}>
+                  {filteredOffices.length === 0 ? (
+                    <div style={{ padding: '12px 14px', fontSize: 12.5, color: '#94a3b8', textAlign: 'center' }}>Няма намерени офиси</div>
+                  ) : filteredOffices.map(office => (
+                    <div key={office.id} onMouseDown={() => handleOfficeSelect(office)}
+                      style={{ padding: '10px 13px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{office.name}</div>
+                      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>{office.address}</div>
+                      {office.workingTimeFrom && (
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>🕐 {office.workingTimeFrom} – {office.workingTimeTo}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Discord Webhook ──────────────────────────────────────────────────────────
 const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1489714770474041355/o4SYj9kVEkm9U8SlSTBo0s3lILhtoAlKCghS8Sf6NcTDFBOYevqb5Oa1ynXdCemWnL3I'
 
@@ -162,6 +384,7 @@ async function sendDiscordNotification(order: {
   }>
   has_upsell: boolean; has_cross_sell: boolean; currency_symbol: string
   post_purchase?: { product_name: string; unit_price: number; original_price?: number; discount_pct?: number } | null
+  invoice?: InvoiceData | null
 }) {
   try {
     const sym = order.currency_symbol
@@ -249,6 +472,31 @@ async function sendDiscordNotification(order: {
 
     if (order.customer_notes) {
       fields.push({ name: '💬 Бележка от клиента', value: order.customer_notes, inline: false })
+    }
+
+    if (order.invoice && order.invoice.type !== 'none') {
+      const inv = order.invoice
+      let invValue = ''
+      if (inv.type === 'company') {
+        const vatLine = inv.company_vat_registered
+          ? `✅ ДДС регистрирана${inv.company_vat_number ? ` · \`${inv.company_vat_number}\`` : ''}`
+          : '❌ Без ДДС регистрация'
+        invValue = [
+          `🏢 **${inv.company_name}**`,
+          `ЕИК: \`${inv.company_eik}\``,
+          inv.company_mol ? `МОЛ: ${inv.company_mol}` : null,
+          inv.company_address ? `Адрес: ${inv.company_address}` : null,
+          vatLine,
+        ].filter(Boolean).join('\n')
+      } else {
+        invValue = [
+          `👤 **${inv.person_names}**`,
+          `ЕГН: \`${inv.person_egn}\``,
+          inv.person_address ? `Адрес: ${inv.person_address}` : null,
+          inv.person_phone ? `Тел: ${inv.person_phone}` : null,
+        ].filter(Boolean).join('\n')
+      }
+      fields.push({ name: `🧾 Фактура — ${inv.type === 'company' ? 'Фирма' : 'Физ. лице'}`, value: invValue, inline: false })
     }
 
     const embed = {
@@ -690,7 +938,11 @@ function CartDrawer({
   marketingSettings: MarketingSettings | null; currencySymbol?: string
 }) {
   const [step, setStep]               = useState<'cart' | 'checkout'>('cart')
-  const [form, setForm]               = useState({ name: '', phone: '', city: '', address: '', notes: '', courier: 'econt' })
+  const [form, setForm]               = useState({ name: '', phone: '', notes: '' })
+  const [econtCity, setEcontCity]     = useState('')   // "София"
+  const [econtOffice, setEcontOffice] = useState('')   // "Офис Еконт: ..."
+  const [econtOfficeCode, setEcontOfficeCode] = useState('') // "1234"
+  const [invoice, setInvoice]         = useState<InvoiceData>({ type: 'none' })
   const [submitting, setSubmitting]   = useState(false)
   const [done, setDone]               = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
@@ -731,12 +983,30 @@ function CartDrawer({
   const ms                = marketingSettings
   const hasOfferItem      = items.some(i => i.fromOffer)
 
+  // ── Тежки пратки: >1 бр. × 20л канистра → предупреждение ──────────────────
+  const heavyItemsQty   = items.filter(i => i.size_liters >= 20).reduce((s, i) => s + i.qty, 0)
+  const isHeavyShipment = heavyItemsQty > 1
+
   const upsellOffers: UpsellOffer[]    = ms?.upsell_enabled    ? ms.offers.filter(o => o.type === 'cart_upsell'  && offerMatches(o, items, subtotal)) : []
   const crossSellOffers: UpsellOffer[] = ms?.cross_sell_enabled ? ms.offers.filter(o => o.type === 'cross_sell'   && offerMatches(o, items, subtotal)) : []
 
   const handleOrder = async () => {
-    if (!form.name.trim() || !form.phone.trim() || !form.city.trim() || !form.address.trim()) {
-      setError('Моля попълни всички задължителни полета (имена, телефон, град, адрес).'); return
+    if (!form.name.trim() || !form.phone.trim()) {
+      setError('Моля попълни имена и телефон.'); return
+    }
+    if (!econtCity || !econtOffice) {
+      setError('Моля избери офис на Еконт за доставка.'); return
+    }
+    // Валидация на фактурните данни
+    if (invoice.type === 'company') {
+      if (!invoice.company_name?.trim() || !invoice.company_eik?.trim() || !invoice.company_address?.trim()) {
+        setError('За фактура на фирма: попълни Име, ЕИК и адрес на регистрация.'); return
+      }
+    }
+    if (invoice.type === 'person') {
+      if (!invoice.person_names?.trim() || !invoice.person_egn?.trim() || !invoice.person_address?.trim()) {
+        setError('За фактура на физ. лице: попълни три имена, ЕГН и адрес.'); return
+      }
     }
     setSubmitting(true); setError('')
     try {
@@ -769,12 +1039,15 @@ function CartDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customer_name: form.name.trim(), customer_phone: form.phone.trim(),
-          customer_city: form.city.trim(), customer_address: form.address.trim(),
+          customer_city: econtCity,
+          customer_address: econtOffice,
           customer_notes: notesValue,
           offer_type: hasUpsell ? 'cart_upsell' : hasCross ? 'cross_sell' : null,
-          courier: form.courier, payment_method: 'cod',
+          courier: 'econt', econt_office_code: econtOfficeCode,
+          payment_method: 'cod',
           items: orderItems.map(({ from_offer, ...rest }) => rest),
           subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
+          invoice: invoice.type !== 'none' ? invoice : null,
         }),
       })
       if (!res.ok) {
@@ -800,12 +1073,13 @@ function CartDrawer({
       // сам с post_purchase поле; ако не → таймерът изпраща без нея.
       const baseDiscordPayload: Parameters<typeof sendDiscordNotification>[0] = {
         order_number: newOrderNumber, customer_name: form.name.trim(),
-        customer_phone: form.phone.trim(), customer_city: form.city.trim(),
-        customer_address: form.address.trim(), customer_notes: notesValue,
-        courier: form.courier, payment_method: 'cod',
+        customer_phone: form.phone.trim(), customer_city: econtCity,
+        customer_address: econtOffice, customer_notes: notesValue,
+        courier: 'econt', payment_method: 'cod',
         subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
         total_savings: +totalSavings.toFixed(2), items: orderItems,
         has_upsell: hasUpsell, has_cross_sell: hasCross, currency_symbol: sym,
+        invoice: invoice.type !== 'none' ? invoice : null,
       }
 
       const hasPPOffer = ms?.post_purchase_enabled &&
@@ -987,7 +1261,8 @@ function CartDrawer({
 
       {postPurchaseOffer && (
         <PostPurchaseModal
-          offer={postPurchaseOffer} products={products} customerData={form}
+          offer={postPurchaseOffer} products={products}
+          customerData={{ name: form.name, phone: form.phone, city: econtCity, address: econtOffice, notes: form.notes, courier: 'econt' }}
           originalOrderId={orderId} originalOrderNumber={orderNumber} currencySymbol={sym}
           onAccept={() => setPostPurchaseOffer(null)}
           onDismiss={() => {
@@ -1160,26 +1435,27 @@ function CartDrawer({
 
               {/* Данни */}
               <div style={{ marginBottom: 13 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8 }}>👤 Данни за доставка</div>
+                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8 }}>👤 Данни за получателя</div>
                 <input className="cart-input" placeholder="Три имена *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} autoComplete="name" />
-                <input className="cart-input" placeholder="Телефон *" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} autoComplete="tel" />
-                <div className="cart-city-addr" style={{ display: 'flex', gap: 7 }}>
-                  <input className="cart-input" placeholder="Град *" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} style={{ flex: 1 }} autoComplete="address-level2" />
-                  <input className="cart-input" placeholder="Адрес *" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} style={{ flex: 2 }} autoComplete="street-address" />
-                </div>
+                <input className="cart-input" placeholder="Телефон *" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} autoComplete="tel" style={{ marginBottom: 0 }} />
               </div>
 
-              {/* Куриер */}
+              {/* Офис Еконт */}
               <div style={{ marginBottom: 13 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8 }}>🚚 Куриер</div>
-                <div style={{ display: 'flex', gap: 7 }}>
-                  {[{ value: 'econt', label: 'Еконт', emoji: '📦' }, { value: 'speedy', label: 'Спиди', emoji: '🚀' }].map(c => (
-                    <button key={c.value} onClick={() => setForm(f => ({ ...f, courier: c.value }))} style={{ flex: 1, padding: '10px 8px', border: `2px solid ${form.courier === c.value ? '#16a34a' : '#e5e7eb'}`, borderRadius: 11, background: form.courier === c.value ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : '#fafafa', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 800, fontSize: 13.5, color: form.courier === c.value ? '#15803d' : '#374151', transition: 'all .15s', display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 3, boxShadow: form.courier === c.value ? '0 0 0 2.5px rgba(22,163,74,.12)' : 'none' }}>
-                      <span style={{ fontSize: 20 }}>{c.emoji}</span>
-                      <span>{c.label}</span>
-                    </button>
-                  ))}
+                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8 }}>
+                  📦 Офис на Еконт за доставка
                 </div>
+                {isHeavyShipment && (
+                  <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 10, padding: '9px 12px', marginBottom: 9, fontSize: 12, color: '#92400e', fontWeight: 600, display: 'flex', gap: 8, alignItems: 'flex-start', lineHeight: 1.5 }}>
+                    <span style={{ flexShrink: 0, fontSize: 15 }}>⚠️</span>
+                    <span>Поръчката съдържа <strong>{heavyItemsQty} × 20л канистри</strong>. Поради тегло (над 30 кг) доставката е само до офис на Еконт.</span>
+                  </div>
+                )}
+                <EcontOfficePicker onSelect={(city, office, code) => {
+                  setEcontCity(city)
+                  setEcontOffice(office)
+                  setEcontOfficeCode(code)
+                }} />
               </div>
 
               {/* Бележки */}
@@ -1187,6 +1463,208 @@ function CartDrawer({
                 <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8 }}>💬 Бележки (по желание)</div>
                 <textarea className="cart-input" placeholder="Допълнителни инструкции..." rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ resize: 'none' as const, marginBottom: 0 }} />
               </div>
+
+              {/* ══ ФАКТУРА ════════════════════════════════════════════ */}
+              <div style={{ marginBottom: 14 }}>
+
+                {/* Toggle бутон */}
+                <button
+                  onClick={() => setInvoice(invoice.type !== 'none' ? { type: 'none' } : { type: 'company' })}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '12px 14px', border: `2px solid ${invoice.type !== 'none' ? '#7c3aed' : '#e2e8f0'}`,
+                    borderRadius: invoice.type !== 'none' ? '12px 12px 0 0' : 12,
+                    background: invoice.type !== 'none' ? 'linear-gradient(135deg,#faf5ff,#f3e8ff)' : '#fafafa',
+                    cursor: 'pointer', fontFamily: 'inherit', transition: 'all .2s', textAlign: 'left' as const,
+                    borderBottom: invoice.type !== 'none' ? 'none' : undefined,
+                  }}>
+                  {/* Custom checkbox */}
+                  <div style={{
+                    width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                    background: invoice.type !== 'none' ? '#7c3aed' : '#fff',
+                    border: `2px solid ${invoice.type !== 'none' ? '#7c3aed' : '#d1d5db'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all .2s', boxShadow: invoice.type !== 'none' ? '0 2px 8px rgba(124,58,237,.35)' : 'none',
+                  }}>
+                    {invoice.type !== 'none' && (
+                      <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+                        <path d="M1 4L4 7L10 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, color: invoice.type !== 'none' ? '#5b21b6' : '#374151', lineHeight: 1.2 }}>
+                      Искам фактура
+                    </div>
+                    <div style={{ fontSize: 11, color: invoice.type !== 'none' ? '#8b5cf6' : '#9ca3af', marginTop: 2 }}>
+                      {invoice.type !== 'none' ? 'Попълни данните за фактуриране по-долу' : 'За фирма или физическо лице'}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 18, transition: 'transform .2s', transform: invoice.type !== 'none' ? 'rotate(180deg)' : 'none' }}>
+                    🧾
+                  </div>
+                </button>
+
+                {/* Разгъващо се тяло */}
+                {invoice.type !== 'none' && (
+                  <div style={{
+                    border: '2px solid #7c3aed', borderTop: 'none',
+                    borderRadius: '0 0 12px 12px', background: '#fdf8ff',
+                    overflow: 'hidden',
+                  }}>
+
+                    {/* Тип — Фирма / Физ. лице */}
+                    <div style={{ display: 'flex', borderBottom: '1.5px solid #ede9fe' }}>
+                      {([
+                        { v: 'company' as InvoiceType, icon: '🏢', label: 'Фирма' },
+                        { v: 'person'  as InvoiceType, icon: '👤', label: 'Физ. лице' },
+                      ] as { v: InvoiceType; icon: string; label: string }[]).map((opt, i) => (
+                        <button key={opt.v}
+                          onClick={() => setInvoice({ type: opt.v })}
+                          style={{
+                            flex: 1, padding: '11px 8px',
+                            background: invoice.type === opt.v ? '#ede9fe' : '#faf5ff',
+                            border: 'none', borderRight: i === 0 ? '1.5px solid #ede9fe' : 'none',
+                            cursor: 'pointer', fontFamily: 'inherit', fontWeight: 800,
+                            fontSize: 13, color: invoice.type === opt.v ? '#5b21b6' : '#94a3b8',
+                            transition: 'all .15s', display: 'flex', alignItems: 'center',
+                            justifyContent: 'center', gap: 6,
+                          }}>
+                          <span>{opt.icon}</span>
+                          <span>{opt.label}</span>
+                          {invoice.type === opt.v && (
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', flexShrink: 0 }} />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Полета */}
+                    <div style={{ padding: '14px 14px 10px' }}>
+
+                      {invoice.type === 'company' && (
+                        <>
+                          {/* Ред 1: Наименование */}
+                          <div style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>Наименование на фирмата *</div>
+                            <input className="cart-input" placeholder="ЕООД / АД / ЗП..." style={{ marginBottom: 0 }}
+                              value={invoice.company_name || ''}
+                              onChange={e => setInvoice(v => ({ ...v, company_name: e.target.value }))}
+                              autoComplete="organization" />
+                          </div>
+
+                          {/* Ред 2: ЕИК + МОЛ в ред */}
+                          <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>ЕИК / БУЛСТАТ *</div>
+                              <input className="cart-input" placeholder="123456789" style={{ marginBottom: 0, fontFamily: 'monospace' }}
+                                value={invoice.company_eik || ''}
+                                onChange={e => setInvoice(v => ({ ...v, company_eik: e.target.value }))} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>МОЛ</div>
+                              <input className="cart-input" placeholder="Иван Иванов" style={{ marginBottom: 0 }}
+                                value={invoice.company_mol || ''}
+                                onChange={e => setInvoice(v => ({ ...v, company_mol: e.target.value }))} />
+                            </div>
+                          </div>
+
+                          {/* Ред 3: Адрес */}
+                          <div style={{ marginBottom: 10 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>Адрес на регистрация *</div>
+                            <input className="cart-input" placeholder="гр. София, ул. Витоша 1" style={{ marginBottom: 0 }}
+                              value={invoice.company_address || ''}
+                              onChange={e => setInvoice(v => ({ ...v, company_address: e.target.value }))}
+                              autoComplete="street-address" />
+                          </div>
+
+                          {/* ДДС секция */}
+                          <div style={{ borderTop: '1.5px dashed #ede9fe', paddingTop: 10 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 8 }}>ДДС регистрация</div>
+
+                            {/* ДДС toggle */}
+                            <div style={{ display: 'flex', gap: 7, marginBottom: invoice.company_vat_registered ? 8 : 0 }}>
+                              {([
+                                { val: true,  label: 'Да — регистрирана', icon: '✅' },
+                                { val: false, label: 'Не',               icon: '❌' },
+                              ] as { val: boolean; label: string; icon: string }[]).map(opt => (
+                                <button key={String(opt.val)}
+                                  onClick={() => setInvoice(v => ({ ...v, company_vat_registered: opt.val, company_vat_number: opt.val ? v.company_vat_number : '' }))}
+                                  style={{
+                                    flex: 1, padding: '8px 6px',
+                                    border: `1.5px solid ${invoice.company_vat_registered === opt.val ? '#7c3aed' : '#e5e7eb'}`,
+                                    borderRadius: 8, background: invoice.company_vat_registered === opt.val ? '#ede9fe' : '#fff',
+                                    cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+                                    color: invoice.company_vat_registered === opt.val ? '#5b21b6' : '#6b7280',
+                                    transition: 'all .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                                  }}>
+                                  <span style={{ fontSize: 13 }}>{opt.icon}</span>
+                                  <span>{opt.label}</span>
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* ДДС номер — показва се само при Да */}
+                            {invoice.company_vat_registered && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>ДДС номер</div>
+                                <div style={{ position: 'relative' }}>
+                                  <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 12, fontWeight: 700, color: '#7c3aed', fontFamily: 'monospace', pointerEvents: 'none' }}>BG</span>
+                                  <input
+                                    className="cart-input"
+                                    placeholder="123456789"
+                                    style={{ marginBottom: 0, paddingLeft: 32, fontFamily: 'monospace', letterSpacing: '.04em' }}
+                                    value={(invoice.company_vat_number || '').replace(/^BG/i, '')}
+                                    onChange={e => setInvoice(v => ({ ...v, company_vat_number: 'BG' + e.target.value.replace(/^BG/i, '') }))}
+                                  />
+                                </div>
+                                <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4 }}>
+                                  Незадължително — въведи ако имаш. Земеделски производители без ДДС регистрация избери „Не".
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {invoice.type === 'person' && (
+                        <>
+                          <div style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>Три имена *</div>
+                            <input className="cart-input" placeholder="Иван Петров Иванов" style={{ marginBottom: 0 }}
+                              value={invoice.person_names || ''}
+                              onChange={e => setInvoice(v => ({ ...v, person_names: e.target.value }))}
+                              autoComplete="name" />
+                          </div>
+                          <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>ЕГН *</div>
+                              <input className="cart-input" placeholder="0000000000" style={{ marginBottom: 0, fontFamily: 'monospace' }}
+                                value={invoice.person_egn || ''}
+                                onChange={e => setInvoice(v => ({ ...v, person_egn: e.target.value }))} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>Телефон</div>
+                              <input className="cart-input" placeholder="0888..." style={{ marginBottom: 0 }}
+                                value={invoice.person_phone || ''}
+                                onChange={e => setInvoice(v => ({ ...v, person_phone: e.target.value }))}
+                                autoComplete="tel" />
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', letterSpacing: '.06em', textTransform: 'uppercase' as const, marginBottom: 4 }}>Адрес *</div>
+                            <input className="cart-input" placeholder="гр. София, ул. Витоша 1" style={{ marginBottom: 0 }}
+                              value={invoice.person_address || ''}
+                              onChange={e => setInvoice(v => ({ ...v, person_address: e.target.value }))}
+                              autoComplete="street-address" />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* ══ край ФАКТУРА ══════════════════════════════════════════ */}
 
               {error && (
                 <div style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 11, padding: '11px 14px', fontSize: 13, marginBottom: 14, display: 'flex', gap: 9, alignItems: 'flex-start', lineHeight: 1.5, border: '1px solid #fecaca' }}>
@@ -1226,8 +1704,13 @@ function CartDrawer({
                 </div>
                 <div style={{ background: '#fff', padding: '11px 15px', borderTop: '1px solid #e2e8f0' }}>
                   {totalSavings > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: '#059669', fontWeight: 700, marginBottom: 6 }}><span>🏷 Спестяваш</span><span>-{fmt(totalSavings)}</span></div>}
+                  {econtOffice && (
+                    <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 500, marginBottom: 6, padding: '6px 9px', background: '#f0fdf4', borderRadius: 7, border: '1px solid #bbf7d0' }}>
+                      📦 <strong style={{ color: '#15803d' }}>Еконт офис:</strong> {econtOffice.replace('Офис Еконт: ', '')}
+                    </div>
+                  )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: '#64748b', fontWeight: 500, marginBottom: 8, alignItems: 'center' }}>
-                    <span>🚚 Доставка ({form.courier === 'econt' ? 'Еконт' : 'Спиди'})</span>
+                    <span>🚚 Доставка (Еконт)</span>
                     <span>{shipping === 0 ? <span style={{ color: '#16a34a', fontWeight: 800 }}>Безплатна 🎉</span> : <span style={{ fontWeight: 700, color: '#0f172a' }}>{fmt(shipping)}</span>}</span>
                   </div>
                   {shipping > 0 && <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600, marginBottom: 9, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 11px' }}>💡 Добави {fmt(freeShippingAbove - subtotal)} още за безплатна доставка</div>}
