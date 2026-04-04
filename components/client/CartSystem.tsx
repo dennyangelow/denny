@@ -25,13 +25,17 @@ function useIsMobile() {
   return isMobile
 }
 
-// ── Динамично измерване на долния ръб на .site-header ─────────────────────────
+// ── Динамично измерване на долния ръб на sticky header (+ urgency bar ако е видим) ──
 function useHeaderBottom() {
   const [bottom, setBottom] = useState(60)
   useEffect(() => {
     function measure() {
+      // Measurваме header-а (sticky)
       const header = document.querySelector('.site-header') as HTMLElement | null
-      if (header) setBottom(Math.round(header.getBoundingClientRect().bottom))
+      if (header) {
+        const rect = header.getBoundingClientRect()
+        setBottom(Math.round(rect.bottom))
+      }
     }
     measure()
     window.addEventListener('scroll', measure, { passive: true })
@@ -231,12 +235,19 @@ function useLockBodyScroll(lock: boolean) {
     if (!lock) return
     const ov = document.body.style.overflow, op = document.body.style.position
     const scrollY = window.scrollY
-    document.body.style.overflow = 'hidden'; document.body.style.position = 'fixed'
-    document.body.style.top = `-${scrollY}px`; document.body.style.width = '100%'
+    document.body.style.overflow = 'hidden'
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${scrollY}px`
+    document.body.style.width = '100%'
     return () => {
-      document.body.style.overflow = ov; document.body.style.position = op
-      document.body.style.top = ''; document.body.style.width = ''
-      window.scrollTo(0, scrollY)
+      // Четем scrollY от top стила на body — по-надежден от closure при StrictMode
+      const savedTop = parseInt(document.body.style.top || '0', 10)
+      const restoreY = isNaN(savedTop) ? scrollY : -savedTop
+      document.body.style.overflow = ov
+      document.body.style.position = op
+      document.body.style.top = ''
+      document.body.style.width = ''
+      window.scrollTo({ top: restoreY, behavior: 'instant' as any })
     }
   }, [lock])
 }
@@ -680,13 +691,13 @@ function CartDrawer({
         }
 
         /* ══ МОБИЛНИ ≤ 640px: ЦЯЛ ЕКРАН ══════════════════════════
-           top:0 — хедъра на сайта не крие количката
+           top се задава динамично от JS (под sticky header)
            Drawer се анимира отдолу нагоре
            ══════════════════════════════════════════════════════════ */
         @media (max-width: 640px) {
           .cart-overlay { top: 0 !important; }
           .cart-drawer {
-            top: 0 !important; left: 0; right: 0; bottom: 0;
+            left: 0; right: 0; bottom: 0;
             max-width: 100%; border-radius: 0;
             animation: cartSlideUp .3s cubic-bezier(.4,0,.2,1);
           }
@@ -803,13 +814,13 @@ function CartDrawer({
           onDismiss={() => setPostPurchaseOffer(null)} fmt={fmt} />
       )}
 
-      {/* На мобилни НЕ слагаме inline top — CSS вече казва top:0 !important
-          Inline style override-ва !important и хедъра би пречил */}
+      {/* Overlay покрива от top:0 на мобилни, от headerBottom на десктоп */}
       <div className="cart-overlay" onClick={onClose}
         style={isMobile ? undefined : { top: headerBottom } as React.CSSProperties} />
 
+      {/* Drawer: на мобилни и десктоп стартира от headerBottom (под sticky header) */}
       <div className="cart-drawer" role="dialog" aria-modal="true" aria-label="Количка"
-        style={isMobile ? undefined : { top: headerBottom } as React.CSSProperties}>
+        style={{ top: headerBottom } as React.CSSProperties}>
 
         {/* ── HEADER ── */}
         <div className="cart-header">
