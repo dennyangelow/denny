@@ -1,14 +1,14 @@
 'use client'
-// components/client/CartSystem.tsx — v7 FINAL
+// components/client/CartSystem.tsx — v8
+// ✅ TypeScript fix: offer_type null → undefined (ts2322)
+// ✅ Discord: само 1 съобщение на поръчка
+//    - Ако НЯМа post-purchase оферта → изпраща след 3с
+//    - Ако ИМА post-purchase оферта → чака 60с
+//      • Клиентът приема → handleAccept изпраща с post_purchase поле (отменя таймера)
+//      • Клиентът отказва → onDismiss изпраща веднага без pp (отменя таймера)
+//      • Таймаут 60с → изпраща без pp автоматично
 // ✅ Мобилни: цял екран top:0 — менюто СЕ КРИЕ ЗАД количката (z-index fix)
-// ✅ Inline top стил НЕ се прилага на мобилни (overrideва !important)
-// ✅ Discord изпраща СЛЕД post-purchase (включва приетия ъпсел)
-// ✅ Post-purchase PATCH изпраща Discord update с новия артикул
-// ✅ Продуктите в количката се виждат на мобилни (scroll fix)
-// ✅ 🔬 Анализ на почвата — на мобилни само ако има артикул от оферта
 // ✅ Десктоп: drawer под хедъра, динамично измерен (работи с urgency bar)
-// ✅ Оферта badge в резюмето Стъпка 2
-// ✅ autoComplete атрибути на полетата
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 
@@ -156,45 +156,107 @@ async function sendDiscordNotification(order: {
   customer_city: string; customer_address: string; customer_notes?: string | null
   courier: string; payment_method: string
   subtotal: number; shipping: number; total: number; total_savings: number
-  items: Array<{ product_name: string; quantity: number; unit_price: number; total_price: number; from_offer?: boolean }>
+  items: Array<{
+    product_name: string; quantity: number; unit_price: number; total_price: number
+    from_offer?: boolean; offer_type?: string; compare_price?: number; offer_discount_pct?: number
+  }>
   has_upsell: boolean; has_cross_sell: boolean; currency_symbol: string
+  post_purchase?: { product_name: string; unit_price: number; original_price?: number; discount_pct?: number } | null
 }) {
   try {
     const sym = order.currency_symbol
     const fmt = (n: number) => `${n.toFixed(2)} ${sym}`
     const courierLabel = order.courier === 'speedy' ? 'Спиди 🚀' : 'Еконт 📦'
 
-    const itemLines = order.items.map(i => {
-      const offerTag = i.from_offer ? ' ✨' : ''
-      return `> **${i.product_name}${offerTag}** — ${i.quantity} бр. × ${fmt(i.unit_price)} = **${fmt(i.total_price)}**`
-    }).join('\n')
+    // ── Цвят по стойност ──
+    const color = order.total >= 300 ? 0xf59e0b : order.total >= 150 ? 0x16a34a : order.total >= 100 ? 0x0ea5e9 : 0x64748b
 
-    // Цвят според стойност на поръчката
-    const color = order.total >= 200 ? 0xf59e0b : order.total >= 100 ? 0x16a34a : 0x0ea5e9
+    // ── Артикули — разделени на обикновени и офертни ──
+    const regularItems  = order.items.filter(i => !i.from_offer)
+    const offerItems    = order.items.filter(i => i.from_offer)
 
-    const offerTags: string[] = []
-    if (order.has_upsell)     offerTags.push('📈 CART-UPSELL')
-    if (order.has_cross_sell) offerTags.push('🔀 CROSS-SELL')
+    const fmtItem = (i: typeof order.items[0]) => {
+      const saving = i.compare_price && i.compare_price > i.unit_price
+        ? ` ~~${fmt(i.compare_price * i.quantity)}~~` : ''
+      const discBadge = i.offer_discount_pct ? ` **[-${i.offer_discount_pct}% оферта]**` : ''
+      return `> 📦 **${i.product_name}** — ${i.quantity} бр.\n> 💰 ${fmt(i.unit_price)} × ${i.quantity} = **${fmt(i.total_price)}**${saving}${discBadge}`
+    }
+
+    const regularLines = regularItems.length > 0
+      ? regularItems.map(fmtItem).join('\n')
+      : '—'
+
+    const offerLines = offerItems.length > 0
+      ? offerItems.map(i => {
+          const typeLabel = i.offer_type === 'cross_sell' ? '🔀 Cross-sell' : '⬆️ Cart Upsell'
+          const saving = i.compare_price && i.compare_price > i.unit_price
+            ? ` ~~${fmt(i.compare_price * i.quantity)}~~` : ''
+          const discBadge = i.offer_discount_pct ? ` **[-${i.offer_discount_pct}%]**` : ''
+          return `> ✨ **${i.product_name}** *(${typeLabel})* — ${i.quantity} бр.\n> 💰 ${fmt(i.unit_price)} × ${i.quantity} = **${fmt(i.total_price)}**${saving}${discBadge}`
+        }).join('\n')
+      : null
+
+    // ── Post-purchase ──
+    const ppLines = order.post_purchase
+      ? (() => {
+          const pp = order.post_purchase!
+          const origLine = pp.original_price && pp.original_price > pp.unit_price
+            ? ` ~~${fmt(pp.original_price)}~~` : ''
+          const discLine = pp.discount_pct ? ` **[-${pp.discount_pct}% само веднъж!]**` : ''
+          return `> ⚡ **${pp.product_name}** *(Post-Purchase)*\n> 💰 ${fmt(pp.unit_price)}${origLine}${discLine}`
+        })()
+      : null
+
+    // ── Суми ──
+    const totalWithPP = order.post_purchase
+      ? order.total + order.post_purchase.unit_price
+      : order.total
+    const totalSavingsWithPP = order.total_savings +
+      (order.post_purchase?.original_price && order.post_purchase.original_price > order.post_purchase.unit_price
+        ? order.post_purchase.original_price - order.post_purchase.unit_price : 0)
 
     const sumsValue = [
       `Продукти: **${fmt(order.subtotal)}**`,
-      order.total_savings > 0 ? `🏷 Отстъпка: **-${fmt(order.total_savings)}**` : null,
+      order.total_savings > 0 ? `🏷️ Спестено (оферти): **-${fmt(order.total_savings)}**` : null,
       `🚚 Доставка: **${order.shipping === 0 ? 'Безплатна 🎉' : fmt(order.shipping)}**`,
-      `\n✅ **ОБЩО: ${fmt(order.total)}**`,
+      ppLines ? `⚡ Post-Purchase добавен: **+${fmt(order.post_purchase!.unit_price)}**` : null,
+      `\n━━━━━━━━━━━━━━━━━━`,
+      `✅ **ОБЩО: ${fmt(ppLines ? totalWithPP : order.total)}**`,
+      totalSavingsWithPP > 0 ? `💚 Клиентът спести общо: **${fmt(totalSavingsWithPP)}**` : null,
     ].filter(Boolean).join('\n')
+
+    // ── Offer summary badges ──
+    const offerSummary: string[] = []
+    if (order.has_upsell)     offerSummary.push('📈 Cart-Upsell')
+    if (order.has_cross_sell) offerSummary.push('🔀 Cross-sell')
+    if (order.post_purchase)  offerSummary.push('⚡ Post-Purchase')
+
+    const fields: any[] = [
+      { name: '👤 Клиент', value: `**${order.customer_name}**\n📞 ${order.customer_phone}`, inline: true },
+      { name: '📍 Доставка', value: `${order.customer_city}\n${order.customer_address}\n${courierLabel}`, inline: true },
+      { name: '💳 Плащане', value: `Наложен платеж 💵${offerSummary.length > 0 ? '\n' + offerSummary.join('  ·  ') : ''}`, inline: true },
+      { name: '🛒 Поръчани артикули', value: regularLines, inline: false },
+    ]
+
+    if (offerLines) {
+      fields.push({ name: '✨ Добавени от оферта', value: offerLines, inline: false })
+    }
+    if (ppLines) {
+      fields.push({ name: '⚡ Post-Purchase Upsell', value: ppLines, inline: false })
+    }
+
+    fields.push({ name: '💰 Финансово резюме', value: sumsValue, inline: false })
+
+    if (order.customer_notes) {
+      fields.push({ name: '💬 Бележка от клиента', value: order.customer_notes, inline: false })
+    }
 
     const embed = {
       title: `🛒 Нова поръчка #${order.order_number}`,
       color,
-      fields: [
-        { name: '👤 Клиент', value: `**${order.customer_name}**\n📞 ${order.customer_phone}`, inline: true },
-        { name: '📍 Доставка до', value: `${order.customer_city}, ${order.customer_address}\n${courierLabel}`, inline: true },
-        { name: '💳 Плащане', value: `Наложен платеж 💵${offerTags.length > 0 ? '\n' + offerTags.join(' · ') : ''}`, inline: true },
-        { name: '🛍 Артикули', value: itemLines || '—', inline: false },
-        { name: '💰 Суми', value: sumsValue, inline: false },
-        ...(order.customer_notes ? [{ name: '💬 Бележки', value: order.customer_notes, inline: false }] : []),
-      ],
-      footer: { text: `dennyangelow.com • ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}` },
+      fields,
+      footer: { text: `dennyangelow.com  •  ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}` },
+      timestamp: new Date().toISOString(),
     }
 
     await fetch(DISCORD_WEBHOOK, {
@@ -204,22 +266,35 @@ async function sendDiscordNotification(order: {
     })
   } catch (e) {
     console.error('Discord webhook error:', e)
-    // Не хвърляме — поръчката е вече в БД
   }
 }
 
-// ─── Discord: Post-purchase update ───────────────────────────────────────────
-// Изпраща UPDATE в Discord когато клиентът приеме post-purchase офертата
-async function sendDiscordPostPurchaseUpdate(orderNumber: string, productName: string, price: number, currencySymbol: string) {
+// ─── Discord: Post-purchase — изпраща се чрез sendDiscordNotification с post_purchase поле ──
+// Тази функция вече не изпраща отделно съобщение.
+// При приемане на post-purchase, Discord-ът се обновява чрез PATCH към поръчката.
+async function sendDiscordPostPurchaseUpdate(
+  orderNumber: string, productName: string, price: number, currencySymbol: string,
+  originalPrice?: number, discountPct?: number
+) {
   try {
-    const fmt = (n: number) => `${n.toFixed(2)} ${currencySymbol}`
+    const sym = currencySymbol
+    const fmt = (n: number) => `${n.toFixed(2)} ${sym}`
+    const origLine = originalPrice && originalPrice > price ? ` ~~${fmt(originalPrice)}~~` : ''
+    const discLine = discountPct ? ` **[-${discountPct}% само веднъж!]**` : ''
+
     const embed = {
-      title: `⚡ Post-Purchase Upsell приет — Поръчка #${orderNumber}`,
+      title: `⚡ Post-Purchase приет — Поръчка #${orderNumber}`,
       color: 0xdc2626,
+      description: `Клиентът прие post-purchase офертата след потвърждение на поръчката.`,
       fields: [
-        { name: '✅ Добавен артикул', value: `**${productName}**\n💰 ${fmt(price)}`, inline: false },
+        {
+          name: '✅ Добавен артикул',
+          value: `> **${productName}**\n> 💰 ${fmt(price)}${origLine}${discLine}`,
+          inline: false,
+        },
       ],
-      footer: { text: `dennyangelow.com • ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}` },
+      footer: { text: `dennyangelow.com  •  ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}` },
+      timestamp: new Date().toISOString(),
     }
     await fetch(DISCORD_WEBHOOK, {
       method: 'POST',
@@ -317,30 +392,30 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
   if (wasAdded && alreadyInCart) return null
 
   return (
-    <div style={{ background: '#fff', border: `1.5px solid ${meta.color}22`, borderLeft: `3px solid ${meta.color}`, borderRadius: 11, padding: '8px 10px 8px 10px', display: 'flex', gap: 8, alignItems: 'center' }}>
-      <div style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, overflow: 'hidden', background: `${meta.color}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, border: `1px solid ${meta.color}20` }}>
+    <div className="offer-card-wrap" style={{ background: '#fff', border: `1.5px solid ${meta.color}22`, borderLeft: `3px solid ${meta.color}`, borderRadius: 11, display: 'flex', gap: 9, alignItems: 'center' }}>
+      <div style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, overflow: 'hidden', background: `${meta.color}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, border: `1px solid ${meta.color}20` }}>
         {imgSrc ? <img src={imgSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} /> : <span>{offer.emoji || meta.icon}</span>}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', lineHeight: 1.25, marginBottom: 2 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', lineHeight: 1.25, marginBottom: 1 }}>
           {offer.title}
-          {offer.description && <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 500, marginLeft: 4 }}>{offer.description}</span>}
+          <span className="offer-desc-inline" style={{ fontSize: 10.5, color: '#64748b', fontWeight: 500, marginLeft: 4 }}>{offer.description}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
-          {product && variant && <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{variant.label}</span>}
+          {product && variant && <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{product.name} · {variant.label}</span>}
           {variant && <>
-            <span style={{ fontSize: 12, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
             {showOld && <span style={{ fontSize: 10, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(oldPrice)}</span>}
             {savePct > 0 && <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 4 }}>-{savePct}%</span>}
             {offer.badge_text && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 6px', borderRadius: 99 }}>{offer.badge_text}</span>}
           </>}
         </div>
       </div>
-      <div style={{ flexShrink: 0, alignSelf: 'center', minWidth: 60 }}>
+      <div style={{ flexShrink: 0, alignSelf: 'center', minWidth: 64, paddingRight: 8 }}>
         {justAdded ? (
-          <div style={{ fontSize: 10.5, fontWeight: 800, color: '#059669', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 8, padding: '4px 7px', textAlign: 'center' as const }}>✓ Добавен</div>
+          <div style={{ fontSize: 10.5, fontWeight: 800, color: '#059669', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 8, padding: '5px 8px', textAlign: 'center' as const }}>✓ Добавен</div>
         ) : (
-          <button onClick={handleAdd} disabled={alreadyInCart} style={{ height: 30, borderRadius: 8, border: 'none', background: alreadyInCart ? '#059669' : meta.color, color: '#fff', cursor: alreadyInCart ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 800, padding: '0 10px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, transition: 'all .2s', boxShadow: !alreadyInCart ? `0 2px 8px ${meta.color}45` : 'none', whiteSpace: 'nowrap' as const }}>
+          <button onClick={handleAdd} disabled={alreadyInCart} style={{ height: 32, borderRadius: 9, border: 'none', background: alreadyInCart ? '#059669' : meta.color, color: '#fff', cursor: alreadyInCart ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '0 12px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, transition: 'all .2s', boxShadow: !alreadyInCart ? `0 2px 8px ${meta.color}45` : 'none', whiteSpace: 'nowrap' as const }}>
             {alreadyInCart ? '✓ Добавен' : '+ Добави'}
           </button>
         )}
@@ -350,10 +425,13 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
 }
 
 // ─── Post-purchase Modal ──────────────────────────────────────────────────────
-function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData, originalOrderId, originalOrderNumber, currencySymbol, fmt }: {
+function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData, originalOrderId, originalOrderNumber, currencySymbol, fmt, originalOrderItems, originalSubtotal, originalShipping, originalTotal, originalSavings, onClaimDiscord }: {
   offer: UpsellOffer; products: AtlasProduct[]; onAccept: () => void; onDismiss: () => void
   customerData: { name: string; phone: string; city: string; address: string; notes: string; courier: string }
   originalOrderId: string; originalOrderNumber: string; currencySymbol: string; fmt: (n: number) => string
+  originalOrderItems: Array<{ product_name: string; quantity: number; unit_price: number; total_price: number; from_offer?: boolean; offer_type?: string; compare_price?: number; offer_discount_pct?: number }>
+  originalSubtotal: number; originalShipping: number; originalTotal: number; originalSavings: number
+  onClaimDiscord: () => void
 }) {
   const product = products.find(p => p.id === offer.offer_product_id)
   const variant = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
@@ -362,12 +440,45 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
 
   const handleAccept = async () => {
     if (!product || !variant) { onDismiss(); return }
+    // Поемаме отговорността за Discord — отменяме fallback таймера
+    onClaimDiscord()
     setAdding(true)
     try {
-      const productName = `${product.name} — ${variant.label} (Post-purchase upsell)`
-      await fetch(`/api/orders/${originalOrderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ add_items: [{ product_name: productName, quantity: 1, unit_price: discountedPrice, total_price: discountedPrice }], offer_type: 'post_purchase', add_to_notes: '[POST-PURCHASE UPSELL]', add_to_total: discountedPrice }) })
-      // ── Discord update за приетия post-purchase ────────────────────────────
-      await sendDiscordPostPurchaseUpdate(originalOrderNumber, productName, discountedPrice, currencySymbol)
+      const productName = `${product.name} — ${variant.label}`
+      // ── PATCH поръчката с post-purchase артикула ──────────────────────────
+      await fetch(`/api/orders/${originalOrderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          add_items: [{ product_name: productName + ' (Post-purchase upsell)', quantity: 1, unit_price: discountedPrice, total_price: discountedPrice }],
+          offer_type: 'post_purchase', add_to_notes: '[POST-PURCHASE UPSELL]', add_to_total: discountedPrice,
+        }),
+      })
+      // ── Discord: цялата поръчка + pp в едно ново съобщение ───────────────
+      await sendDiscordNotification({
+        order_number: originalOrderNumber,
+        customer_name: customerData.name,
+        customer_phone: customerData.phone,
+        customer_city: customerData.city,
+        customer_address: customerData.address,
+        customer_notes: customerData.notes ? customerData.notes + ' [POST-PURCHASE UPSELL]' : '[POST-PURCHASE UPSELL]',
+        courier: customerData.courier,
+        payment_method: 'cod',
+        subtotal: originalSubtotal,
+        shipping: originalShipping,
+        total: originalTotal + discountedPrice,
+        total_savings: originalSavings + (offer.discount_pct && variant.price > discountedPrice ? variant.price - discountedPrice : 0),
+        items: originalOrderItems,
+        has_upsell: originalOrderItems.some(i => i.from_offer && i.offer_type === 'cart_upsell'),
+        has_cross_sell: originalOrderItems.some(i => i.from_offer && i.offer_type === 'cross_sell'),
+        currency_symbol: currencySymbol,
+        post_purchase: {
+          product_name: productName,
+          unit_price: discountedPrice,
+          original_price: offer.discount_pct ? variant.price : undefined,
+          discount_pct: offer.discount_pct || undefined,
+        },
+      })
       setDone(true); setTimeout(onAccept, 1800)
     } catch { onDismiss() } finally { setAdding(false) }
   }
@@ -460,10 +571,22 @@ function OffersGroup({ upsellOffers, crossSellOffers, products, onAddToCart, fmt
 }) {
   const allOffers = [...upsellOffers, ...crossSellOffers]
   if (allOffers.length === 0) return null
+
+  // Намираме оферти чиито продукти НЕ са все още в количката
+  const activeOffers = allOffers.filter(offer => {
+    const product = products.find(p => p.id === offer.offer_product_id)
+    const variant  = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
+    if (!variant) return false
+    return !cartItems.some(i => i.variantId === variant.id)
+  })
+
+  // Всички оферти са добавени → скриваме цялата секция
+  if (activeOffers.length === 0) return null
+
   return (
     <div style={{ marginBottom: 6 }}>
       <div style={{ fontSize: 9.5, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: '0.09em', marginBottom: 4 }}>✨ Може да те заинтересува</div>
-      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}>
         {allOffers.map(offer => <OfferCard key={offer.id} offer={offer} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={cartItems} />)}
       </div>
     </div>
@@ -574,6 +697,18 @@ function CartDrawer({
   const [orderId, setOrderId]         = useState('')
   const [error, setError]             = useState('')
   const [postPurchaseOffer, setPostPurchaseOffer] = useState<UpsellOffer | null>(null)
+  // Запазваме данните на поръчката за да ги пратим в Discord при post-purchase
+  const [lastOrderItems, setLastOrderItems]       = useState<any[]>([])
+  const [lastOrderSubtotal, setLastOrderSubtotal] = useState(0)
+  const [lastOrderShipping, setLastOrderShipping] = useState(0)
+  const [lastOrderTotal, setLastOrderTotal]       = useState(0)
+  const [lastOrderSavings, setLastOrderSavings]   = useState(0)
+  // Discord: pending send — чакаме post-purchase решение (макс. 60с) преди изпращане
+  const discordPendingRef = useRef<{
+    timerHandle: ReturnType<typeof setTimeout> | null
+    orderData: Parameters<typeof sendDiscordNotification>[0] | null
+    sent: boolean
+  }>({ timerHandle: null, orderData: null, sent: false })
   const innerRef = useRef<HTMLDivElement>(null)
 
   const headerBottom = useHeaderBottom()
@@ -609,6 +744,13 @@ function CartDrawer({
         product_name: `${i.productName} — ${i.variantLabel}`,
         quantity: i.qty, unit_price: i.price, total_price: +(i.price * i.qty).toFixed(2),
         from_offer: i.fromOffer || false,
+        offer_type: i.offerType || undefined,
+        compare_price: i.comparePrice > i.price ? i.comparePrice : undefined,
+        offer_discount_pct: (() => {
+          // Проверяваме дали variantLabel съдържа (-X%) от оферта
+          const match = i.variantLabel.match(/\(-?(\d+)%\)/)
+          return match ? parseInt(match[1]) : undefined
+        })(),
       }))
       const hasUpsell   = items.some(i => i.fromOffer && i.offerType === 'cart_upsell')
       const hasCross    = items.some(i => i.fromOffer && i.offerType === 'cross_sell')
@@ -644,10 +786,19 @@ function CartDrawer({
       const newOrderNumber = data.order_number || ''
       const newOrderId     = data.id || data.order_id || ''
       setOrderNumber(newOrderNumber); setOrderId(newOrderId)
+      // Запазваме snapshot на поръчката преди да изчистим количката
+      setLastOrderItems(orderItems)
+      setLastOrderSubtotal(+subtotal.toFixed(2))
+      setLastOrderShipping(+shipping.toFixed(2))
+      setLastOrderTotal(+total.toFixed(2))
+      setLastOrderSavings(+totalSavings.toFixed(2))
       setDone(true); onClearCart()
 
-      // ── Discord известие (non-blocking — не чакаме да се покаже post-purchase) ─
-      void sendDiscordNotification({
+      // ── Discord: изчакваме post-purchase решението (макс. 60с) ──────────
+      // Ако няма post-purchase оферта → изпращаме след 3с (буфер за запазване на поръчката)
+      // Ако има pp оферта → изчакваме 60с; ако клиентът я приеме → handleAccept изпраща
+      // сам с post_purchase поле; ако не → таймерът изпраща без нея.
+      const baseDiscordPayload: Parameters<typeof sendDiscordNotification>[0] = {
         order_number: newOrderNumber, customer_name: form.name.trim(),
         customer_phone: form.phone.trim(), customer_city: form.city.trim(),
         customer_address: form.address.trim(), customer_notes: notesValue,
@@ -655,12 +806,28 @@ function CartDrawer({
         subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
         total_savings: +totalSavings.toFixed(2), items: orderItems,
         has_upsell: hasUpsell, has_cross_sell: hasCross, currency_symbol: sym,
-      })
+      }
+
+      const hasPPOffer = ms?.post_purchase_enabled &&
+        ms.offers.some(o => o.type === 'post_purchase' && offerMatches(o, items, subtotal))
+
+      // Отменяме евентуален предишен таймер
+      if (discordPendingRef.current.timerHandle) clearTimeout(discordPendingRef.current.timerHandle)
+      discordPendingRef.current.sent = false
+      discordPendingRef.current.orderData = baseDiscordPayload
+
+      const discordDelay = hasPPOffer ? 60_000 : 3_000
+      discordPendingRef.current.timerHandle = setTimeout(() => {
+        if (!discordPendingRef.current.sent && discordPendingRef.current.orderData) {
+          discordPendingRef.current.sent = true
+          void sendDiscordNotification(discordPendingRef.current.orderData)
+        }
+      }, discordDelay)
 
       // ── Post-purchase upsell ──────────────────────────────────────────────
-      if (ms?.post_purchase_enabled) {
-        const pp = ms.offers.filter(o => o.type === 'post_purchase' && offerMatches(o, items, subtotal))
-        if (pp.length > 0) setTimeout(() => setPostPurchaseOffer(pp[0]), Math.max(0, (ms.post_purchase_delay ?? 2)) * 1000)
+      if (hasPPOffer) {
+        const pp = ms!.offers.filter(o => o.type === 'post_purchase' && offerMatches(o, items, subtotal))
+        if (pp.length > 0) setTimeout(() => setPostPurchaseOffer(pp[0]), Math.max(0, (ms!.post_purchase_delay ?? 2)) * 1000)
       }
     } catch (err: any) {
       setError(err.message || 'Грешка при изпращане. Моля опитай отново.')
@@ -740,6 +907,13 @@ function CartDrawer({
         .cart-inner::-webkit-scrollbar { width: 3px }
         .cart-inner::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px }
 
+        /* ══ OFFER CARD — компактен на мобилни ═══════════════════ */
+        .offer-card-wrap { padding: 10px 10px 10px 11px; }
+        @media (max-width: 640px) {
+          .offer-card-wrap { padding: 7px 7px 7px 9px; }
+          .offer-desc-inline { display: none; }
+        }
+
         /* ══ FOOTER ══════════════════════════════════════════════ */
         .cart-footer {
           padding: 10px 16px;
@@ -812,10 +986,30 @@ function CartDrawer({
       `}</style>
 
       {postPurchaseOffer && (
-        <PostPurchaseModal offer={postPurchaseOffer} products={products} customerData={form}
+        <PostPurchaseModal
+          offer={postPurchaseOffer} products={products} customerData={form}
           originalOrderId={orderId} originalOrderNumber={orderNumber} currencySymbol={sym}
           onAccept={() => setPostPurchaseOffer(null)}
-          onDismiss={() => setPostPurchaseOffer(null)} fmt={fmt} />
+          onDismiss={() => {
+            // Клиентът отказа — изпращаме Discord веднага (без pp)
+            if (!discordPendingRef.current.sent && discordPendingRef.current.orderData) {
+              if (discordPendingRef.current.timerHandle) clearTimeout(discordPendingRef.current.timerHandle)
+              discordPendingRef.current.sent = true
+              void sendDiscordNotification(discordPendingRef.current.orderData)
+            }
+            setPostPurchaseOffer(null)
+          }} fmt={fmt}
+          originalOrderItems={lastOrderItems}
+          originalSubtotal={lastOrderSubtotal}
+          originalShipping={lastOrderShipping}
+          originalTotal={lastOrderTotal}
+          originalSavings={lastOrderSavings}
+          onClaimDiscord={() => {
+            // Модалът поема отговорността за Discord — отменяме fallback таймера
+            if (discordPendingRef.current.timerHandle) clearTimeout(discordPendingRef.current.timerHandle)
+            discordPendingRef.current.sent = true // маркираме като изпратено
+          }}
+        />
       )}
 
       {/* Overlay покрива от top:0 на мобилни, от headerBottom на десктоп */}
@@ -884,6 +1078,10 @@ function CartDrawer({
                               Скрива се с CSS клас .soil-analysis-hide-mobile
                     При ≥60л: congratulations banner (винаги)
                     ─────────────────────────────────────────────────────── */}
+                {/* Upsell + Cross-sell — ПЪРВО оферти, после анализ */}
+                <OffersGroup upsellOffers={upsellOffers} crossSellOffers={crossSellOffers} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={items} />
+
+                {/* 🔬 Анализ на почвата — СЛЕД офертите, не се мести при скриване */}
                 {totalLiters >= 60 ? (
                   <div style={{ background: 'linear-gradient(135deg,#14532d,#166534)', borderRadius: 11, padding: '11px 14px', marginBottom: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 20, flexShrink: 0 }}>🔬</span>
@@ -900,9 +1098,6 @@ function CartDrawer({
                     </div>
                   </div>
                 ) : null}
-
-                {/* Upsell + Cross-sell */}
-                <OffersGroup upsellOffers={upsellOffers} crossSellOffers={crossSellOffers} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={items} />
 
                 {/* Ценово резюме */}
                 <div style={{ background: '#f8fafc', borderRadius: 14, padding: '13px 15px', marginBottom: 13, border: '1px solid #f1f5f9' }}>
