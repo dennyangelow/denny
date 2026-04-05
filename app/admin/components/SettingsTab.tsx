@@ -1,12 +1,11 @@
 'use client'
-// app/admin/components/SettingsTab.tsx — v6
+// app/admin/components/SettingsTab.tsx — v7 с Resend + Systeme.io интеграции
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { toast } from '@/components/ui/Toast'
 
 interface Props { ordersCount: number; leadsCount: number }
 
-// ─── Секции с настройки ────────────────────────────────────────────────────────
 const SECTIONS = [
   {
     id: 'hero', label: '🏠 Главна страница',
@@ -32,16 +31,16 @@ const SECTIONS = [
   {
     id: 'shipping', label: '📦 Доставка',
     keys: [
-      { key: 'shipping_econt',      label: 'Цена Еконт',           type: 'number', placeholder: '5.00' },
-      { key: 'shipping_speedy',     label: 'Цена Спиди',           type: 'number', placeholder: '5.50' },
+      { key: 'shipping_econt',      label: 'Цена Еконт',             type: 'number', placeholder: '5.00' },
+      { key: 'shipping_speedy',     label: 'Цена Спиди',             type: 'number', placeholder: '5.50' },
       { key: 'free_shipping_above', label: 'Безплатна доставка над', type: 'number', placeholder: '60', hint: 'shipping_price в CartSystem = min(econt, speedy)' },
     ],
   },
   {
     id: 'currency', label: '💶 Валута',
     keys: [
-      { key: 'currency',        label: 'Валута (код)',      type: 'text', placeholder: 'BGN', hint: 'Напр. BGN, EUR, USD' },
-      { key: 'currency_symbol', label: 'Символ за показване', type: 'text', placeholder: '€', hint: 'Показва се след сумата — €, лв., $' },
+      { key: 'currency',        label: 'Валута (код)',        type: 'text', placeholder: 'BGN', hint: 'Напр. BGN, EUR, USD' },
+      { key: 'currency_symbol', label: 'Символ за показване', type: 'text', placeholder: '€',   hint: 'Показва се след сумата — €, лв., $' },
     ],
   },
   {
@@ -54,26 +53,21 @@ const SECTIONS = [
   {
     id: 'emails', label: '✉️ Email настройки',
     keys: [
-      { key: 'email_from_name', label: 'От (Имена)',  type: 'text',  placeholder: 'Denny Angelow' },
-      { key: 'email_from_addr', label: 'От (Имейл)',  type: 'email', placeholder: 'denny@dennyangelow.com' },
-      { key: 'email_reply_to',  label: 'Reply-To',    type: 'email', placeholder: 'support@dennyangelow.com' },
+      { key: 'email_from_name', label: 'От (Имена)', type: 'text',  placeholder: 'Denny Angelow' },
+      { key: 'email_from_addr', label: 'От (Имейл)', type: 'email', placeholder: 'denny@dennyangelow.com' },
+      { key: 'email_reply_to',  label: 'Reply-To',   type: 'email', placeholder: 'support@dennyangelow.com' },
     ],
   },
 ] as const
 
-type SectionKey = typeof SECTIONS[number]['keys'][number]['key']
-
 function validate(vals: Record<string, string>): string[] {
   const errs: string[] = []
   ;['shipping_econt', 'shipping_speedy', 'free_shipping_above'].forEach(k => {
-    if (vals[k] && (isNaN(parseFloat(vals[k])) || parseFloat(vals[k]) < 0)) {
+    if (vals[k] && (isNaN(parseFloat(vals[k])) || parseFloat(vals[k]) < 0))
       errs.push(`${k}: трябва да е положително число`)
-    }
   })
   ;['social_proof_items', 'trust_strip_items'].forEach(k => {
-    if (vals[k]) {
-      try { JSON.parse(vals[k]) } catch { errs.push(`${k}: невалиден JSON`) }
-    }
+    if (vals[k]) { try { JSON.parse(vals[k]) } catch { errs.push(`${k}: невалиден JSON`) } }
   })
   return errs
 }
@@ -87,32 +81,150 @@ function useDebounce<T>(value: T, delay: number): T {
   return d
 }
 
+// ─── Интеграции toggle компонент ─────────────────────────────────────────────
+interface IntegrationRowProps {
+  icon: string
+  name: string
+  description: string
+  enabled: boolean
+  loading: boolean
+  onToggle: () => void
+  statusLabel?: string
+  statusColor?: string
+  href?: string
+}
+
+function IntegrationRow({ icon, name, description, enabled, loading, onToggle, statusLabel, statusColor, href }: IntegrationRowProps) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: '12px 0', borderBottom: '1px solid #f5f5f5',
+    }}>
+      <div style={{ fontSize: 22, width: 32, textAlign: 'center', flexShrink: 0 }}>{icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{name}</span>
+          {statusLabel && (
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+              background: statusColor ? `${statusColor}18` : '#f0fdf4',
+              color: statusColor || '#166534',
+            }}>{statusLabel}</span>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1, lineHeight: 1.4 }}>
+          {description}
+          {href && (
+            <a href={href} target="_blank" rel="noreferrer"
+              style={{ color: '#2d6a4f', marginLeft: 6, textDecoration: 'none', fontWeight: 600 }}>
+              Dashboard ↗
+            </a>
+          )}
+        </div>
+      </div>
+      <button
+        onClick={onToggle}
+        disabled={loading}
+        style={{
+          width: 44, height: 24, borderRadius: 12, border: 'none', cursor: loading ? 'default' : 'pointer',
+          background: enabled ? '#16a34a' : '#d1d5db',
+          position: 'relative', transition: 'background .2s', flexShrink: 0,
+          opacity: loading ? 0.6 : 1,
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 3, width: 18, height: 18, borderRadius: '50%',
+          background: '#fff', transition: 'left .2s',
+          left: enabled ? 23 : 3,
+          boxShadow: '0 1px 3px rgba(0,0,0,.2)',
+        }} />
+      </button>
+    </div>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export function SettingsTab({ ordersCount, leadsCount }: Props) {
-  const [vals,      setVals]      = useState<Record<string, string>>({})
-  const [savedVals, setSavedVals] = useState<Record<string, string>>({})
-  const [loading,   setLoading]   = useState(true)
-  const [saving,    setSaving]    = useState(false)
-  const [autoSaving,setAutoSaving]= useState(false)
-  const [search,    setSearch]    = useState('')
-  const [expanded,  setExpanded]  = useState<Set<string>>(new Set(SECTIONS.map(s => s.id)))
+  const [vals,       setVals]       = useState<Record<string, string>>({})
+  const [savedVals,  setSavedVals]  = useState<Record<string, string>>({})
+  const [loading,    setLoading]    = useState(true)
+  const [saving,     setSaving]     = useState(false)
+  const [autoSaving, setAutoSaving] = useState(false)
+  const [search,     setSearch]     = useState('')
+  const [expanded,   setExpanded]   = useState<Set<string>>(new Set(SECTIONS.map(s => s.id)))
   const isFirstLoad = useRef(true)
+
+  // ── Интеграции state ────────────────────────────────────────────────────
+  const [resendEnabled,     setResendEnabled]     = useState(true)
+  const [systemeEnabled,    setSystemeEnabled]    = useState(true)
+  const [togglingResend,    setTogglingResend]    = useState(false)
+  const [togglingSysteme,   setTogglingSysteme]   = useState(false)
+  const [testingSysteme,    setTestingSysteme]    = useState(false)
 
   const dirty = useMemo(
     () => Object.keys(vals).some(k => vals[k] !== savedVals[k]),
     [vals, savedVals],
   )
 
-  // ── Load ──────────────────────────────────────────────────────────────────
+  // ── Load settings + integration flags ────────────────────────────────────
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.json())
       .then(d => {
-        if (d.settings) { setVals(d.settings); setSavedVals(d.settings) }
+        if (d.settings) {
+          setVals(d.settings)
+          setSavedVals(d.settings)
+          // Прочети флаговете от settings
+          setResendEnabled(d.settings.resend_enabled   !== 'false')
+          setSystemeEnabled(d.settings.systemeio_enabled !== 'false')
+        }
         setLoading(false)
       })
       .catch(() => { toast.error('Грешка при зареждане на настройките'); setLoading(false) })
   }, [])
+
+  // ── Toggle helper ─────────────────────────────────────────────────────────
+  const toggleIntegration = async (
+    key: string,
+    current: boolean,
+    setFn: (v: boolean) => void,
+    setBusy: (v: boolean) => void,
+    label: string,
+  ) => {
+    setBusy(true)
+    const next = !current
+    try {
+      const res = await fetch('/api/settings', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ updates: { [key]: String(next) } }),
+      })
+      if (!res.ok) throw new Error()
+      setFn(next)
+      setVals(p => ({ ...p, [key]: String(next) }))
+      setSavedVals(p => ({ ...p, [key]: String(next) }))
+      toast.success(`${label} е ${next ? 'активиран' : 'деактивиран'}`)
+    } catch {
+      toast.error(`Грешка при промяна на ${label}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── Test Systeme.io connection ────────────────────────────────────────────
+  const testSystemeIO = async () => {
+    setTestingSysteme(true)
+    try {
+      const res = await fetch('/api/integrations/systemeio/test')
+      const d   = await res.json()
+      if (d.ok) toast.success(`✅ Systeme.io: свързан (${d.contacts ?? '?'} контакта)`)
+      else       toast.error(`❌ Systeme.io: ${d.error || 'грешка'}`)
+    } catch {
+      toast.error('❌ Не може да се свърже с Systeme.io')
+    } finally {
+      setTestingSysteme(false)
+    }
+  }
 
   // ── Auto-save (debounced 2s) ──────────────────────────────────────────────
   const debouncedVals = useDebounce(vals, 2000)
@@ -132,7 +244,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
       .finally(() => setAutoSaving(false))
   }, [debouncedVals])
 
-  // ── Unload warning ────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = '' } }
     window.addEventListener('beforeunload', handler)
@@ -141,7 +252,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
 
   const set = (key: string, val: string) => setVals(p => ({ ...p, [key]: val }))
 
-  // ── Manual save ───────────────────────────────────────────────────────────
   const save = async () => {
     const errs = validate(vals)
     if (errs.length > 0) { errs.forEach(e => toast.error(e)); return }
@@ -196,7 +306,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   const toggleSection = (id: string) =>
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
-  // ── Search filter ─────────────────────────────────────────────────────────
   const filteredSections = useMemo(() => {
     if (!search.trim()) return SECTIONS
     const q = search.toLowerCase()
@@ -205,7 +314,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
       .filter(s => s.keys.length > 0)
   }, [search])
 
-  // ─────────────────────────────────────────────────────────────────────────
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '10px 14px',
     border: '1.5px solid #f0f0f0', borderRadius: 9,
@@ -225,8 +333,8 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   return (
     <div style={{ padding: '24px 28px' }}>
       <style>{`
-        .settings-input:focus  { border-color: #2d6a4f !important; background: #fff !important }
-        .settings-textarea:focus { border-color: #2d6a4f !important; background: #fff !important }
+        .settings-input:focus   { border-color: #2d6a4f !important; background: #fff !important }
+        .settings-textarea:focus{ border-color: #2d6a4f !important; background: #fff !important }
         @keyframes spin  { to { transform: rotate(360deg) } }
         @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .5 } }
       `}</style>
@@ -298,7 +406,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
 
             return (
               <div key={section.id} style={{ background: '#fff', border: `1px solid ${sectionDirty ? '#fde68a' : 'var(--border)'}`, borderRadius: 14, overflow: 'hidden', transition: 'border-color .2s' }}>
-
                 <button onClick={() => toggleSection(section.id)}
                   style={{ width: '100%', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -320,25 +427,15 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
                             {isChanged && <span style={{ fontSize: 10, color: '#f59e0b' }}>●</span>}
                           </label>
                           {k.type === 'textarea' ? (
-                            <textarea
-                              rows={3}
-                              value={vals[k.key] || ''}
-                              onChange={e => set(k.key, e.target.value)}
-                              placeholder={k.placeholder}
-                              className="settings-textarea"
-                              style={{ ...inputStyle, resize: 'vertical' }}
-                            />
+                            <textarea rows={3} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
+                              placeholder={k.placeholder} className="settings-textarea"
+                              style={{ ...inputStyle, resize: 'vertical' }} />
                           ) : (
-                            <input
-                              type={k.type}
-                              value={vals[k.key] || ''}
-                              onChange={e => set(k.key, e.target.value)}
-                              placeholder={k.placeholder}
-                              className="settings-input"
+                            <input type={k.type} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
+                              placeholder={k.placeholder} className="settings-input"
                               step={k.type === 'number' ? '0.01' : undefined}
-                              min={k.type  === 'number' ? '0'    : undefined}
-                              style={inputStyle}
-                            />
+                              min={k.type === 'number' ? '0' : undefined}
+                              style={inputStyle} />
                           )}
                           {'hint' in k && k.hint && (
                             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{k.hint}</div>
@@ -356,15 +453,74 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
         {/* ── Sidebar ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+          {/* ── ИНТЕГРАЦИИ ── */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>🔌 Интеграции</h2>
+            <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.5 }}>
+              Активирай/деактивирай без рестартиране — влиза в сила веднага.
+            </p>
+
+            <IntegrationRow
+              icon="✉️"
+              name="Resend"
+              description="Welcome + follow-up имейли към потребителите"
+              enabled={resendEnabled}
+              loading={togglingResend}
+              statusLabel={resendEnabled ? 'Активен' : 'Изключен'}
+              statusColor={resendEnabled ? '#16a34a' : '#6b7280'}
+              href="https://resend.com/emails"
+              onToggle={() => toggleIntegration(
+                'resend_enabled', resendEnabled,
+                setResendEnabled, setTogglingResend, 'Resend'
+              )}
+            />
+
+            <IntegrationRow
+              icon="🟠"
+              name="Systeme.io"
+              description="Синхрониза leads + автоматизации в Systeme.io"
+              enabled={systemeEnabled}
+              loading={togglingSysteme}
+              statusLabel={systemeEnabled ? 'Активен' : 'Изключен'}
+              statusColor={systemeEnabled ? '#16a34a' : '#6b7280'}
+              href="https://systeme.io/dashboard/contacts"
+              onToggle={() => toggleIntegration(
+                'systemeio_enabled', systemeEnabled,
+                setSystemeEnabled, setTogglingSysteme, 'Systeme.io'
+              )}
+            />
+
+            {/* Test connection бутон */}
+            <button
+              onClick={testSystemeIO}
+              disabled={testingSysteme || !systemeEnabled}
+              style={{
+                marginTop: 12, width: '100%', padding: '9px', fontSize: 12, fontWeight: 700,
+                fontFamily: 'inherit', cursor: (testingSysteme || !systemeEnabled) ? 'default' : 'pointer',
+                background: systemeEnabled ? '#fff7ed' : '#f9fafb',
+                border: `1px solid ${systemeEnabled ? '#fed7aa' : '#e5e7eb'}`,
+                borderRadius: 9, color: systemeEnabled ? '#c2410c' : '#9ca3af',
+                transition: 'all .2s', opacity: !systemeEnabled ? 0.5 : 1,
+              }}>
+              {testingSysteme ? '⏳ Проверява...' : '🔗 Тествай Systeme.io връзка'}
+            </button>
+
+            <div style={{ marginTop: 10, background: '#f8fafc', borderRadius: 8, padding: '8px 10px', fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>
+              <strong style={{ color: '#374151', display: 'block', marginBottom: 2 }}>Как работи:</strong>
+              При изтегляне на наръчник → записва се в Supabase → изпраща welcome имейл (Resend) → добавя контакт в Systeme.io (за автоматизации).
+            </div>
+          </div>
+
           {/* Status */}
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 14px' }}>📊 Статус</h2>
             {[
-              { label: 'Поръчки',    value: ordersCount, color: '#16a34a' },
-              { label: 'Абонати',    value: leadsCount,  color: '#0ea5e9' },
+              { label: 'Поръчки',    value: ordersCount,                              color: '#16a34a' },
+              { label: 'Абонати',    value: leadsCount,                               color: '#0ea5e9' },
               { label: 'Framework',  value: 'Next.js 14' },
               { label: 'База данни', value: 'Supabase' },
-              { label: 'Email',      value: 'Resend' },
+              { label: 'Email',      value: resendEnabled    ? '✅ Resend'    : '⏸ Resend изкл.',    color: resendEnabled    ? '#16a34a' : '#9ca3af' },
+              { label: 'Leads sync', value: systemeEnabled   ? '✅ Systeme.io': '⏸ Systeme изкл.',   color: systemeEnabled   ? '#f97316' : '#9ca3af' },
               { label: 'Hosting',    value: 'Vercel' },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: 13 }}>
@@ -394,10 +550,11 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>🔗 Бързи линкове</h2>
             {[
-              { label: 'Supabase Dashboard', url: 'https://app.supabase.com',     icon: '⬡', color: '#3ecf8e' },
-              { label: 'Resend Dashboard',   url: 'https://resend.com/emails',    icon: '✉', color: '#0ea5e9' },
-              { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard', icon: '▲', color: '#111' },
-              { label: 'Главна страница',    url: '/',                            icon: '◫', color: '#6b7280' },
+              { label: 'Supabase Dashboard', url: 'https://app.supabase.com',            icon: '⬡', color: '#3ecf8e' },
+              { label: 'Resend Dashboard',   url: 'https://resend.com/emails',            icon: '✉', color: '#0ea5e9' },
+              { label: 'Systeme.io',         url: 'https://systeme.io/dashboard/contacts',icon: '🟠', color: '#f97316' },
+              { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard',         icon: '▲', color: '#111' },
+              { label: 'Главна страница',    url: '/',                                    icon: '◫', color: '#6b7280' },
             ].map(l => (
               <a key={l.url} href={l.url} target="_blank" rel="noreferrer"
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 9, textDecoration: 'none', color: 'var(--text)', fontSize: 13, fontWeight: 500, marginBottom: 6, transition: 'all .15s' }}
@@ -414,9 +571,10 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: 18 }}>
             <h2 style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 10 }}>⚠️ Сигурност</h2>
             {[
-              ['ADMIN_SECRET',   'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
-              ['RLS в Supabase', 'Row Level Security трябва да е активирана.'],
-              ['CRON_SECRET',    'Защита на /api/leads/sequence.'],
+              ['ADMIN_SECRET',      'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
+              ['SYSTEMEIO_API_KEY', 'Задай в Vercel → Env Vars. Взима се от Systeme.io → Settings → API Keys.'],
+              ['RLS в Supabase',    'Row Level Security трябва да е активирана.'],
+              ['CRON_SECRET',       'Защита на /api/leads/sequence.'],
             ].map(([k, v]) => (
               <div key={k} style={{ marginBottom: 8, fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
                 <strong style={{ color: '#92400e', display: 'block', fontSize: 11, textTransform: 'uppercase' }}>{k}</strong>
