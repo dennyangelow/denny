@@ -5,7 +5,6 @@ const ECONT_USER = process.env.ECONT_USER || 'iasp-dev'
 const ECONT_PASS = process.env.ECONT_PASS || '1Asp-dev'
 const IS_DEMO    = !process.env.ECONT_USER || process.env.ECONT_ENV === 'demo'
 
-// ✅ demo API-то е НЕПЪЛНО — ползвай реалния когато има credentials
 const ECONT_API  = IS_DEMO
   ? 'https://demo.econt.com/ee/services/Nomenclatures'
   : 'https://ee.econt.com/services/Nomenclatures'
@@ -23,9 +22,15 @@ export async function GET(req: NextRequest) {
   const auth = Buffer.from(`${ECONT_USER}:${ECONT_PASS}`).toString('base64')
   const url  = `${ECONT_API}/NomenclaturesService.getOffices.json`
 
-  const body = cityId
-    ? { city: { id: Number(cityId) } }
-    : { city: { name: cityName } }
+  // ✅ Изпращаме cityId И cityName заедно — по-прецизен резултат от Еконт
+  let body: any
+  if (cityId && cityName) {
+    body = { city: { id: Number(cityId), name: cityName } }
+  } else if (cityId) {
+    body = { city: { id: Number(cityId) } }
+  } else {
+    body = { city: { name: cityName } }
+  }
 
   try {
     const res = await fetch(url, {
@@ -42,46 +47,46 @@ export async function GET(req: NextRequest) {
 
     if (!res.ok) {
       console.error(`[econt/offices] HTTP ${res.status}:`, rawText.slice(0, 500))
-      return NextResponse.json({ error: `Econt API returned ${res.status}`, detail: rawText.slice(0, 300) }, { status: 502 })
+      return NextResponse.json({ error: `Econt API returned ${res.status}` }, { status: 502 })
     }
 
     let data: any
     try { data = JSON.parse(rawText) }
-    catch { return NextResponse.json({ error: 'Non-JSON from Econt', raw: rawText.slice(0, 300) }, { status: 502 }) }
+    catch { return NextResponse.json({ error: 'Non-JSON from Econt' }, { status: 502 }) }
 
     const raw: any[] = Array.isArray(data) ? data : (data.offices || data.Offices || [])
 
+    // ✅ ПОПРАВКА: Ако Еконт върне 0 офиси — връщаме празен масив, НЕ грешка
+    // Така frontend-ът ще покаже "Няма офиси за този град"
     if (raw.length === 0) {
       return NextResponse.json({ offices: [], count: 0 }, {
         headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' },
       })
     }
 
-    // ✅ ПОПРАВКА 1: Филтрираме офисите ДА СА ТОЧНО в избрания град
-    // Еконт връща офиси за целия регион — match-ваме по cityId на офиса
     const requestedCityId = cityId ? Number(cityId) : null
 
     const offices = raw
       .filter((o: any) => {
         if (o.isActive === false) return false
 
-        // Само офиси ТОЧНО в избрания град (не целия регион)
+        // ✅ ПОПРАВКА: Филтър по cityId на офиса за да изключим регионални офиси
+        // Еконт може да върне office.address.city.id, office.cityID или office.city.id
         if (requestedCityId) {
-          const officeCityId =
+          const officeCityId: number | null =
             o.address?.city?.id ??
             o.cityID ??
             o.city?.id ??
             null
+
+          // Ако полето съществува и НЕ съвпада — изключваме офиса
+          // Ако полето ЛИПСВА (null) — включваме офиса (по-добре лишни от липсващи)
           if (officeCityId !== null && officeCityId !== requestedCityId) return false
         }
 
-        // ✅ ПОПРАВКА 2: Само кирилски имена — изключва ACS Гърция и др.
+        // Само кирилски имена — изключва ACS Гърция, DHL и др.
         const name: string = o.name || ''
         if (name && !/^[\u0400-\u04FF\s\-\.()0-9\/,]+$/.test(name)) return false
-
-        // Изключва партньорски мрежи по prefix
-        const nameLower = name.toLowerCase()
-        if (['acs ', 'dhl ', 'speedy '].some(p => nameLower.startsWith(p))) return false
 
         return true
       })

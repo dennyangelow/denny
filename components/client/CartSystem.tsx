@@ -266,24 +266,37 @@ function EcontOfficePicker({ onSelect }: {
 
   useEffect(() => {
     if (!selectedCity) return
-    setOffices([]); setSelectedOffice(null); setOfficeQuery('')
+    // ✅ Нулираме веднага — да не останат офисите от предишния град
+    setOffices([])
+    setSelectedOffice(null)
+    setOfficeQuery('')
 
-    // ✅ Проверяваме session cache преди да правим API call
-    const cached = loadOfficesFromSession(selectedCity.id)
-    if (cached && cached.length > 0) {
-      setOffices(cached)
-      return
-    }
+    // Проверяваме session cache — кешираме и ПРАЗЕН резултат (няма офиси)
+    const cacheKey = officesCacheKey(selectedCity.id)
+    try {
+      const raw = sessionStorage.getItem(cacheKey)
+      if (raw) {
+        const { offices: cachedOffices, savedAt } = JSON.parse(raw)
+        if (Date.now() - savedAt <= ECONT_OFFICES_TTL) {
+          setOffices(Array.isArray(cachedOffices) ? cachedOffices : [])
+          return
+        } else {
+          sessionStorage.removeItem(cacheKey)
+        }
+      }
+    } catch {}
 
     setOfficesLoading(true)
-    fetch(`/api/econt/offices?cityId=${selectedCity.id}`)
+    // ✅ Подаваме и cityName за по-прецизен резултат от Еконт
+    fetch(`/api/econt/offices?cityId=${selectedCity.id}&cityName=${encodeURIComponent(selectedCity.name)}`)
       .then(r => r.ok ? r.json() : { offices: [] })
       .then(d => {
         const list = d.offices || []
-        saveOfficesToSession(selectedCity.id, list)
+        // Кешираме — включително празен масив
+        try { sessionStorage.setItem(cacheKey, JSON.stringify({ offices: list, savedAt: Date.now() })) } catch {}
         setOffices(list)
       })
-      .catch(() => {})
+      .catch(() => setOffices([]))
       .finally(() => setOfficesLoading(false))
   }, [selectedCity])
 
