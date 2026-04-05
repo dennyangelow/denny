@@ -213,6 +213,35 @@ export function LeadsTab({ leads }: Props) {
     finally { setBSending(false) }
   }, [bSubject, bBody, selectedTag])
 
+  // ── Unsubscribe ───────────────────────────────────────────────────────────
+  const handleUnsubscribe = useCallback(async (id: string, email: string) => {
+    if (!confirm(`Отпиши ${email}?`)) return
+    try {
+      const res = await fetch(`/api/leads/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscribed: false }),
+      })
+      if (!res.ok) throw new Error('Грешка')
+      toast.success(`${email} е отписан`)
+    } catch { toast.error('Грешка при отписване') }
+  }, [])
+
+  // ── Sync to Systeme.io ────────────────────────────────────────────────────
+  const [syncingId, setSyncingId] = useState<string | null>(null)
+  const handleSyncSysteme = useCallback(async (lead: Lead) => {
+    setSyncingId(lead.id)
+    try {
+      const res = await fetch('/api/integrations/systemeio/test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: lead.email, name: lead.name }),
+      })
+      const data = await res.json()
+      if (data.ok) toast.success(`✅ ${lead.email} е синхронизиран в Systeme.io`)
+      else toast.error(`❌ Systeme.io: ${data.error || data.message}`)
+    } catch { toast.error('Грешка при sync') }
+    finally { setSyncingId(null) }
+  }, [])
+
   // ── Styles ────────────────────────────────────────────────────────────────
   const inp: React.CSSProperties = { padding: '8px 13px', border: '1px solid var(--border)', borderRadius: 9, fontFamily: 'inherit', fontSize: 13, outline: 'none', background: '#fff' }
   const SortArrow = ({ k }: { k: SortKey }) => (
@@ -474,6 +503,19 @@ export function LeadsTab({ leads }: Props) {
                                   style={{ fontSize: 12, color: '#2d6a4f', fontWeight: 700, textDecoration: 'none', padding: '4px 12px', background: '#fff', border: '1px solid #bbf7d0', borderRadius: 7 }}>
                                   ✉️ Пиши
                                 </a>
+                                <button
+                                  onClick={e => { e.stopPropagation(); handleSyncSysteme(l) }}
+                                  disabled={syncingId === l.id}
+                                  style={{ fontSize: 12, color: '#c2410c', fontWeight: 700, padding: '4px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', opacity: syncingId === l.id ? .5 : 1 }}>
+                                  {syncingId === l.id ? '⏳...' : '🟠 Sync Systeme.io'}
+                                </button>
+                                {l.subscribed && (
+                                  <button
+                                    onClick={e => { e.stopPropagation(); handleUnsubscribe(l.id, l.email) }}
+                                    style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700, padding: '4px 12px', background: '#fff1f2', border: '1px solid #fca5a5', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                    ✋ Отпиши
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>

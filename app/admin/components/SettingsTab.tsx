@@ -508,6 +508,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             <div style={{ marginTop: 10, background: '#f8fafc', borderRadius: 8, padding: '8px 10px', fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>
               <strong style={{ color: '#374151', display: 'block', marginBottom: 2 }}>Как работи:</strong>
               При изтегляне на наръчник → записва се в Supabase → изпраща welcome имейл (Resend) → добавя контакт в Systeme.io (за автоматизации).
+              <br/><strong style={{color:'#92400e'}}>⚠️ Env var:</strong> трябва да е точно <code>systemeio_api</code> в Vercel.
             </div>
           </div>
 
@@ -572,7 +573,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             <h2 style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 10 }}>⚠️ Сигурност</h2>
             {[
               ['ADMIN_SECRET',      'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
-              ['SYSTEMEIO_API_KEY', 'Задай в Vercel → Env Vars. Взима се от Systeme.io → Settings → API Keys.'],
+              ['systemeio_api', 'Задай в Vercel → Env Vars с точно това име. Взима се от Systeme.io → Settings → API Keys.'],
               ['RLS в Supabase',    'Row Level Security трябва да е активирана.'],
               ['CRON_SECRET',       'Защита на /api/leads/sequence.'],
             ].map(([k, v]) => (
