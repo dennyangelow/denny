@@ -1,4 +1,4 @@
-// app/api/leads/route.ts — v5 със Systeme.io sync
+// app/api/leads/route.ts — v6 с фиксиран Systeme.io sync
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -12,52 +12,142 @@ async function syncToSystemeIO(data: {
   name?: string | null
   phone?: string | null
   slug?: string
-}): Promise<{ ok: boolean; error?: string }> {
-  const apiKey = process.env.SYSTEMEIO_API_KEY
-  if (!apiKey) return { ok: false, error: 'SYSTEMEIO_API_KEY не е настроен' }
+}): Promise<{ ok: boolean; error?: string; status?: number }> {
+  // ФИКС: Чете и двата варианта на ключа — SYSTEMEIO_API_KEY или systemeio_api
+  const apiKey =
+    process.env.SYSTEMEIO_API_KEY ||
+    process.env.systemeio_api ||
+    process.env.SYSTEME_IO_API_KEY
+
+  if (!apiKey) {
+    return { ok: false, error: 'Systeme.io API ключ не е зададен. Добави SYSTEMEIO_API_KEY в Env Vars.' }
+  }
 
   try {
-    // Systeme.io разделя firstName / lastName
-    const nameParts  = (data.name || '').trim().split(/\s+/)
-    const firstName  = nameParts[0] || ''
-    const lastName   = nameParts.slice(1).join(' ') || ''
+    const nameParts = (data.name || '').trim().split(/\s+/)
+    const firstName = nameParts[0] || ''
+    const lastName  = nameParts.slice(1).join(' ') || ''
+
+    // Systeme.io изисква tags като масив от обекти { name: string }
+    const tags: { name: string }[] = []
+    if (data.slug) tags.push({ name: data.slug })
+    tags.push({ name: 'naruchnik' })
 
     const payload: Record<string, unknown> = {
-      email: data.email,
+      email:     data.email,
       firstName,
       lastName,
+      tags,
       fields: [] as { slug: string; value: string }[],
     }
 
     if (data.phone) {
-      (payload.fields as { slug: string; value: string }[]).push(
+      ;(payload.fields as { slug: string; value: string }[]).push(
         { slug: 'phone', value: data.phone }
       )
     }
-    if (data.slug) {
-      (payload.fields as { slug: string; value: string }[]).push(
-        { slug: 'source', value: data.slug }
-      )
-    }
 
+    // Опит 1: POST /api/contacts (създай или обнови)
     const res = await fetch('https://api.systeme.io/api/contacts', {
       method:  'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key':     apiKey,
+        'X-API-Key':    apiKey,
       },
       body: JSON.stringify(payload),
     })
 
-    if (!res.ok) {
-      const text = await res.text()
-      return { ok: false, error: `Systeme.io ${res.status}: ${text}` }
+    // 201 = създаден, 200 = обновен — и двете са успех
+    if (res.ok) {
+      return { ok: true, status: res.status }
     }
 
-    return { ok: true }
+    // 409 Conflict = контактът вече съществува → опитай да добавиш тага
+    if (res.status === 409) {
+      const tagResult = await addTagToExistingContact(apiKey, data.email, tags)
+      return tagResult
+    }
+
+    const text = await res.text()
+    return {
+      ok:     false,
+      status: res.status,
+      error:  `Systeme.io ${res.status}: ${text.slice(0, 300)}`,
+    }
   } catch (err: any) {
-    return { ok: false, error: err.message }
+    return { ok: false, error: `Network error: ${err.message}` }
   }
+}
+
+// Търси контакт по имейл и му добавя тагове
+async function addTagToExistingContact(
+  apiKey: string,
+  email: string,
+  tags: { name: string }[]
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    // Намери contact id
+    const searchRes = await fetch(
+      `https://api.systeme.io/api/contacts?email=${encodeURIComponent(email)}`,
+      {
+        headers: {
+          'X-API-Key':    apiKey,
+          'Content-Type': 'application/json',
+        },
+      }
+    )
+
+    if (!searchRes.ok) {
+      const t = await searchRes.text()
+      return { ok: false, error: `Search failed ${searchRes.status}: ${t.slice(0, 200)}` }
+    }
+
+    const searchData = await searchRes.json()
+    // Systeme.io връща { 'hydra:member': [...] } или { items: [...] }
+    const members = searchData['hydra:member'] || searchData.items || []
+    const contact = members.find(
+      (c: any) => c.email?.toLowerCase() === email.toLowerCase()
+    )
+
+    if (!contact?.id) {
+      return { ok: false, error: `Контактът не е намерен след 409 за ${email}` }
+    }
+
+    // Добави таговете към съществуващия контакт
+    const patchRes = await fetch(
+      `https://api.systeme.io/api/contacts/${contact.id}`,
+      {
+        method:  'PATCH',
+        headers: {
+          'Content-Type': 'application/merge-patch+json',
+          'X-API-Key':    apiKey,
+        },
+        body: JSON.stringify({ tags }),
+      }
+    )
+
+    if (patchRes.ok) return { ok: true }
+
+    const t = await patchRes.text()
+    return { ok: false, error: `PATCH tags failed ${patchRes.status}: ${t.slice(0, 200)}` }
+  } catch (err: any) {
+    return { ok: false, error: `addTag error: ${err.message}` }
+  }
+}
+
+// ── Retry wrapper ──────────────────────────────────────────────────────────
+async function syncWithRetry(
+  data: Parameters<typeof syncToSystemeIO>[0],
+  retries = 2
+): Promise<{ ok: boolean; error?: string }> {
+  for (let i = 0; i <= retries; i++) {
+    const result = await syncToSystemeIO(data)
+    if (result.ok) return result
+    // Не retry-вай при грешки в автентикация или невалидни данни
+    if (result.status && [400, 401, 403].includes(result.status)) return result
+    if (i < retries) await new Promise(r => setTimeout(r, 500 * (i + 1)))
+  }
+  return { ok: false, error: 'Max retries reached' }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,15 +170,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Невалиден имейл' }, { status: 400 })
     }
 
-    const slug        = naruchnik_slug || 'super-domati'
-    const now         = new Date().toISOString()
-    const cleanEmail  = email.toLowerCase().trim()
-    const cleanName   = name?.trim() || null
-    const cleanPhone  = phone?.trim() || null
+    const slug       = naruchnik_slug || 'super-domati'
+    const now        = new Date().toISOString()
+    const cleanEmail = email.toLowerCase().trim()
+    const cleanName  = name?.trim() || null
+    const cleanPhone = phone?.trim() || null
 
-    // ── Стъпка 1: Вземи настройките (resend_enabled, systemeio_enabled) ────
-    let resendEnabled    = true  // default ON
-    let systemeioEnabled = true  // default ON
+    // ── Стъпка 1: Вземи настройките ───────────────────────────────────────
+    let resendEnabled    = true
+    let systemeioEnabled = true
 
     try {
       const { data: settingsRows } = await supabaseAdmin
@@ -101,7 +191,7 @@ export async function POST(req: NextRequest) {
         if (row.key === 'systemeio_enabled') systemeioEnabled = row.value !== 'false'
       }
     } catch {
-      // Ако settings таблицата не отговори — продължаваме с defaults
+      // Продължаваме с defaults ако settings таблицата не отговори
     }
 
     // ── Стъпка 2: Upsert в Supabase leads ─────────────────────────────────
@@ -130,10 +220,9 @@ export async function POST(req: NextRequest) {
 
     // ── Стъпка 3: Добави slug към naruchnici[] масива ──────────────────────
     if (lead) {
-      await supabaseAdmin.rpc('add_naruchnik', {
-        p_email: cleanEmail,
-        p_slug:  slug,
-      }).throwOnError()
+      await supabaseAdmin
+        .rpc('add_naruchnik', { p_email: cleanEmail, p_slug: slug })
+        .throwOnError()
     }
 
     // ── Стъпка 4: Email log ────────────────────────────────────────────────
@@ -146,7 +235,7 @@ export async function POST(req: NextRequest) {
           sent_at:       now,
         })
       } catch (logError) {
-        console.warn('Email log failed, but continuing...', logError)
+        console.warn('Email log failed, continuing...', logError)
       }
     }
 
@@ -160,12 +249,14 @@ export async function POST(req: NextRequest) {
           name:  cleanName ?? undefined,
           slug,
         })
-        await resend.emails.send({
-          from:    'Denny Angelow <denny@dennyangelow.com>',
-          to:      cleanEmail,
-          subject,
-          html,
-        }).catch(err => console.error('Resend error:', err))
+        await resend.emails
+          .send({
+            from:    'Denny Angelow <denny@dennyangelow.com>',
+            to:      cleanEmail,
+            subject,
+            html,
+          })
+          .catch(err => console.error('Resend error:', err))
       } else {
         console.warn('RESEND_API_KEY не е настроен')
       }
@@ -176,7 +267,7 @@ export async function POST(req: NextRequest) {
     let systemeioError: string | undefined
 
     if (systemeioEnabled) {
-      const result = await syncToSystemeIO({
+      const result = await syncWithRetry({
         email: cleanEmail,
         name:  cleanName,
         phone: cleanPhone,
@@ -184,9 +275,24 @@ export async function POST(req: NextRequest) {
       })
       systemeioStatus = result.ok ? 'ok' : 'error'
       systemeioError  = result.error
+
       if (!result.ok) {
-        // Само логваме — НЕ блокираме успешния отговор
-        console.error('Systeme.io sync failed:', result.error)
+        // Записваме грешката в Supabase за по-лесен дебъг от админа
+        console.error('[Systeme.io] Sync failed for', cleanEmail, '—', result.error)
+        try {
+          await supabaseAdmin.from('settings').upsert(
+            {
+              key:        'systemeio_last_error',
+              value:      `${new Date().toISOString()} | ${cleanEmail} | ${result.error}`,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'key' }
+          )
+        } catch {
+          // silent
+        }
+      } else {
+        console.log('[Systeme.io] Sync OK for', cleanEmail)
       }
     }
 
