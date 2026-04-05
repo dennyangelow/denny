@@ -88,7 +88,7 @@ async function addTagToExistingContact(
   try {
     // Намери contact id
     const searchRes = await fetch(
-      `https://api.systeme.io/api/contacts?email=${encodeURIComponent(email)}`,
+      `https://api.systeme.io/api/contacts?email=${encodeURIComponent(email)}&limit=10`,
       {
         headers: {
           'X-API-Key':    apiKey,
