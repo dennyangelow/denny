@@ -44,6 +44,60 @@ function useHeaderBottom() {
   return bottom
 }
 
+// ─── Econt cities cache key ───────────────────────────────────────────────────
+const ECONT_CITIES_SESSION_KEY = 'econt_cities_v1'
+const ECONT_CITIES_TTL = 6 * 60 * 60 * 1000 // 6 часа
+
+function loadCitiesFromSession(): EcontCity[] | null {
+  try {
+    const raw = sessionStorage.getItem(ECONT_CITIES_SESSION_KEY)
+    if (!raw) return null
+    const { cities, savedAt } = JSON.parse(raw)
+    if (Date.now() - savedAt > ECONT_CITIES_TTL) { sessionStorage.removeItem(ECONT_CITIES_SESSION_KEY); return null }
+    return Array.isArray(cities) ? cities : null
+  } catch { return null }
+}
+
+function saveCitiesToSession(cities: EcontCity[]) {
+  try { sessionStorage.setItem(ECONT_CITIES_SESSION_KEY, JSON.stringify({ cities, savedAt: Date.now() })) } catch {}
+}
+
+// ─── Econt offices session cache ──────────────────────────────────────────────
+const ECONT_OFFICES_TTL = 60 * 60 * 1000 // 1 час
+
+function officesCacheKey(cityId: number) { return `econt_offices_v1_${cityId}` }
+
+function loadOfficesFromSession(cityId: number): EcontOffice[] | null {
+  try {
+    const raw = sessionStorage.getItem(officesCacheKey(cityId))
+    if (!raw) return null
+    const { offices, savedAt } = JSON.parse(raw)
+    if (Date.now() - savedAt > ECONT_OFFICES_TTL) { sessionStorage.removeItem(officesCacheKey(cityId)); return null }
+    return Array.isArray(offices) ? offices : null
+  } catch { return null }
+}
+
+function saveOfficesToSession(cityId: number, offices: EcontOffice[]) {
+  try { sessionStorage.setItem(officesCacheKey(cityId), JSON.stringify({ offices, savedAt: Date.now() })) } catch {}
+}
+
+// Prefetch градовете веднъж на страницата (singleton promise)
+let _citiesPrefetchPromise: Promise<EcontCity[]> | null = null
+function prefetchCities(): Promise<EcontCity[]> {
+  if (_citiesPrefetchPromise) return _citiesPrefetchPromise
+  const cached = loadCitiesFromSession()
+  if (cached) { _citiesPrefetchPromise = Promise.resolve(cached); return _citiesPrefetchPromise }
+  _citiesPrefetchPromise = fetch('/api/econt/cities')
+    .then(r => r.ok ? r.json() : { cities: [] })
+    .then(d => {
+      const bgOnly = (d.cities || []).filter((c: EcontCity) => /^[Ѐ-ӿ\s\-\.]+$/.test(c.name))
+      saveCitiesToSession(bgOnly)
+      return bgOnly
+    })
+    .catch(() => [])
+  return _citiesPrefetchPromise
+}
+
 // ─── CartHeaderButton ─────────────────────────────────────────────────────────
 export function CartHeaderButton() {
   const [count, setCount] = useState(0)
@@ -65,6 +119,8 @@ export function CartHeaderButton() {
     <button
       className={`cart-btn${count > 0 ? ' cart-btn--active' : ''}`}
       onClick={() => window.dispatchEvent(new Event('cart:open'))}
+      onMouseEnter={() => prefetchCities()}
+      onFocus={() => prefetchCities()}
       aria-label={`Количка${count > 0 ? ` (${count})` : ''}`}
     >
       🛒 Количка
@@ -170,34 +226,35 @@ interface EcontOffice { id: number; code: string; name: string; address: string;
 function EcontOfficePicker({ onSelect }: {
   onSelect: (city: string, office: string, officeCode: string) => void
 }) {
-  const [cityQuery, setCityQuery]     = useState('')
-  const [cities, setCities]           = useState<EcontCity[]>([])
+  const [cityQuery, setCityQuery]         = useState('')
+  const [cities, setCities]               = useState<EcontCity[]>([])
   const [citiesLoading, setCitiesLoading] = useState(false)
   const [citiesLoaded, setCitiesLoaded]   = useState(false)
-  const [showCities, setShowCities]   = useState(false)
+  const [showCities, setShowCities]       = useState(false)
   const [selectedCity, setSelectedCity]   = useState<EcontCity | null>(null)
 
-  const [offices, setOffices]         = useState<EcontOffice[]>([])
+  const [offices, setOffices]               = useState<EcontOffice[]>([])
   const [officesLoading, setOfficesLoading] = useState(false)
   const [selectedOffice, setSelectedOffice] = useState<EcontOffice | null>(null)
-  const [showOffices, setShowOffices] = useState(false)
-  const [officeQuery, setOfficeQuery] = useState('')
+  const [officeQuery, setOfficeQuery]       = useState('')
+  const [showOffices, setShowOffices]       = useState(false)
 
   const cityRef   = useRef<HTMLDivElement>(null)
   const officeRef = useRef<HTMLDivElement>(null)
 
-  // Зареждаме градовете веднъж при монтиране
+  // Зареждаме градовете — използваме prefetch/session cache (instant ако вече е заредено)
   useEffect(() => {
     if (citiesLoaded) return
+    const cached = loadCitiesFromSession()
+    if (cached && cached.length > 0) {
+      setCities(cached); setCitiesLoaded(true); return
+    }
     setCitiesLoading(true)
-    fetch('/api/econt/cities')
-      .then(r => r.ok ? r.json() : { cities: [] })
-      .then(d => { setCities(d.cities || []); setCitiesLoaded(true) })
-      .catch(() => {})
+    prefetchCities()
+      .then(bgOnly => { setCities(bgOnly); setCitiesLoaded(true) })
       .finally(() => setCitiesLoading(false))
   }, [citiesLoaded])
 
-  // Затваряме dropdown при клик извън
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (!cityRef.current?.contains(e.target as Node))   setShowCities(false)
@@ -207,14 +264,25 @@ function EcontOfficePicker({ onSelect }: {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Зареждаме офисите при избор на град
   useEffect(() => {
     if (!selectedCity) return
-    setOfficesLoading(true)
     setOffices([]); setSelectedOffice(null); setOfficeQuery('')
+
+    // ✅ Проверяваме session cache преди да правим API call
+    const cached = loadOfficesFromSession(selectedCity.id)
+    if (cached && cached.length > 0) {
+      setOffices(cached)
+      return
+    }
+
+    setOfficesLoading(true)
     fetch(`/api/econt/offices?cityId=${selectedCity.id}`)
       .then(r => r.ok ? r.json() : { offices: [] })
-      .then(d => setOffices(d.offices || []))
+      .then(d => {
+        const list = d.offices || []
+        saveOfficesToSession(selectedCity.id, list)
+        setOffices(list)
+      })
       .catch(() => {})
       .finally(() => setOfficesLoading(false))
   }, [selectedCity])
@@ -223,141 +291,226 @@ function EcontOfficePicker({ onSelect }: {
     ? cities.filter(c =>
         c.name.toLowerCase().startsWith(cityQuery.toLowerCase()) ||
         c.postCode?.startsWith(cityQuery)
-      ).slice(0, 40)
+      ).slice(0, 30)
     : []
 
-  const filteredOffices = officeQuery.length >= 1
+  // ✅ ПОПРАВКА: Показваме всички офиси — без .slice(0,40) ограничение
+  // Само при търсене слайсваме до 100 за перформанс
+  const filteredOffices = officeQuery.trim().length >= 1
     ? offices.filter(o =>
         o.name.toLowerCase().includes(officeQuery.toLowerCase()) ||
-        o.address.toLowerCase().includes(officeQuery.toLowerCase()) ||
-        o.code.includes(officeQuery)
-      )
+        o.address.toLowerCase().includes(officeQuery.toLowerCase())
+      ).slice(0, 100)
     : offices
 
   const handleCitySelect = (city: EcontCity) => {
-    setSelectedCity(city)
-    setCityQuery(city.name)
-    setShowCities(false)
+    setSelectedCity(city); setCityQuery(city.name); setShowCities(false)
   }
 
   const handleOfficeSelect = (office: EcontOffice) => {
-    setSelectedOffice(office)
-    setOfficeQuery('')
-    setShowOffices(false)
+    setSelectedOffice(office); setOfficeQuery(''); setShowOffices(false)
     if (selectedCity) {
-      onSelect(
-        selectedCity.name,
-        `Офис Еконт: ${office.name}, ${office.address}`,
-        office.code,
-      )
+      onSelect(selectedCity.name, `Офис Еконт: ${office.name}, ${office.address}`, office.code)
     }
   }
 
+  const resetCity = () => {
+    setSelectedCity(null); setCityQuery('')
+    setOffices([]); setSelectedOffice(null); setOfficeQuery('')
+    onSelect('', '', '')
+  }
+  const resetOffice = () => {
+    setSelectedOffice(null); setOfficeQuery(''); onSelect('', '', '')
+  }
+
+  const dropdownStyle: React.CSSProperties = {
+    position: 'absolute', zIndex: 9999, top: 'calc(100% + 4px)',
+    left: 0, right: 0, background: '#fff',
+    border: '1.5px solid #e2e8f0', borderRadius: 13,
+    boxShadow: '0 12px 32px rgba(0,0,0,.13), 0 2px 8px rgba(0,0,0,.06)',
+    maxHeight: 240, overflowY: 'auto', scrollbarWidth: 'thin',
+  }
+
+  const iconStyle: React.CSSProperties = {
+    position: 'absolute', left: 13, top: '50%',
+    transform: 'translateY(-50%)', fontSize: 15,
+    pointerEvents: 'none', lineHeight: 1,
+  }
+
+  const mkInputStyle = (active: boolean): React.CSSProperties => ({
+    width: '100%', boxSizing: 'border-box',
+    padding: '11px 38px 11px 38px',
+    fontSize: 14, fontWeight: 500,
+    border: `1.5px solid ${active ? '#16a34a' : '#d1d5db'}`,
+    borderRadius: 11, outline: 'none', background: '#fff',
+    color: '#0f172a', transition: 'border-color .18s', marginBottom: 0,
+  })
+
+  const clearBtnStyle: React.CSSProperties = {
+    position: 'absolute', right: 10, top: '50%',
+    transform: 'translateY(-50%)',
+    background: '#f1f5f9', border: 'none', borderRadius: '50%',
+    width: 20, height: 20, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 11, color: '#64748b', padding: 0,
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {/* ── Търсене на град ── */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+      {/* ═══ Стъпки индикатор ════════════════════════════════════════════════ */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{
+            width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+            background: selectedCity ? '#16a34a' : '#3b82f6',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 900, color: '#fff',
+          }}>{selectedCity ? '✓' : '1'}</div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: selectedCity ? '#16a34a' : '#3b82f6' }}>Избери град</span>
+        </div>
+        <div style={{ flex: 1, height: 2, background: selectedCity ? '#bbf7d0' : '#e2e8f0', margin: '0 10px', borderRadius: 99 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{
+            width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+            background: selectedOffice ? '#16a34a' : selectedCity ? '#3b82f6' : '#e2e8f0',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 900, color: selectedCity ? '#fff' : '#94a3b8',
+          }}>{selectedOffice ? '✓' : '2'}</div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: selectedOffice ? '#16a34a' : selectedCity ? '#3b82f6' : '#94a3b8' }}>Избери офис</span>
+        </div>
+      </div>
+
+      {/* ═══ Поле за Град ════════════════════════════════════════════════════ */}
       <div ref={cityRef} style={{ position: 'relative' }}>
         <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>📍</span>
+          <span style={iconStyle}>📍</span>
           <input
-            className="cart-input"
-            style={{ paddingLeft: 32, marginBottom: 0 }}
-            placeholder={citiesLoading ? 'Зареждане...' : 'Напиши град...'}
+            style={mkInputStyle(!!selectedCity)}
+            placeholder={citiesLoading ? '⏳ Зареждане...' : 'Напиши град или пощ. код...'}
             value={cityQuery}
             onChange={e => {
-              setCityQuery(e.target.value)
-              setShowCities(true)
-              if (selectedCity && e.target.value !== selectedCity.name) {
-                setSelectedCity(null); setSelectedOffice(null)
-              }
+              setCityQuery(e.target.value); setShowCities(true)
+              if (selectedCity && e.target.value !== selectedCity.name) resetCity()
             }}
-            onFocus={() => setShowCities(true)}
+            onFocus={() => { if (!selectedCity) setShowCities(true) }}
             autoComplete="off"
+            readOnly={!!selectedCity}
           />
-          {selectedCity && (
-            <span style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#16a34a' }}>✓</span>
-          )}
+          {selectedCity
+            ? <button style={clearBtnStyle} onMouseDown={resetCity} title="Смени град">✕</button>
+            : cityQuery.length > 0 && <button style={clearBtnStyle} onMouseDown={() => { setCityQuery(''); setShowCities(false) }}>✕</button>
+          }
         </div>
-        {showCities && filteredCities.length > 0 && (
-          <div style={{ position: 'absolute', zIndex: 9999, top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 11, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 220, overflowY: 'auto', marginTop: 4 }}>
-            {filteredCities.map(city => (
+
+        {showCities && !selectedCity && filteredCities.length > 0 && (
+          <div style={dropdownStyle}>
+            {filteredCities.map((city, i) => (
               <div key={city.id} onMouseDown={() => handleCitySelect(city)}
-                style={{ padding: '9px 13px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: i < filteredCities.length - 1 ? '1px solid #f1f5f9' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f0fdf4')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                <span style={{ fontWeight: 600, color: '#0f172a' }}>{city.name}</span>
-                <span style={{ fontSize: 11, color: '#94a3b8' }}>{city.postCode}{city.regionName ? ` · ${city.regionName}` : ''}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13 }}>🏙️</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>{city.name}</span>
+                </div>
+                <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>
+                  {city.postCode}{city.regionName ? ` · ${city.regionName}` : ''}
+                </span>
               </div>
             ))}
           </div>
         )}
-        {showCities && cityQuery.length >= 2 && filteredCities.length === 0 && !citiesLoading && (
-          <div style={{ position: 'absolute', zIndex: 9999, top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 11, boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: '12px 14px', marginTop: 4, fontSize: 12.5, color: '#94a3b8', textAlign: 'center' }}>
-            Няма намерен град
+        {showCities && !selectedCity && cityQuery.length >= 2 && filteredCities.length === 0 && !citiesLoading && (
+          <div style={{ ...dropdownStyle, maxHeight: 'none' as any, padding: 14, textAlign: 'center' as const, fontSize: 13, color: '#94a3b8' }}>
+            🔍 Няма намерен град „{cityQuery}"
           </div>
         )}
       </div>
 
-      {/* ── Избор на офис ── */}
+      {/* ═══ Поле за Офис (само след избор на град) ══════════════════════════ */}
       {selectedCity && (
         <div ref={officeRef} style={{ position: 'relative' }}>
-          {officesLoading ? (
-            <div style={{ padding: '10px 13px', fontSize: 12.5, color: '#94a3b8', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', textAlign: 'center' }}>
-              ⏳ Зареждане на офиси за {selectedCity.name}...
+
+          {officesLoading && (
+            <div style={{ padding: '12px 14px', fontSize: 13, color: '#64748b', background: 'linear-gradient(135deg,#f8fafc,#f0fdf4)', borderRadius: 11, border: '1.5px solid #e2e8f0', textAlign: 'center' }}>
+              ⏳ Зареждане на офиси за <strong>{selectedCity.name}</strong>...
             </div>
-          ) : offices.length === 0 ? (
-            <div style={{ padding: '10px 13px', fontSize: 12.5, color: '#dc2626', background: '#fff1f2', borderRadius: 10, border: '1px solid #fecaca' }}>
+          )}
+
+          {!officesLoading && offices.length === 0 && (
+            <div style={{ padding: '12px 14px', fontSize: 13, color: '#dc2626', background: '#fff1f2', borderRadius: 11, border: '1px solid #fecaca', textAlign: 'center' }}>
               ⚠️ Няма намерени офиси за {selectedCity.name}
             </div>
-          ) : (
+          )}
+
+          {/* Избран офис — красива карта */}
+          {!officesLoading && selectedOffice && (
+            <div style={{ padding: '12px 14px', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', border: '1.5px solid #86efac', borderRadius: 13, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>📦</span>
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, color: '#14532d' }}>{selectedOffice.name}</div>
+                    <div style={{ fontSize: 12.5, color: '#166534', marginTop: 2, lineHeight: 1.4 }}>{selectedOffice.address}</div>
+                    {selectedOffice.workingTimeFrom && (
+                      <div style={{ fontSize: 11.5, color: '#15803d', marginTop: 4 }}>
+                        🕐 {selectedOffice.workingTimeFrom} – {selectedOffice.workingTimeTo} ч.
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ background: '#16a34a', color: '#fff', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, flexShrink: 0 }}>✓</div>
+              </div>
+              <button onMouseDown={resetOffice}
+                style={{ alignSelf: 'flex-start', fontSize: 11.5, color: '#4b5563', background: 'rgba(255,255,255,0.7)', border: '1px solid #d1d5db', borderRadius: 7, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>
+                ↩ Промени офис
+              </button>
+            </div>
+          )}
+
+          {/* Input + dropdown за офис */}
+          {!officesLoading && offices.length > 0 && !selectedOffice && (
             <>
               <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>🏢</span>
+                <span style={iconStyle}>🏢</span>
                 <input
-                  className="cart-input"
-                  style={{ paddingLeft: 32, marginBottom: 0, borderColor: selectedOffice ? '#16a34a' : undefined }}
-                  placeholder={selectedOffice ? selectedOffice.name : `Търси офис в ${selectedCity.name}... (${offices.length} налични)`}
+                  style={mkInputStyle(false)}
+                  placeholder={`Търси офис в ${selectedCity.name}... (${offices.length} налични)`}
                   value={officeQuery}
                   onChange={e => { setOfficeQuery(e.target.value); setShowOffices(true) }}
                   onFocus={() => setShowOffices(true)}
                   autoComplete="off"
                 />
-                {selectedOffice && (
-                  <span style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#16a34a' }}>✓</span>
+                {officeQuery.length > 0 && (
+                  <button style={clearBtnStyle} onMouseDown={() => { setOfficeQuery(''); setShowOffices(true) }}>✕</button>
                 )}
               </div>
 
-              {/* Избран офис — показваме детайлите */}
-              {selectedOffice && !showOffices && (
-                <div style={{ marginTop: 6, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 9, fontSize: 12 }}>
-                  <div style={{ fontWeight: 700, color: '#15803d' }}>{selectedOffice.name}</div>
-                  <div style={{ color: '#166534', marginTop: 2 }}>{selectedOffice.address}</div>
-                  {selectedOffice.workingTimeFrom && (
-                    <div style={{ color: '#4ade80', marginTop: 1, fontSize: 11 }}>
-                      🕐 {selectedOffice.workingTimeFrom} – {selectedOffice.workingTimeTo}
-                    </div>
-                  )}
-                  <button onMouseDown={() => { setSelectedOffice(null); setOfficeQuery(''); onSelect('', '', '') }}
-                    style={{ marginTop: 5, fontSize: 11, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
-                    Промени офис
-                  </button>
-                </div>
-              )}
-
               {showOffices && (
-                <div style={{ position: 'absolute', zIndex: 9999, top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 11, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 260, overflowY: 'auto', marginTop: 4 }}>
+                <div style={dropdownStyle}>
+                  <div style={{ padding: '7px 14px 5px', fontSize: 11, color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', borderBottom: '1px solid #f1f5f9', background: '#fafafa', borderRadius: '13px 13px 0 0' }}>
+                    {filteredOffices.length} офиса{officeQuery.trim() ? ` за „${officeQuery}"` : ` в ${selectedCity.name}`}
+                    {!officeQuery.trim() && offices.length > 5 ? ' (пиши за да стесниш)' : ''}
+                  </div>
                   {filteredOffices.length === 0 ? (
-                    <div style={{ padding: '12px 14px', fontSize: 12.5, color: '#94a3b8', textAlign: 'center' }}>Няма намерени офиси</div>
-                  ) : filteredOffices.map(office => (
+                    <div style={{ padding: 14, fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>🔍 Няма офис „{officeQuery}"</div>
+                  ) : filteredOffices.map((office, i) => (
                     <div key={office.id} onMouseDown={() => handleOfficeSelect(office)}
-                      style={{ padding: '10px 13px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                      style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: i < filteredOffices.length - 1 ? '1px solid #f1f5f9' : 'none' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#f0fdf4')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{office.name}</div>
-                      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>{office.address}</div>
-                      {office.workingTimeFrom && (
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>🕐 {office.workingTimeFrom} – {office.workingTimeTo}</div>
-                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>{office.name}</div>
+                          <div style={{ fontSize: 12, color: '#64748b', marginTop: 3, lineHeight: 1.4 }}>{office.address}</div>
+                        </div>
+                        {office.workingTimeFrom && (
+                          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>
+                            🕐 {office.workingTimeFrom}–{office.workingTimeTo}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
