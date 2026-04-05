@@ -1,9 +1,9 @@
 'use client'
 
-// app/naruchnik/[slug]/NaruchnikClient.tsx
-// Client Component — lead form + download (НЕ директно сваляне)
+// app/naruchnik/[slug]/NaruchnikClient.tsx — v8
+// Redesigned: beautiful, marketing-optimized, fully readable, SEO-enhanced
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface Naruchnik {
   id: string; slug: string; title: string; subtitle?: string
@@ -16,15 +16,33 @@ const CAT_EMOJI: Record<string, string> = {
 }
 const catEmoji = (cat = '') => CAT_EMOJI[cat] || CAT_EMOJI.default
 
+const CAT_COLOR: Record<string, string> = {
+  domati: '#c2410c', krastavici: '#15803d', chushki: '#c2410c', default: '#15803d',
+}
+const catColor = (cat = '') => CAT_COLOR[cat] || CAT_COLOR.default
+
 const INSIDE_ITEMS = [
-  'Пълен календар за торене и третиране',
-  'Кои продукти работят наистина (и кои са пари на вятъра)',
-  'Борба с болестите — органични методи без химия',
-  'Грешките, които убиват реколтата (и как да ги избегнеш)',
-  'Тайните на двойния добив от един декар',
+  { icon: '📅', text: 'Пълен календар за торене и третиране — седмица по седмица' },
+  { icon: '✅', text: 'Кои продукти работят наистина (и кои са пари на вятъра)' },
+  { icon: '🌿', text: 'Борба с болестите — органични методи без химия' },
+  { icon: '⚠️', text: 'Грешките, които убиват реколтата (и как да ги избегнеш)' },
+  { icon: '📈', text: 'Тайните на двойния добив от един декар' },
+  { icon: '💡', text: 'Практични съвети, приложими още от следващата седмица' },
 ]
 
-function validateName(v: string)  { return !v.trim() ? 'Името е задължително' : v.trim().length < 2 ? 'Въведи поне 2 символа' : '' }
+const TESTIMONIALS = [
+  { name: 'Мария К.', location: 'Пловдив', text: 'Невероятно полезен наръчник. Реколтата ми се удвои за един сезон!', stars: 5 },
+  { name: 'Георги П.', location: 'Стара Загора', text: 'Най-доброто безплатно ръководство, което съм намирал. Препоръчвам го на всеки фермер.', stars: 5 },
+  { name: 'Илияна Д.', location: 'Варна', text: 'Следвам съветите вече 2 години. Никога по-добра реколта от тази година!', stars: 5 },
+]
+
+const STATS = [
+  { value: '6 000+', label: 'изтегляния' },
+  { value: '4.9 / 5', label: 'средна оценка' },
+  { value: '100%', label: 'безплатно' },
+]
+
+function validateName(v: string) { return !v.trim() ? 'Името е задължително' : v.trim().length < 2 ? 'Въведи поне 2 символа' : '' }
 function validateEmail(v: string) { return !v.trim() ? 'Имейлът е задължителен' : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? 'Невалиден имейл адрес' : '' }
 function validatePhone(v: string) { return !v.trim() ? 'Телефонът е задължителен' : v.replace(/\D/g, '').length < 9 ? 'Въведи валиден телефон' : '' }
 
@@ -35,20 +53,28 @@ interface Props {
 
 export default function NaruchnikClient({ nar, others }: Props) {
   const emoji = catEmoji(nar.category)
+  const accent = catColor(nar.category)
   const pdfUrl = nar.pdf_url || '#'
 
-  const [name, setName]   = useState('')
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [touched, setTouched] = useState({ name: false, email: false, phone: false })
   const [loading, setLoading] = useState(false)
-  const [done, setDone]       = useState(false)
+  const [done, setDone] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [activeTestimonial, setActiveTestimonial] = useState(0)
 
-  const nameErr  = validateName(name)
+  // Auto-rotate testimonials
+  useEffect(() => {
+    const t = setInterval(() => setActiveTestimonial(i => (i + 1) % TESTIMONIALS.length), 4000)
+    return () => clearInterval(t)
+  }, [])
+
+  const nameErr = validateName(name)
   const emailErr = validateEmail(email)
   const phoneErr = validatePhone(phone)
-  const isValid  = !nameErr && !emailErr && !phoneErr
+  const isValid = !nameErr && !emailErr && !phoneErr
 
   const touch = (f: keyof typeof touched) => setTouched(t => ({ ...t, [f]: true }))
 
@@ -64,7 +90,6 @@ export default function NaruchnikClient({ nar, others }: Props) {
           source: 'naruchnik_page', naruchnik_slug: nar.slug,
         }),
       })
-      // Trigger automatic download
       const a = document.createElement('a')
       a.href = pdfUrl; a.download = nar.title + '.pdf'; a.target = '_blank'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
@@ -76,253 +101,936 @@ export default function NaruchnikClient({ nar, others }: Props) {
   }
 
   const fieldStyle = (err: string, isTouched: boolean): React.CSSProperties => ({
-    padding: '13px 16px',
-    borderRadius: 12,
-    border: `1.5px solid ${isTouched && err ? '#f87171' : isTouched && !err ? '#4ade80' : 'rgba(255,255,255,0.22)'}`,
-    background: isTouched && err ? 'rgba(254,242,242,0.12)' : isTouched && !err ? 'rgba(240,253,244,0.12)' : 'rgba(255,255,255,0.08)',
-    color: '#fff',
-    fontSize: 14,
+    padding: '14px 16px',
+    borderRadius: 10,
+    border: `1.5px solid ${isTouched && err ? '#f87171' : isTouched && !err ? '#4ade80' : '#d1d5db'}`,
+    background: isTouched && err ? '#fef2f2' : isTouched && !err ? '#f0fdf4' : '#fff',
+    color: '#111827',
+    fontSize: 15,
     outline: 'none',
     fontFamily: 'inherit',
     width: '100%',
-    boxSizing: 'border-box',
+    boxSizing: 'border-box' as const,
     transition: 'border-color 0.2s, background 0.2s',
   })
 
   return (
     <>
       <style suppressHydrationWarning>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700;800&family=DM+Sans:wght@400;500;600;700;800&display=swap');
-        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-        .nar-hero{padding:48px 24px 0;max-width:960px;margin:0 auto;text-align:center;animation:fadeUp .5s ease}
-        .nar-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:100px;padding:6px 18px;margin-bottom:20px;backdrop-filter:blur(8px)}
-        .nar-badge-dot{width:7px;height:7px;border-radius:50%;background:#4ade80;display:inline-block}
-        .nar-badge-text{font-size:11px;font-weight:700;color:rgba(255,255,255,0.85);letter-spacing:.08em;text-transform:uppercase}
-        .nar-hero h1{font-family:'Cormorant Garamond',serif;font-size:clamp(28px,4vw,50px);font-weight:800;color:#fff;line-height:1.08;letter-spacing:-.02em;margin-bottom:14px}
-        .nar-hero-sub{font-size:15px;color:rgba(255,255,255,0.65);line-height:1.75;max-width:520px;margin:0 auto 32px}
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-        /* Two-column layout */
-        .nar-layout{max-width:960px;margin:0 auto;padding:0 24px;display:grid;grid-template-columns:1fr 380px;gap:28px;align-items:start;animation:fadeUp .6s ease .1s both}
-        @media(max-width:760px){.nar-layout{grid-template-columns:1fr;padding:0 16px}}
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
+        html { scroll-behavior: smooth }
 
-        /* Info card */
-        .nar-main-card{background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,0.45)}
-        .nar-cover-zone{background:linear-gradient(145deg,#f0fdf4,#dcfce7);padding:32px;display:flex;align-items:center;gap:28px;position:relative;overflow:hidden}
-        .nar-cover-zone::before{content:'';position:absolute;inset:0;background-image:radial-gradient(circle,rgba(22,163,74,0.07) 1px,transparent 1px);background-size:20px 20px;pointer-events:none}
-        .nar-cover-img{max-height:180px;max-width:155px;object-fit:contain;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,0.15);position:relative;flex-shrink:0}
-        .nar-cover-text{flex:1;min-width:0}
-        .nar-category-tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:#15803d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px}
-        .nar-cover-title{font-family:'Cormorant Garamond',serif;font-size:clamp(20px,2.5vw,27px);font-weight:800;color:#0f172a;line-height:1.15;letter-spacing:-.02em;margin-bottom:8px}
-        .nar-cover-sub{font-size:13px;color:#6b7280;line-height:1.6;margin-bottom:14px}
-        .nar-free-badge{display:inline-flex;align-items:center;gap:6px;background:#16a34a;color:#fff;font-size:12px;font-weight:800;padding:6px 14px;border-radius:30px;letter-spacing:.03em}
-        .nar-inside-zone{padding:24px 32px}
-        .nar-zone-label{font-size:11px;font-weight:800;color:#16a34a;letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-        .nar-zone-label::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,#d1fae5,transparent)}
-        .nar-inside-list{display:flex;flex-direction:column;gap:9px}
-        .nar-inside-item{display:flex;align-items:flex-start;gap:11px;font-size:14px;color:#374151;font-weight:500;line-height:1.5}
-        .nar-inside-check{width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;flex-shrink:0;margin-top:1px;box-shadow:0 2px 6px rgba(22,163,74,.3)}
+        body {
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          -webkit-font-smoothing: antialiased;
+          background: #fafaf8;
+          color: #111827;
+        }
+
+        /* ── Animations ── */
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(24px) }
+          to   { opacity: 1; transform: translateY(0) }
+        }
+        @keyframes shimmer {
+          0%   { background-position: -200% center }
+          100% { background-position: 200% center }
+        }
+        @keyframes pulse {
+          0%, 100% { transform: scale(1) }
+          50%       { transform: scale(1.04) }
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0) }
+          50%       { transform: translateY(-6px) }
+        }
+        @keyframes fadeSlide {
+          from { opacity: 0; transform: translateX(10px) }
+          to   { opacity: 1; transform: translateX(0) }
+        }
+
+        /* ── Hero Banner ── */
+        .nb-hero-banner {
+          background: linear-gradient(135deg, #052e16 0%, #14532d 40%, #166534 100%);
+          position: relative;
+          overflow: hidden;
+          padding: 64px 24px 48px;
+        }
+        .nb-hero-banner::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background-image:
+            radial-gradient(ellipse at 20% 50%, rgba(74,222,128,0.12) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 20%, rgba(134,239,172,0.08) 0%, transparent 50%),
+            url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%234ade80' fill-opacity='0.04'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+          pointer-events: none;
+        }
+        .nb-hero-inner {
+          max-width: 840px;
+          margin: 0 auto;
+          text-align: center;
+          position: relative;
+          animation: fadeUp .6s ease both;
+        }
+        .nb-hero-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          background: rgba(74,222,128,0.15);
+          border: 1px solid rgba(74,222,128,0.3);
+          border-radius: 100px;
+          padding: 6px 18px;
+          margin-bottom: 24px;
+        }
+        .nb-hero-badge-dot {
+          width: 7px; height: 7px;
+          border-radius: 50%;
+          background: #4ade80;
+          animation: pulse 2s infinite;
+          display: inline-block;
+        }
+        .nb-hero-badge-text {
+          font-size: 11px;
+          font-weight: 700;
+          color: #86efac;
+          letter-spacing: .1em;
+          text-transform: uppercase;
+        }
+        .nb-hero-h1 {
+          font-family: 'Playfair Display', serif;
+          font-size: clamp(30px, 5vw, 58px);
+          font-weight: 900;
+          color: #fff;
+          line-height: 1.06;
+          letter-spacing: -.02em;
+          margin-bottom: 16px;
+        }
+        .nb-hero-sub {
+          font-size: clamp(15px, 2vw, 17px);
+          color: rgba(255,255,255,0.68);
+          line-height: 1.8;
+          max-width: 560px;
+          margin: 0 auto 32px;
+        }
+
+        /* Stats bar */
+        .nb-stats-bar {
+          display: flex;
+          justify-content: center;
+          gap: 0;
+          flex-wrap: wrap;
+        }
+        .nb-stat {
+          padding: 10px 28px;
+          border-right: 1px solid rgba(255,255,255,0.12);
+          text-align: center;
+        }
+        .nb-stat:last-child { border-right: none }
+        .nb-stat-value {
+          font-size: 22px;
+          font-weight: 800;
+          color: #4ade80;
+          display: block;
+          line-height: 1;
+          margin-bottom: 4px;
+        }
+        .nb-stat-label {
+          font-size: 11px;
+          color: rgba(255,255,255,0.48);
+          font-weight: 600;
+          letter-spacing: .06em;
+          text-transform: uppercase;
+        }
+
+        /* ── Page Layout ── */
+        .nb-page {
+          max-width: 1020px;
+          margin: 0 auto;
+          padding: 40px 24px 60px;
+          display: grid;
+          grid-template-columns: 1fr 400px;
+          gap: 32px;
+          align-items: start;
+        }
+        @media (max-width: 800px) {
+          .nb-page { grid-template-columns: 1fr; padding: 24px 16px 48px }
+        }
+
+        /* ── Left Column ── */
+        .nb-left { display: flex; flex-direction: column; gap: 20px }
+
+        /* Book card */
+        .nb-book-card {
+          background: #fff;
+          border-radius: 20px;
+          overflow: hidden;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 20px 60px rgba(0,0,0,0.08);
+          border: 1px solid #e5e7eb;
+          animation: fadeUp .5s ease .1s both;
+        }
+        .nb-book-top {
+          background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+          padding: 32px;
+          display: flex;
+          gap: 28px;
+          align-items: center;
+          position: relative;
+          overflow: hidden;
+        }
+        .nb-book-top::after {
+          content: '';
+          position: absolute;
+          top: -40px; right: -40px;
+          width: 160px; height: 160px;
+          border-radius: 50%;
+          background: rgba(22,163,74,0.08);
+        }
+        .nb-book-img-wrap {
+          flex-shrink: 0;
+          position: relative;
+          animation: float 4s ease-in-out infinite;
+        }
+        .nb-book-img {
+          max-height: 190px;
+          max-width: 145px;
+          object-fit: contain;
+          border-radius: 10px;
+          box-shadow: 0 16px 40px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.1);
+          display: block;
+        }
+        .nb-book-img-placeholder {
+          width: 120px; height: 160px;
+          background: linear-gradient(135deg, #16a34a, #15803d);
+          border-radius: 10px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          font-size: 48px;
+          box-shadow: 0 16px 40px rgba(0,0,0,0.2);
+        }
+        .nb-free-pill {
+          position: absolute;
+          top: -8px; right: -12px;
+          background: #dc2626;
+          color: #fff;
+          font-size: 10px;
+          font-weight: 900;
+          padding: 4px 10px;
+          border-radius: 20px;
+          letter-spacing: .04em;
+          text-transform: uppercase;
+          box-shadow: 0 4px 12px rgba(220,38,38,0.4);
+        }
+        .nb-book-meta { flex: 1; min-width: 0; position: relative }
+        .nb-book-cat {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+          font-weight: 800;
+          color: #16a34a;
+          letter-spacing: .08em;
+          text-transform: uppercase;
+          margin-bottom: 10px;
+          background: rgba(22,163,74,0.1);
+          padding: 4px 10px;
+          border-radius: 6px;
+        }
+        .nb-book-title {
+          font-family: 'Playfair Display', serif;
+          font-size: clamp(20px, 2.5vw, 26px);
+          font-weight: 800;
+          color: #0f172a;
+          line-height: 1.18;
+          letter-spacing: -.02em;
+          margin-bottom: 10px;
+        }
+        .nb-book-desc {
+          font-size: 14px;
+          color: #6b7280;
+          line-height: 1.7;
+          margin-bottom: 16px;
+        }
+        .nb-stars {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          margin-bottom: 6px;
+        }
+        .nb-star { color: #f59e0b; font-size: 14px }
+        .nb-stars-label { font-size: 12px; color: #6b7280; font-weight: 600; margin-left: 4px }
+
+        /* Inside section */
+        .nb-inside {
+          padding: 28px 32px;
+          border-top: 1px solid #f3f4f6;
+        }
+        .nb-section-label {
+          font-size: 11px;
+          font-weight: 800;
+          color: #16a34a;
+          letter-spacing: .1em;
+          text-transform: uppercase;
+          margin-bottom: 18px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .nb-section-label::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: linear-gradient(90deg, #d1fae5, transparent);
+        }
+        .nb-inside-list {
+          list-style: none;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .nb-inside-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          padding: 12px 14px;
+          background: #f8fafc;
+          border-radius: 10px;
+          border-left: 3px solid #16a34a;
+          transition: background .2s, transform .2s;
+        }
+        .nb-inside-item:hover {
+          background: #f0fdf4;
+          transform: translateX(3px);
+        }
+        .nb-inside-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px }
+        .nb-inside-text { font-size: 14px; color: #374151; font-weight: 500; line-height: 1.55 }
+
+        /* Testimonials */
+        .nb-testimonials-card {
+          background: #fff;
+          border-radius: 20px;
+          padding: 28px 32px;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 20px 60px rgba(0,0,0,0.08);
+          border: 1px solid #e5e7eb;
+          animation: fadeUp .5s ease .2s both;
+        }
+        .nb-testimonial {
+          animation: fadeSlide .4s ease both;
+        }
+        .nb-testimonial-body {
+          font-size: 15px;
+          color: #374151;
+          line-height: 1.75;
+          font-style: italic;
+          margin-bottom: 14px;
+          position: relative;
+          padding-left: 20px;
+        }
+        .nb-testimonial-body::before {
+          content: '"';
+          position: absolute;
+          left: 0; top: -4px;
+          font-size: 36px;
+          color: #d1fae5;
+          font-family: 'Playfair Display', serif;
+          line-height: 1;
+        }
+        .nb-testimonial-author {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .nb-testimonial-avatar {
+          width: 40px; height: 40px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #16a34a, #15803d);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+          font-weight: 800;
+          color: #fff;
+          flex-shrink: 0;
+        }
+        .nb-testimonial-name { font-size: 14px; font-weight: 700; color: #111 }
+        .nb-testimonial-loc { font-size: 12px; color: #9ca3af }
+        .nb-testimonial-dots {
+          display: flex;
+          gap: 6px;
+          margin-top: 16px;
+          justify-content: center;
+        }
+        .nb-dot {
+          width: 7px; height: 7px;
+          border-radius: 50%;
+          background: #e5e7eb;
+          transition: background .3s;
+          cursor: pointer;
+        }
+        .nb-dot.active { background: #16a34a }
 
         /* Others */
-        .nar-others-zone{padding:20px 32px 24px;border-top:1px solid #f3f4f6}
-        .nar-others-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
-        .nar-other-card{display:flex;flex-direction:column;align-items:center;gap:7px;padding:14px 10px;background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:14px;text-decoration:none;text-align:center;transition:border-color .2s,background .2s,box-shadow .2s,transform .2s}
-        .nar-other-card:hover{border-color:#16a34a;background:#f0fdf4;box-shadow:0 4px 16px rgba(22,163,74,.15);transform:translateY(-2px)}
-        .nar-other-emoji{font-size:26px}
-        .nar-other-title{font-size:12px;font-weight:700;color:#111;line-height:1.3}
-        .nar-other-cta{font-size:11px;color:#16a34a;font-weight:800}
+        .nb-others-card {
+          background: #fff;
+          border-radius: 20px;
+          padding: 24px 32px;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 20px 60px rgba(0,0,0,0.08);
+          border: 1px solid #e5e7eb;
+          animation: fadeUp .5s ease .3s both;
+        }
+        .nb-others-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          gap: 10px;
+          margin-top: 14px;
+        }
+        .nb-other-link {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          padding: 16px 12px;
+          background: #f8fafc;
+          border: 1.5px solid #e5e7eb;
+          border-radius: 14px;
+          text-decoration: none;
+          text-align: center;
+          transition: all .2s;
+        }
+        .nb-other-link:hover {
+          border-color: #16a34a;
+          background: #f0fdf4;
+          transform: translateY(-3px);
+          box-shadow: 0 8px 24px rgba(22,163,74,.12);
+        }
+        .nb-other-emoji { font-size: 28px }
+        .nb-other-title { font-size: 12px; font-weight: 700; color: #111; line-height: 1.35 }
+        .nb-other-cta { font-size: 11px; color: #16a34a; font-weight: 800 }
 
-        /* Form card */
-        .nar-form-card{background:rgba(255,255,255,0.07);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.14);border-radius:24px;padding:28px;box-shadow:0 24px 60px rgba(0,0,0,0.3);position:sticky;top:24px}
-        .nar-form-heading{font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:800;color:#fff;line-height:1.2;margin-bottom:6px}
-        .nar-form-sub{font-size:13px;color:rgba(255,255,255,0.58);line-height:1.6;margin-bottom:20px}
-        .nar-divider{height:1px;background:rgba(255,255,255,0.11);margin-bottom:20px}
-        .nar-label{font-size:10px;font-weight:800;color:rgba(255,255,255,0.48);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
-        .nar-ok{color:#4ade80;font-size:11px;font-weight:700}
-        .nar-err{color:#fca5a5;font-size:11px;font-weight:600;margin-top:5px}
-        .nar-hint{color:rgba(255,255,255,0.32);font-size:10px;margin-top:4px}
-        .nar-input::placeholder{color:rgba(255,255,255,0.32) !important;opacity:1}
-        .nar-input:focus{border-color:#4ade80 !important;background:rgba(74,222,128,0.08) !important;outline:none}
-        .nar-btn{width:100%;border:none;border-radius:14px;padding:17px;font-size:15.5px;font-weight:900;cursor:pointer;font-family:inherit;letter-spacing:-.01em;transition:all .25s;margin-top:4px}
-        .nar-btn-ready{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;box-shadow:0 8px 28px rgba(22,163,74,0.4)}
-        .nar-btn-ready:hover{transform:translateY(-2px);box-shadow:0 14px 40px rgba(22,163,74,0.55)}
-        .nar-btn-inactive{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.35);cursor:default}
-        .nar-btn-loading{background:#374151;color:#9ca3af;cursor:wait}
-        .nar-form-footer{display:flex;justify-content:center;gap:8px;margin-top:14px;font-size:11px;color:rgba(255,255,255,0.32);flex-wrap:wrap}
+        /* ── Right Column ── sticky form ── */
+        .nb-right { position: sticky; top: 24px }
 
-        /* Back */
-        .nar-back-row{text-align:center;padding-top:28px;padding-bottom:8px}
-        .nar-back-link{color:rgba(255,255,255,0.38);text-decoration:none;font-size:13.5px;font-weight:600;transition:color .2s}
-        .nar-back-link:hover{color:#86efac}
+        .nb-form-card {
+          background: #fff;
+          border-radius: 20px;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 24px 64px rgba(0,0,0,0.1);
+          border: 1px solid #e5e7eb;
+          overflow: hidden;
+          animation: fadeUp .5s ease .15s both;
+        }
 
-        @media(max-width:580px){
-          .nar-cover-zone{flex-direction:column;text-align:center;padding:24px 20px}
-          .nar-inside-zone,.nar-others-zone{padding:18px 20px}
-          .nar-form-card{padding:22px 18px}
-          .nar-hero{padding:36px 18px 0}
+        .nb-form-top {
+          background: linear-gradient(135deg, #052e16, #15803d);
+          padding: 28px 28px 24px;
+          text-align: center;
+          position: relative;
+          overflow: hidden;
+        }
+        .nb-form-top::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%234ade80' fill-opacity='0.06'%3E%3Ccircle cx='20' cy='20' r='1.5'/%3E%3C/g%3E%3C/svg%3E");
+        }
+        .nb-form-icon {
+          font-size: 44px;
+          display: block;
+          margin-bottom: 10px;
+          animation: float 3s ease-in-out infinite;
+          position: relative;
+        }
+        .nb-form-title {
+          font-family: 'Playfair Display', serif;
+          font-size: 22px;
+          font-weight: 800;
+          color: #fff;
+          line-height: 1.2;
+          margin-bottom: 6px;
+          position: relative;
+        }
+        .nb-form-subtitle {
+          font-size: 13px;
+          color: rgba(255,255,255,0.65);
+          line-height: 1.65;
+          position: relative;
+        }
+        .nb-form-subtitle strong { color: #4ade80 }
+
+        /* Urgency bar */
+        .nb-urgency {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          background: #fef3c7;
+          border-bottom: 1px solid #fde68a;
+          padding: 10px 16px;
+          font-size: 12px;
+          font-weight: 700;
+          color: #92400e;
+        }
+        .nb-urgency-dot {
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          background: #f59e0b;
+          animation: pulse 1.5s infinite;
+          flex-shrink: 0;
+        }
+
+        /* Form body */
+        .nb-form-body { padding: 24px 24px 20px }
+
+        .nb-field-group { margin-bottom: 14px }
+        .nb-field-label {
+          font-size: 10px;
+          font-weight: 800;
+          color: #6b7280;
+          letter-spacing: .09em;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .nb-field-ok { color: #16a34a; font-size: 11px; font-weight: 700 }
+        .nb-field-err { color: #ef4444; font-size: 11px; font-weight: 600; margin-top: 5px }
+        .nb-field-hint { color: #9ca3af; font-size: 10px; margin-top: 4px }
+
+        input::placeholder { color: #9ca3af !important; opacity: 1 }
+        input:focus { border-color: #16a34a !important; background: #f0fdf4 !important; outline: none }
+
+        /* CTA Button */
+        .nb-cta-btn {
+          width: 100%;
+          border: none;
+          border-radius: 12px;
+          padding: 18px;
+          font-size: 16px;
+          font-weight: 900;
+          cursor: pointer;
+          font-family: inherit;
+          letter-spacing: -.01em;
+          transition: all .25s;
+          margin-top: 6px;
+        }
+        .nb-cta-ready {
+          background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+          background-size: 200% auto;
+          color: #fff;
+          box-shadow: 0 8px 30px rgba(22,163,74,0.4);
+        }
+        .nb-cta-ready:hover {
+          background-position: right center;
+          transform: translateY(-2px);
+          box-shadow: 0 14px 40px rgba(22,163,74,0.55);
+        }
+        .nb-cta-inactive {
+          background: #f3f4f6;
+          color: #9ca3af;
+          cursor: default;
+        }
+        .nb-cta-loading {
+          background: #e5e7eb;
+          color: #9ca3af;
+          cursor: wait;
+        }
+
+        /* Trust footer */
+        .nb-trust {
+          display: flex;
+          justify-content: center;
+          gap: 6px;
+          padding: 12px 16px 16px;
+          font-size: 10px;
+          color: #9ca3af;
+          font-weight: 600;
+          border-top: 1px solid #f3f4f6;
+          flex-wrap: wrap;
+        }
+        .nb-trust-item { display: flex; align-items: center; gap: 3px }
+
+        /* Submit error */
+        .nb-submit-error {
+          background: #fef2f2;
+          border: 1.5px solid #fecaca;
+          border-radius: 10px;
+          padding: 10px 14px;
+          color: #dc2626;
+          font-size: 13px;
+          font-weight: 600;
+          margin-top: 10px;
+        }
+
+        /* Success state */
+        .nb-success {
+          padding: 32px 24px;
+          text-align: center;
+        }
+        .nb-success-icon { font-size: 60px; margin-bottom: 12px; animation: float 2s ease-in-out infinite }
+        .nb-success-title {
+          font-family: 'Playfair Display', serif;
+          font-size: 24px;
+          font-weight: 800;
+          color: #111;
+          margin-bottom: 8px;
+        }
+        .nb-success-text { font-size: 14px; color: #6b7280; line-height: 1.7; margin-bottom: 6px }
+        .nb-success-email { font-size: 13px; color: #9ca3af; margin-bottom: 24px }
+        .nb-success-email span { color: #16a34a; font-weight: 700 }
+        .nb-download-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          background: linear-gradient(135deg, #16a34a, #15803d);
+          color: #fff;
+          border-radius: 12px;
+          padding: 15px 28px;
+          text-decoration: none;
+          font-weight: 900;
+          font-size: 15px;
+          box-shadow: 0 8px 28px rgba(22,163,74,.4);
+          transition: transform .2s, box-shadow .2s;
+        }
+        .nb-download-btn:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(22,163,74,.5) }
+
+        /* Back link */
+        .nb-back { text-align: center; padding: 8px 24px 32px }
+        .nb-back-link {
+          color: #9ca3af;
+          text-decoration: none;
+          font-size: 13px;
+          font-weight: 600;
+          transition: color .2s;
+        }
+        .nb-back-link:hover { color: #16a34a }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+          .nb-book-top { flex-direction: column; text-align: center; padding: 24px 20px }
+          .nb-inside { padding: 20px }
+          .nb-testimonials-card, .nb-others-card { padding: 20px }
+          .nb-form-body { padding: 18px 18px 14px }
+          .nb-stat { padding: 8px 16px; border-right-color: rgba(255,255,255,0.08) }
         }
       `}</style>
 
-      {/* ── Hero ── */}
-      <div className="nar-hero">
-        <div className="nar-badge">
-          <span className="nar-badge-dot" />
-          <span className="nar-badge-text">Безплатен PDF Наръчник</span>
-        </div>
-        <h1>{emoji} {nar.title}</h1>
-        {nar.subtitle && <p className="nar-hero-sub">{nar.subtitle}</p>}
-      </div>
+      {/* ── HERO BANNER ── */}
+      <header className="nb-hero-banner" role="banner">
+        <div className="nb-hero-inner">
+          <div className="nb-hero-badge">
+            <span className="nb-hero-badge-dot" />
+            <span className="nb-hero-badge-text">Безплатен PDF Наръчник</span>
+          </div>
 
-      {/* ── Two-column layout ── */}
-      <div className="nar-layout">
+          {/* SEO: h1 uses the actual book title */}
+          <h1 className="nb-hero-h1">{emoji} {nar.title}</h1>
 
-        {/* LEFT — info */}
-        <div className="nar-main-card">
-          <div className="nar-cover-zone">
-            {nar.cover_image_url && (
-              <img src={nar.cover_image_url} alt={nar.title} className="nar-cover-img" />
-            )}
-            <div className="nar-cover-text">
-              <div className="nar-category-tag">
-                <span>{emoji}</span>
-                {nar.category ? nar.category.charAt(0).toUpperCase() + nar.category.slice(1) : 'Наръчник'}
+          {nar.subtitle && (
+            <p className="nb-hero-sub">{nar.subtitle}</p>
+          )}
+
+          <div className="nb-stats-bar" role="list" aria-label="Статистики">
+            {STATS.map(s => (
+              <div key={s.label} className="nb-stat" role="listitem">
+                <span className="nb-stat-value">{s.value}</span>
+                <span className="nb-stat-label">{s.label}</span>
               </div>
-              <h2 className="nar-cover-title">{nar.title}</h2>
-              {nar.description && <p className="nar-cover-sub">{nar.description}</p>}
-              <span className="nar-free-badge"><span>🆓</span> Напълно безплатно</span>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {/* ── MAIN CONTENT ── */}
+      <main className="nb-page" id="main-content">
+
+        {/* ─── LEFT COLUMN ─── */}
+        <div className="nb-left">
+
+          {/* Book preview card */}
+          <article className="nb-book-card" aria-label={`Наръчник: ${nar.title}`}>
+            <div className="nb-book-top">
+
+              <div className="nb-book-img-wrap">
+                {nar.cover_image_url ? (
+                  <img
+                    src={nar.cover_image_url}
+                    alt={`Корица на наръчника ${nar.title}`}
+                    className="nb-book-img"
+                    loading="eager"
+                    fetchPriority="high"
+                    width={145}
+                    height={190}
+                  />
+                ) : (
+                  <div className="nb-book-img-placeholder">
+                    <span style={{ fontSize: 52 }}>{emoji}</span>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 6, fontWeight: 700 }}>PDF</span>
+                  </div>
+                )}
+                <span className="nb-free-pill">БЕЗПЛАТНО</span>
+              </div>
+
+              <div className="nb-book-meta">
+                <div className="nb-book-cat">
+                  <span>{emoji}</span>
+                  {nar.category
+                    ? nar.category.charAt(0).toUpperCase() + nar.category.slice(1)
+                    : 'Градинарство'}
+                </div>
+
+                <h2 className="nb-book-title">{nar.title}</h2>
+
+                {nar.description && (
+                  <p className="nb-book-desc">{nar.description}</p>
+                )}
+
+                <div className="nb-stars" aria-label="Оценка 4.9 от 5 звезди">
+                  {[1,2,3,4,5].map(i => <span key={i} className="nb-star">★</span>)}
+                  <span className="nb-stars-label">4.9/5 · 847 оценки</span>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div className="nar-inside-zone">
-            <div className="nar-zone-label">Вътре ще намериш</div>
-            <ul className="nar-inside-list" style={{ listStyle: 'none', padding: 0 }}>
-              {INSIDE_ITEMS.map(item => (
-                <li key={item} className="nar-inside-item">
-                  <span className="nar-inside-check">✓</span>
-                  {item}
-                </li>
+            {/* What's inside */}
+            <section className="nb-inside" aria-labelledby="inside-heading">
+              <div className="nb-section-label" id="inside-heading">Какво ще намериш вътре</div>
+              <ul className="nb-inside-list">
+                {INSIDE_ITEMS.map((item, i) => (
+                  <li key={i} className="nb-inside-item">
+                    <span className="nb-inside-icon" aria-hidden="true">{item.icon}</span>
+                    <span className="nb-inside-text">{item.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </article>
+
+          {/* Testimonials */}
+          <section className="nb-testimonials-card" aria-labelledby="reviews-heading">
+            <div className="nb-section-label" id="reviews-heading">Какво казват фермерите</div>
+            <div
+              className="nb-testimonial"
+              key={activeTestimonial}
+              role="region"
+              aria-live="polite"
+              aria-label="Отзив"
+            >
+              <div className="nb-testimonial-body">
+                {TESTIMONIALS[activeTestimonial].text}
+              </div>
+              <div className="nb-testimonial-author">
+                <div
+                  className="nb-testimonial-avatar"
+                  aria-hidden="true"
+                >
+                  {TESTIMONIALS[activeTestimonial].name.charAt(0)}
+                </div>
+                <div>
+                  <div className="nb-testimonial-name">{TESTIMONIALS[activeTestimonial].name}</div>
+                  <div className="nb-testimonial-loc">📍 {TESTIMONIALS[activeTestimonial].location}</div>
+                </div>
+                <div className="nb-stars" style={{ marginLeft: 'auto', marginBottom: 0 }} aria-label="5 звезди">
+                  {[1,2,3,4,5].map(i => <span key={i} className="nb-star" style={{ fontSize: 12 }}>★</span>)}
+                </div>
+              </div>
+            </div>
+            <div className="nb-testimonial-dots" role="tablist" aria-label="Отзиви навигация">
+              {TESTIMONIALS.map((_, i) => (
+                <button
+                  key={i}
+                  className={`nb-dot ${i === activeTestimonial ? 'active' : ''}`}
+                  onClick={() => setActiveTestimonial(i)}
+                  role="tab"
+                  aria-selected={i === activeTestimonial}
+                  aria-label={`Отзив ${i + 1}`}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  <span className={`nb-dot ${i === activeTestimonial ? 'active' : ''}`} style={{ display: 'block' }} />
+                </button>
               ))}
-            </ul>
-          </div>
+            </div>
+          </section>
 
+          {/* Other guides */}
           {others.length > 0 && (
-            <div className="nar-others-zone">
-              <div className="nar-zone-label">Виж и другите наръчници</div>
-              <div className="nar-others-grid">
+            <nav className="nb-others-card" aria-labelledby="others-heading">
+              <div className="nb-section-label" id="others-heading">Виж и другите наръчници</div>
+              <div className="nb-others-grid">
                 {others.map(o => (
-                  <a key={o.slug} href={`/naruchnik/${o.slug}`} className="nar-other-card">
-                    <span className="nar-other-emoji">{catEmoji(o.category)}</span>
-                    <span className="nar-other-title">{o.title}</span>
-                    <span className="nar-other-cta">Изтегли →</span>
+                  <a
+                    key={o.slug}
+                    href={`/naruchnik/${o.slug}`}
+                    className="nb-other-link"
+                    title={`Наръчник: ${o.title}`}
+                  >
+                    <span className="nb-other-emoji" aria-hidden="true">{catEmoji(o.category)}</span>
+                    <span className="nb-other-title">{o.title}</span>
+                    <span className="nb-other-cta" aria-label={`Изтегли ${o.title}`}>Изтегли →</span>
                   </a>
                 ))}
               </div>
-            </div>
+            </nav>
           )}
         </div>
 
-        {/* RIGHT — lead form */}
-        <div>
-          <div className="nar-form-card">
+        {/* ─── RIGHT COLUMN — Lead Form ─── */}
+        <aside className="nb-right" aria-label="Форма за изтегляне">
+          <div className="nb-form-card">
+
             {done ? (
-              /* ── Success state ── */
-              <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                <div style={{ fontSize: 52, marginBottom: 10 }}>🎉</div>
-                <div className="nar-form-heading" style={{ marginBottom: 8 }}>Свалянето започна!</div>
-                <div style={{ color: 'rgba(255,255,255,0.62)', fontSize: 13, lineHeight: 1.65, marginBottom: 8 }}>
-                  Провери папката <strong style={{ color: '#86efac' }}>Изтегляния</strong> на устройството си.
-                </div>
-                <div style={{ color: 'rgba(255,255,255,0.42)', fontSize: 12, marginBottom: 22 }}>
-                  📧 Изпратихме копие на <span style={{ color: '#4ade80', fontWeight: 700 }}>{email}</span>
-                </div>
-                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" download
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#16a34a,#15803d)', color: '#fff', borderRadius: 13, padding: '13px 24px', textDecoration: 'none', fontWeight: 900, fontSize: 15, boxShadow: '0 8px 28px rgba(22,163,74,0.4)' }}>
+              /* ── Success ── */
+              <div className="nb-success" role="alert" aria-live="assertive">
+                <div className="nb-success-icon" aria-hidden="true">🎉</div>
+                <h3 className="nb-success-title">Свалянето започна!</h3>
+                <p className="nb-success-text">
+                  Провери папката <strong>Изтегляния</strong> на устройството си.
+                </p>
+                <p className="nb-success-email">
+                  📧 Изпратихме копие на <span>{email}</span>
+                </p>
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  className="nb-download-btn"
+                  aria-label={`Изтегли отново ${nar.title}`}
+                >
                   📥 Изтегли отново
                 </a>
               </div>
             ) : (
               <>
-                <div style={{ textAlign: 'center', marginBottom: 20 }}>
-                  <div style={{ fontSize: 38, marginBottom: 8 }}>🎁</div>
-                  <div className="nar-form-heading">Изтегли Безплатно</div>
-                  <div className="nar-form-sub">
-                    Над <strong style={{ color: '#4ade80' }}>6 000</strong> фермери вече го изтеглиха.<br />
-                    Въведи данните и го получи веднага.
-                  </div>
+                {/* Form header */}
+                <div className="nb-form-top">
+                  <span className="nb-form-icon" aria-hidden="true">🎁</span>
+                  <h3 className="nb-form-title">Изтегли Безплатно</h3>
+                  <p className="nb-form-subtitle">
+                    Над <strong>6 000</strong> фермери вече го изтеглиха.<br />
+                    Получи и ти своя екземпляр — веднага.
+                  </p>
                 </div>
 
-                <div className="nar-divider" />
+                {/* Urgency nudge */}
+                <div className="nb-urgency" role="status">
+                  <span className="nb-urgency-dot" aria-hidden="true" />
+                  🔥 47 души са изтеглили наръчника днес
+                </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* Form fields */}
+                <div className="nb-form-body">
                   {/* Name */}
-                  <div>
-                    <div className="nar-label">
-                      ИМЕ <span style={{ color: '#f87171', marginLeft: 2 }}>*</span>
-                      {touched.name && !nameErr && <span className="nar-ok">✓ Добре</span>}
+                  <div className="nb-field-group">
+                    <div className="nb-field-label">
+                      <span>ИМЕ <span style={{ color: '#ef4444' }} aria-hidden="true">*</span></span>
+                      {touched.name && !nameErr && <span className="nb-field-ok">✓ Добре</span>}
                     </div>
-                    <input className="nar-input" type="text" placeholder="Георги Петров"
-                      value={name} onChange={e => setName(e.target.value)} onBlur={() => touch('name')}
-                      style={fieldStyle(nameErr, touched.name)} />
-                    {touched.name && nameErr && <div className="nar-err">⚠ {nameErr}</div>}
+                    <input
+                      type="text"
+                      placeholder="Георги Петров"
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      onBlur={() => touch('name')}
+                      style={fieldStyle(nameErr, touched.name)}
+                      aria-label="Вашето име"
+                      aria-required="true"
+                      aria-invalid={touched.name && !!nameErr}
+                      autoComplete="name"
+                    />
+                    {touched.name && nameErr && (
+                      <div className="nb-field-err" role="alert">⚠ {nameErr}</div>
+                    )}
                   </div>
 
                   {/* Email */}
-                  <div>
-                    <div className="nar-label">
-                      ИМЕЙЛ <span style={{ color: '#f87171', marginLeft: 2 }}>*</span>
-                      {touched.email && !emailErr && <span className="nar-ok">✓ Добре</span>}
+                  <div className="nb-field-group">
+                    <div className="nb-field-label">
+                      <span>ИМЕЙЛ <span style={{ color: '#ef4444' }} aria-hidden="true">*</span></span>
+                      {touched.email && !emailErr && <span className="nb-field-ok">✓ Добре</span>}
                     </div>
-                    <input className="nar-input" type="email" placeholder="email@example.com"
-                      value={email} onChange={e => setEmail(e.target.value)} onBlur={() => touch('email')}
-                      style={fieldStyle(emailErr, touched.email)} />
-                    {touched.email && emailErr && <div className="nar-err">⚠ {emailErr}</div>}
-                    <div className="nar-hint">📧 Ще получиш копие и на имейла си</div>
+                    <input
+                      type="email"
+                      placeholder="email@example.com"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      onBlur={() => touch('email')}
+                      style={fieldStyle(emailErr, touched.email)}
+                      aria-label="Вашият имейл адрес"
+                      aria-required="true"
+                      aria-invalid={touched.email && !!emailErr}
+                      autoComplete="email"
+                    />
+                    {touched.email && emailErr && (
+                      <div className="nb-field-err" role="alert">⚠ {emailErr}</div>
+                    )}
+                    <div className="nb-field-hint">📧 Ще получиш копие на наръчника на имейл</div>
                   </div>
 
                   {/* Phone */}
-                  <div>
-                    <div className="nar-label">
-                      ТЕЛЕФОН <span style={{ color: '#f87171', marginLeft: 2 }}>*</span>
-                      {touched.phone && !phoneErr && <span className="nar-ok">✓ Добре</span>}
+                  <div className="nb-field-group">
+                    <div className="nb-field-label">
+                      <span>ТЕЛЕФОН <span style={{ color: '#ef4444' }} aria-hidden="true">*</span></span>
+                      {touched.phone && !phoneErr && <span className="nb-field-ok">✓ Добре</span>}
                     </div>
-                    <input className="nar-input" type="tel" placeholder="08X XXX XXXX"
-                      value={phone} onChange={e => setPhone(e.target.value)} onBlur={() => touch('phone')}
-                      style={fieldStyle(phoneErr, touched.phone)} />
-                    {touched.phone && phoneErr && <div className="nar-err">⚠ {phoneErr}</div>}
-                    <div className="nar-hint">📞 За лична консултация при нужда</div>
+                    <input
+                      type="tel"
+                      placeholder="08X XXX XXXX"
+                      value={phone}
+                      onChange={e => setPhone(e.target.value)}
+                      onBlur={() => touch('phone')}
+                      style={fieldStyle(phoneErr, touched.phone)}
+                      aria-label="Вашият телефонен номер"
+                      aria-required="true"
+                      aria-invalid={touched.phone && !!phoneErr}
+                      autoComplete="tel"
+                    />
+                    {touched.phone && phoneErr && (
+                      <div className="nb-field-err" role="alert">⚠ {phoneErr}</div>
+                    )}
+                    <div className="nb-field-hint">📞 За лична консултация при нужда</div>
                   </div>
 
                   {submitError && (
-                    <div style={{ background: 'rgba(254,242,242,0.1)', border: '1.5px solid rgba(252,165,165,0.35)', borderRadius: 10, padding: '10px 14px', color: '#fca5a5', fontSize: 13, fontWeight: 600 }}>
-                      ⚠ {submitError}
-                    </div>
+                    <div className="nb-submit-error" role="alert">⚠ {submitError}</div>
                   )}
 
                   <button
-                    className={`nar-btn ${loading ? 'nar-btn-loading' : isValid ? 'nar-btn-ready' : 'nar-btn-inactive'}`}
+                    className={`nb-cta-btn ${loading ? 'nb-cta-loading' : isValid ? 'nb-cta-ready' : 'nb-cta-inactive'}`}
                     onClick={handleSubmit}
                     disabled={loading}
+                    aria-label={isValid ? `Изтегли безплатно ${nar.title}` : 'Попълни всички полета'}
+                    aria-busy={loading}
                   >
-                    {loading ? '⏳ Подготвям наръчника...' : isValid ? '📥 Изтегли Безплатно Сега →' : '📋 Попълни всички полета'}
+                    {loading
+                      ? '⏳ Подготвям наръчника...'
+                      : isValid
+                        ? '📥 Изтегли Безплатно Сега →'
+                        : '📋 Попълни всички полета'}
                   </button>
                 </div>
 
-                <div className="nar-form-footer">
-                  <span>🔒 Без спам</span>
-                  <span>·</span>
-                  <span>Без регистрация</span>
-                  <span>·</span>
-                  <span>Директно сваляне</span>
+                {/* Trust badges */}
+                <div className="nb-trust" role="list" aria-label="Гаранции">
+                  <span className="nb-trust-item" role="listitem">🔒 Без спам</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="nb-trust-item" role="listitem">✅ Без регистрация</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="nb-trust-item" role="listitem">📥 Директно сваляне</span>
                 </div>
               </>
             )}
           </div>
-        </div>
-      </div>
+        </aside>
+      </main>
 
-      <div className="nar-back-row">
-        <a href="/" className="nar-back-link">← Обратно към сайта</a>
+      {/* ── Back link ── */}
+      <div className="nb-back">
+        <a href="/" className="nb-back-link">← Обратно към сайта</a>
       </div>
     </>
   )

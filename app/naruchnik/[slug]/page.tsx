@@ -1,5 +1,5 @@
-// app/naruchnik/[slug]/page.tsx — v7
-// Server Component — SEO оптимизиран с generateMetadata + директно сваляне
+// app/naruchnik/[slug]/page.tsx — v8
+// Server Component — SEO оптимизиран с generateMetadata + generateStaticParams
 
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
@@ -11,26 +11,8 @@ interface Naruchnik {
   category?: string; active: boolean
 }
 
-const CAT_EMOJI: Record<string, string> = {
-  domati: '🍅', krastavici: '🥒', chushki: '🫑', default: '🌿',
-}
-export const catEmoji = (cat = '') => CAT_EMOJI[cat] || CAT_EMOJI.default
-
-const CAT_COLOR: Record<string, string> = {
-  domati: '#dc2626', krastavici: '#16a34a', chushki: '#ea580c', default: '#16a34a',
-}
-export const catColor = (cat = '') => CAT_COLOR[cat] || CAT_COLOR.default
-
-export const INSIDE_ITEMS = [
-  'Пълен календар за торене и третиране',
-  'Кои продукти работят наистина (и кои са пари на вятъра)',
-  'Борба с болестите — органични методи без химия',
-  'Грешките, които убиват реколтата (и как да ги избегнеш)',
-  'Тайните на двойния добив от един декар',
-]
-
-// ─── Data fetching ──────────────────────────────────────────────────────────
-async function getNaruchnik(slug: string): Promise<{ nar: Naruchnik | null; others: Naruchnik[] }> {
+// ─── Supabase helper ─────────────────────────────────────────────────────────
+async function getAllNaruchnici(): Promise<Naruchnik[]> {
   try {
     const { createClient } = await import('@supabase/supabase-js')
     const supabase = createClient(
@@ -42,62 +24,173 @@ async function getNaruchnik(slug: string): Promise<{ nar: Naruchnik | null; othe
       .select('*')
       .eq('active', true)
       .order('sort_order')
-
-    const all: Naruchnik[] = data || []
-    const nar = all.find(n => n.slug === slug) || null
-    const others = all.filter(n => n.slug !== slug).slice(0, 3)
-    return { nar, others }
+    return (data as Naruchnik[]) || []
   } catch {
-    return { nar: null, others: [] }
+    return []
   }
 }
 
-// ─── SEO Metadata ───────────────────────────────────────────────────────────
+async function getNaruchnik(slug: string): Promise<{ nar: Naruchnik | null; others: Naruchnik[] }> {
+  const all = await getAllNaruchnici()
+  const nar = all.find(n => n.slug === slug) || null
+  const others = all.filter(n => n.slug !== slug).slice(0, 3)
+  return { nar, others }
+}
+
+// ─── Static params (SSG) ─────────────────────────────────────────────────────
+export async function generateStaticParams() {
+  const all = await getAllNaruchnici()
+  return all.map(n => ({ slug: n.slug }))
+}
+
+// ─── SEO Metadata ────────────────────────────────────────────────────────────
 export async function generateMetadata(
   { params }: { params: { slug: string } }
 ): Promise<Metadata> {
   const { nar } = await getNaruchnik(params.slug)
   if (!nar) return { title: 'Наръчник не е намерен' }
 
-  const emoji = catEmoji(nar.category)
+  const title = `${nar.title} — Безплатен PDF Наръчник | Denny Angelow`
+  const description = nar.description
+    || `Изтегли безплатно "${nar.title}" — практично ръководство за по-здрави растения и рекордна реколта. ${nar.subtitle || ''}`
+
   return {
-    title: `${nar.title} — Безплатен PDF Наръчник | Denny Angelow`,
-    description: nar.description
-      || `Изтегли безплатно "${nar.title}" — практично ръководство за по-здрави растения и рекордна реколта. ${nar.subtitle || ''}`,
-    keywords: [nar.title, 'наръчник', 'безплатен PDF', 'градина', 'земеделие', 'органично'],
+    title,
+    description,
+    keywords: [
+      nar.title,
+      'наръчник',
+      'безплатен PDF',
+      'градина',
+      'земеделие',
+      'органично',
+      'реколта',
+      'торене',
+      nar.category || '',
+    ].filter(Boolean),
+
+    // Canonical + alternates
+    alternates: {
+      canonical: `https://dennyangelow.com/naruchnik/${nar.slug}`,
+    },
+
+    // Open Graph
     openGraph: {
-      title: `${emoji} ${nar.title}`,
-      description: nar.description || `Безплатен PDF наръчник — изтегли сега`,
-      images: nar.cover_image_url ? [{ url: nar.cover_image_url, width: 800, height: 600 }] : [],
+      title,
+      description,
+      url: `https://dennyangelow.com/naruchnik/${nar.slug}`,
+      siteName: 'Denny Angelow',
+      locale: 'bg_BG',
       type: 'article',
+      images: nar.cover_image_url
+        ? [{ url: nar.cover_image_url, width: 800, height: 600, alt: nar.title }]
+        : [],
+      publishedTime: new Date().toISOString(),
+      authors: ['Denny Angelow'],
+    },
+
+    // Twitter Card
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: nar.cover_image_url ? [nar.cover_image_url] : [],
+    },
+
+    // Robots — full indexing + snippets
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        'max-snippet': -1,
+        'max-image-preview': 'large',
+        'max-video-preview': -1,
+      },
     },
   }
 }
 
-// ─── PAGE ────────────────────────────────────────────────────────────────────
+// ─── PAGE ─────────────────────────────────────────────────────────────────────
 export default async function NaruchnikPage({ params }: { params: { slug: string } }) {
   const { nar, others } = await getNaruchnik(params.slug)
   if (!nar) notFound()
 
-  const jsonLd = {
+  // ── Schema.org structured data ────────────────────────────────────────────
+  // Book schema — helps Google show rich results
+  const bookSchema = {
     '@context': 'https://schema.org',
     '@type': 'Book',
     name: nar.title,
-    description: nar.description,
-    author: { '@type': 'Person', name: 'Denny Angelow' },
+    description: nar.description || nar.subtitle,
+    author: {
+      '@type': 'Person',
+      name: 'Denny Angelow',
+      url: 'https://dennyangelow.com',
+    },
     inLanguage: 'bg',
     isAccessibleForFree: true,
+    offers: {
+      '@type': 'Offer',
+      price: '0',
+      priceCurrency: 'BGN',
+      availability: 'https://schema.org/InStock',
+    },
     url: `https://dennyangelow.com/naruchnik/${nar.slug}`,
     image: nar.cover_image_url,
+    genre: 'Agriculture / Gardening',
+    datePublished: '2024-01-01',
+    publisher: {
+      '@type': 'Organization',
+      name: 'Denny Angelow',
+      url: 'https://dennyangelow.com',
+    },
+  }
+
+  // FAQPage schema — targets featured snippets
+  const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: [
+      {
+        '@type': 'Question',
+        name: `Наистина ли е безплатен наръчникът "${nar.title}"?`,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: `Да, наръчникът "${nar.title}" е напълно безплатен. Просто въведи своето име, имейл и телефон и PDF-ът се изтегля автоматично.`,
+        },
+      },
+      {
+        '@type': 'Question',
+        name: `Какво съдържа наръчникът "${nar.title}"?`,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: `Наръчникът съдържа: пълен календар за торене и третиране, органични методи за борба с болести, съвети за двоен добив от декар и грешките, които унищожават реколтата.`,
+        },
+      },
+    ],
+  }
+
+  // BreadcrumbList schema
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Начало', item: 'https://dennyangelow.com' },
+      { '@type': 'ListItem', position: 2, name: 'Наръчници', item: 'https://dennyangelow.com/naruchnici' },
+      { '@type': 'ListItem', position: 3, name: nar.title, item: `https://dennyangelow.com/naruchnik/${nar.slug}` },
+    ],
   }
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
-      {/* Всичко интерактивно е в Client Component */}
+      {/* Structured data */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(bookSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+
+      {/* All interactive UI is in Client Component */}
       <NaruchnikClient nar={nar} others={others} />
     </>
   )
