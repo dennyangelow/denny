@@ -110,6 +110,7 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'bullets',     label: 'Предимства (по едно на ред)', type: 'bullets',  placeholder: '9-слойна технология\nUV защита\nРавномерно осветление' },
       { key: 'button_text', label: 'Текст на бутона',            type: 'text',     placeholder: '👉 Разгледай фолиата на Ginegar' },
       { key: 'button_url',  label: 'URL на бутона',              type: 'url',      placeholder: 'https://...' },
+      { key: 'partner',     label: 'Партньор (за tracking)',      type: 'text',     placeholder: 'ginegar' },
       { key: 'sort_order',  label: 'Ред',                        type: 'number',   placeholder: '0' },
       { key: 'active',      label: 'Активна секция',             type: 'checkbox' },
     ],
@@ -441,6 +442,9 @@ export function ContentTab() {
                   <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{itemSub(item)}</span>
                     {item.active === false && <span style={{ color: '#ef4444', fontSize: 11, flexShrink: 0 }}>● Неактивен</span>}
+                    {subTab === 'special' && item.partner && (
+                      <span style={{ color: '#7c3aed', fontSize: 11, flexShrink: 0, background: '#f3e8ff', padding: '1px 6px', borderRadius: 99 }}>🔗 {item.partner}</span>
+                    )}
                     {subTab === 'special' && item.bullets?.length > 0 && (
                       <span style={{ color: '#16a34a', fontSize: 11, flexShrink: 0 }}>✓ {item.bullets.length} предимства</span>
                     )}

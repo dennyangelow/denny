@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
     if (page?.startsWith('/admin')) {
       return NextResponse.json({ ok: true, skipped: true })
     }
-
+if (page?.startsWith('/tr/') || page?.includes('/tr/2/')) {
+  return NextResponse.json({ ok: true, skipped: true })
+}
     const ua = req.headers.get('user-agent') || ''
     if (isBot(ua)) {
       return NextResponse.json({ ok: true, skipped: true })
@@ -106,6 +108,7 @@ export async function GET() {
       const isLast30 = v.created_at >= last30
 
       if (!isLast30) continue
+if (v.page?.startsWith('/tr/') || v.page?.includes('/tr/2/')) continue
 
       totalCount++
       if (hash) {
