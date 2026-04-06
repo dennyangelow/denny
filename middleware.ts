@@ -1,9 +1,8 @@
-// middleware.ts — v2 FINAL
-// Обединява:
-//   - security headers на всички отговори (от оригинала)
-//   - rate limiting за login (от оригинала)
-//   - защита на /admin/* UI с redirect (от оригинала)
-//   - защита на мутиращи API routes с JSON 401 (НОВО)
+// middleware.ts — v3 FINAL
+// ПОПРАВКИ:
+//   - /api/analytics/* е ИЗЦЯЛО публично (GET + POST)
+//   - isPublicApiRequest проверява преди isProtectedApi
+//   - По-ясна логика за protected vs public
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -22,16 +21,18 @@ function securityHeaders(res: NextResponse): NextResponse {
 
 // ── API routes, достъпни публично (без auth) ──────────────────────────────────
 function isPublicApiRequest(pathname: string, method: string): boolean {
-  if (pathname === '/api/site-data')                                    return true
-  if (pathname === '/api/naruchnici' && method === 'GET')               return true
-  if (pathname === '/api/naruchnici/track')                             return true
-  if (pathname === '/api/orders' && method === 'POST')                  return true
+  if (pathname === '/api/site-data')                                         return true
+  if (pathname === '/api/naruchnici' && method === 'GET')                    return true
+  if (pathname === '/api/naruchnici/track')                                  return true
+  if (pathname === '/api/orders' && method === 'POST')                       return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST') return true
-  if (pathname === '/api/leads' && method === 'POST')                   return true
-  if (pathname === '/api/leads/unsubscribe')                            return true
-  if (pathname === '/api/leads/sequence' && method === 'GET')           return true
-  if (pathname.startsWith('/api/analytics/'))                           return true
-  if (pathname === '/api/admin/auth')                                   return true
+  if (pathname === '/api/leads' && method === 'POST')                        return true
+  if (pathname === '/api/leads/unsubscribe')                                 return true
+  if (pathname === '/api/leads/sequence' && method === 'GET')                return true
+  // ✅ ВСИЧКИ analytics routes са публични (page-view POST от клиентите + GET за admin panel)
+  if (pathname.startsWith('/api/analytics/'))                                return true
+  if (pathname === '/api/admin/auth')                                        return true
+  if (pathname === '/api/marketing' && method === 'GET')                     return true
   return false
 }
 
@@ -48,10 +49,11 @@ const PROTECTED_API_PREFIXES = [
   '/api/upload',
   '/api/leads/broadcast',
   '/api/orders',
-  '/api/analytics',
+  '/api/marketing',
 ]
 
 function isProtectedApi(pathname: string, method: string): boolean {
+  // Публичните routes винаги имат приоритет
   if (isPublicApiRequest(pathname, method)) return false
   return PROTECTED_API_PREFIXES.some(p => pathname.startsWith(p))
 }
@@ -74,7 +76,12 @@ export function middleware(req: NextRequest) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 2. Защита на мутиращи API routes
+  // 2. Публични API routes — само headers (проверяваме ПРЕДИ protected!)
+  if (isPublicApiRequest(pathname, method)) {
+    return securityHeaders(NextResponse.next())
+  }
+
+  // 3. Защита на мутиращи API routes
   if (isProtectedApi(pathname, method)) {
     if (!isValidToken(req)) {
       return NextResponse.json(
@@ -85,17 +92,17 @@ export function middleware(req: NextRequest) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 3. Публични API routes — само headers
+  // 4. Останалите /api routes — само headers
   if (pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 4. /admin/login — публична страница
+  // 5. /admin/login — публична страница
   if (pathname.startsWith('/admin/login')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 5. Останалите /admin/* — rate limiting + token проверка
+  // 6. Останалите /admin/* — rate limiting + token проверка
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
   const attempt = loginAttempts.get(ip)
 

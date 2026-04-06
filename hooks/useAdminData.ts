@@ -1,5 +1,9 @@
 'use client'
-// hooks/useAdminData.ts — v9
+// hooks/useAdminData.ts — v11
+// ✅ ПОПРАВКИ v11:
+//   - topUtm + topCampaigns добавени в PageViewStats
+//   - По-добра error обработка
+//   - Конверсията използва last30 orders (не всички)
 
 import { useState, useCallback, useEffect } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
@@ -17,14 +21,14 @@ export interface AdminStats {
 }
 
 export interface PageViewStats {
-  total:        number
-  unique:       number
-  today:        number
-  todayUnique:  number
-  last7:        number
-  last7Unique:  number
-  last30:       number
-  last30Unique: number
+  total:         number
+  unique:        number
+  today:         number
+  todayUnique:   number
+  last7:         number
+  last7Unique:   number
+  last30:        number
+  last30Unique:  number
   mobilePercent: number
   dailyChart:    { date: string; count: number; unique?: number }[]
   topReferrers:  { name: string; count: number }[]
@@ -51,16 +55,38 @@ export function useAdminData() {
     setError(null)
     try {
       const [ordRes, leadRes, affRes, pvRes] = await Promise.allSettled([
-        fetch('/api/orders?limit=1000').then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json() }),
-        fetch('/api/leads?limit=1000').then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json() }),
+        fetch('/api/orders?limit=1000').then(r => {
+          if (!r.ok) throw new Error(`orders ${r.status}`)
+          return r.json()
+        }),
+        fetch('/api/leads?limit=1000').then(r => {
+          if (!r.ok) throw new Error(`leads ${r.status}`)
+          return r.json()
+        }),
         fetch('/api/analytics/affiliate-click').then(r => r.ok ? r.json() : null),
-        fetch('/api/analytics/pageview').then(r => r.ok ? r.json() : null),
+        fetch('/api/analytics/page-view').then(r => {
+          if (!r.ok) {
+            console.warn('[useAdminData] page-view status:', r.status)
+            return null
+          }
+          return r.json()
+        }),
       ])
 
-      const orderList: Order[] = ordRes.status  === 'fulfilled' ? (ordRes.value?.orders || []) : []
-      const leadList: Lead[]   = leadRes.status === 'fulfilled' ? (leadRes.value?.leads  || []) : []
+      const orderList: Order[] = ordRes.status  === 'fulfilled' ? (ordRes.value?.orders  || []) : []
+      const leadList:  Lead[]  = leadRes.status === 'fulfilled' ? (leadRes.value?.leads   || []) : []
       const affData            = affRes.status  === 'fulfilled' ? affRes.value  : null
       const pvData             = pvRes.status   === 'fulfilled' ? pvRes.value   : null
+
+      if (ordRes.status === 'rejected') {
+        console.error('[useAdminData] orders error:', ordRes.reason)
+      }
+      if (leadRes.status === 'rejected') {
+        console.error('[useAdminData] leads error:', leadRes.reason)
+      }
+      if (pvRes.status === 'rejected') {
+        console.error('[useAdminData] page-view error:', pvRes.reason)
+      }
 
       if (ordRes.status === 'rejected' && leadRes.status === 'rejected') {
         setError('Грешка при зареждане. Провери Supabase env vars в Vercel.')
@@ -73,23 +99,29 @@ export function useAdminData() {
 
       const today   = new Date().toISOString().slice(0, 10)
       const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
+      const day30   = new Date(Date.now() - 30 * 86400000).toISOString()
       const active  = orderList.filter(o => o.status !== 'cancelled')
       const revenue = active.reduce((s, o) => s + Number(o.total), 0)
+
+      const last30Orders = orderList.filter(o => o.created_at >= day30)
 
       setStats({
         totalOrders:     orderList.length,
         revenue,
         leads:           leadList.length,
         newOrders:       orderList.filter(o => o.status === 'new').length,
-        todayRevenue:    active.filter(o => o.created_at.slice(0, 10) === today).reduce((s, o) => s + Number(o.total), 0),
-        weekRevenue:     active.filter(o => o.created_at.slice(0, 10) >= weekAgo).reduce((s, o) => s + Number(o.total), 0),
+        todayRevenue:    active.filter(o => o.created_at.slice(0, 10) === today)
+                               .reduce((s, o) => s + Number(o.total), 0),
+        weekRevenue:     active.filter(o => o.created_at.slice(0, 10) >= weekAgo)
+                               .reduce((s, o) => s + Number(o.total), 0),
         pendingPayments: orderList.filter(o => o.payment_status === 'pending' && o.status !== 'cancelled').length,
         avgOrderValue:   active.length ? revenue / active.length : 0,
-        conversionRate:  pvData?.last30 && orderList.length
-          ? Math.min(99, (orderList.filter(o => o.created_at >= new Date(Date.now() - 30 * 86400000).toISOString()).length / pvData.last30) * 100)
+        conversionRate:  pvData?.last30 && last30Orders.length
+          ? Math.min(99, (last30Orders.length / pvData.last30) * 100)
           : 0,
       })
     } catch (err: unknown) {
+      console.error('[useAdminData] fetchAll error:', err)
       setError(`Грешка: ${err instanceof Error ? err.message : 'Неизвестна'}`)
     } finally {
       setLoading(false)
@@ -100,22 +132,26 @@ export function useAdminData() {
 
   const updateOrderStatus = useCallback(async (orderId: string, status: string) => {
     const res = await fetch(`/api/orders/${orderId}`, {
-      method: 'PATCH',
+      method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body:    JSON.stringify({ status }),
     })
     if (!res.ok) throw new Error('Update failed')
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: status as Order['status'] } : o))
+    setOrders(prev => prev.map(o =>
+      o.id === orderId ? { ...o, status: status as Order['status'] } : o
+    ))
   }, [])
 
   const updatePaymentStatus = useCallback(async (orderId: string, payment_status: string) => {
     const res = await fetch(`/api/orders/${orderId}`, {
-      method: 'PATCH',
+      method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payment_status }),
+      body:    JSON.stringify({ payment_status }),
     })
     if (!res.ok) throw new Error('Update failed')
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, payment_status: payment_status as Order['payment_status'] } : o))
+    setOrders(prev => prev.map(o =>
+      o.id === orderId ? { ...o, payment_status: payment_status as Order['payment_status'] } : o
+    ))
   }, [])
 
   return {

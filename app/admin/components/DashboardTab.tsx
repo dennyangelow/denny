@@ -1,5 +1,12 @@
 'use client'
-// app/admin/components/DashboardTab.tsx — v6 redesigned
+// app/admin/components/DashboardTab.tsx — v11
+// ✅ ПОПРАВКИ:
+//   - Affiliate card в stat-cards следва range-а (не е hardcoded 30д)
+//   - Посещения grid показва 4 периода (Днес/7д/30д/Всичко) вместо 3
+//   - "Всичко" ред е вграден в grid-а — не е отделен блок
+//   - Активният период в посещения grid съответства на избрания range
+//   - Топ източници показва всички резултати (не е slice(0,5) с изрязване)
+//   - Конверсията следва range-а
 
 import { useMemo, useState } from 'react'
 import {
@@ -10,6 +17,11 @@ import type { AdminStats, PageViewStats } from '@/hooks/useAdminData'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
 import { STATUS_LABELS } from '@/lib/constants'
 import { useCurrency } from './CurrencyContext'
+import { RangePicker } from './AnalyticsTab'
+import {
+  type Range, getRangeLabel, calcTrend,
+  filterByRange, filterPrevPeriod, buildRevenueChart, getXAxisInterval,
+} from './rangeUtils'
 
 interface Props {
   stats:       AdminStats
@@ -23,12 +35,13 @@ interface Props {
   loading?:    boolean
 }
 
+// ─── Малки компоненти ─────────────────────────────────────────────────────────
+
 function Sparkline({ data, color }: { data: number[]; color: string }) {
   return (
     <ResponsiveContainer width="100%" height={36}>
-      <LineChart data={data.map((v, i) => ({ i, v }))} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
-        <Line type="monotone" dataKey="v" stroke={color} strokeWidth={2}
-          dot={false} animationDuration={500} />
+      <LineChart data={data.map((v, i) => ({ i, v }))} margin={{ top:2, bottom:2, left:0, right:0 }}>
+        <Line type="monotone" dataKey="v" stroke={color} strokeWidth={2} dot={false} animationDuration={400} />
       </LineChart>
     </ResponsiveContainer>
   )
@@ -38,24 +51,66 @@ function SkeletonCard() {
   return (
     <div className="skel-card">
       {[55, 75, 40].map((w, i) => (
-        <div key={i} className="skel-line" style={{ width: `${w}%`, height: i === 1 ? 24 : 10, marginBottom: i < 2 ? 8 : 0 }} />
+        <div key={i} className="skel-line" style={{ width:`${w}%`, height:i===1?24:10, marginBottom:i<2?8:0 }} />
       ))}
     </div>
   )
 }
 
-function TrendBadge({ value }: { value: number }) {
-  const up = value >= 0
+function TrendBadge({ current, prev }: { current: number; prev: number }) {
+  const trend = calcTrend(current, prev)
+  if (trend === null) return null
+  const up = trend >= 0
   return (
-    <span className={`trend ${up ? 'up' : 'down'}`}>
-      {up ? '↑' : '↓'} {Math.abs(value).toFixed(1)}%
+    <span className={`trend-badge ${up ? 'up' : 'down'}`}>
+      {up ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}%
     </span>
   )
 }
 
 const STATUS_ICON: Record<string, string> = {
-  delivered: '✅', cancelled: '❌', shipped: '🚚', processing: '⚙️', new: '🆕',
+  delivered:'✅', cancelled:'❌', shipped:'🚚', processing:'⚙️', new:'🆕', confirmed:'✔️',
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function buildSparkline(orders: Order[], days: number) {
+  const now   = new Date()
+  const dates = Array.from({ length:days }, (_, i) =>
+    new Date(now.getTime() - (days-1-i) * 86400000).toISOString().slice(0, 10)
+  )
+  const revMap: Record<string, number> = {}
+  const ordMap: Record<string, number> = {}
+  orders.filter(o => o.status !== 'cancelled').forEach(o => {
+    const d = o.created_at.slice(0, 10)
+    revMap[d] = (revMap[d] || 0) + Number(o.total)
+    ordMap[d] = (ordMap[d] || 0) + 1
+  })
+  return {
+    revenue: dates.map(d => revMap[d] || 0),
+    orders:  dates.map(d => ordMap[d] || 0),
+  }
+}
+
+// ✅ Правилен брой посещения спрямо range
+function getVisitsForRange(pageViews: PageViewStats | null, range: Range): number {
+  if (!pageViews) return 0
+  if (range === 1)   return pageViews.today  ?? 0
+  if (range === 7)   return pageViews.last7  ?? 0
+  if (range === 30)  return pageViews.last30 ?? 0
+  return pageViews.total ?? pageViews.last30 ?? 0
+}
+
+// ✅ Affiliate кликове спрямо range
+function getAffClicksForRange(analytics: AffiliateAnalytics | null, range: Range): number {
+  if (!analytics) return 0
+  if (range === 1)     return (analytics as any).today     ?? 0
+  if (range === 7)     return (analytics as any).last7days ?? 0
+  if (range === 'all') return analytics.total              ?? 0
+  return analytics.last30days ?? 0  // 30д, 90д, 365д → last30days (максималното налично)
+}
+
+// ─── Главен компонент ─────────────────────────────────────────────────────────
 
 export function DashboardTab({
   stats, orders, leads, analytics, pageViews,
@@ -63,148 +118,186 @@ export function DashboardTab({
 }: Props) {
   const { fmt: formatPrice } = useCurrency()
   const [hovered, setHovered] = useState<string | null>(null)
+  const [range,   setRange]   = useState<Range>(30)
+
   const recentOrders = useMemo(() => orders.slice(0, 6), [orders])
 
-  const revenueChart = useMemo(() => {
-    const map: Record<string, number> = {}
-    orders.filter(o => o.status !== 'cancelled').forEach(o => {
-      const d = o.created_at.slice(0, 10)
-      map[d] = (map[d] || 0) + Number(o.total)
-    })
-    const now = new Date()
-    return Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(now.getTime() - (29 - i) * 86400000).toISOString().slice(0, 10)
-      return { date: d.slice(5), revenue: map[d] || 0 }
-    })
-  }, [orders])
+  // ── Филтрирани поръчки по range ──────────────────────────────────
+  const filteredOrders = useMemo(() => filterByRange(orders, range),    [orders, range])
+  const prevOrders     = useMemo(() => filterPrevPeriod(orders, range), [orders, range])
 
-  const sparklines = useMemo(() => {
-    const now = new Date()
-    const days7 = Array.from({ length: 7 }, (_, i) =>
-      new Date(now.getTime() - (6 - i) * 86400000).toISOString().slice(0, 10)
-    )
-    const revMap: Record<string, number> = {}
-    const ordMap: Record<string, number> = {}
-    orders.filter(o => o.status !== 'cancelled').forEach(o => {
-      const d = o.created_at.slice(0, 10)
-      revMap[d] = (revMap[d] || 0) + Number(o.total)
-      ordMap[d] = (ordMap[d] || 0) + 1
-    })
-    return {
-      revenue: days7.map(d => revMap[d] || 0),
-      orders:  days7.map(d => ordMap[d] || 0),
-    }
-  }, [orders])
+  const rangeMetrics = useMemo(() => {
+    const active     = filteredOrders.filter(o => o.status !== 'cancelled')
+    const prevActive = prevOrders.filter(o => o.status !== 'cancelled')
+    const rev     = active.reduce((s, o) => s + Number(o.total), 0)
+    const prevRev = prevActive.reduce((s, o) => s + Number(o.total), 0)
+    const cnt     = filteredOrders.length
+    const prevCnt = prevOrders.length
+    return { rev, prevRev, cnt, prevCnt }
+  }, [filteredOrders, prevOrders])
 
-  const trends = useMemo(() => {
-    const now = Date.now()
-    const last7 = orders.filter(o => new Date(o.created_at).getTime() > now - 7 * 86400000)
-    const prev7 = orders.filter(o => {
-      const t = new Date(o.created_at).getTime()
-      return t > now - 14 * 86400000 && t <= now - 7 * 86400000
-    })
-    const lastRev = last7.reduce((s, o) => s + Number(o.total), 0)
-    const prevRev = prev7.reduce((s, o) => s + Number(o.total), 0)
-    return {
-      revenue: prevRev ? ((lastRev - prevRev) / prevRev) * 100 : 0,
-      orders:  prev7.length ? ((last7.length - prev7.length) / prev7.length) * 100 : 0,
-    }
-  }, [orders])
+  // ✅ Конверсия спрямо range
+  const conversionRate = useMemo(() => {
+    const visits = getVisitsForRange(pageViews, range)
+    if (!visits || !filteredOrders.length) return 0
+    return Math.min(99, (filteredOrders.length / visits) * 100)
+  }, [pageViews, filteredOrders, range])
 
+  const visitsForRange = useMemo(() => getVisitsForRange(pageViews, range),         [pageViews, range])
+  const affClicks      = useMemo(() => getAffClicksForRange(analytics, range),      [analytics, range])
+
+  const revenueChart = useMemo(() => buildRevenueChart(filteredOrders, range), [filteredOrders, range])
+  const sparklines   = useMemo(() => buildSparkline(orders, 7), [orders])
+  const rl           = getRangeLabel(range)
+
+  // ── Stat cards ───────────────────────────────────────────────────
   const statCards = [
-    { id: 'revenue',    label: 'Общ приход',        value: formatPrice(stats.revenue),                          icon: '💶', color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0', spark: sparklines.revenue, trend: trends.revenue,  tab: 'analytics', sub: `Днес: ${formatPrice(stats.todayRevenue)}` },
-    { id: 'week',       label: 'Тази седмица',      value: formatPrice(stats.weekRevenue),                      icon: '📆', color: '#8b5cf6', bg: '#faf5ff', border: '#e9d5ff', spark: sparklines.revenue, trend: null,            tab: 'analytics', sub: `Ср. поръчка: ${formatPrice(stats.avgOrderValue)}` },
-    { id: 'orders',     label: 'Поръчки',            value: stats.totalOrders,                                   icon: '📦', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a', spark: sparklines.orders,  trend: trends.orders,   tab: 'orders',    sub: `Нови: ${stats.newOrders}` },
-    { id: 'conversion', label: 'Конверсия (30д)',    value: `${stats.conversionRate.toFixed(2)}%`,               icon: '🎯', color: '#6366f1', bg: '#eef2ff', border: '#c7d2fe', spark: sparklines.orders,  trend: null,            tab: 'analytics', sub: pageViews ? `${pageViews.last30.toLocaleString()} посещения` : '' },
-    { id: 'leads',      label: 'Email абонати',      value: stats.leads,                                         icon: '✉️', color: '#06b6d4', bg: '#ecfeff', border: '#a5f3fc', spark: sparklines.orders,  trend: null,            tab: 'leads',     sub: 'Общо записани' },
-    { id: 'affiliate',  label: 'Affiliate (30д)',    value: analytics?.last30days?.toLocaleString() || '—',     icon: '🔗', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0', spark: sparklines.orders,  trend: null,            tab: 'analytics', sub: 'Кликове' },
+    {
+      id: 'revenue',
+      label:  `Приход (${rl})`,
+      value:  formatPrice(rangeMetrics.rev),
+      icon:   '💶', color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0',
+      spark:  sparklines.revenue,
+      trend:  { current: rangeMetrics.rev, prev: rangeMetrics.prevRev },
+      tab:    'analytics',
+      sub:    `Днес: ${formatPrice(stats.todayRevenue)}`,
+    },
+    {
+      id: 'week',
+      label:  'Тази седмица',
+      value:  formatPrice(stats.weekRevenue),
+      icon:   '📆', color: '#8b5cf6', bg: '#faf5ff', border: '#e9d5ff',
+      spark:  sparklines.revenue,
+      trend:  null as null,
+      tab:    'analytics',
+      sub:    `Ср. поръчка: ${formatPrice(stats.avgOrderValue)}`,
+    },
+    {
+      id: 'orders',
+      label:  `Поръчки (${rl})`,
+      value:  rangeMetrics.cnt,
+      icon:   '📦', color: '#f59e0b', bg: '#fffbeb', border: '#fde68a',
+      spark:  sparklines.orders,
+      trend:  { current: rangeMetrics.cnt, prev: rangeMetrics.prevCnt },
+      tab:    'orders',
+      sub:    `Нови: ${stats.newOrders}`,
+    },
+    {
+      id: 'conversion',
+      label:  `Конверсия (${rl})`,
+      value:  `${conversionRate.toFixed(2)}%`,
+      icon:   '🎯', color: '#6366f1', bg: '#eef2ff', border: '#c7d2fe',
+      spark:  sparklines.orders,
+      trend:  null as null,
+      tab:    'analytics',
+      sub:    visitsForRange > 0 ? `${visitsForRange.toLocaleString()} посещения` : 'Няма данни',
+    },
+    {
+      id: 'leads',
+      label:  'Email абонати',
+      value:  stats.leads,
+      icon:   '✉️', color: '#06b6d4', bg: '#ecfeff', border: '#a5f3fc',
+      spark:  sparklines.orders,
+      trend:  null as null,
+      tab:    'leads',
+      sub:    'Общо записани',
+    },
+    {
+      // ✅ Affiliate card — следва range-а, не е hardcoded "30д"
+      id: 'affiliate',
+      label:  `Affiliate (${rl})`,
+      value:  affClicks.toLocaleString(),
+      icon:   '🔗', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0',
+      spark:  sparklines.orders,
+      trend:  null as null,
+      tab:    'analytics',
+      sub:    'Кликове',
+    },
   ]
 
   return (
     <div className="dash-root">
       <style>{`
-        .dash-root{padding:20px 24px;max-width:1200px}
-        @media(max-width:640px){.dash-root{padding:14px 12px}}
+        .dash-root { padding: 20px 24px; max-width: 1200px }
+        @media(max-width:640px) { .dash-root { padding: 14px 12px } }
 
-        /* animations */
-        @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+        @keyframes fadeUp { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 
-        /* skeleton */
-        .skel-card{background:#f9fafb;border:1px solid #f0f0f0;border-radius:14px;padding:16px 18px;flex:1;min-width:140px}
-        .skel-line{border-radius:6px;background:linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%);background-size:400px 100%;animation:shimmer 1.4s infinite}
+        .skel-card { background:#f9fafb; border:1px solid #f0f0f0; border-radius:14px; padding:16px 18px; flex:1; min-width:140px }
+        .skel-line { border-radius:6px; background:linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%); background-size:400px 100%; animation:shimmer 1.4s infinite }
 
-        /* stat cards */
-        .stat-card{flex:1;min-width:140px;border-radius:14px;padding:16px 18px;cursor:pointer;transition:transform .18s,box-shadow .18s;animation:fadeUp .3s ease both}
-        .stat-card:hover{transform:translateY(-2px)}
+        .stat-card { flex:1; min-width:140px; border-radius:14px; padding:16px 18px; cursor:pointer; transition:transform .18s, box-shadow .18s; animation:fadeUp .3s ease both }
+        .stat-card:hover { transform:translateY(-2px) }
 
-        /* trend badges */
-        .trend{font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px}
-        .trend.up{background:#dcfce7;color:#15803d}
-        .trend.down{background:#fee2e2;color:#dc2626}
+        .trend-badge { font-size:11px; font-weight:700; padding:2px 7px; border-radius:99px }
+        .trend-badge.up   { background:#dcfce7; color:#15803d }
+        .trend-badge.down { background:#fee2e2; color:#dc2626 }
 
-        /* order rows */
-        .ord-row{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid #f5f5f5;cursor:pointer;transition:background .1s}
-        .ord-row:hover{background:#f9fafb}
-        .ord-row:last-child{border-bottom:none}
+        .ord-row { display:flex; align-items:center; justify-content:space-between; padding:10px 18px; border-bottom:1px solid #f5f5f5; cursor:pointer; transition:background .12s }
+        .ord-row:hover { background:#f9fafb }
+        .ord-row:last-child { border-bottom:none }
 
-        /* referrers */
-        .ref-row{margin-bottom:8px}
-        .ref-bar-track{height:4px;background:#f3f4f6;border-radius:99px;margin-top:3px}
+        .d-card { background:#fff; border:1px solid #e8eaed; border-radius:14px; overflow:hidden }
+        .d-card-head { padding:14px 18px; border-bottom:1px solid #f3f4f6; display:flex; justify-content:space-between; align-items:center }
+        .d-card-head h3 { font-size:13px; font-weight:700; margin:0; color:#111 }
+        .d-card-body { padding:16px 18px }
 
-        /* refresh btn */
-        .refresh-btn{background:#fff;border:1px solid #e5e7eb;border-radius:9px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;color:#374151;font-weight:600;transition:all .15s}
-        .refresh-btn:hover{border-color:#16a34a;color:#16a34a}
+        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px }
+        /* ✅ 4 колони за посещения grid */
+        .grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:9px }
+        @media(max-width:700px) { .grid-2 { grid-template-columns:1fr } .grid-4 { grid-template-columns:1fr 1fr } }
+        @media(max-width:440px) { .grid-4 { grid-template-columns:1fr 1fr } }
 
-        /* grid helpers */
-        .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-        .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-        @media(max-width:700px){.grid-2{grid-template-columns:1fr}.grid-3{grid-template-columns:1fr 1fr}}
-        @media(max-width:440px){.grid-3{grid-template-columns:1fr}}
+        .refresh-btn { background:#fff; border:1px solid #e5e7eb; border-radius:9px; padding:7px 14px; cursor:pointer; font-family:inherit; font-size:13px; color:#374151; font-weight:600; transition:all .15s }
+        .refresh-btn:hover { border-color:#16a34a; color:#16a34a }
+        .link-btn { font-size:12px; color:#16a34a; background:none; border:none; cursor:pointer; font-family:inherit; font-weight:600 }
 
-        /* card */
-        .card{background:#fff;border:1px solid #e8eaed;border-radius:14px;overflow:hidden}
-        .card-head{padding:14px 18px;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center}
-        .card-head h3{font-size:13px;font-weight:700;margin:0;color:#111}
-        .card-body{padding:16px 18px}
-        .link-btn{font-size:12px;color:#16a34a;background:none;border:none;cursor:pointer;font-family:inherit;font-weight:600}
+        .ref-bar-wrap { height:4px; background:#f3f4f6; border-radius:99px; margin-top:3px }
+
+        @media(max-width:540px) { .range-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px } }
       `}</style>
 
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20, flexWrap:'wrap', gap:10 }}>
+      {/* ── Header ──────────────────────────────────────────────────── */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20, flexWrap:'wrap', gap:10 }}>
         <div>
           <h1 style={{ fontSize:20, fontWeight:900, color:'#111', letterSpacing:'-.02em', margin:0 }}>Дашборд</h1>
-          <p style={{ fontSize:12, color:'#9ca3af', margin:'2px 0 0' }}>
+          <p style={{ fontSize:12, color:'#94a3b8', margin:'2px 0 0' }}>
             {new Date().toLocaleDateString('bg-BG', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
           </p>
         </div>
-        <button className="refresh-btn" onClick={onRefresh}>🔄 Обнови</button>
+        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          <div className="range-scroll">
+            <RangePicker range={range} onChange={setRange} />
+          </div>
+          <button className="refresh-btn" onClick={onRefresh}>🔄 Обнови</button>
+        </div>
       </div>
 
-      {/* ── KPI Cards ──────────────────────────────────────────────── */}
+      {/* ── KPI Stat Cards ───────────────────────────────────────────── */}
       <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:20 }}>
         {loading
-          ? Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
+          ? Array.from({ length:6 }).map((_, i) => <SkeletonCard key={i} />)
           : statCards.map((c, i) => (
             <div key={c.id} className="stat-card"
               onClick={() => onTabChange?.(c.tab)}
               onMouseEnter={() => setHovered(c.id)}
               onMouseLeave={() => setHovered(null)}
               style={{
-                background: c.bg,
-                border: `1px solid ${hovered === c.id ? c.color + '60' : c.border}`,
-                boxShadow: hovered === c.id ? `0 6px 20px ${c.color}18` : 'none',
+                background:  c.bg,
+                border:     `1px solid ${hovered === c.id ? c.color + '55' : c.border}`,
+                boxShadow:   hovered === c.id ? `0 6px 24px ${c.color}18` : 'none',
                 animationDelay: `${i * 0.04}s`,
               }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                <span style={{ fontSize:16 }}>{c.icon}</span>
-                {c.trend !== null && <TrendBadge value={c.trend} />}
+                <span style={{ fontSize:18 }}>{c.icon}</span>
+                {c.trend && <TrendBadge current={c.trend.current} prev={c.trend.prev} />}
               </div>
               <div style={{ fontSize:22, fontWeight:900, color:c.color, letterSpacing:'-.02em', lineHeight:1.2 }}>{c.value}</div>
               <div style={{ fontSize:11, color:'#6b7280', fontWeight:500, marginBottom:6 }}>{c.label}</div>
               <div style={{ margin:'0 -4px' }}><Sparkline data={c.spark} color={c.color} /></div>
               {c.sub && (
-                <div style={{ fontSize:11, color:'#9ca3af', marginTop:6, paddingTop:6, borderTop:`1px solid ${c.border}` }}>
+                <div style={{ fontSize:11, color:'#94a3b8', marginTop:6, paddingTop:6, borderTop:`1px solid ${c.border}` }}>
                   {c.sub}
                 </div>
               )}
@@ -212,63 +305,61 @@ export function DashboardTab({
           ))}
       </div>
 
-      {/* ── Revenue Chart ───────────────────────────────────────────── */}
-      <div className="card" style={{ marginBottom:16 }}>
-        <div className="card-head">
-          <h3>💶 Приход — последните 30 дни</h3>
-          <span style={{ fontSize:12, color:'#9ca3af' }}>
-            Общо: <strong style={{ color:'#16a34a' }}>{formatPrice(stats.revenue)}</strong>
+      {/* ── Revenue Chart ─────────────────────────────────────────────── */}
+      <div className="d-card" style={{ marginBottom:16 }}>
+        <div className="d-card-head">
+          <h3>💶 Приход — {rl}</h3>
+          <span style={{ fontSize:12, color:'#94a3b8' }}>
+            Общо: <strong style={{ color:'#16a34a' }}>{formatPrice(rangeMetrics.rev)}</strong>
           </span>
         </div>
-        <div className="card-body" style={{ paddingTop:10 }}>
-          <ResponsiveContainer width="100%" height={180}>
+        <div className="d-card-body" style={{ paddingTop:10 }}>
+          <ResponsiveContainer width="100%" height={190}>
             <AreaChart data={revenueChart}>
               <defs>
-                <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#16a34a" stopOpacity={0.12} />
+                <linearGradient id="revGrad-db" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#16a34a" stopOpacity={0.14} />
                   <stop offset="95%" stopColor="#16a34a" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis dataKey="date" tick={{ fontSize:10, fill:'#9ca3af' }} tickLine={false} axisLine={false} interval={4} />
-              <YAxis tick={{ fontSize:10, fill:'#9ca3af' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} width={44} />
+              <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
+              <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} width={44} />
               <Tooltip
                 formatter={(v: number) => [formatPrice(v), 'Приход']}
                 contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12, boxShadow:'0 4px 12px rgba(0,0,0,.06)' }}
               />
-              <Area type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={2.5} fill="url(#revGrad)" />
+              <Area type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={2.5} fill="url(#revGrad-db)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* ── Recent Orders + Page Views ──────────────────────────────── */}
+      {/* ── Последни поръчки + Посещения ──────────────────────────────── */}
       <div className="grid-2">
-        {/* Orders */}
-        <div className="card">
-          <div className="card-head">
+        {/* Последни поръчки */}
+        <div className="d-card">
+          <div className="d-card-head">
             <h3>📦 Последни поръчки</h3>
             {onTabChange && (
-              <button className="link-btn" onClick={() => onTabChange('orders')}>
-                Всички →
-              </button>
+              <button className="link-btn" onClick={() => onTabChange('orders')}>Всички →</button>
             )}
           </div>
           {recentOrders.length === 0 ? (
-            <div style={{ padding:'32px', textAlign:'center', color:'#9ca3af', fontSize:13 }}>
-              <div style={{ fontSize:28, marginBottom:8 }}>📭</div>Няма поръчки
+            <div style={{ padding:'32px', textAlign:'center', color:'#94a3b8', fontSize:13 }}>
+              <div style={{ fontSize:32, marginBottom:8 }}>📭</div>Няма поръчки
             </div>
           ) : recentOrders.map(o => {
-            const s = STATUS_LABELS[o.status]
+            const s = STATUS_LABELS[o.status] || { label:o.status, color:'#666', bg:'#f9fafb' }
             return (
               <div key={o.id} className="ord-row" onClick={() => onViewOrder(o)}>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <div style={{ width:32, height:32, borderRadius:9, background:s.bg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 }}>
+                  <div style={{ width:34, height:34, borderRadius:9, background:s.bg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, flexShrink:0 }}>
                     {STATUS_ICON[o.status] || '📦'}
                   </div>
                   <div>
                     <div style={{ fontSize:13, fontWeight:600, color:'#111' }}>{o.customer_name}</div>
-                    <div style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace' }}>{o.order_number}</div>
+                    <div style={{ fontSize:11, color:'#94a3b8', fontFamily:'monospace' }}>{o.order_number}</div>
                   </div>
                 </div>
                 <div style={{ textAlign:'right' }}>
@@ -280,22 +371,35 @@ export function DashboardTab({
           })}
         </div>
 
-        {/* Page Views */}
-        {pageViews && (
-          <div className="card">
-            <div className="card-head"><h3>👁️ Посещения</h3></div>
-            <div className="card-body">
-              {/* Mini stats grid */}
-              <div className="grid-3" style={{ marginBottom:14 }}>
-                {[
-                  { label:'Днес',   value:pageViews.today,  unique:pageViews.todayUnique, color:'#6366f1' },
-                  { label:'7 дни',  value:pageViews.last7,  unique:pageViews.last7Unique, color:'#0ea5e9' },
-                  { label:'30 дни', value:pageViews.last30, unique:pageViews.last30Unique, color:'#8b5cf6' },
-                ].map(r => (
-                  <div key={r.label} style={{ background:'#f9fafb', borderRadius:10, padding:'10px 12px', border:'1px solid #f0f0f0' }}>
-                    <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, marginBottom:3 }}>{r.label}</div>
-                    <div style={{ fontSize:18, fontWeight:800, color:r.color, lineHeight:1.1 }}>{r.value.toLocaleString()}</div>
-                    <div style={{ fontSize:10, color:'#9ca3af', marginTop:2 }}>{r.unique} уник.</div>
+        {/* ✅ Посещения — 4 периода в grid, активният highlight-нат спрямо range */}
+        {pageViews ? (
+          <div className="d-card">
+            <div className="d-card-head">
+              <h3>👁️ Посещения</h3>
+              <span style={{ fontSize:11, color:'#94a3b8' }}>{rl}</span>
+            </div>
+            <div className="d-card-body">
+              {/* ✅ 4-колонен grid: Днес / 7д / 30д / Всичко */}
+              <div className="grid-4" style={{ marginBottom:14 }}>
+                {([
+                  { label:'Днес',    value: pageViews.today,  unique: pageViews.todayUnique,  color:'#6366f1', match: range===1    },
+                  { label:'7 дни',   value: pageViews.last7,  unique: pageViews.last7Unique,  color:'#0ea5e9', match: range===7    },
+                  { label:'30 дни',  value: pageViews.last30, unique: pageViews.last30Unique, color:'#8b5cf6', match: range===30   },
+                  {
+                    label: 'Всичко',
+                    value:  pageViews.total  ?? pageViews.last30,
+                    unique: pageViews.unique ?? pageViews.last30Unique,
+                    color: '#111', match: range==='all' || (range as number) >= 90,
+                  },
+                ] as const).map(r => (
+                  <div key={r.label} style={{
+                    borderRadius:10, padding:'9px 10px', transition:'all .2s',
+                    background: r.match ? '#f0fdf4' : '#f9fafb',
+                    border:     r.match ? `2px solid ${r.color}` : '1px solid #f0f0f0',
+                  }}>
+                    <div style={{ fontSize:9, color:'#94a3b8', fontWeight:700, marginBottom:3, textTransform:'uppercase', letterSpacing:'.03em' }}>{r.label}</div>
+                    <div style={{ fontSize:17, fontWeight:800, color:r.color, lineHeight:1.1 }}>{(r.value ?? 0).toLocaleString()}</div>
+                    <div style={{ fontSize:9, color:'#94a3b8', marginTop:2 }}>{(r.unique ?? 0).toLocaleString()} уник.</div>
                   </div>
                 ))}
               </div>
@@ -307,30 +411,53 @@ export function DashboardTab({
                   <span style={{ fontWeight:700 }}>{pageViews.mobilePercent}%</span>
                 </div>
                 <div style={{ height:5, background:'#f3f4f6', borderRadius:99, overflow:'hidden' }}>
-                  <div style={{ height:'100%', width:`${pageViews.mobilePercent}%`, background:'linear-gradient(90deg,#6366f1,#8b5cf6)', borderRadius:99 }} />
+                  <div style={{ height:'100%', width:`${pageViews.mobilePercent}%`, background:'linear-gradient(90deg,#6366f1,#8b5cf6)', borderRadius:99, transition:'width .6s ease' }} />
                 </div>
               </div>
 
-              {/* Top referrers */}
-              {pageViews.topReferrers?.[0] && (
+              {/* ✅ Топ източници — показва всички (не slice до 5) */}
+              {pageViews.topReferrers && pageViews.topReferrers.length > 0 && (
                 <div>
-                  <div style={{ fontSize:10, fontWeight:800, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Топ източници</div>
-                  {pageViews.topReferrers.slice(0, 4).map((r, i) => {
+                  <div style={{ fontSize:10, fontWeight:800, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Топ източници</div>
+                  {pageViews.topReferrers.map((r, i) => {
                     const maxCount = pageViews.topReferrers![0].count
                     return (
-                      <div key={r.name} className="ref-row">
+                      <div key={r.name} style={{ marginBottom:7 }}>
                         <div style={{ display:'flex', justifyContent:'space-between', fontSize:12 }}>
                           <span style={{ color:'#374151' }}>{r.name}</span>
                           <span style={{ fontWeight:700 }}>{r.count}</span>
                         </div>
-                        <div className="ref-bar-track">
-                          <div style={{ height:'100%', width:`${(r.count/maxCount)*100}%`, background:['#16a34a','#0ea5e9','#8b5cf6','#f59e0b'][i], borderRadius:99 }} />
+                        <div className="ref-bar-wrap">
+                          <div style={{ height:'100%', width:`${(r.count/maxCount)*100}%`, background:['#16a34a','#0ea5e9','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#ec4899','#10b981'][i] || '#94a3b8', borderRadius:99 }} />
                         </div>
                       </div>
                     )
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        ) : (
+          // Fallback ако няма pageViews данни
+          <div className="d-card">
+            <div className="d-card-head"><h3>📊 Обобщение</h3></div>
+            <div className="d-card-body">
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                {[
+                  { label:'Общ приход',    value:formatPrice(stats.revenue),  color:'#16a34a' },
+                  { label:'Общо поръчки',  value:stats.totalOrders,           color:'#f59e0b' },
+                  { label:'Email абонати', value:stats.leads,                 color:'#06b6d4' },
+                  { label:'Конверсия',     value:`${conversionRate.toFixed(2)}%`, color:'#6366f1' },
+                ].map(item => (
+                  <div key={item.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', background:'#f9fafb', borderRadius:10, border:'1px solid #f0f0f0' }}>
+                    <span style={{ fontSize:13, color:'#374151' }}>{item.label}</span>
+                    <span style={{ fontSize:16, fontWeight:800, color:item.color }}>{item.value}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop:14, padding:'12px', background:'#fff7ed', borderRadius:10, border:'1px solid #fed7aa', fontSize:12, color:'#92400e' }}>
+                ⚠️ Данните за посещения не се зареждат. Провери дали <code>PageViewTracker</code> е добавен в layout.tsx
+              </div>
             </div>
           </div>
         )}
