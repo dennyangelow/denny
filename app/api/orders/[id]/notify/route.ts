@@ -1,13 +1,9 @@
-// app/api/orders/[id]/notify/route.ts — v3 FINAL
+// app/api/orders/[id]/notify/route.ts — v4
 //
-// ПОПРАВКИ спрямо v2:
-//   1. Чете данните на поръчката от DB (не зависи от frontend body)
-//      → работи правилно от admin панела, от cron, от CartSystem
-//   2. force=true заобикаля already_sent check (за admin ре-изпращане)
-//   3. discord_sent = true се записва СЛЕД успешно изпращане
-//   4. Ако DISCORD_WEBHOOK_URL липсва → връща грешка (НЕ маркира като изпратено!)
-//   5. Body данни (post_purchase, invoice, currency_symbol, offer flags)
-//      се използват когато ги има (от CartSystem), иначе се четат от DB
+// ✅ ПОПРАВКА: фактурата се чете от DB (order.invoice_data), не само от body
+// ✅ Показва фактурния embed само ако wants_invoice = true / invoice_data е попълнен
+// ✅ force=true заобикаля already_sent check (за admin ре-изпращане)
+// ✅ discord_sent = true се записва САМО след успешно изпращане
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -21,7 +17,7 @@ export async function POST(
     const body = await req.json().catch(() => ({}))
     const force = body.force === true
 
-    // ── 1. Вземаме поръчката от DB (истинските данни) ────────────────────────
+    // ── 1. Вземаме поръчката от DB (с invoice_data!) ─────────────────────────
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
       .select('*, order_items(*)')
@@ -42,7 +38,6 @@ export async function POST(
     // ── 3. Проверяваме webhook ────────────────────────────────────────────────
     const discordWebhook = process.env.DISCORD_WEBHOOK_URL
     if (!discordWebhook) {
-      // ⚠️ НЕ маркираме като изпратено — webhook не е конфигуриран
       console.error('❌ DISCORD_WEBHOOK_URL не е настроен в environment variables!')
       return NextResponse.json(
         { error: 'DISCORD_WEBHOOK_URL не е настроен. Добави го в Vercel Environment Variables.' },
@@ -126,9 +121,9 @@ export async function POST(
     const hasUpsell    = body.has_upsell    || allItems.some((i: any) => i.from_offer && i.offer_type === 'cart_upsell') || notes.includes('[CART-UPSELL]')
     const hasCrossSell = body.has_cross_sell || allItems.some((i: any) => i.from_offer && i.offer_type === 'cross_sell') || notes.includes('[CROSS-SELL]')
     const offerSummary: string[] = []
-    if (hasUpsell)                          offerSummary.push('📈 Cart-Upsell')
-    if (hasCrossSell)                       offerSummary.push('🔀 Cross-sell')
-    if (pp || notes.includes('[POST-PURCHASE')) offerSummary.push('⚡ Post-Purchase')
+    if (hasUpsell)                                               offerSummary.push('📈 Cart-Upsell')
+    if (hasCrossSell)                                            offerSummary.push('🔀 Cross-sell')
+    if (pp || notes.includes('[POST-PURCHASE'))                  offerSummary.push('⚡ Post-Purchase')
 
     // Цвят по стойност
     const color = finalTotal >= 300 ? 0xf59e0b
@@ -181,34 +176,39 @@ export async function POST(
       fields.push({ name: '💬 Бележка от клиента', value: cleanNotes, inline: false })
     }
 
-    // Фактура (само от CartSystem body)
-    const invoice = body.invoice
-    if (invoice && invoice.type !== 'none') {
+    // ── ФАКТУРА: чете се ОТ DB (order.invoice_data), body само като fallback ──
+    // ✅ ПОПРАВКА: вземаме данните от БД, не от body
+    const invoiceData = order.invoice_data || body.invoice || null
+
+    if (invoiceData && invoiceData.type && invoiceData.type !== 'none') {
       let invValue = ''
-      if (invoice.type === 'company') {
-        const vatLine = invoice.company_vat_registered
-          ? `✅ ДДС регистрирана${invoice.company_vat_number ? ` · \`${invoice.company_vat_number}\`` : ''}`
+      if (invoiceData.type === 'company') {
+        const vatLine = invoiceData.company_vat_registered
+          ? `✅ ДДС регистрирана${invoiceData.company_vat_number ? ` · \`${invoiceData.company_vat_number}\`` : ''}`
           : '❌ Без ДДС регистрация'
         invValue = [
-          `🏢 **${invoice.company_name}**`,
-          `ЕИК: \`${invoice.company_eik}\``,
-          invoice.company_mol     ? `МОЛ: ${invoice.company_mol}`       : null,
-          invoice.company_address ? `Адрес: ${invoice.company_address}` : null,
+          `🏢 **${invoiceData.company_name || '—'}**`,
+          invoiceData.company_eik     ? `ЕИК: \`${invoiceData.company_eik}\``         : null,
+          invoiceData.company_mol     ? `МОЛ: ${invoiceData.company_mol}`               : null,
+          invoiceData.company_address ? `Адрес: ${invoiceData.company_address}`         : null,
           vatLine,
         ].filter(Boolean).join('\n')
-      } else {
+      } else if (invoiceData.type === 'person') {
         invValue = [
-          `👤 **${invoice.person_names}**`,
-          `ЕГН: \`${invoice.person_egn}\``,
-          invoice.person_address ? `Адрес: ${invoice.person_address}` : null,
-          invoice.person_phone   ? `Тел: ${invoice.person_phone}`     : null,
+          `👤 **${invoiceData.person_names || '—'}**`,
+          invoiceData.person_egn     ? `ЕГН: \`${invoiceData.person_egn}\``   : null,
+          invoiceData.person_address ? `Адрес: ${invoiceData.person_address}` : null,
+          invoiceData.person_phone   ? `Тел: ${invoiceData.person_phone}`     : null,
         ].filter(Boolean).join('\n')
       }
-      fields.push({
-        name: `🧾 Фактура — ${invoice.type === 'company' ? 'Фирма' : 'Физ. лице'}`,
-        value: invValue,
-        inline: false,
-      })
+
+      if (invValue) {
+        fields.push({
+          name: `🧾 Фактура — ${invoiceData.type === 'company' ? 'Фирма' : 'Физ. лице'}`,
+          value: invValue,
+          inline: false,
+        })
+      }
     }
 
     const embed = {
@@ -231,7 +231,6 @@ export async function POST(
     if (!discordRes.ok) {
       const discordError = await discordRes.text().catch(() => '')
       console.error(`❌ Discord webhook грешка за #${order.order_number}: HTTP ${discordRes.status} — ${discordError}`)
-      // НЕ маркираме discord_sent=true — cron ще опита пак автоматично
       return NextResponse.json(
         { error: `Discord HTTP ${discordRes.status}: ${discordError}` },
         { status: 502 }

@@ -1,8 +1,7 @@
-// app/api/orders/route.ts — ФИКС v4
-// Поправки:
-// 1. По-детайлни error messages за debugging
-// 2. По-добра валидация на items
-// 3. shipping/subtotal/total са числа, не стрингове
+// app/api/orders/route.ts — ФИКС v5
+// ✅ ПОПРАВКА: invoice полето вече се записва в базата данни
+// ✅ invoice се валидира преди запис
+// ✅ shipping/subtotal/total са числа, не стрингове
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -31,6 +30,7 @@ export async function POST(req: NextRequest) {
       payment_method, courier,
       items, subtotal, shipping, total,
       utm_source, utm_campaign,
+      invoice, // ← НОВО: фактура от frontend
     } = body
 
     // ── Валидация ──────────────────────────────────────────────────────────
@@ -51,6 +51,31 @@ export async function POST(req: NextRequest) {
 
     if (isNaN(parsedTotal) || parsedTotal <= 0) errors.push('Невалидна обща сума')
 
+    // ── Валидация на фактура ───────────────────────────────────────────────
+    // Не блокираме поръчката при грешна фактура — само логваме
+    let validatedInvoice: Record<string, any> | null = null
+    if (invoice && invoice.type && invoice.type !== 'none') {
+      if (invoice.type === 'company') {
+        validatedInvoice = {
+          type:                  'company',
+          company_name:          invoice.company_name?.trim()    || null,
+          company_eik:           invoice.company_eik?.trim()     || null,
+          company_address:       invoice.company_address?.trim() || null,
+          company_mol:           invoice.company_mol?.trim()     || null,
+          company_vat_registered: invoice.company_vat_registered === true,
+          company_vat_number:    invoice.company_vat_number?.trim() || null,
+        }
+      } else if (invoice.type === 'person') {
+        validatedInvoice = {
+          type:           'person',
+          person_names:   invoice.person_names?.trim()   || null,
+          person_egn:     invoice.person_egn?.trim()     || null,
+          person_address: invoice.person_address?.trim() || null,
+          person_phone:   invoice.person_phone?.trim()   || null,
+        }
+      }
+    }
+
     if (errors.length > 0) {
       return NextResponse.json({ error: errors.join(', ') }, { status: 400 })
     }
@@ -58,7 +83,7 @@ export async function POST(req: NextRequest) {
     const validCouriers = Object.keys(COURIER_LABELS)
     const selectedCourier = validCouriers.includes(courier) ? courier : 'econt'
 
-    // ── Вмъкване на поръчка ────────────────────────────────────────────────
+    // ── Вмъкване на поръчка (включително invoice) ──────────────────────────
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .insert({
@@ -75,6 +100,9 @@ export async function POST(req: NextRequest) {
         total:            parsedTotal,
         utm_source:       utm_source || null,
         utm_campaign:     utm_campaign || null,
+        // ✅ НОВО: запис на фактура като JSONB
+        invoice_data:     validatedInvoice,
+        wants_invoice:    validatedInvoice !== null,
       })
       .select()
       .single()
@@ -99,7 +127,6 @@ export async function POST(req: NextRequest) {
 
     if (itemsError) {
       console.error('❌ Order items error:', itemsError)
-      // Не хвърляме грешка тук — поръчката е създадена, само items са проблем
     }
 
     // ── Emails ─────────────────────────────────────────────────────────────
@@ -128,7 +155,7 @@ export async function POST(req: NextRequest) {
       }).catch(e => console.error('Admin email error:', e))
     }
 
-    console.log('✅ Order created:', order.order_number)
+    console.log('✅ Order created:', order.order_number, validatedInvoice ? '| Фактура: ' + validatedInvoice.type : '')
 
     return NextResponse.json({
       success: true,
