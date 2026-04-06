@@ -1,7 +1,7 @@
-// app/api/orders/route.ts — ФИКС v5
-// ✅ ПОПРАВКА: invoice полето вече се записва в базата данни
-// ✅ invoice се валидира преди запис
-// ✅ shipping/subtotal/total са числа, не стрингове
+// app/api/orders/route.ts — ФИКС v6 FINAL
+// ✅ invoice_data се записва в базата данни
+// ✅ wants_invoice се записва правилно
+// ✅ Детайлен debug лог за invoice
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -30,8 +30,11 @@ export async function POST(req: NextRequest) {
       payment_method, courier,
       items, subtotal, shipping, total,
       utm_source, utm_campaign,
-      invoice, // ← НОВО: фактура от frontend
+      invoice, // ← фактура от frontend
     } = body
+
+    // Debug invoice
+    console.log('🧾 Invoice received:', JSON.stringify(invoice, null, 2))
 
     // ── Валидация ──────────────────────────────────────────────────────────
     const errors: string[] = []
@@ -51,22 +54,28 @@ export async function POST(req: NextRequest) {
 
     if (isNaN(parsedTotal) || parsedTotal <= 0) errors.push('Невалидна обща сума')
 
-    // ── Валидация на фактура ───────────────────────────────────────────────
-    // Не блокираме поръчката при грешна фактура — само логваме
-    let validatedInvoice: Record<string, any> | null = null
-    if (invoice && invoice.type && invoice.type !== 'none') {
+    if (errors.length > 0) {
+      return NextResponse.json({ error: errors.join(', ') }, { status: 400 })
+    }
+
+    // ── Обработка на фактура ───────────────────────────────────────────────
+    let invoiceData: Record<string, any> | null = null
+    let wantsInvoice = false
+
+    if (invoice && typeof invoice === 'object' && invoice.type && invoice.type !== 'none') {
+      wantsInvoice = true
       if (invoice.type === 'company') {
-        validatedInvoice = {
-          type:                  'company',
-          company_name:          invoice.company_name?.trim()    || null,
-          company_eik:           invoice.company_eik?.trim()     || null,
-          company_address:       invoice.company_address?.trim() || null,
-          company_mol:           invoice.company_mol?.trim()     || null,
+        invoiceData = {
+          type:                   'company',
+          company_name:           invoice.company_name?.trim()    || null,
+          company_eik:            invoice.company_eik?.trim()     || null,
+          company_address:        invoice.company_address?.trim() || null,
+          company_mol:            invoice.company_mol?.trim()     || null,
           company_vat_registered: invoice.company_vat_registered === true,
-          company_vat_number:    invoice.company_vat_number?.trim() || null,
+          company_vat_number:     invoice.company_vat_number?.trim() || null,
         }
       } else if (invoice.type === 'person') {
-        validatedInvoice = {
+        invoiceData = {
           type:           'person',
           person_names:   invoice.person_names?.trim()   || null,
           person_egn:     invoice.person_egn?.trim()     || null,
@@ -76,34 +85,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (errors.length > 0) {
-      return NextResponse.json({ error: errors.join(', ') }, { status: 400 })
-    }
+    console.log('🧾 Invoice parsed → wants_invoice:', wantsInvoice, '| invoice_data:', JSON.stringify(invoiceData))
 
     const validCouriers = Object.keys(COURIER_LABELS)
     const selectedCourier = validCouriers.includes(courier) ? courier : 'econt'
 
-    // ── Вмъкване на поръчка (включително invoice) ──────────────────────────
+    // ── Вмъкване на поръчка ────────────────────────────────────────────────
+    const insertPayload = {
+      customer_name:    customer_name.trim(),
+      customer_phone:   customer_phone.trim(),
+      customer_email:   customer_email?.trim() || null,
+      customer_address: customer_address.trim(),
+      customer_city:    customer_city.trim(),
+      customer_notes:   customer_notes?.trim() || null,
+      payment_method:   payment_method || 'cod',
+      courier:          selectedCourier,
+      subtotal:         parsedSubtotal,
+      shipping:         parsedShipping,
+      total:            parsedTotal,
+      utm_source:       utm_source || null,
+      utm_campaign:     utm_campaign || null,
+      wants_invoice:    wantsInvoice,
+      invoice_data:     invoiceData,
+    }
+
+    console.log('💾 Inserting order with payload keys:', Object.keys(insertPayload))
+
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .insert({
-        customer_name:    customer_name.trim(),
-        customer_phone:   customer_phone.trim(),
-        customer_email:   customer_email?.trim() || null,
-        customer_address: customer_address.trim(),
-        customer_city:    customer_city.trim(),
-        customer_notes:   customer_notes?.trim() || null,
-        payment_method:   payment_method || 'cod',
-        courier:          selectedCourier,
-        subtotal:         parsedSubtotal,
-        shipping:         parsedShipping,
-        total:            parsedTotal,
-        utm_source:       utm_source || null,
-        utm_campaign:     utm_campaign || null,
-        // ✅ НОВО: запис на фактура като JSONB
-        invoice_data:     validatedInvoice,
-        wants_invoice:    validatedInvoice !== null,
-      })
+      .insert(insertPayload)
       .select()
       .single()
 
@@ -111,6 +121,8 @@ export async function POST(req: NextRequest) {
       console.error('❌ Order insert error:', orderError)
       throw new Error(`DB грешка: ${orderError.message}`)
     }
+
+    console.log('✅ Order inserted. wants_invoice in DB:', order.wants_invoice, '| invoice_data:', JSON.stringify(order.invoice_data))
 
     // ── Вмъкване на артикули ───────────────────────────────────────────────
     const orderItems = items.map((item: any) => ({
@@ -155,7 +167,7 @@ export async function POST(req: NextRequest) {
       }).catch(e => console.error('Admin email error:', e))
     }
 
-    console.log('✅ Order created:', order.order_number, validatedInvoice ? '| Фактура: ' + validatedInvoice.type : '')
+    console.log('✅ Order created:', order.order_number, wantsInvoice ? `| Фактура: ${invoiceData?.type}` : '')
 
     return NextResponse.json({
       success: true,

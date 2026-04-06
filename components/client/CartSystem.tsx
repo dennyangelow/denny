@@ -1065,7 +1065,7 @@ function CartDrawer({
           payment_method: 'cod',
           items: orderItems.map(({ from_offer, ...rest }) => rest),
           subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
-          invoice: invoice.type !== 'none' ? invoice : null,
+          invoice: invoice.type !== 'none' ? (({ _savedType, ...inv }) => inv)(invoice as any) : null,
         }),
       })
       if (!res.ok) {
@@ -1097,7 +1097,7 @@ function CartDrawer({
         subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
         total_savings: +totalSavings.toFixed(2), items: orderItems,
         has_upsell: hasUpsell, has_cross_sell: hasCross, currency_symbol: sym,
-        invoice: invoice.type !== 'none' ? invoice : null,
+        invoice: invoice.type !== 'none' ? (({ _savedType, ...inv }) => inv)(invoice as any) : null,
         _orderId: newOrderId,
       }
 
@@ -1488,7 +1488,11 @@ function CartDrawer({
 
                 {/* Toggle бутон */}
                 <button
-                  onClick={() => setInvoice(invoice.type !== 'none' ? { type: 'none' } : { type: 'company' })}
+                  onClick={() => setInvoice(prev =>
+                    prev.type !== 'none'
+                      ? { ...prev, _savedType: prev.type as string, type: 'none' }
+                      : { ...prev, type: ((prev as any)._savedType as InvoiceType) || 'company' }
+                  )}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                     padding: '12px 14px', border: `2px solid ${invoice.type !== 'none' ? '#7c3aed' : '#e2e8f0'}`,
