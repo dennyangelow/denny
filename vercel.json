@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/discord-fallback",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 11 * * *"
     }
   ]
 }
