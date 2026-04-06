@@ -26,6 +26,7 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/naruchnici' && method === 'GET')               return true
   if (pathname === '/api/naruchnici/track')                             return true
   if (pathname === '/api/orders' && method === 'POST')                  return true
+  if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST') return true
   if (pathname === '/api/leads' && method === 'POST')                   return true
   if (pathname === '/api/leads/unsubscribe')                            return true
   if (pathname === '/api/leads/sequence' && method === 'GET')           return true

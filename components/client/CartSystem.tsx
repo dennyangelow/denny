@@ -536,9 +536,10 @@ function EcontOfficePicker({ onSelect }: {
   )
 }
 
-// ─── Discord Webhook ──────────────────────────────────────────────────────────
-const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1489714770474041355/o4SYj9kVEkm9U8SlSTBo0s3lILhtoAlKCghS8Sf6NcTDFBOYevqb5Oa1ynXdCemWnL3I'
-
+// ─── Discord — изпраща се от СЪРВЪРА чрез /api/orders/[id]/notify ────────────
+// Браузърът само праща данните към нашия сървър.
+// Сървърът проверява discord_sent в DB → изпраща webhook → маркира като изпратено.
+// keepalive: true означава че fetch-ът завършва дори ако страницата се затвори.
 async function sendDiscordNotification(order: {
   order_number: string; customer_name: string; customer_phone: string
   customer_city: string; customer_address: string; customer_notes?: string | null
@@ -551,172 +552,22 @@ async function sendDiscordNotification(order: {
   has_upsell: boolean; has_cross_sell: boolean; currency_symbol: string
   post_purchase?: { product_name: string; unit_price: number; original_price?: number; discount_pct?: number } | null
   invoice?: InvoiceData | null
+  _orderId?: string
 }) {
   try {
-    const sym = order.currency_symbol
-    const fmt = (n: number) => `${n.toFixed(2)} ${sym}`
-    const courierLabel = order.courier === 'speedy' ? 'Спиди 🚀' : 'Еконт 📦'
-
-    // ── Цвят по стойност ──
-    const color = order.total >= 300 ? 0xf59e0b : order.total >= 150 ? 0x16a34a : order.total >= 100 ? 0x0ea5e9 : 0x64748b
-
-    // ── Артикули — разделени на обикновени и офертни ──
-    const regularItems  = order.items.filter(i => !i.from_offer)
-    const offerItems    = order.items.filter(i => i.from_offer)
-
-    const fmtItem = (i: typeof order.items[0]) => {
-      const saving = i.compare_price && i.compare_price > i.unit_price
-        ? ` ~~${fmt(i.compare_price * i.quantity)}~~` : ''
-      const discBadge = i.offer_discount_pct ? ` **[-${i.offer_discount_pct}% оферта]**` : ''
-      return `> 📦 **${i.product_name}** — ${i.quantity} бр.\n> 💰 ${fmt(i.unit_price)} × ${i.quantity} = **${fmt(i.total_price)}**${saving}${discBadge}`
-    }
-
-    const regularLines = regularItems.length > 0
-      ? regularItems.map(fmtItem).join('\n')
-      : '—'
-
-    const offerLines = offerItems.length > 0
-      ? offerItems.map(i => {
-          const typeLabel = i.offer_type === 'cross_sell' ? '🔀 Cross-sell' : '⬆️ Cart Upsell'
-          const saving = i.compare_price && i.compare_price > i.unit_price
-            ? ` ~~${fmt(i.compare_price * i.quantity)}~~` : ''
-          const discBadge = i.offer_discount_pct ? ` **[-${i.offer_discount_pct}%]**` : ''
-          return `> ✨ **${i.product_name}** *(${typeLabel})* — ${i.quantity} бр.\n> 💰 ${fmt(i.unit_price)} × ${i.quantity} = **${fmt(i.total_price)}**${saving}${discBadge}`
-        }).join('\n')
-      : null
-
-    // ── Post-purchase ──
-    const ppLines = order.post_purchase
-      ? (() => {
-          const pp = order.post_purchase!
-          const origLine = pp.original_price && pp.original_price > pp.unit_price
-            ? ` ~~${fmt(pp.original_price)}~~` : ''
-          const discLine = pp.discount_pct ? ` **[-${pp.discount_pct}% само веднъж!]**` : ''
-          return `> ⚡ **${pp.product_name}** *(Post-Purchase)*\n> 💰 ${fmt(pp.unit_price)}${origLine}${discLine}`
-        })()
-      : null
-
-    // ── Суми ──
-    const totalWithPP = order.post_purchase
-      ? order.total + order.post_purchase.unit_price
-      : order.total
-    const totalSavingsWithPP = order.total_savings +
-      (order.post_purchase?.original_price && order.post_purchase.original_price > order.post_purchase.unit_price
-        ? order.post_purchase.original_price - order.post_purchase.unit_price : 0)
-
-    const sumsValue = [
-      `Продукти: **${fmt(order.subtotal)}**`,
-      order.total_savings > 0 ? `🏷️ Спестено (оферти): **-${fmt(order.total_savings)}**` : null,
-      `🚚 Доставка: **${order.shipping === 0 ? 'Безплатна 🎉' : fmt(order.shipping)}**`,
-      ppLines ? `⚡ Post-Purchase добавен: **+${fmt(order.post_purchase!.unit_price)}**` : null,
-      `\n━━━━━━━━━━━━━━━━━━`,
-      `✅ **ОБЩО: ${fmt(ppLines ? totalWithPP : order.total)}**`,
-      totalSavingsWithPP > 0 ? `💚 Клиентът спести общо: **${fmt(totalSavingsWithPP)}**` : null,
-    ].filter(Boolean).join('\n')
-
-    // ── Offer summary badges ──
-    const offerSummary: string[] = []
-    if (order.has_upsell)     offerSummary.push('📈 Cart-Upsell')
-    if (order.has_cross_sell) offerSummary.push('🔀 Cross-sell')
-    if (order.post_purchase)  offerSummary.push('⚡ Post-Purchase')
-
-    const fields: any[] = [
-      { name: '👤 Клиент', value: `**${order.customer_name}**\n📞 ${order.customer_phone}`, inline: true },
-      { name: '📍 Доставка', value: `${order.customer_city}\n${order.customer_address}\n${courierLabel}`, inline: true },
-      { name: '💳 Плащане', value: `Наложен платеж 💵${offerSummary.length > 0 ? '\n' + offerSummary.join('  ·  ') : ''}`, inline: true },
-      { name: '🛒 Поръчани артикули', value: regularLines, inline: false },
-    ]
-
-    if (offerLines) {
-      fields.push({ name: '✨ Добавени от оферта', value: offerLines, inline: false })
-    }
-    if (ppLines) {
-      fields.push({ name: '⚡ Post-Purchase Upsell', value: ppLines, inline: false })
-    }
-
-    fields.push({ name: '💰 Финансово резюме', value: sumsValue, inline: false })
-
-    if (order.customer_notes) {
-      fields.push({ name: '💬 Бележка от клиента', value: order.customer_notes, inline: false })
-    }
-
-    if (order.invoice && order.invoice.type !== 'none') {
-      const inv = order.invoice
-      let invValue = ''
-      if (inv.type === 'company') {
-        const vatLine = inv.company_vat_registered
-          ? `✅ ДДС регистрирана${inv.company_vat_number ? ` · \`${inv.company_vat_number}\`` : ''}`
-          : '❌ Без ДДС регистрация'
-        invValue = [
-          `🏢 **${inv.company_name}**`,
-          `ЕИК: \`${inv.company_eik}\``,
-          inv.company_mol ? `МОЛ: ${inv.company_mol}` : null,
-          inv.company_address ? `Адрес: ${inv.company_address}` : null,
-          vatLine,
-        ].filter(Boolean).join('\n')
-      } else {
-        invValue = [
-          `👤 **${inv.person_names}**`,
-          `ЕГН: \`${inv.person_egn}\``,
-          inv.person_address ? `Адрес: ${inv.person_address}` : null,
-          inv.person_phone ? `Тел: ${inv.person_phone}` : null,
-        ].filter(Boolean).join('\n')
-      }
-      fields.push({ name: `🧾 Фактура — ${inv.type === 'company' ? 'Фирма' : 'Физ. лице'}`, value: invValue, inline: false })
-    }
-
-    const embed = {
-      title: `🛒 Нова поръчка #${order.order_number}`,
-      color,
-      fields,
-      footer: { text: `dennyangelow.com  •  ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}` },
-      timestamp: new Date().toISOString(),
-    }
-
-    await fetch(DISCORD_WEBHOOK, {
+    const orderId = order._orderId
+    if (!orderId) { console.warn('sendDiscordNotification: липсва _orderId'); return }
+    await fetch(`/api/orders/${orderId}/notify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
+      keepalive: true,
+      body: JSON.stringify(order),
     })
   } catch (e) {
-    console.error('Discord webhook error:', e)
+    console.error('Discord notify error:', e)
   }
 }
 
-// ─── Discord: Post-purchase — изпраща се чрез sendDiscordNotification с post_purchase поле ──
-// Тази функция вече не изпраща отделно съобщение.
-// При приемане на post-purchase, Discord-ът се обновява чрез PATCH към поръчката.
-async function sendDiscordPostPurchaseUpdate(
-  orderNumber: string, productName: string, price: number, currencySymbol: string,
-  originalPrice?: number, discountPct?: number
-) {
-  try {
-    const sym = currencySymbol
-    const fmt = (n: number) => `${n.toFixed(2)} ${sym}`
-    const origLine = originalPrice && originalPrice > price ? ` ~~${fmt(originalPrice)}~~` : ''
-    const discLine = discountPct ? ` **[-${discountPct}% само веднъж!]**` : ''
-
-    const embed = {
-      title: `⚡ Post-Purchase приет — Поръчка #${orderNumber}`,
-      color: 0xdc2626,
-      description: `Клиентът прие post-purchase офертата след потвърждение на поръчката.`,
-      fields: [
-        {
-          name: '✅ Добавен артикул',
-          value: `> **${productName}**\n> 💰 ${fmt(price)}${origLine}${discLine}`,
-          inline: false,
-        },
-      ],
-      footer: { text: `dennyangelow.com  •  ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}` },
-      timestamp: new Date().toISOString(),
-    }
-    await fetch(DISCORD_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
-    })
-  } catch (e) { console.error('Discord post-purchase webhook error:', e) }
-}
 
 // ─── Body scroll lock ─────────────────────────────────────────────────────────
 function useLockBodyScroll(lock: boolean) {
@@ -892,6 +743,7 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
           original_price: offer.discount_pct ? variant.price : undefined,
           discount_pct: offer.discount_pct || undefined,
         },
+        _orderId: originalOrderId,
       })
       setDone(true); setTimeout(onAccept, 1800)
     } catch { onDismiss() } finally { setAdding(false) }
@@ -1246,6 +1098,7 @@ function CartDrawer({
         total_savings: +totalSavings.toFixed(2), items: orderItems,
         has_upsell: hasUpsell, has_cross_sell: hasCross, currency_symbol: sym,
         invoice: invoice.type !== 'none' ? invoice : null,
+        _orderId: newOrderId,
       }
 
       const hasPPOffer = ms?.post_purchase_enabled &&

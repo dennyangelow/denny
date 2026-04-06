@@ -97,7 +97,7 @@ export default function AdminPage() {
   const [viewOrder, setViewOrder]   = useState<Order | null>(null)
 
   const {
-    orders, leads, analytics, pageViews, stats,
+    orders, setOrders, leads, analytics, pageViews, stats,
     loading, error, fetchAll,
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
@@ -151,6 +151,7 @@ export default function AdminPage() {
               orders={orders}
               onStatusChange={updateOrderStatus}
               onPaymentChange={updatePaymentStatus}
+              setOrders={setOrders}   // ← само това се добавя
               initialOrder={viewOrder}
             />
           )}

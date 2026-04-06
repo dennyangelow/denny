@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/discord-fallback",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
