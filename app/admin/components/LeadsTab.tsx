@@ -258,33 +258,47 @@ export function LeadsTab({ leads }: Props) {
     finally { setSyncingId(null) }
   }, [syncedIds])
 
-  // ── Bulk sync всички несинхронизирани ─────────────────────────────────────
-  // Използва /api/leads/sync (POST без параметри) — минава всички наведнъж
-  const handleBulkSync = useCallback(async () => {
-    const unsynced = uniqueLeads.filter(l => !syncedIds.has(l.id) && !(l as any).systemeio_synced)
-    if (unsynced.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
-    if (!confirm(`Ще се синхронизират ${unsynced.length} контакта в Systeme.io. Продължи?`)) return
+  // ── Bulk sync ─────────────────────────────────────────────────────────────
+  // Праща по 10 ID-та на сервъра наведнъж от frontend за да избегне timeout
+  const handleBulkSync = useCallback(async (forceAll = false) => {
+    const toSync = forceAll
+      ? uniqueLeads.filter(l => l.subscribed)
+      : uniqueLeads.filter(l => !syncedIds.has(l.id) && !(l as any).systemeio_synced && l.subscribed)
+
+    if (toSync.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
+    if (!confirm(`Ще се синхронизират ${toSync.length} контакта в Systeme.io. Продължи?`)) return
 
     setBulkSyncing(true)
+    let totalSynced = 0
+    let totalFailed = 0
+
     try {
-      const res  = await fetch('/api/leads/sync', { method: 'POST' })
-      const data = await res.json()
-
-      if (data.message) {
-        // "Всички са синхронизирани" съобщение
-        toast.success(data.message)
-      } else if (data.success) {
-        // Маркираме всички като synced в локалния state
-        const newIds = unsynced.map(l => l.id)
-        setSyncedIds(prev => new Set([...prev, ...newIds]))
-
-        if (data.failed === 0) {
-          toast.success(`✅ Синхронизирани ${data.synced} контакта в Systeme.io!`)
-        } else {
-          toast.success(`✅ ${data.synced} OK · ⚠️ ${data.failed} грешки`)
-        }
+      const CHUNK = 10
+      for (let i = 0; i < toSync.length; i += CHUNK) {
+        const chunk = toSync.slice(i, i + CHUNK)
+        try {
+          const res  = await fetch('/api/leads/sync/batch', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ ids: chunk.map(l => l.id) }),
+          })
+          const data = await res.json()
+          if (data.success) {
+            totalSynced += data.synced || 0
+            totalFailed += data.failed || 0
+            setSyncedIds(prev => {
+              const next = new Set(prev)
+              chunk.forEach(l => next.add(l.id))
+              return next
+            })
+          }
+        } catch { totalFailed += chunk.length }
+        if (i + CHUNK < toSync.length) await new Promise(r => setTimeout(r, 200))
+      }
+      if (totalFailed === 0) {
+        toast.success(`✅ Синхронизирани ${totalSynced} контакта в Systeme.io!`)
       } else {
-        toast.error(data.error || 'Грешка при sync')
+        toast.success(`✅ ${totalSynced} OK · ⚠️ ${totalFailed} грешки`)
       }
     } catch { toast.error('Мрежова грешка') }
     finally { setBulkSyncing(false) }
@@ -342,7 +356,7 @@ export function LeadsTab({ leads }: Props) {
               </div>
             </div>
           </div>
-          <button onClick={handleBulkSync} disabled={bulkSyncing}
+          <button onClick={() => handleBulkSync()} disabled={bulkSyncing}
             style={{ background:bulkSyncing?'#d97706':'linear-gradient(135deg,#ea580c,#c2410c)',
               color:'#fff', border:'none', borderRadius:9, padding:'10px 18px', cursor:bulkSyncing?'default':'pointer',
               fontFamily:'inherit', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:7,
@@ -355,10 +369,18 @@ export function LeadsTab({ leads }: Props) {
       )}
 
       {unsyncedCount === 0 && uniqueLeads.length > 0 && (
-        <div style={{ display:'flex', alignItems:'center', gap:8, background:'#f0fdf4', border:'1px solid #bbf7d0',
-          borderRadius:10, padding:'10px 16px', marginBottom:16, fontSize:13, color:'#065f46' }}>
-          <span>✅</span>
-          <span><strong>Всички контакти</strong> са синхронизирани в Systeme.io</span>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
+          background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'10px 16px', marginBottom:16, fontSize:13, color:'#065f46' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span>✅</span>
+            <span><strong>Всички контакти</strong> са синхронизирани в Systeme.io</span>
+          </div>
+          <button onClick={()=>handleBulkSync(true)} disabled={bulkSyncing}
+            style={{ fontSize:12, padding:'5px 12px', borderRadius:7, border:'1px solid #86efac',
+              background:'#fff', color:'#15803d', fontWeight:700, cursor:'pointer', fontFamily:'inherit',
+              opacity:bulkSyncing?0.6:1 }}>
+            {bulkSyncing ? '⏳ Ре-sync...' : '🔄 Ре-sync всички'}
+          </button>
         </div>
       )}
 
