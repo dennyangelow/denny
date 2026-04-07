@@ -6,6 +6,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
+// Добавя таг към контакт
+async function addTag(apiKey: string, contactId: string, tagName: string): Promise<void> {
+  await fetch(`https://api.systeme.io/api/contacts/${contactId}/tags`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body:    JSON.stringify({ name: tagName }),
+  })
+}
+
+// Ъпдейтва имена и телефон на съществуващ контакт
+async function patchContact(
+  apiKey: string,
+  contactId: string,
+  firstName: string,
+  lastName: string,
+  phone?: string | null
+): Promise<void> {
+  const body: Record<string, string> = { firstName, lastName }
+  if (phone) body.phoneNumber = phone
+  await fetch(`https://api.systeme.io/api/contacts/${contactId}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body:    JSON.stringify(body),
+  })
+}
+
 async function syncOne(
   apiKey: string,
   lead: {
@@ -16,41 +42,55 @@ async function syncOne(
     systemeio_contact_id?: string | null
   }
 ): Promise<{ id: string; email: string; ok: boolean; contactId?: string; error?: string }> {
-  const tags   = [{ name: 'naruchnik' }]
-  const fields = lead.phone ? [{ slug: 'phone', value: lead.phone }] : []
+  const TAG = 'naruchnik'
+  const [firstName, ...rest] = (lead.name || '').trim().split(/\s+/)
+  const lastName = rest.join(' ') || ''
 
-  // Ако имаме contact_id → PATCH
+  // Помощна функция — ъпдейт + таг след като имаме contactId
+  async function updateAndTag(contactId: string): Promise<void> {
+    await Promise.all([
+      patchContact(apiKey, contactId, firstName || '', lastName, lead.phone),
+      addTag(apiKey, contactId, TAG),
+    ])
+  }
+
+  // Ако имаме contact_id → провери дали съществува
   if (lead.systemeio_contact_id) {
     const res = await fetch(`https://api.systeme.io/api/contacts/${lead.systemeio_contact_id}`, {
-      method:  'PATCH',
-      headers: { 'Content-Type': 'application/merge-patch+json', 'X-API-Key': apiKey },
-      body:    JSON.stringify({ tags }),
+      method:  'GET',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
     })
-    if (res.ok) return { id: lead.id, email: lead.email, ok: true, contactId: lead.systemeio_contact_id }
+    if (res.ok) {
+      await updateAndTag(lead.systemeio_contact_id)
+      return { id: lead.id, email: lead.email, ok: true, contactId: lead.systemeio_contact_id }
+    }
     if (res.status !== 404) {
       const t = await res.text()
-      return { id: lead.id, email: lead.email, ok: false, error: `PATCH ${res.status}: ${t.slice(0, 150)}` }
+      return { id: lead.id, email: lead.email, ok: false, error: `GET ${res.status}: ${t.slice(0, 150)}` }
     }
     // 404 → контактът е изтрит, пресъздаваме
   }
 
-  // POST
-  const [firstName, ...rest] = (lead.name || '').trim().split(/\s+/)
+  // POST → нов контакт
   const postRes = await fetch('https://api.systeme.io/api/contacts', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     body:    JSON.stringify({
-      email: lead.email, firstName: firstName || '', lastName: rest.join(' ') || '',
-      tags, fields,
+      email:       lead.email,
+      firstName:   firstName || '',
+      lastName,
+      phoneNumber: lead.phone || undefined,
     }),
   })
 
   if (postRes.ok) {
-    const json = await postRes.json()
-    return { id: lead.id, email: lead.email, ok: true, contactId: String(json.id) }
+    const json      = await postRes.json()
+    const contactId = String(json.id)
+    await addTag(apiKey, contactId, TAG)
+    return { id: lead.id, email: lead.email, ok: true, contactId }
   }
 
-  // 409 → вече съществува → намираме ID
+  // 409 → вече съществува → намираме ID, ъпдейтваме данните и добавяме таг
   if (postRes.status === 409) {
     const searchRes = await fetch(
       `https://api.systeme.io/api/contacts?email=${encodeURIComponent(lead.email)}&limit=10`,
@@ -61,10 +101,11 @@ async function syncOne(
       const contact = (json.items || json['hydra:member'] || [])
         .find((c: any) => c.email?.toLowerCase() === lead.email.toLowerCase())
       if (contact?.id) {
-        return { id: lead.id, email: lead.email, ok: true, contactId: String(contact.id) }
+        const contactId = String(contact.id)
+        await updateAndTag(contactId)
+        return { id: lead.id, email: lead.email, ok: true, contactId }
       }
     }
-    // 409 но не намерихме ID — все пак е ok, контактът е там
     return { id: lead.id, email: lead.email, ok: true }
   }
 
