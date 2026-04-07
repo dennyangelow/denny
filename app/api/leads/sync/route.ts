@@ -1,33 +1,50 @@
-// app/api/leads/sync/route.ts — v2 FIXED
-// Проблеми оправени:
-//  1. patchContact: PUT → PATCH с merge-patch+json (правилния content-type за Systeme.io)
-//  2. phoneNumber: вече се праща в стандартното поле, не в custom field
-//  3. Tag: добавя се СЛЕД create/find, с правилния endpoint
-//  4. При 409 вече се ъпдейтват firstName/lastName/phone правилно
-//  5. Retry логика при 429 (rate limit от Systeme.io)
+// app/api/leads/sync/route.ts — v3 FIXED
+// Оправено:
+//  1. formatPhone() → E.164 (+359...) за стандартното Phone number поле
+//  2. splitName() → firstName/lastName винаги се изпращат
+//  3. PATCH с изчакване след POST (Systeme.io понякога е бавен)
+//  4. addTag след пауза — по-надеждно
+//  5. По-добро логване на грешки
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 const API_KEY = () => process.env.systemeio_api || ''
+const sleep   = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+// ── Phone formatter ───────────────────────────────────────────────────────────
+function formatPhone(phone?: string | null): string | undefined {
+  if (!phone) return undefined
+  const digits = phone.replace(/[\s\-().+]/g, '')
+  if (!digits) return undefined
+  if (digits.startsWith('359')) return `+${digits}`
+  if (digits.startsWith('0'))   return `+359${digits.slice(1)}`
+  if (digits.length >= 9)       return `+359${digits}`
+  return undefined
+}
+
+// ── Name splitter ─────────────────────────────────────────────────────────────
+function splitName(name?: string | null): { firstName: string; lastName: string } {
+  const parts     = (name || '').trim().split(/\s+/).filter(Boolean)
+  const firstName = parts[0] || ''
+  const lastName  = parts.slice(1).join(' ') || ''
+  return { firstName, lastName }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Изчаква ms милисекунди */
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-
-/**
- * PATCH контакт — обновява firstName, lastName, phoneNumber.
- * Systeme.io изисква Content-Type: application/merge-patch+json за PATCH.
- */
 async function patchContact(
   contactId: string,
   firstName: string,
   lastName: string,
-  phone?: string | null
+  phone?: string
 ): Promise<boolean> {
-  const body: Record<string, string> = { firstName, lastName }
-  if (phone?.trim()) body.phoneNumber = phone.trim()
+  const body: Record<string, string> = {}
+  if (firstName) body.firstName = firstName
+  if (lastName)  body.lastName  = lastName
+  if (phone)     body.phoneNumber = phone
+
+  if (Object.keys(body).length === 0) return true
 
   const res = await fetch(`https://api.systeme.io/api/contacts/${contactId}`, {
     method:  'PATCH',
@@ -37,13 +54,14 @@ async function patchContact(
     },
     body: JSON.stringify(body),
   })
+
+  if (!res.ok) {
+    const t = await res.text()
+    console.warn(`[patchContact] ${res.status}:`, t.slice(0, 200))
+  }
   return res.ok
 }
 
-/**
- * Добавя таг към контакт.
- * Endpoint: POST /api/contacts/{id}/tags
- */
 async function addTag(contactId: string, tagName: string): Promise<boolean> {
   const res = await fetch(`https://api.systeme.io/api/contacts/${contactId}/tags`, {
     method:  'POST',
@@ -53,13 +71,9 @@ async function addTag(contactId: string, tagName: string): Promise<boolean> {
     },
     body: JSON.stringify({ name: tagName }),
   })
-  return res.ok || res.status === 409 // 409 = вече има тага → ок
+  return res.ok || res.status === 409
 }
 
-/**
- * Търси контакт по имейл в Systeme.io.
- * Връща contactId или null.
- */
 async function findContactByEmail(email: string): Promise<string | null> {
   const res = await fetch(
     `https://api.systeme.io/api/contacts?email=${encodeURIComponent(email)}&limit=10`,
@@ -72,12 +86,6 @@ async function findContactByEmail(email: string): Promise<string | null> {
   return contact?.id ? String(contact.id) : null
 }
 
-/**
- * Пълен sync на един лийд:
- * 1. Опитва се да намери/създаде контакт
- * 2. Ъпдейтва firstName, lastName, phoneNumber
- * 3. Добавя таг 'naruchnik'
- */
 async function syncOne(lead: {
   id:                    string
   email:                 string
@@ -85,24 +93,21 @@ async function syncOne(lead: {
   phone?:                string | null
   systemeio_contact_id?: string | null
 }): Promise<{ id: string; email: string; ok: boolean; contactId?: string; error?: string }> {
-  const TAG = 'naruchnik'
-  const parts     = (lead.name || '').trim().split(/\s+/)
-  const firstName = parts[0] || ''
-  const lastName  = parts.slice(1).join(' ') || ''
-  const phone     = lead.phone?.trim() || undefined
+  const TAG                     = 'naruchnik'
+  const { firstName, lastName } = splitName(lead.name)
+  const phone                   = formatPhone(lead.phone)
 
   let contactId: string | null = lead.systemeio_contact_id || null
 
   // ── Стъпка 1: Намери или създай контакт ────────────────────────────────────
   if (contactId) {
-    // Проверяваме дали контактът все още съществува
     const checkRes = await fetch(`https://api.systeme.io/api/contacts/${contactId}`, {
       method:  'GET',
       headers: { 'X-API-Key': API_KEY(), 'Content-Type': 'application/json' },
     })
     if (!checkRes.ok) {
       if (checkRes.status === 404) {
-        contactId = null // изтрит → ще го пресъздадем
+        contactId = null
       } else {
         const t = await checkRes.text()
         return { id: lead.id, email: lead.email, ok: false, error: `GET ${checkRes.status}: ${t.slice(0, 150)}` }
@@ -110,14 +115,11 @@ async function syncOne(lead: {
     }
   }
 
-  // Ако нямаме contactId → опитваме POST
   if (!contactId) {
-    const postBody: Record<string, string> = {
-      email:     lead.email,
-      firstName,
-      lastName,
-    }
-    if (phone) postBody.phoneNumber = phone
+    const postBody: Record<string, string> = { email: lead.email }
+    if (firstName) postBody.firstName   = firstName
+    if (lastName)  postBody.lastName    = lastName
+    if (phone)     postBody.phoneNumber = phone
 
     const postRes = await fetch('https://api.systeme.io/api/contacts', {
       method:  'POST',
@@ -129,19 +131,19 @@ async function syncOne(lead: {
       const json = await postRes.json()
       contactId  = String(json.id)
     } else if (postRes.status === 409) {
-      // Вече съществува → намираме ID
       contactId = await findContactByEmail(lead.email)
       if (!contactId) {
-        // Намерен е чрез 409 но не можем да вземем ID → ok е, в Systeme.io е
-        return { id: lead.id, email: lead.email, ok: true }
+        // Контактът е в Systeme.io, само не можем да взем ID-то
+        // Ще опитаме пак след малко
+        await sleep(1000)
+        contactId = await findContactByEmail(lead.email)
       }
     } else if (postRes.status === 429) {
-      // Rate limit → изчакваме и пробваме пак
       await sleep(2000)
       const retry = await fetch('https://api.systeme.io/api/contacts', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY() },
-        body:    JSON.stringify({ email: lead.email, firstName, lastName, ...(phone ? { phoneNumber: phone } : {}) }),
+        body:    JSON.stringify(postBody),
       })
       if (retry.ok) {
         const json = await retry.json()
@@ -159,13 +161,15 @@ async function syncOne(lead: {
   }
 
   if (!contactId) {
-    return { id: lead.id, email: lead.email, ok: false, error: 'Не успяхме да намерим contactId' }
+    return { id: lead.id, email: lead.email, ok: false, error: 'Не успяхме да намерим contactId след POST 409' }
   }
 
-  // ── Стъпка 2: Ъпдейтваме данните (firstName, lastName, phoneNumber) ─────────
+  // ── Стъпка 2: Изчакваме малко и ъпдейтваме данните ─────────────────────────
+  await sleep(300)
   await patchContact(contactId, firstName, lastName, phone)
 
-  // ── Стъпка 3: Добавяме таг 'naruchnik' ──────────────────────────────────────
+  // ── Стъпка 3: Добавяме таг ──────────────────────────────────────────────────
+  await sleep(200)
   await addTag(contactId, TAG)
 
   return { id: lead.id, email: lead.email, ok: true, contactId }
@@ -231,7 +235,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const BATCH = 3   // по-малък batch за да избегнем rate limit
+  const BATCH = 3
   let synced   = 0
   const errors: string[] = []
 
@@ -253,8 +257,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Пауза между batch-овете за да не ударим rate limit на Systeme.io
-    if (i + BATCH < leads.length) await sleep(500)
+    if (i + BATCH < leads.length) await sleep(600)
   }
 
   return NextResponse.json({

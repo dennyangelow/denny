@@ -1,6 +1,6 @@
-// app/api/leads/sync/batch/route.ts — v2 FIXED
+// app/api/leads/sync/batch/route.ts — v3 FIXED
 // POST { ids: string[] } → синхронизира дадените ID-та (макс 10 наведнъж)
-// Оправено: PATCH с merge-patch+json, phoneNumber в стандартното поле, retry при 429
+// Оправено: formatPhone E.164, splitName, PATCH пауза, addTag пауза
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -8,14 +8,39 @@ import { supabaseAdmin } from '@/lib/supabase'
 const API_KEY = () => process.env.systemeio_api || ''
 const sleep   = (ms: number) => new Promise(r => setTimeout(r, ms))
 
+// ── Phone formatter ───────────────────────────────────────────────────────────
+function formatPhone(phone?: string | null): string | undefined {
+  if (!phone) return undefined
+  const digits = phone.replace(/[\s\-().+]/g, '')
+  if (!digits) return undefined
+  if (digits.startsWith('359')) return `+${digits}`
+  if (digits.startsWith('0'))   return `+359${digits.slice(1)}`
+  if (digits.length >= 9)       return `+359${digits}`
+  return undefined
+}
+
+// ── Name splitter ─────────────────────────────────────────────────────────────
+function splitName(name?: string | null): { firstName: string; lastName: string } {
+  const parts     = (name || '').trim().split(/\s+/).filter(Boolean)
+  const firstName = parts[0] || ''
+  const lastName  = parts.slice(1).join(' ') || ''
+  return { firstName, lastName }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 async function patchContact(
   contactId: string,
   firstName: string,
   lastName: string,
-  phone?: string | null
+  phone?: string
 ): Promise<boolean> {
-  const body: Record<string, string> = { firstName, lastName }
-  if (phone?.trim()) body.phoneNumber = phone.trim()
+  const body: Record<string, string> = {}
+  if (firstName) body.firstName   = firstName
+  if (lastName)  body.lastName    = lastName
+  if (phone)     body.phoneNumber = phone
+
+  if (Object.keys(body).length === 0) return true
 
   const res = await fetch(`https://api.systeme.io/api/contacts/${contactId}`, {
     method:  'PATCH',
@@ -25,6 +50,11 @@ async function patchContact(
     },
     body: JSON.stringify(body),
   })
+
+  if (!res.ok) {
+    const t = await res.text()
+    console.warn(`[batch/patchContact] ${res.status}:`, t.slice(0, 200))
+  }
   return res.ok
 }
 
@@ -53,15 +83,12 @@ async function syncOne(lead: {
   id: string; email: string; name?: string | null
   phone?: string | null; systemeio_contact_id?: string | null
 }): Promise<{ id: string; email: string; ok: boolean; contactId?: string; error?: string }> {
-  const TAG       = 'naruchnik'
-  const parts     = (lead.name || '').trim().split(/\s+/)
-  const firstName = parts[0] || ''
-  const lastName  = parts.slice(1).join(' ') || ''
-  const phone     = lead.phone?.trim() || undefined
+  const TAG                     = 'naruchnik'
+  const { firstName, lastName } = splitName(lead.name)
+  const phone                   = formatPhone(lead.phone)
 
   let contactId: string | null = lead.systemeio_contact_id || null
 
-  // Проверяваме дали съществуващият контакт е валиден
   if (contactId) {
     const check = await fetch(`https://api.systeme.io/api/contacts/${contactId}`, {
       method: 'GET', headers: { 'X-API-Key': API_KEY(), 'Content-Type': 'application/json' },
@@ -72,10 +99,11 @@ async function syncOne(lead: {
     }
   }
 
-  // Създаваме нов контакт ако нямаме ID
   if (!contactId) {
-    const postBody: Record<string, string> = { email: lead.email, firstName, lastName }
-    if (phone) postBody.phoneNumber = phone
+    const postBody: Record<string, string> = { email: lead.email }
+    if (firstName) postBody.firstName   = firstName
+    if (lastName)  postBody.lastName    = lastName
+    if (phone)     postBody.phoneNumber = phone
 
     const postRes = await fetch('https://api.systeme.io/api/contacts', {
       method:  'POST',
@@ -106,12 +134,16 @@ async function syncOne(lead: {
 
   if (!contactId) return { id: lead.id, email: lead.email, ok: false, error: 'Не намерен contactId' }
 
-  // Ъпдейтваме данните + добавяме таг
+  // Пауза преди PATCH — Systeme.io понякога е бавен след POST
+  await sleep(300)
   await patchContact(contactId, firstName, lastName, phone)
+  await sleep(200)
   await addTag(contactId, TAG)
 
   return { id: lead.id, email: lead.email, ok: true, contactId }
 }
+
+// ── POST /api/leads/sync/batch ────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   if (!API_KEY()) return NextResponse.json({ error: 'systemeio_api не е зададен' }, { status: 500 })
@@ -119,34 +151,40 @@ export async function POST(req: NextRequest) {
   const { ids } = await req.json() as { ids: string[] }
   if (!ids?.length) return NextResponse.json({ error: 'Липсват ids' }, { status: 400 })
 
+  const safeIds = ids.slice(0, 10) // макс 10 наведнъж
+
   const { data: leads, error } = await supabaseAdmin
     .from('leads')
     .select('id, email, name, phone, systemeio_contact_id')
-    .in('id', ids)
+    .in('id', safeIds)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!leads?.length) return NextResponse.json({ success: true, synced: 0, failed: 0 })
 
   const now     = new Date().toISOString()
-  const results = await Promise.all(
-    (leads as any[]).map((lead: any) => syncOne(lead))
-  )
-
-  let synced = 0
+  // Обработваме по 3 паралелно за да не удрим rate limit
+  let synced    = 0
   const errors: string[] = []
 
-  for (const r of results) {
-    if (r.ok) {
-      synced++
-      await supabaseAdmin.from('leads').update({
-        systemeio_synced:     true,
-        systemeio_contact_id: r.contactId || undefined,
-        systemeio_synced_at:  now,
-        updated_at:           now,
-      }).eq('id', r.id)
-    } else {
-      errors.push(`${r.email}: ${r.error}`)
+  for (let i = 0; i < leads.length; i += 3) {
+    const batch   = (leads as any[]).slice(i, i + 3)
+    const results = await Promise.all(batch.map((l: any) => syncOne(l)))
+
+    for (const r of results) {
+      if (r.ok) {
+        synced++
+        await supabaseAdmin.from('leads').update({
+          systemeio_synced:     true,
+          systemeio_contact_id: r.contactId || undefined,
+          systemeio_synced_at:  now,
+          updated_at:           now,
+        }).eq('id', r.id)
+      } else {
+        errors.push(`${r.email}: ${r.error}`)
+      }
     }
+
+    if (i + 3 < leads.length) await sleep(400)
   }
 
   return NextResponse.json({
