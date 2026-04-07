@@ -1,6 +1,9 @@
-// app/api/leads/route.ts — v9 (single tag edition)
-// Systeme.io: само таг "naruchnik" — безплатен план
-// Всичко останало (кой наръчник, кога) е в Supabase
+// app/api/leads/route.ts — v10 FIXED
+// Оправено:
+//  1. phoneNumber се праща в стандартното поле (не custom field)
+//  2. Таг 'naruchnik' се добавя с отделен POST /contacts/{id}/tags след създаване
+//  3. При 409 вече се ъпдейтват данните правилно с PATCH + merge-patch+json
+//  4. Retry логика при 429
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -8,70 +11,133 @@ import { Resend } from 'resend'
 import { rateLimit, getIP } from '@/lib/rate-limit'
 import { welcomeEmail } from '@/lib/email-templates'
 
-// ── Systeme.io ────────────────────────────────────────────────────────────────
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-async function syncToSystemeIO(data: {
-  email:     string
-  name?:     string | null
-  phone?:    string | null
-  contactId?: string | null   // ако вече знаем ID-то → директно PATCH
-}): Promise<{ ok: boolean; contactId?: string; error?: string }> {
-  const apiKey = process.env.systemeio_api
-  if (!apiKey) return { ok: false, error: 'systemeio_api не е зadadен' }
+// ── Systeme.io helpers ────────────────────────────────────────────────────────
 
-  const [firstName, ...rest] = (data.name || '').trim().split(/\s+/)
-  const tags   = [{ name: 'naruchnik' }]  // само 1 таг — безплатен план
-  const fields = data.phone ? [{ slug: 'phone', value: data.phone }] : []
-
-  // Ако вече имаме contact_id → само PATCH (без POST)
-  if (data.contactId) {
-    const res = await fetch(`https://api.systeme.io/api/contacts/${data.contactId}`, {
-      method:  'PATCH',
-      headers: { 'Content-Type': 'application/merge-patch+json', 'X-API-Key': apiKey },
-      body:    JSON.stringify({ tags }),
-    })
-    if (res.ok) return { ok: true, contactId: data.contactId }
-    // Ако е 404 → контактът е изтрит в Systeme.io, пресъздаваме го
-    if (res.status !== 404) {
-      const t = await res.text()
-      return { ok: false, error: `PATCH ${res.status}: ${t.slice(0, 200)}` }
-    }
-    // fallthrough → ще се опита POST отдолу
-  }
-
-  // POST нов контакт
-  const postRes = await fetch('https://api.systeme.io/api/contacts', {
+async function addTag(apiKey: string, contactId: string, tagName: string): Promise<void> {
+  await fetch(`https://api.systeme.io/api/contacts/${contactId}/tags`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    body:    JSON.stringify({
-      email: data.email, firstName: firstName || '', lastName: rest.join(' ') || '',
-      tags, fields,
-    }),
+    body:    JSON.stringify({ name: tagName }),
   })
+  // 409 = вече има тага → ок, игнорираме
+}
 
-  if (postRes.ok) {
-    const json = await postRes.json()
-    return { ok: true, contactId: String(json.id) }
+async function patchContactData(
+  apiKey: string,
+  contactId: string,
+  firstName: string,
+  lastName: string,
+  phone?: string | null
+): Promise<void> {
+  const body: Record<string, string> = { firstName, lastName }
+  if (phone?.trim()) body.phoneNumber = phone.trim()
+
+  await fetch(`https://api.systeme.io/api/contacts/${contactId}`, {
+    method:  'PATCH',
+    headers: {
+      'Content-Type': 'application/merge-patch+json',
+      'X-API-Key':    apiKey,
+    },
+    body: JSON.stringify(body),
+  })
+}
+
+async function findContactByEmail(apiKey: string, email: string): Promise<string | null> {
+  const res = await fetch(
+    `https://api.systeme.io/api/contacts?email=${encodeURIComponent(email)}&limit=10`,
+    { headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' } }
+  )
+  if (!res.ok) return null
+  const json  = await res.json()
+  const items = json.items || json['hydra:member'] || []
+  const found = items.find((c: any) => c.email?.toLowerCase() === email.toLowerCase())
+  return found?.id ? String(found.id) : null
+}
+
+/**
+ * Синхронизира контакт в Systeme.io:
+ * 1. Създава или намира контакта
+ * 2. PATCH-ва firstName, lastName, phoneNumber
+ * 3. Добавя таг 'naruchnik'
+ */
+async function syncToSystemeIO(data: {
+  email:      string
+  name?:      string | null
+  phone?:     string | null
+  contactId?: string | null
+}): Promise<{ ok: boolean; contactId?: string; error?: string }> {
+  const apiKey = process.env.systemeio_api
+  if (!apiKey) return { ok: false, error: 'systemeio_api не е зададен' }
+
+  const parts     = (data.name || '').trim().split(/\s+/)
+  const firstName = parts[0] || ''
+  const lastName  = parts.slice(1).join(' ') || ''
+  const phone     = data.phone?.trim() || undefined
+  const TAG       = 'naruchnik'
+
+  let contactId: string | null = data.contactId || null
+
+  // Проверяваме съществуващ contact_id
+  if (contactId) {
+    const checkRes = await fetch(`https://api.systeme.io/api/contacts/${contactId}`, {
+      method:  'GET',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+    })
+    if (!checkRes.ok) {
+      if (checkRes.status === 404) contactId = null // изтрит → пресъздаваме
+      else {
+        const t = await checkRes.text()
+        return { ok: false, error: `GET ${checkRes.status}: ${t.slice(0, 200)}` }
+      }
+    }
   }
 
-  // 409 → контактът вече съществува → намираме ID
-  if (postRes.status === 409) {
-    const searchRes = await fetch(
-      `https://api.systeme.io/api/contacts?email=${encodeURIComponent(data.email)}&limit=10`,
-      { headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' } }
-    )
-    if (!searchRes.ok) return { ok: true } // вече е в Systeme.io, просто не взехме ID-то
+  // Създаваме нов контакт
+  if (!contactId) {
+    const postBody: Record<string, string> = { email: data.email, firstName, lastName }
+    if (phone) postBody.phoneNumber = phone
 
-    const json    = await searchRes.json()
-    const contact = (json.items || json['hydra:member'] || [])
-      .find((c: any) => c.email?.toLowerCase() === data.email.toLowerCase())
+    const postRes = await fetch('https://api.systeme.io/api/contacts', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body:    JSON.stringify(postBody),
+    })
 
-    // Контактът съществува — ok е, само нямаме ID-то
-    return { ok: true, contactId: contact?.id ? String(contact.id) : undefined }
+    if (postRes.ok) {
+      const json = await postRes.json()
+      contactId  = String(json.id)
+    } else if (postRes.status === 409) {
+      // Вече съществува → намираме ID
+      contactId = await findContactByEmail(apiKey, data.email)
+    } else if (postRes.status === 429) {
+      await sleep(2000)
+      const retry = await fetch('https://api.systeme.io/api/contacts', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        body:    JSON.stringify(postBody),
+      })
+      if (retry.ok)               { const j = await retry.json(); contactId = String(j.id) }
+      else if (retry.status === 409) { contactId = await findContactByEmail(apiKey, data.email) }
+      else { return { ok: false, error: `Rate limit + retry failed: ${retry.status}` } }
+    } else {
+      const text = await postRes.text()
+      return { ok: false, error: `POST ${postRes.status}: ${text.slice(0, 300)}` }
+    }
   }
 
-  const text = await postRes.text()
-  return { ok: false, error: `POST ${postRes.status}: ${text.slice(0, 300)}` }
+  // Ако и след всичко нямаме ID → контактът е в Systeme.io, просто не го взехме
+  if (!contactId) {
+    console.warn('[Systeme.io] Контактът съществува но не успяхме да вземем ID за:', data.email)
+    return { ok: true } // не е грешка — контактът е там
+  }
+
+  // Ъпдейтваме данните + добавяме таг
+  await patchContactData(apiKey, contactId, firstName, lastName, phone)
+  await addTag(apiKey, contactId, TAG)
+
+  return { ok: true, contactId }
 }
 
 async function syncWithRetry(
@@ -81,12 +147,12 @@ async function syncWithRetry(
   for (let i = 0; i <= retries; i++) {
     const result = await syncToSystemeIO(data)
     if (result.ok) return result
-    if (i < retries) await new Promise(r => setTimeout(r, 600 * (i + 1)))
+    if (i < retries) await sleep(600 * (i + 1))
   }
   return { ok: false, error: 'Max retries exceeded' }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /api/leads ───────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req)
@@ -112,7 +178,7 @@ export async function POST(req: NextRequest) {
     const cleanName  = name?.trim()  || null
     const cleanPhone = phone?.trim() || null
 
-    // ── Feature flags ──────────────────────────────────────────────────────
+    // ── Feature flags ───────────────────────────────────────────────────────
     let resendEnabled    = true
     let systemeioEnabled = true
     try {
@@ -125,7 +191,7 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* defaults */ }
 
-    // ── Supabase upsert ────────────────────────────────────────────────────
+    // ── Supabase upsert ──────────────────────────────────────────────────────
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
       .upsert(
@@ -162,7 +228,7 @@ export async function POST(req: NextRequest) {
       } catch { /* non-critical */ }
     }
 
-    // ── Resend ─────────────────────────────────────────────────────────────
+    // ── Resend ───────────────────────────────────────────────────────────────
     if (resendEnabled && process.env.RESEND_API_KEY) {
       const { subject, html } = welcomeEmail({ email: cleanEmail, name: cleanName ?? undefined, slug })
       await new Resend(process.env.RESEND_API_KEY).emails
@@ -170,12 +236,11 @@ export async function POST(req: NextRequest) {
         .catch(err => console.error('[Resend]', err))
     }
 
-    // ── Systeme.io ─────────────────────────────────────────────────────────
+    // ── Systeme.io ───────────────────────────────────────────────────────────
     let systemeioStatus: 'ok' | 'skipped' | 'error' = 'skipped'
     let systemeioError: string | undefined
 
     if (systemeioEnabled) {
-      // Вземаме contact_id ако вече е синхронизиран преди
       const { data: existing } = await supabaseAdmin
         .from('leads')
         .select('systemeio_contact_id')
@@ -225,6 +290,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 500 })
   }
 }
+
+// ── GET /api/leads ────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
