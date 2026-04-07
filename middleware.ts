@@ -1,8 +1,6 @@
-// middleware.ts — v3 FINAL
-// ПОПРАВКИ:
-//   - /api/analytics/* е ИЗЦЯЛО публично (GET + POST)
-//   - isPublicApiRequest проверява преди isProtectedApi
-//   - По-ясна логика за protected vs public
+// middleware.ts — v4
+// ПРОМЕНИ спрямо v3:
+//   - /api/leads/sync добавен в PROTECTED_API_PREFIXES (admin only)
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -48,6 +46,7 @@ const PROTECTED_API_PREFIXES = [
   '/api/ginegar',
   '/api/upload',
   '/api/leads/broadcast',
+  '/api/leads/sync',   // admin only: масов sync към Systeme.io
   '/api/orders',
   '/api/marketing',
 ]
