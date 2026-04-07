@@ -101,6 +101,7 @@ export async function GET() {
     const byProduct:      Record<string, number> = {}
     const productDetails: Record<string, { total: number; last30: number; last7: number; today: number }> = {}
     const byDay:          Record<string, number> = {}
+    const slugsByPartner: Record<string, Set<string>> = {}  // partner → Set<slug>
 
     let total = 0, total30 = 0, total7 = 0, totalToday = 0
 
@@ -118,6 +119,10 @@ export async function GET() {
       total++
       byPartner[partner] = (byPartner[partner] || 0) + 1
       byProduct[product] = (byProduct[product] || 0) + 1
+
+      // Строим slug→partner map
+      if (!slugsByPartner[partner]) slugsByPartner[partner] = new Set()
+      slugsByPartner[partner].add(product)
 
       if (!productDetails[product]) {
         productDetails[product] = { total: 0, last30: 0, last7: 0, today: 0 }
@@ -142,12 +147,23 @@ export async function GET() {
     const topProducts = Object.entries(productDetails)
       .sort(([, a], [, b]) => b.last30 - a.last30)
       .slice(0, 20)
-      .map(([slug, stats]) => ({ slug, ...stats }))
+      .map(([slug, stats]) => {
+        // Намираме partner за този slug
+        const partner = Object.entries(slugsByPartner)
+          .find(([, slugSet]) => slugSet.has(slug))?.[0] || null
+        return { slug, partner, ...stats }
+      })
 
     const topPartners = Object.entries(byPartner)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 10)
       .map(([name, count]) => ({ name, count }))
+
+    // Конвертираме Set → Array за JSON serialization
+    const slugsByPartnerArr: Record<string, string[]> = {}
+    Object.entries(slugsByPartner).forEach(([p, s]) => {
+      slugsByPartnerArr[p] = Array.from(s)
+    })
 
     const dailyChart = Array.from({ length: 30 }, (_, i) => {
       const d = new Date(now.getTime() - (29 - i) * 86400000).toISOString().slice(0, 10)
@@ -156,15 +172,16 @@ export async function GET() {
 
     return NextResponse.json({
       total,
-      last30days:  total30,
-      last7days:   total7,
-      today:       totalToday,
+      last30days:     total30,
+      last7days:      total7,
+      today:          totalToday,
       byProduct,
       byPartner,
       productDetails,
       topProducts,
       topPartners,
       dailyChart,
+      slugsByPartner: slugsByPartnerArr,
     })
   } catch (err) {
     console.error('[affiliate-click GET]', err)

@@ -44,9 +44,21 @@ interface AffiliateDetail {
   byProduct:      Record<string, number>
   byPartner:      Record<string, number>
   productDetails: Record<string, { total: number; last30: number; last7: number; today: number }>
-  topProducts:    { slug: string; total: number; last30: number; last7: number; today: number }[]
+  topProducts:    { slug: string; partner?: string | null; total: number; last30: number; last7: number; today: number }[]
   topPartners:    { name: string; count: number }[]
   dailyChart:     { date: string; count: number }[]
+  slugsByPartner: Record<string, string[]>
+}
+
+// ─── Тип на клик по partner ───────────────────────────────────────────────────
+const PARTNER_TYPE_MAP: Record<string, { label: string; emoji: string; color: string; bg: string; border: string }> = {
+  agroapteki: { label: 'Афилиет продукт',  emoji: '🔗', color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+  category:   { label: 'Категориен линк',  emoji: '🏷️', color: '#0ea5e9', bg: '#eff6ff', border: '#bfdbfe' },
+  ginegar:    { label: 'Спец. секция',     emoji: '🏕️', color: '#7c3aed', bg: '#f5f3ff', border: '#e9d5ff' },
+}
+function getPartnerMeta(partner: string | null | undefined) {
+  if (!partner) return null
+  return PARTNER_TYPE_MAP[partner] ?? { label: partner, emoji: '🔘', color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb' }
 }
 
 type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell' | null
@@ -153,7 +165,6 @@ function SectionDivider({ label, color, bg, border }: { label:string; color:stri
 // ─── Affiliate table ──────────────────────────────────────────────────────────
 
 function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; range: Range }) {
-  // ✅ Default sort следва range-а
   const defaultSort = (): 'last30'|'last7'|'today'|'total' => {
     if (range === 1)     return 'today'
     if (range === 7)     return 'last7'
@@ -161,8 +172,6 @@ function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; r
     return 'last30'
   }
   const [sortBy, setSortBy] = useState<'last30'|'last7'|'today'|'total'>(defaultSort())
-
-  // Обнови sort когато се смени range-а
   useEffect(() => { setSortBy(defaultSort()) }, [range])
 
   const sorted = useMemo(() =>
@@ -183,7 +192,7 @@ function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; r
       padding:'3px 10px', borderRadius:6, border:'none', fontFamily:'inherit',
       fontSize:11, fontWeight:700, cursor:'pointer', transition:'all .15s',
       background: sortBy===k ? '#16a34a' : '#f3f4f6',
-      color:      sortBy===k ? '#fff' : '#6b7280',
+      color:      sortBy===k ? '#fff'    : '#6b7280',
     }}>{label}</button>
   )
 
@@ -194,64 +203,108 @@ function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; r
         <SortBtn k="today" label="Днес" /><SortBtn k="last7" label="7д" />
         <SortBtn k="last30" label="30д" /><SortBtn k="total" label="Общо" />
       </div>
+
       <div style={{ overflowX:'auto' }}>
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
           <thead>
             <tr style={{ borderBottom:'2px solid #f3f4f6' }}>
-              {['Продукт','Днес','7д','30д','Общо',''].map((h, i) => (
+              {['Продукт','Тип','Днес','7д','30д','Общо',''].map((h, i) => (
                 <th key={i} style={{
-                  textAlign: i===0||i===5 ? 'left' : 'right',
+                  textAlign: i<=1 ? 'left' : (i===6 ? 'left' : 'right'),
                   padding:'6px 8px', fontSize:9, fontWeight:800, color:'#94a3b8',
-                  letterSpacing:'.06em', textTransform:'uppercase', minWidth:i===5?70:undefined,
+                  letterSpacing:'.06em', textTransform:'uppercase',
+                  minWidth: i===6 ? 70 : i===1 ? 90 : undefined,
                 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {sorted.map((p, i) => (
-              <tr key={p.slug} className="aff-row" style={{
-                borderBottom:'1px solid #f9fafb',
-                background: i%2===0 ? '#fff' : '#fafafa', transition:'background .1s',
-              }}>
-                <td style={{ padding:'8px', fontWeight:700, color:'#111' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                    <span style={{
-                      width:20, height:20, borderRadius:5, flexShrink:0,
-                      background: i<3 ? ['#fef9c3','#f0fdf4','#eff6ff'][i] : '#f9fafb',
-                      color:      i<3 ? ['#b45309','#15803d','#1d4ed8'][i] : '#94a3b8',
-                      display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900,
-                    }}>{i+1}</span>
-                    <code style={{ fontSize:11, color:'#374151', background:'#f3f4f6', padding:'2px 6px', borderRadius:4 }}>{p.slug}</code>
-                  </div>
-                </td>
-                <td style={{ padding:'8px', textAlign:'right', fontWeight:p.today>0?800:400, color:p.today>0?'#16a34a':'#94a3b8' }}>{p.today>0?p.today:'—'}</td>
-                <td style={{ padding:'8px', textAlign:'right', fontWeight:600, color:'#374151' }}>{p.last7}</td>
-                <td style={{ padding:'8px', textAlign:'right', fontWeight:800, color:'#111' }}>{p.last30}</td>
-                <td style={{ padding:'8px', textAlign:'right', color:'#6b7280' }}>{p.total}</td>
-                <td style={{ padding:'8px' }}>
-                  <div style={{ height:5, background:'#f3f4f6', borderRadius:99, overflow:'hidden', minWidth:60 }}>
-                    <div style={{
-                      height:'100%', width:`${Math.round((p[sortBy]/maxVal)*100)}%`,
-                      background:'linear-gradient(90deg,#16a34a,#4ade80)', borderRadius:99, transition:'width .4s ease',
-                    }} />
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {sorted.map((p, i) => {
+              const meta = getPartnerMeta(p.partner)
+              return (
+                <tr key={p.slug} className="aff-row" style={{
+                  borderBottom:'1px solid #f9fafb',
+                  background: i%2===0 ? '#fff' : '#fafafa',
+                }}>
+                  {/* Slug */}
+                  <td style={{ padding:'8px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{
+                        width:20, height:20, borderRadius:5, flexShrink:0,
+                        background: i<3 ? ['#fef9c3','#f0fdf4','#eff6ff'][i] : '#f9fafb',
+                        color:      i<3 ? ['#b45309','#15803d','#1d4ed8'][i] : '#94a3b8',
+                        display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900,
+                      }}>{i+1}</span>
+                      <code style={{ fontSize:11, color:'#374151', background:'#f3f4f6', padding:'2px 6px', borderRadius:4 }}>{p.slug}</code>
+                    </div>
+                  </td>
+                  {/* Тип */}
+                  <td style={{ padding:'8px' }}>
+                    {meta ? (
+                      <span style={{
+                        fontSize:9, fontWeight:800, color: meta.color,
+                        background: meta.bg, border:`1px solid ${meta.border}`,
+                        padding:'2px 7px', borderRadius:99, whiteSpace:'nowrap',
+                        display:'inline-flex', alignItems:'center', gap:3,
+                      }}>
+                        {meta.emoji} {meta.label}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize:10, color:'#9ca3af' }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ padding:'8px', textAlign:'right', fontWeight:p.today>0?800:400, color:p.today>0?'#16a34a':'#94a3b8' }}>{p.today>0?p.today:'—'}</td>
+                  <td style={{ padding:'8px', textAlign:'right', fontWeight:600, color:'#374151' }}>{p.last7}</td>
+                  <td style={{ padding:'8px', textAlign:'right', fontWeight:800, color:'#111' }}>{p.last30}</td>
+                  <td style={{ padding:'8px', textAlign:'right', color:'#6b7280' }}>{p.total}</td>
+                  <td style={{ padding:'8px' }}>
+                    <div style={{ height:5, background:'#f3f4f6', borderRadius:99, overflow:'hidden', minWidth:60 }}>
+                      <div style={{
+                        height:'100%', width:`${Math.round((p[sortBy]/maxVal)*100)}%`,
+                        background: meta ? `linear-gradient(90deg,${meta.color},${meta.color}99)` : 'linear-gradient(90deg,#16a34a,#4ade80)',
+                        borderRadius:99, transition:'width .4s ease',
+                      }} />
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
+
+      {/* ── Breakdown по тип ── */}
       {details.topPartners.length > 0 && (
-        <div style={{ marginTop:12, padding:'10px 12px', background:'#f8fafc', borderRadius:9, border:'1px solid #e5e7eb' }}>
-          <div style={{ fontSize:9, fontWeight:800, color:'#94a3b8', letterSpacing:'.06em', textTransform:'uppercase', marginBottom:7 }}>По партньор</div>
-          <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
-            {details.topPartners.map(p => (
-              <div key={p.name} style={{ display:'flex', alignItems:'center', gap:5, background:'#fff', border:'1px solid #e5e7eb', borderRadius:7, padding:'4px 10px' }}>
-                <span style={{ width:7, height:7, borderRadius:'50%', background:'#16a34a', display:'inline-block' }} />
-                <span style={{ fontSize:11, fontWeight:700, color:'#374151' }}>{p.name}</span>
-                <span style={{ fontSize:11, fontWeight:900, color:'#16a34a' }}>{p.count}</span>
-              </div>
-            ))}
+        <div style={{ marginTop:14, padding:'12px 14px', background:'#f8fafc', borderRadius:9, border:'1px solid #e5e7eb' }}>
+          <div style={{ fontSize:9, fontWeight:800, color:'#94a3b8', letterSpacing:'.06em', textTransform:'uppercase', marginBottom:9 }}>
+            Разпределение по тип
+          </div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            {details.topPartners.map(p => {
+              const meta = getPartnerMeta(p.name) ?? { label: p.name, emoji:'🔘', color:'#6b7280', bg:'#f9fafb', border:'#e5e7eb' }
+              const pct  = details.total ? Math.round((p.count / details.total) * 100) : 0
+              return (
+                <div key={p.name} style={{
+                  flex:'1 1 160px', minWidth:0,
+                  background: meta.bg, border:`1px solid ${meta.border}`,
+                  borderRadius:10, padding:'10px 13px',
+                  display:'flex', alignItems:'center', gap:10,
+                }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>{meta.emoji}</span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:11, fontWeight:800, color: meta.color }}>{meta.label}</div>
+                    <div style={{ fontSize:10, color:'#9ca3af', marginBottom:5 }}>{p.name}</div>
+                    <div style={{ height:4, background:'#e5e7eb', borderRadius:99, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${pct}%`, background: meta.color, borderRadius:99, transition:'width .5s' }} />
+                    </div>
+                  </div>
+                  <div style={{ textAlign:'right', flexShrink:0 }}>
+                    <div style={{ fontSize:20, fontWeight:900, color: meta.color, lineHeight:1 }}>{p.count}</div>
+                    <div style={{ fontSize:10, color:'#9ca3af', marginTop:2 }}>{pct}%</div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
