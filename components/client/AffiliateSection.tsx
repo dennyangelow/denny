@@ -1,6 +1,9 @@
 'use client'
 // components/client/AffiliateSection.tsx
-// Client Component — афилиейт продукти + category links с пълен tracking
+// ПОПРАВКИ:
+//  - getCategorySlug() извлича slug от href (надежден) вместо от label (ненадежден)
+//  - Всеки category линк получава уникален, четим slug
+//  - trackAffiliateClick получава валиден slug — никога UUID или кирилица
 
 import { trackAffiliateClick } from '@/lib/trackAffiliateClick'
 import { SafeImg } from '@/components/client/SafeImg'
@@ -25,8 +28,8 @@ interface AffiliateProduct {
 }
 
 const CAT_COLORS: Record<string, string> = {
-  agroapteki:  '#16a34a',
-  default:     '#16a34a',
+  agroapteki: '#16a34a',
+  default:    '#16a34a',
 }
 
 interface Props {
@@ -58,15 +61,10 @@ export function AffiliateSection({ products }: Props) {
                 className="product-card"
                 style={{ '--card-color': cardColor } as React.CSSProperties}
               >
-                {/* Снимка + badges */}
                 <div style={{
-                  position: 'relative',
-                  background: '#f8f9fa',
-                  minHeight: 220,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '20px 20px 0',
+                  position: 'relative', background: '#f8f9fa',
+                  minHeight: 220, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', padding: '20px 20px 0',
                 }}>
                   {p.badge_text && (
                     <div style={{
@@ -99,7 +97,6 @@ export function AffiliateSection({ products }: Props) {
                   />
                 </div>
 
-                {/* Съдържание */}
                 <div style={{ padding: '18px 22px 22px', flex: 1, display: 'flex', flexDirection: 'column' }}>
                   {p.category_label && (
                     <div style={{
@@ -133,8 +130,7 @@ export function AffiliateSection({ products }: Props) {
                         <li key={j} style={{
                           fontSize: 13, color: '#374151',
                           padding: '5px 0', display: 'flex', gap: 9,
-                          alignItems: 'flex-start',
-                          borderBottom: '1px solid #f5f5f5',
+                          alignItems: 'flex-start', borderBottom: '1px solid #f5f5f5',
                         }}>
                           <span style={{
                             background: cardColor, color: '#fff',
@@ -149,7 +145,6 @@ export function AffiliateSection({ products }: Props) {
                     </ul>
                   )}
 
-                  {/* ── TRACKED LINK ── */}
                   <a
                     href={p.affiliate_url}
                     target="_blank"
@@ -176,10 +171,8 @@ export function AffiliateSection({ products }: Props) {
   )
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
-// CategoryLinksSection — с пълен tracking на всеки клик
-// Поддържа color директно от обекта (от базата данни) — не само от CAT_COLORS
+// CategoryLinksSection
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface CategoryLink {
@@ -196,31 +189,77 @@ interface CatProps {
   links: CategoryLink[]
 }
 
+/**
+ * Извлича tracking slug за category линк.
+ *
+ * Приоритет:
+ *  1. c.slug от БД — само ако е валиден (не UUID, не кирилица, мин. 2 символа)
+ *  2. Path segments от href — уникален и четим:
+ *       https://agroapteki.com/torove/npk-torove/?tracking=xxx
+ *       → "torove-npk-torove"
+ *  3. Последен fallback: съкратен id
+ */
+function getCategorySlug(c: CategoryLink): string {
+  const isUuid      = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(c.slug || '')
+  const hasCyrillic = /[а-яёА-ЯЁ]/.test(c.slug || '')
+  const hasValid    = c.slug && !isUuid && !hasCyrillic && c.slug.trim().length >= 2
+
+  if (hasValid) {
+    return c.slug
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 60)
+  }
+
+  // Извличаме от href — много по-надежден от label
+  if (c.href) {
+    try {
+      const url = new URL(c.href)
+      const segments = url.pathname
+        .split('/')
+        .map(s => s.trim())
+        .filter(s => s.length > 1)
+
+      if (segments.length > 0) {
+        // Последните 2 сегмента: /torove/npk-torove/ → "torove-npk-torove"
+        const relevant = segments.slice(-2).join('-')
+        const clean = relevant
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 60)
+        if (clean.length >= 2) return clean
+      }
+    } catch {
+      // невалиден URL — продължи
+    }
+  }
+
+  // Последен fallback: id (само първите 8 символа)
+  return `cat-${c.id.slice(0, 8)}`
+}
+
 export function CategoryLinksSection({ links }: CatProps) {
   if (links.length === 0) return null
 
   return (
     <div className="categories-grid">
       {links.map((c, i) => {
-        // Приоритет: color от базата → CAT_COLORS по partner → default
-        const color = c.color || CAT_COLORS[c.partner || 'default'] || CAT_COLORS.default
+        const color     = c.color || CAT_COLORS[c.partner || 'default'] || CAT_COLORS.default
+        const trackSlug = getCategorySlug(c)
 
         return (
-          <FadeIn key={c.slug} delay={i * 55}>
+          <FadeIn key={c.id || c.slug} delay={i * 55}>
             <a
               href={c.href}
               target="_blank"
               rel="noopener noreferrer"
               className="cat-card cat-card--hover"
               style={{ '--cat-color': color } as React.CSSProperties}
-              onClick={() => {
-                // Slug: ако е UUID използваме label като slug
-                const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(c.slug || "")
-                const trackSlug = (!isUuid && c.slug)
-                  ? c.slug
-                  : c.label.toLowerCase().replace(/[^a-z0-9]+/gi, "-").slice(0, 40)
-                trackAffiliateClick(c.partner || "category", trackSlug)
-              }}
+              onClick={() => trackAffiliateClick(c.partner || 'category', trackSlug)}
             >
               <span style={{
                 fontSize: 20,
