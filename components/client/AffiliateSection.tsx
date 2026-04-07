@@ -193,18 +193,15 @@ interface CatProps {
  * Извлича tracking slug за category линк.
  *
  * Приоритет:
- *  1. c.slug от БД — само ако е валиден (не UUID, не кирилица, мин. 2 символа)
- *  2. Path segments от href — уникален и четим:
- *       https://agroapteki.com/torove/npk-torove/?tracking=xxx
- *       → "torove-npk-torove"
+ *  1. c.slug от БД — ако е зададен (не UUID, не празен)
+ *  2. Path segments от href — ако slug не е зададен
  *  3. Последен fallback: съкратен id
  */
 function getCategorySlug(c: CategoryLink): string {
-  const isUuid      = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(c.slug || '')
-  const hasCyrillic = /[а-яёА-ЯЁ]/.test(c.slug || '')
-  const hasValid    = c.slug && !isUuid && !hasCyrillic && c.slug.trim().length >= 2
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(c.slug || '')
 
-  if (hasValid) {
+  if (c.slug && !isUuid && c.slug.trim().length >= 2) {
+    // Slug зададен от администратора — използваме го директно
     return c.slug
       .toLowerCase()
       .replace(/[^a-z0-9-_]/g, '-')
@@ -213,7 +210,7 @@ function getCategorySlug(c: CategoryLink): string {
       .slice(0, 60)
   }
 
-  // Извличаме от href — много по-надежден от label
+  // Fallback: извличаме от href
   if (c.href) {
     try {
       const url = new URL(c.href)
@@ -223,7 +220,6 @@ function getCategorySlug(c: CategoryLink): string {
         .filter(s => s.length > 1)
 
       if (segments.length > 0) {
-        // Последните 2 сегмента: /torove/npk-torove/ → "torove-npk-torove"
         const relevant = segments.slice(-2).join('-')
         const clean = relevant
           .toLowerCase()
@@ -238,7 +234,6 @@ function getCategorySlug(c: CategoryLink): string {
     }
   }
 
-  // Последен fallback: id (само първите 8 символа)
   return `cat-${c.id.slice(0, 8)}`
 }
 

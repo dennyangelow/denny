@@ -89,9 +89,10 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
   links: {
     label: 'Категорийни линкове', api: '/api/category-links', responseKey: 'links',
     fields: [
-      { key: 'icon',       label: 'Иконка (emoji)', type: 'text',   placeholder: '🌱' },
+      { key: 'emoji',      label: 'Иконка (emoji)', type: 'text',   placeholder: '🌱' },
       { key: 'label',      label: 'Надпис',         type: 'text',   placeholder: 'Торове и Стимулатори' },
-      { key: 'link',       label: 'URL',            type: 'url',    placeholder: 'https://...' },
+      { key: 'slug',       label: 'Slug (за аналитика)', type: 'text', placeholder: 'torove-bio-stimulatori' },
+      { key: 'href',       label: 'URL',            type: 'url',    placeholder: 'https://...' },
       { key: 'color',      label: 'Цвят (HEX)',     type: 'color' },
       { key: 'sort_order', label: 'Ред',            type: 'number', placeholder: '0' },
       { key: 'active',     label: 'Активен',        type: 'checkbox' },
@@ -300,12 +301,25 @@ export function ContentTab() {
     if (!editing) return
     setSaving(true)
     try {
-      const isNew = !editing.id
-      const url   = isNew ? cfg.api : `${cfg.api}/${editing.id}`
+      // Auto-generate slug for links if left empty
+      let payload = { ...editing }
+      if (subTab === 'links' && (!payload.slug || payload.slug.trim() === '')) {
+        const raw = (payload.label || payload.href || payload.id || 'link') as string
+        payload.slug = raw
+          .toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // strip diacritics
+          .replace(/[^a-z0-9\s-]/g, '')
+          .trim()
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+          .slice(0, 60)
+      }
+      const isNew = !payload.id
+      const url   = isNew ? cfg.api : `${cfg.api}/${payload.id}`
       const res   = await fetch(url, {
         method:  isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(editing),
+        body:    JSON.stringify(payload),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -343,7 +357,7 @@ export function ContentTab() {
     item.title || item.name || item.label || item.slug || item.id
 
   const itemSub = (item: BaseItem) =>
-    item.slug || item.affiliate_url || item.link || item.button_url || '—'
+    item.slug || item.affiliate_url || item.href || item.link || item.button_url || '—'
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -442,6 +456,9 @@ export function ContentTab() {
                   <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{itemSub(item)}</span>
                     {item.active === false && <span style={{ color: '#ef4444', fontSize: 11, flexShrink: 0 }}>● Неактивен</span>}
+                    {subTab === 'links' && item.slug && (
+                      <span style={{ color: '#2d6a4f', fontSize: 11, flexShrink: 0, background: '#ecfdf5', padding: '1px 6px', borderRadius: 99, fontFamily: 'monospace' }}>🏷 {item.slug}</span>
+                    )}
                     {subTab === 'special' && item.partner && (
                       <span style={{ color: '#7c3aed', fontSize: 11, flexShrink: 0, background: '#f3e8ff', padding: '1px 6px', borderRadius: 99 }}>🔗 {item.partner}</span>
                     )}
@@ -588,16 +605,36 @@ export function ContentTab() {
                     </div>
 
                   ) : (
-                    <input
-                      type={f.type}
-                      value={editing[f.key] ?? ''}
-                      onChange={e => set(f.key, f.type === 'number' ? Number(e.target.value) : e.target.value)}
-                      placeholder={f.placeholder}
-                      step={f.type === 'number' ? '0.01' : undefined}
-                      min={f.type  === 'number' ? '0'    : undefined}
-                      style={inp}
-                      onFocus={focusGreen} onBlur={blurGray}
-                    />
+                    <>
+                      <input
+                        type={f.type}
+                        value={editing[f.key] ?? ''}
+                        onChange={e => set(f.key, f.type === 'number' ? Number(e.target.value) : e.target.value)}
+                        placeholder={f.placeholder}
+                        step={f.type === 'number' ? '0.01' : undefined}
+                        min={f.type  === 'number' ? '0'    : undefined}
+                        style={{ ...inp, ...(f.key === 'slug' ? { fontFamily: 'monospace', letterSpacing: '0.02em' } : {}) }}
+                        onFocus={focusGreen} onBlur={blurGray}
+                      />
+                      {/* Slug preview hint — only for links tab */}
+                      {f.key === 'slug' && subTab === 'links' && (
+                        <div style={{ marginTop: 5, fontSize: 11, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {editing['slug'] && editing['slug'].trim() !== '' ? (
+                            <>
+                              <span style={{ color: '#16a34a', fontWeight: 700 }}>✓</span>
+                              <span>Tracking slug: <code style={{ background: '#ecfdf5', color: '#166534', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>{editing['slug']}</code></span>
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ color: '#f59e0b' }}>⚡</span>
+                              <span>Оставен празен → автоматично от надписа: <code style={{ background: '#fefce8', color: '#854d0e', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>
+                                {(editing['label'] || 'link').toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'link'}
+                              </code></span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
