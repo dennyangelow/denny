@@ -240,50 +240,54 @@ export function LeadsTab({ leads }: Props) {
   }, [])
 
   // ── Sync един lead ────────────────────────────────────────────────────────
+  // Използва /api/leads/sync (POST с ?id) — НЕ /api/leads, за да не тригерва
+  // публичния rate limiter (5 req/10min)
   const handleSyncOne = useCallback(async (lead: Lead) => {
+    if (syncedIds.has(lead.id) || (lead as any).systemeio_synced) return
     setSyncingId(lead.id)
     try {
-      const res  = await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({email:lead.email,name:lead.name,phone:lead.phone,naruchnik_slug:lead.naruchnik_slug})})
+      const res  = await fetch(`/api/leads/sync?id=${lead.id}`, { method: 'POST' })
       const data = await res.json()
-      if (data.success || data.systemeio==='ok') {
-        setSyncedIds(prev=>new Set([...prev,lead.id]))
+      if (data.synced === 1 || data.success) {
+        setSyncedIds(prev => new Set([...prev, lead.id]))
         toast.success(`✅ ${lead.email} → Systeme.io`)
       } else {
-        toast.error(`❌ ${data.systemeioError||data.error||'Грешка'}`)
+        toast.error(`❌ ${data.errors?.[0] || data.error || 'Грешка'}`)
       }
     } catch { toast.error('Мрежова грешка') }
     finally { setSyncingId(null) }
-  }, [])
+  }, [syncedIds])
 
   // ── Bulk sync всички несинхронизирани ─────────────────────────────────────
+  // Използва /api/leads/sync (POST без параметри) — минава всички наведнъж
   const handleBulkSync = useCallback(async () => {
-    const unsynced = uniqueLeads.filter(l=>!syncedIds.has(l.id)&&!(l as any).systemeio_synced)
-    if (unsynced.length===0) { toast.success('Всички са синхронизирани! ✅'); return }
+    const unsynced = uniqueLeads.filter(l => !syncedIds.has(l.id) && !(l as any).systemeio_synced)
+    if (unsynced.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
     if (!confirm(`Ще се синхронизират ${unsynced.length} контакта в Systeme.io. Продължи?`)) return
 
     setBulkSyncing(true)
-    let ok=0, fail=0
-    const newSynced: string[] = []
+    try {
+      const res  = await fetch('/api/leads/sync', { method: 'POST' })
+      const data = await res.json()
 
-    for (const lead of unsynced) {
-      try {
-        const res  = await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({email:lead.email,name:lead.name,phone:lead.phone,naruchnik_slug:lead.naruchnik_slug})})
-        const data = await res.json()
-        if (data.success || data.systemeio==='ok') { ok++; newSynced.push(lead.id) }
-        else fail++
-        // Малка пауза за да не hit-ваме rate limit
-        await new Promise(r=>setTimeout(r,200))
-      } catch { fail++ }
-    }
+      if (data.message) {
+        // "Всички са синхронизирани" съобщение
+        toast.success(data.message)
+      } else if (data.success) {
+        // Маркираме всички като synced в локалния state
+        const newIds = unsynced.map(l => l.id)
+        setSyncedIds(prev => new Set([...prev, ...newIds]))
 
-    setSyncedIds(prev=>new Set([...prev,...newSynced]))
-    setBulkSyncing(false)
-
-    if (fail===0)      toast.success(`✅ Синхронизирани ${ok} контакта в Systeme.io!`)
-    else if (ok===0)   toast.error(`❌ Грешка при всички ${fail} контакта`)
-    else               toast.success(`✅ ${ok} OK · ⚠️ ${fail} грешки`)
+        if (data.failed === 0) {
+          toast.success(`✅ Синхронизирани ${data.synced} контакта в Systeme.io!`)
+        } else {
+          toast.success(`✅ ${data.synced} OK · ⚠️ ${data.failed} грешки`)
+        }
+      } else {
+        toast.error(data.error || 'Грешка при sync')
+      }
+    } catch { toast.error('Мрежова грешка') }
+    finally { setBulkSyncing(false) }
   }, [uniqueLeads, syncedIds])
 
   const inp: React.CSSProperties = { padding:'8px 13px', border:'1px solid var(--border)', borderRadius:9, fontFamily:'inherit', fontSize:13, outline:'none', background:'#fff' }

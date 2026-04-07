@@ -79,9 +79,37 @@ export async function POST(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const syncAll = searchParams.get('all') === 'true'
-  const now     = new Date().toISOString()
+  const syncAll  = searchParams.get('all') === 'true'
+  const singleId = searchParams.get('id')       // ?id=UUID → само 1 лийд
+  const now      = new Date().toISOString()
 
+  // ── Единичен sync (?id=UUID) ─────────────────────────────────────────────
+  if (singleId) {
+    const { data: lead, error } = await supabaseAdmin
+      .from('leads')
+      .select('id, email, name, phone, systemeio_contact_id')
+      .eq('id', singleId)
+      .single()
+
+    if (error || !lead) {
+      return NextResponse.json({ error: 'Лийдът не е намерен' }, { status: 404 })
+    }
+
+    const result = await syncOne(apiKey, lead)
+    if (result.ok) {
+      await supabaseAdmin.from('leads').update({
+        systemeio_synced:     true,
+        systemeio_contact_id: result.contactId || lead.systemeio_contact_id || undefined,
+        systemeio_synced_at:  now,
+        updated_at:           now,
+      }).eq('id', lead.id)
+      return NextResponse.json({ success: true, synced: 1, failed: 0 })
+    } else {
+      return NextResponse.json({ success: false, synced: 0, failed: 1, errors: [result.error] })
+    }
+  }
+
+  // ── Масов sync ───────────────────────────────────────────────────────────
   let query = supabaseAdmin
     .from('leads')
     .select('id, email, name, phone, systemeio_contact_id')
@@ -102,7 +130,7 @@ export async function POST(req: NextRequest) {
 
   for (let i = 0; i < leads.length; i += BATCH) {
     const batch   = leads.slice(i, i + BATCH)
-    const results = await Promise.all(batch.map(lead => syncOne(apiKey, lead)))
+    const results = await Promise.all(batch.map((lead: { id: string; email: string; name?: string | null; phone?: string | null; systemeio_contact_id?: string | null }) => syncOne(apiKey, lead)))
 
     for (const r of results) {
       if (r.ok) {
