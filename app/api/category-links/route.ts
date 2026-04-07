@@ -17,16 +17,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { id, ...insertData } = body
+
+    // Изчистване: ако slug е празен или тире — го зануляваме
+    if (!insertData.slug || insertData.slug.trim() === '' || insertData.slug.trim() === '-') {
+      insertData.slug = null
+    }
+
     const { data, error } = await supabaseAdmin
       .from('category_links').insert([insertData]).select().single()
       
     if (error) throw error
 
-    // 2. ИЗЧИСТВАНЕ НА КЕША
-    // Това гарантира, че ако добавиш нова категория или линк, 
-    // те ще се появят веднага в менютата на началната страница.
     revalidatePath('/')
-
     return NextResponse.json({ link: data })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

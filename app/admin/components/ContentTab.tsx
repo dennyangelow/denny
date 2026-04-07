@@ -92,7 +92,7 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'emoji',      label: 'Иконка (emoji)', type: 'text',   placeholder: '🌱' },
       { key: 'label',      label: 'Надпис',         type: 'text',   placeholder: 'Торове и Стимулатори' },
       { key: 'slug',       label: 'Slug (за аналитика)', type: 'text', placeholder: 'torove-bio-stimulatori' },
-      { key: 'href',       label: 'URL',            type: 'url',    placeholder: 'https://...' },
+      { key: 'link',       label: 'URL',            type: 'url',    placeholder: 'https://...' },
       { key: 'color',      label: 'Цвят (HEX)',     type: 'color' },
       { key: 'sort_order', label: 'Ред',            type: 'number', placeholder: '0' },
       { key: 'active',     label: 'Активен',        type: 'checkbox' },
@@ -303,16 +303,25 @@ export function ContentTab() {
     try {
       // Auto-generate slug for links if left empty
       let payload = { ...editing }
-      if (subTab === 'links' && (!payload.slug || payload.slug.trim() === '')) {
-        const raw = (payload.label || payload.href || payload.id || 'link') as string
-        payload.slug = raw
+      if (subTab === 'links' && (!payload.slug || payload.slug.trim() === '' || payload.slug.trim() === '-')) {
+        const label = (payload.label || '') as string
+        // Cyrillic → Latin transliteration map
+        const cyrMap: Record<string, string> = {
+          а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ж:'zh',з:'z',и:'i',й:'y',
+          к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',
+          ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sht',ъ:'a',ь:'',ю:'yu',я:'ya',
+        }
+        const transliterated = label
           .toLowerCase()
-          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // strip diacritics
+          .split('')
+          .map(ch => cyrMap[ch] ?? ch)
+          .join('')
+        payload.slug = transliterated
           .replace(/[^a-z0-9\s-]/g, '')
           .trim()
           .replace(/\s+/g, '-')
           .replace(/-+/g, '-')
-          .slice(0, 60)
+          .slice(0, 60) || `link-${payload.id?.slice(0, 6) || Date.now()}`
       }
       const isNew = !payload.id
       const url   = isNew ? cfg.api : `${cfg.api}/${payload.id}`
@@ -356,8 +365,10 @@ export function ContentTab() {
   const itemName = (item: BaseItem) =>
     item.title || item.name || item.label || item.slug || item.id
 
-  const itemSub = (item: BaseItem) =>
-    item.slug || item.affiliate_url || item.href || item.link || item.button_url || '—'
+  const itemSub = (item: BaseItem) => {
+    if (subTab === 'links') return item.link || item.href || '—'
+    return item.affiliate_url || item.button_url || item.slug || '—'
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -456,7 +467,7 @@ export function ContentTab() {
                   <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{itemSub(item)}</span>
                     {item.active === false && <span style={{ color: '#ef4444', fontSize: 11, flexShrink: 0 }}>● Неактивен</span>}
-                    {subTab === 'links' && item.slug && (
+                    {subTab === 'links' && item.slug && item.slug !== '-' && (
                       <span style={{ color: '#2d6a4f', fontSize: 11, flexShrink: 0, background: '#ecfdf5', padding: '1px 6px', borderRadius: 99, fontFamily: 'monospace' }}>🏷 {item.slug}</span>
                     )}
                     {subTab === 'special' && item.partner && (
@@ -470,7 +481,7 @@ export function ContentTab() {
 
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button
-                    onClick={() => setEditing({ ...item })}
+                    onClick={() => { const n = { ...item }; if (subTab === 'links' && n.slug === '-') n.slug = ''; setEditing(n) }}
                     style={{ background: editing?.id === item.id ? '#dcfce7' : '#f3f4f6', border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: '#374151', fontWeight: 600 }}>
                     ✏️ Редактирай
                   </button>
@@ -627,8 +638,17 @@ export function ContentTab() {
                           ) : (
                             <>
                               <span style={{ color: '#f59e0b' }}>⚡</span>
-                              <span>Оставен празен → автоматично от надписа: <code style={{ background: '#fefce8', color: '#854d0e', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>
-                                {(editing['label'] || 'link').toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'link'}
+                              <span>Автоматично от надписа: <code style={{ background: '#fefce8', color: '#854d0e', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>
+                                {(() => {
+                                  const cyrMap: Record<string, string> = {
+                                    а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ж:'zh',з:'z',и:'i',й:'y',
+                                    к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',
+                                    ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sht',ъ:'a',ь:'',ю:'yu',я:'ya',
+                                  }
+                                  return (editing['label'] || 'link')
+                                    .toLowerCase().split('').map((ch: string) => cyrMap[ch] ?? ch).join('')
+                                    .replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'link'
+                                })()}
                               </code></span>
                             </>
                           )}
