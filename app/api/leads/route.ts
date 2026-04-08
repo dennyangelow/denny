@@ -1,7 +1,5 @@
 // app/api/leads/route.ts — v14
-//
-// ✅ Подава naruchnikSlug към syncContactWithRetry
-//    → записва се в custom field 'naruchnici' в Systeme.io при нов lead
+// Промяна: подава naruchnikSlug към syncContactWithRetry
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -34,7 +32,6 @@ export async function POST(req: NextRequest) {
     const cleanName  = name?.trim()  || null
     const cleanPhone = phone?.trim() || null
 
-    // ── Feature flags ───────────────────────────────────────────────────────
     let resendEnabled    = true
     let systemeioEnabled = true
     try {
@@ -47,7 +44,6 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* defaults */ }
 
-    // ── Supabase upsert ──────────────────────────────────────────────────────
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
       .upsert(
@@ -76,7 +72,6 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin
         .rpc('add_naruchnik', { p_email: cleanEmail, p_slug: slug })
         .throwOnError()
-
       try {
         await supabaseAdmin.from('email_logs').insert({
           lead_id: lead.id, sequence_name: 'naruchnik', step_number: 1, sent_at: now,
@@ -84,7 +79,6 @@ export async function POST(req: NextRequest) {
       } catch { /* non-critical */ }
     }
 
-    // ── Resend ───────────────────────────────────────────────────────────────
     if (resendEnabled && process.env.RESEND_API_KEY) {
       const { subject, html } = welcomeEmail({ email: cleanEmail, name: cleanName ?? undefined, slug })
       await new Resend(process.env.RESEND_API_KEY).emails
@@ -92,7 +86,6 @@ export async function POST(req: NextRequest) {
         .catch(err => console.error('[Resend]', err))
     }
 
-    // ── Systeme.io ───────────────────────────────────────────────────────────
     let systemeioStatus: 'ok' | 'skipped' | 'error' | 'invalid_email' = 'skipped'
     let systemeioError: string | undefined
 
@@ -109,11 +102,11 @@ export async function POST(req: NextRequest) {
       } else {
         const result = await syncContactWithRetry({
           apiKey,
-          email:          cleanEmail,
-          name:           cleanName,
-          phone:          cleanPhone,
-          contactId:      existing?.systemeio_contact_id || null,
-          naruchnikSlug:  slug,   // ✅ подаваме slug-а на наръчника
+          email:         cleanEmail,
+          name:          cleanName,
+          phone:         cleanPhone,
+          contactId:     existing?.systemeio_contact_id || null,
+          naruchnikSlug: slug,   // ✅ slug на наръчника → custom field naruchnici
         })
 
         if (result.ok) {
@@ -141,7 +134,6 @@ export async function POST(req: NextRequest) {
             systemeio_synced: false,
             updated_at:       now,
           }).eq('email', cleanEmail)
-
           try {
             await supabaseAdmin.from('settings').upsert(
               { key: 'systemeio_last_error', value: `${now} | ${cleanEmail} | ${result.error}`, updated_at: now },
