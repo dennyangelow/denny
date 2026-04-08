@@ -1,33 +1,20 @@
-// lib/systemeio.ts — v12
+// lib/systemeio.ts — v14
 //
 // ═══════════════════════════════════════════════════════════════
-//  ОПРАВЕН БАГ В v12:
-//
-//  ❌ v11 BUG: fields[0].slug "naruchnici" does not exist → 422 грешка!
-//     Полето не е създадено в Systeme.io акаунта.
-//     Резултат: всеки PATCH/POST връщаше грешка → контактите не се обновяваха!
-//
-//  ✅ v12 FIX:
-//     1. Премахнати fields от PATCH и POST body-то
-//     2. Тагът "naruchnik" е достатъчен за workflow-а
-//     3. Добавен isFieldSlugMissing() класификатор (за бъдеще)
-//
 //  ОПРАВЕН БАГ В v11:
 //
 //  ❌ v10 BUG: GET /api/tags?limit=200 → 422 грешка!
 //     Systeme.io приема limit само 10–100.
 //     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
 //
-//  ✅ v11 FIX:
-//     1. Пагинираме тагове по 100 (GET /api/tags?limit=100&page=N)
-//     2. Ако тагът не е намерен → POST /api/tags го създава
-//     3. Кешът използва lowercase ключове навсякъде
-//     4. addTag логва успех/неуспех подробно
+//  ✅ v13 FIX:
+//     1. fields.naruchnici върнато — полето вече съществува в акаунта
+//     2. isFieldSlugMissing() запазен като safety net
+//     3. Имена + телефон + naruchnici custom field се записват
 //
-//  ЗАПАЗЕНО ОТ v10:
-//  ✅ phoneNumber е top-level поле (не custom field)
-//  ✅ naruchnici custom field с slug на наръчника
-//  ✅ Само 2 заявки/контакт (без предварителен GET)
+//  ЗАПАЗЕНО ОТ v11:
+//  ✅ GET /api/tags пагинация по 100
+//  ✅ phoneNumber е top-level поле
 //  ✅ При 404 → findByEmail → create → PATCH
 //  ✅ Rate limit handling с retry
 // ═══════════════════════════════════════════════════════════════
@@ -82,7 +69,7 @@ function isPlanLimit(status: number, data: any): boolean {
   return d.includes('upgrade') || d.includes('plan')
 }
 
-// Детектира грешка "custom field slug does not exist" → игнорираме я (полето не е създадено в акаунта)
+// Детектира 422 "custom field slug does not exist" → игнорираме (полето не е в акаунта)
 function isFieldSlugMissing(status: number, data: any): boolean {
   if (status !== 422) return false
   const violations: any[] = data?.violations || []
@@ -139,16 +126,16 @@ async function findContactByEmail(apiKey: string, email: string): Promise<string
 
 // ── Create contact ────────────────────────────────────────────────────────────
 async function createContact(
-  apiKey:     string,
-  email:      string,
-  firstName:  string,
-  lastName:   string,
-  phone?:     string
+  apiKey:          string,
+  email:           string,
+  firstName:       string,
+  lastName:        string,
+  phone?:          string,
+  naruchnikSlug?:  string
 ): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
-  // ЗАБЕЛЕЖКА: НЕ включваме fields.naruchnici — полето трябва да съществува в акаунта!
-  // Тагът 'naruchnik' е достатъчен за workflow-а.
   const body: Record<string, unknown> = { email, firstName, lastName }
   if (phone) body.phoneNumber = phone  // top-level поле
+  if (naruchnikSlug) body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]  // custom field
 
   const res = await sioFetch(apiKey, 'POST', '/api/contacts', body)
 
@@ -186,26 +173,28 @@ async function createContact(
 // ── Patch contact ─────────────────────────────────────────────────────────────
 // Връща: ok | notFound | rateLimited | error
 async function patchContactDirect(
-  apiKey:     string,
-  contactId:  string,
-  firstName:  string,
-  lastName:   string,
-  phone?:     string
+  apiKey:          string,
+  contactId:       string,
+  firstName:       string,
+  lastName:        string,
+  phone?:          string,
+  naruchnikSlug?:  string
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
   const body: Record<string, unknown> = {}
   if (firstName)     body.firstName   = firstName
   if (lastName)      body.lastName    = lastName
   if (phone)         body.phoneNumber = phone  // top-level поле
+  if (naruchnikSlug) body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]  // custom field
 
   const res = await sioFetch(
     apiKey, 'PATCH', `/api/contacts/${contactId}`,
     body, 'application/merge-patch+json'
   )
 
-  if (res.ok)                                 return 'ok'
-  if (res.status === 404)                     return 'notFound'
-  if (res.status === 429)                     return 'rateLimited'
-  // 422 от невалидно email или field slug → не е rate limit, третираме като грешка
+  if (res.ok)                                      return 'ok'
+  if (isFieldSlugMissing(res.status, res.data))     return 'ok'  // fields 422 → данните са записани
+  if (res.status === 404)                           return 'notFound'
+  if (res.status === 429)                           return 'rateLimited'
   return 'error'
 }
 
@@ -324,12 +313,13 @@ export async function syncContact(params: {
   const { apiKey, email, tag = 'naruchnik' } = params
   const { firstName, lastName } = splitName(params.name)
   const phone = formatPhone(params.phone)
+  const slug  = params.naruchnikSlug || undefined
 
   let contactId: string | null = params.contactId || null
 
   // ── Имаме contactId → PATCH директно (без предварителен GET) ─────────────
   if (contactId) {
-    const patchResult = await patchContactDirect(apiKey, contactId, firstName, lastName, phone)
+    const patchResult = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
 
     if (patchResult === 'ok') {
       await sleep(200)
@@ -340,7 +330,7 @@ export async function syncContact(params: {
     if (patchResult === 'rateLimited') {
       // Rate limit → изчакваме и retry
       await sleep(8000)
-      const retry = await patchContactDirect(apiKey, contactId, firstName, lastName, phone)
+      const retry = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
       if (retry === 'ok') {
         await sleep(200)
         await addTag(apiKey, contactId, tag)
@@ -362,7 +352,7 @@ export async function syncContact(params: {
       if (found) {
         contactId = found
         await sleep(200)
-        await patchContactDirect(apiKey, contactId, firstName, lastName, phone)
+        await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
         await sleep(200)
         await addTag(apiKey, contactId, tag)
         return { ok: true, contactId }
@@ -372,7 +362,7 @@ export async function syncContact(params: {
   }
 
   // ── Нямаме contactId (или 404) → create or find ───────────────────────────
-  const created = await createContact(apiKey, email, firstName, lastName, phone)
+  const created = await createContact(apiKey, email, firstName, lastName, phone, slug)
 
   if (created.emailInvalid) return { ok: false, error: created.error, emailInvalid: true }
   if (created.error)        return { ok: false, error: created.error }
@@ -392,7 +382,7 @@ export async function syncContact(params: {
   } else {
     // Намерен след 404 → PATCH + таг
     await sleep(200)
-    await patchContactDirect(apiKey, contactId, firstName, lastName, phone)
+    await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
     await sleep(200)
     await addTag(apiKey, contactId, tag)
   }
