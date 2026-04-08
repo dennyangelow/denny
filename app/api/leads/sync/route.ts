@@ -1,20 +1,14 @@
-// app/api/leads/sync/route.ts — v6
+// app/api/leads/sync/route.ts — v7
 //
-// Промени спрямо v5:
-//
-// ✅ FIX 1 — BATCH намален от 3 на 2 (по-малко rate limits)
-// ✅ FIX 2 — Sleep между батчове: 700ms → 1500ms
-// ✅ FIX 3 — GET статус: невалидните имейли НЕ се броят като "чакащи sync"
-//            (същото като v5, запазено)
+// ✅ Подава naruchnikSlug към syncContact → записва се в custom field 'naruchnici'
+// ✅ BATCH=2, sleep=1500ms за rate limit защита
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { syncContact } from '@/lib/systemeio'
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+const sleep   = (ms: number) => new Promise(r => setTimeout(r, ms))
 const API_KEY = () => process.env.systemeio_api || ''
-
-// ── POST /api/leads/sync ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   if (!API_KEY()) {
@@ -30,7 +24,7 @@ export async function POST(req: NextRequest) {
   if (singleId) {
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
-      .select('id, email, name, phone, systemeio_contact_id, systemeio_email_invalid')
+      .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id, systemeio_email_invalid')
       .eq('id', singleId)
       .single()
 
@@ -47,11 +41,12 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await syncContact({
-      apiKey:    API_KEY(),
-      email:     lead.email,
-      name:      lead.name,
-      phone:     lead.phone,
-      contactId: lead.systemeio_contact_id,
+      apiKey:         API_KEY(),
+      email:          lead.email,
+      name:           lead.name,
+      phone:          lead.phone,
+      contactId:      lead.systemeio_contact_id,
+      naruchnikSlug:  lead.naruchnik_slug,   // ✅ подаваме slug-а
     })
 
     if (result.ok) {
@@ -63,8 +58,9 @@ export async function POST(req: NextRequest) {
         updated_at:              now,
       }).eq('id', lead.id)
       return NextResponse.json({ success: true, synced: 1, failed: 0 })
+    }
 
-    } else if (result.emailInvalid) {
+    if (result.emailInvalid) {
       await supabaseAdmin.from('leads').update({
         systemeio_synced:        false,
         systemeio_email_invalid: true,
@@ -75,21 +71,17 @@ export async function POST(req: NextRequest) {
         message: `Невалиден имейл: ${result.error}`,
         invalidEmail: true,
       })
-
-    } else {
-      return NextResponse.json({
-        success: false, synced: 0, failed: 1,
-        errors: [result.error],
-      })
     }
+
+    return NextResponse.json({ success: false, synced: 0, failed: 1, errors: [result.error] })
   }
 
   // ── Масов sync ────────────────────────────────────────────────────────────
   let query = supabaseAdmin
     .from('leads')
-    .select('id, email, name, phone, systemeio_contact_id')
+    .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id')  // ✅ взимаме slug
     .eq('subscribed', true)
-    .not('systemeio_email_invalid', 'eq', true) // Никога не sync-ваме невалидни имейли
+    .not('systemeio_email_invalid', 'eq', true)
 
   if (!syncAll) query = query.eq('systemeio_synced', false)
 
@@ -103,20 +95,21 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const BATCH = 2  // ✅ FIX: 2 вместо 3 — по-малко rate limits
-  let synced   = 0
-  let invalid  = 0
+  const BATCH = 2
+  let synced  = 0
+  let invalid = 0
   const errors: string[] = []
 
   for (let i = 0; i < leads.length; i += BATCH) {
     const batch   = leads.slice(i, i + BATCH)
     const results = await Promise.all(
       batch.map((l: any) => syncContact({
-        apiKey:    API_KEY(),
-        email:     l.email,
-        name:      l.name,
-        phone:     l.phone,
-        contactId: l.systemeio_contact_id,
+        apiKey:        API_KEY(),
+        email:         l.email,
+        name:          l.name,
+        phone:         l.phone,
+        contactId:     l.systemeio_contact_id,
+        naruchnikSlug: l.naruchnik_slug,   // ✅ подаваме slug-а
       }))
     )
 
@@ -133,7 +126,6 @@ export async function POST(req: NextRequest) {
           systemeio_synced_at:     now,
           updated_at:              now,
         }).eq('id', l.id)
-
       } else if (r.emailInvalid) {
         invalid++
         await supabaseAdmin.from('leads').update({
@@ -141,13 +133,11 @@ export async function POST(req: NextRequest) {
           systemeio_email_invalid: true,
           updated_at:              now,
         }).eq('id', l.id)
-
       } else {
         errors.push(`${l.email}: ${r.error}`)
       }
     }
 
-    // ✅ FIX: 1500ms вместо 700ms — Systeme.io rate limit е ~60 req/min
     if (i + BATCH < leads.length) await sleep(1500)
   }
 
@@ -162,14 +152,13 @@ export async function POST(req: NextRequest) {
 }
 
 // ── GET /api/leads/sync — статус ──────────────────────────────────────────────
-
 export async function GET() {
   const { count: unsynced } = await supabaseAdmin
     .from('leads')
     .select('*', { count: 'exact', head: true })
     .eq('systemeio_synced', false)
     .eq('subscribed', true)
-    .not('systemeio_email_invalid', 'eq', true) // Невалидните не се броят като "чакащи"
+    .not('systemeio_email_invalid', 'eq', true)
 
   const { count: total } = await supabaseAdmin
     .from('leads')

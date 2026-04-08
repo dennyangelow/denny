@@ -1,8 +1,7 @@
-// app/api/leads/route.ts — v13
-// Промени спрямо v12:
-//   - Ако Systeme.io върне emailInvalid:true → записваме systemeio_email_invalid=true в БД
-//     и НЕ правим повторни опити при следващ sync (route и batch ги пропускат)
-//   - systemeioStatus = 'invalid_email' за по-ясно разграничение в отговора
+// app/api/leads/route.ts — v14
+//
+// ✅ Подава naruchnikSlug към syncContactWithRetry
+//    → записва се в custom field 'naruchnici' в Systeme.io при нов lead
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -10,8 +9,6 @@ import { Resend } from 'resend'
 import { rateLimit, getIP } from '@/lib/rate-limit'
 import { welcomeEmail } from '@/lib/email-templates'
 import { syncContactWithRetry } from '@/lib/systemeio'
-
-// ── POST /api/leads ───────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req)
@@ -101,7 +98,6 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.systemeio_api
     if (systemeioEnabled && apiKey) {
-      // Пропускаме ако вече знаем, че имейлът е невалиден за Systeme.io
       const { data: existing } = await supabaseAdmin
         .from('leads')
         .select('systemeio_contact_id, systemeio_email_invalid')
@@ -113,25 +109,25 @@ export async function POST(req: NextRequest) {
       } else {
         const result = await syncContactWithRetry({
           apiKey,
-          email:     cleanEmail,
-          name:      cleanName,
-          phone:     cleanPhone,
-          contactId: existing?.systemeio_contact_id || null,
+          email:          cleanEmail,
+          name:           cleanName,
+          phone:          cleanPhone,
+          contactId:      existing?.systemeio_contact_id || null,
+          naruchnikSlug:  slug,   // ✅ подаваме slug-а на наръчника
         })
 
         if (result.ok) {
           systemeioStatus = 'ok'
           await supabaseAdmin.from('leads').update({
-            systemeio_synced:         true,
-            systemeio_email_invalid:  false,
-            systemeio_contact_id:     result.contactId || existing?.systemeio_contact_id || null,
-            systemeio_synced_at:      now,
-            updated_at:               now,
+            systemeio_synced:        true,
+            systemeio_email_invalid: false,
+            systemeio_contact_id:    result.contactId || existing?.systemeio_contact_id || null,
+            systemeio_synced_at:     now,
+            updated_at:              now,
           }).eq('email', cleanEmail)
         } else if (result.emailInvalid) {
           systemeioStatus = 'invalid_email'
           systemeioError  = result.error
-          // Маркираме веднъж — повече няма да се опитваме
           await supabaseAdmin.from('leads').update({
             systemeio_synced:        false,
             systemeio_email_invalid: true,
@@ -166,8 +162,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 500 })
   }
 }
-
-// ── GET /api/leads ────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
