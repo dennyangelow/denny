@@ -1,4 +1,4 @@
-// lib/systemeio.ts — v15
+// lib/systemeio.ts — v16
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -8,10 +8,10 @@
 //     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
 //
 //  ✅ v13 FIX:
-//     1. Rate limit retry: 3 опита с 3s/6s/9s пауза (беше 1 опит × 8s)
-//     2. След 409 дублиран → винаги PATCH за да се обновят имената
-//        (преди: само таг, без PATCH → имената никога не се записваха)
-//     3. naruchnici custom field + таг + имена всичко заедно
+//     1. Пренаписана syncContact — чиста логика без fall-through бъгове
+//     2. Rate limit: 3 retry × нарастваща пауза, правилен early return
+//     3. След 409 дублиран → PATCH за имена + таг
+//     4. Подробно логване на всяка стъпка
 //
 //  ЗАПАЗЕНО ОТ v11:
 //  ✅ GET /api/tags пагинация по 100
@@ -316,77 +316,104 @@ export async function syncContact(params: {
   const phone = formatPhone(params.phone)
   const slug  = params.naruchnikSlug || undefined
 
+  console.info(`[Sio] syncContact START: ${email} | contactId=${params.contactId || 'none'} | name="${params.name || ''}"`)
+
   let contactId: string | null = params.contactId || null
 
-  // ── Имаме contactId → PATCH директно (без предварителен GET) ─────────────
+  // ═══════════════════════════════════════════════════════════════
+  // CASE A: Имаме contactId → опитваме PATCH директно
+  // ═══════════════════════════════════════════════════════════════
   if (contactId) {
-    const patchResult = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
+    const p1 = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
+    console.info(`[Sio] PATCH #1 за ${email}: ${p1}`)
 
-    if (patchResult === 'ok') {
-      await sleep(200)
+    if (p1 === 'ok') {
+      await sleep(300)
       await addTag(apiKey, contactId, tag)
+      console.info(`[Sio] ✅ ${email} — PATCH ok`)
       return { ok: true, contactId }
     }
 
-    if (patchResult === 'rateLimited') {
-      // Rate limit → изчакваме по-дълго и retry до 3 пъти
+    if (p1 === 'rateLimited') {
+      // До 3 retry с нарастваща пауза
       for (let attempt = 1; attempt <= 3; attempt++) {
-        await sleep(3000 * attempt)  // 3s, 6s, 9s
-        const retry = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
-        if (retry === 'ok') {
+        const wait = 4000 * attempt
+        console.info(`[Sio] Rate limited за ${email} — чакам ${wait}ms (опит ${attempt}/3)`)
+        await sleep(wait)
+        const rr = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
+        console.info(`[Sio] PATCH retry #${attempt} за ${email}: ${rr}`)
+        if (rr === 'ok') {
           await sleep(300)
           await addTag(apiKey, contactId, tag)
+          console.info(`[Sio] ✅ ${email} — PATCH ok след retry`)
           return { ok: true, contactId }
         }
-        if (retry === 'notFound') { contactId = null; break }
-        if (retry === 'error')    { break }
-        // retry === 'rateLimited' → следваща итерация с по-дълга пауза
+        if (rr === 'notFound') { contactId = null; break }
+        if (rr === 'error')    { return { ok: false, error: `PATCH error after rate limit for ${email}` } }
+        // rr === 'rateLimited' → следваща итерация
       }
       if (contactId !== null) {
+        console.warn(`[Sio] ❌ ${email} — rate limited след 3 опита`)
         return { ok: false, error: `PATCH rate limited for ${email}` }
       }
+      // contactId = null → пада в CASE B по-долу
     }
 
-    if (patchResult === 'notFound') {
-      // Контактът е изтрит в Systeme.io → ще го намерим/създадем
+    if (p1 === 'notFound') {
+      console.info(`[Sio] contactId ${contactId} не е намерен → ще търсим по email`)
       contactId = null
+      // пада в CASE B
     }
 
-    if (patchResult === 'error') {
-      // Непознат error → опитваме findByEmail преди да се откажем
+    if (p1 === 'error') {
+      // Неочаквана грешка → опитваме findByEmail
+      console.warn(`[Sio] PATCH error за ${email} → findByEmail`)
       const found = await findContactByEmail(apiKey, email)
       if (found) {
-        contactId = found
-        await sleep(200)
-        await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
-        await sleep(200)
-        await addTag(apiKey, contactId, tag)
-        return { ok: true, contactId }
+        console.info(`[Sio] Намерен по email: ${found}`)
+        await sleep(300)
+        await patchContactDirect(apiKey, found, firstName, lastName, phone, slug)
+        await sleep(300)
+        await addTag(apiKey, found, tag)
+        console.info(`[Sio] ✅ ${email} — PATCH ok след findByEmail`)
+        return { ok: true, contactId: found }
       }
+      console.warn(`[Sio] ❌ ${email} — не е намерен по email след PATCH error`)
       return { ok: false, error: `PATCH error for ${email}` }
     }
   }
 
-  // ── Нямаме contactId (или 404) → create or find ───────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // CASE B: Нямаме contactId → POST (create or find by 409)
+  // ═══════════════════════════════════════════════════════════════
+  console.info(`[Sio] POST /api/contacts за ${email}`)
   const created = await createContact(apiKey, email, firstName, lastName, phone, slug)
 
-  if (created.emailInvalid) return { ok: false, error: created.error, emailInvalid: true }
-  if (created.error)        return { ok: false, error: created.error }
+  if (created.emailInvalid) {
+    console.info(`[Sio] ❌ ${email} — невалиден имейл`)
+    return { ok: false, error: created.error, emailInvalid: true }
+  }
+  if (created.error) {
+    console.warn(`[Sio] ❌ ${email} — createContact error: ${created.error}`)
+    return { ok: false, error: created.error }
+  }
 
   contactId = created.contactId
   if (!contactId) {
-    console.warn('[Sio] Не можем да вземем ID за:', email)
+    console.warn(`[Sio] ❌ ${email} — няма contactId след create`)
     return { ok: false, error: 'No contact ID' }
   }
 
-  // Винаги правим PATCH след create/find — за да запишем имена, телефон, naruchnici
-  // (при нов контакт: POST body-то ги е включило, но PATCH ги потвърждава)
-  // (при 409 дублиран: findByEmail намери ID, PATCH обновява данните)
+  console.info(`[Sio] contactId след create/find: ${contactId} → PATCH за имена`)
+  // PATCH след create — записва имена, телефон, naruchnici
+  // (при 409: POST не е записал нищо, PATCH обновява съществуващия)
   await sleep(300)
-  await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
+  const p2 = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
+  console.info(`[Sio] PATCH #2 за ${email}: ${p2}`)
   await sleep(300)
   await addTag(apiKey, contactId, tag)
 
+  console.info(`[Sio] ✅ ${email} — готово (CASE B)`)
   return { ok: true, contactId }
 }
 
