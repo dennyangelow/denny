@@ -1,7 +1,9 @@
-// app/api/leads/sync/batch/route.ts — v7
+// app/api/leads/sync/batch/route.ts — v8
 //
-// ✅ Подава naruchnikSlug → записва се в custom field 'naruchnici' в Systeme.io
-// ✅ BATCH=2, sleep=1500ms
+// ✅ v8 FIXES:
+//   1. Sequential (не parallel) — Promise.all причиняваше rate limit + Vercel timeout
+//   2. 1000ms пауза между контактите
+//   3. Подробно логване
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -33,52 +35,45 @@ export async function POST(req: NextRequest) {
   let invalid   = 0
   const errors: string[] = []
 
-  for (let i = 0; i < leads.length; i += 2) {
-    const batch   = (leads as any[]).slice(i, i + 2)
-    const toSync  = batch.filter((l: any) => !l.systemeio_email_invalid)
-    const skipped = batch.filter((l: any) =>  l.systemeio_email_invalid)
-    invalid += skipped.length
-
-    if (toSync.length === 0) continue
-
-    const results = await Promise.all(
-      toSync.map((l: any) => syncContact({
-        apiKey:        API_KEY(),
-        email:         l.email,
-        name:          l.name,
-        phone:         l.phone,
-        contactId:     l.systemeio_contact_id,
-        naruchnikSlug: l.naruchnik_slug,   // ✅ slug → custom field
-      }))
-    )
-
-    for (let j = 0; j < results.length; j++) {
-      const r = results[j]
-      const l = toSync[j]
-
-      if (r.ok) {
-        synced++
-        await supabaseAdmin.from('leads').update({
-          systemeio_synced:        true,
-          systemeio_email_invalid: false,
-          systemeio_contact_id:    r.contactId || l.systemeio_contact_id || undefined,
-          systemeio_synced_at:     now,
-          updated_at:              now,
-        }).eq('id', l.id)
-      } else if (r.emailInvalid) {
-        invalid++
-        await supabaseAdmin.from('leads').update({
-          systemeio_synced:        false,
-          systemeio_email_invalid: true,
-          updated_at:              now,
-        }).eq('id', l.id)
-      } else {
-        errors.push(`${l.email}: ${r.error}`)
-        console.warn(`[batch] Неуспешен sync за ${l.email}:`, r.error)
-      }
+  // Sequential — НЕ parallel за да спазим rate limit и избегнем Vercel timeout
+  for (const l of leads as any[]) {
+    if (l.systemeio_email_invalid) {
+      invalid++
+      continue
     }
 
-    if (i + 2 < leads.length) await sleep(1500)
+    const r = await syncContact({
+      apiKey:        API_KEY(),
+      email:         l.email,
+      name:          l.name,
+      phone:         l.phone,
+      contactId:     l.systemeio_contact_id,
+      naruchnikSlug: l.naruchnik_slug,
+    })
+
+    if (r.ok) {
+      synced++
+      await supabaseAdmin.from('leads').update({
+        systemeio_synced:        true,
+        systemeio_email_invalid: false,
+        systemeio_contact_id:    r.contactId || l.systemeio_contact_id || undefined,
+        systemeio_synced_at:     now,
+        updated_at:              now,
+      }).eq('id', l.id)
+    } else if (r.emailInvalid) {
+      invalid++
+      await supabaseAdmin.from('leads').update({
+        systemeio_synced:        false,
+        systemeio_email_invalid: true,
+        updated_at:              now,
+      }).eq('id', l.id)
+    } else {
+      errors.push(`${l.email}: ${r.error}`)
+      console.warn(`[batch] Неуспешен sync за ${l.email}:`, r.error)
+    }
+
+    // 1000ms пауза между контактите
+    await sleep(1000)
   }
 
   return NextResponse.json({

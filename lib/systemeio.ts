@@ -1,4 +1,4 @@
-// lib/systemeio.ts — v16
+// lib/systemeio.ts — v17
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -7,11 +7,10 @@
 //     Systeme.io приема limit само 10–100.
 //     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
 //
-//  ✅ v13 FIX:
-//     1. Пренаписана syncContact — чиста логика без fall-through бъгове
-//     2. Rate limit: 3 retry × нарастваща пауза, правилен early return
-//     3. След 409 дублиран → PATCH за имена + таг
-//     4. Подробно логване на всяка стъпка
+//  ✅ v17 FIX:
+//     1. PATCH content-type: application/json (не merge-patch)
+//        merge-patch НЕ записваше firstName/lastName в Systeme.io!
+//     2. Запазени всички v16 подобрения
 //
 //  ЗАПАЗЕНО ОТ v11:
 //  ✅ GET /api/tags пагинация по 100
@@ -189,7 +188,7 @@ async function patchContactDirect(
 
   const res = await sioFetch(
     apiKey, 'PATCH', `/api/contacts/${contactId}`,
-    body, 'application/merge-patch+json'
+    body  // application/json — merge-patch не записва firstName/lastName!
   )
 
   if (res.ok)                                      return 'ok'

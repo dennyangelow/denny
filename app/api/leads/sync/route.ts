@@ -1,17 +1,8 @@
-// app/api/leads/sync/route.ts — v8
+// app/api/leads/sync/route.ts — v9
 //
-// КЛЮЧОВА ПРОМЯНА — защо предишните версии не работеха:
-//
-//   329 контакта × 4 API заявки/контакт = 1316 заявки
-//   Systeme.io rate limit ≈ 60/мин = 1/сек
-//   Vercel serverless timeout = 30 сек
-//   → след ~25 контакта Vercel убива функцията → partial sync
-//
-// РЕШЕНИЕ:
-//   1. Обработваме само 5 контакта на извикване (≈10 сек)
-//   2. Sequentially (не parallel) → спазваме rate limit
-//   3. Връщаме hasMore:true → Frontend вика пак автоматично
-//   4. syncContact v10: само 2 заявки/контакт (без предварителен GET)
+// v9 промени:
+//   - BATCH_PER_CALL: 5 → 3 (по-малко контакта = по-малко шанс за Vercel timeout)
+//   - sleep между контактите: 500ms → 1200ms (спазване на rate limit)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -20,7 +11,7 @@ import { syncContact } from '@/lib/systemeio'
 const sleep   = (ms: number) => new Promise(r => setTimeout(r, ms))
 const API_KEY = () => process.env.systemeio_api || ''
 
-const BATCH_PER_CALL = 5  // 5 контакта × ~2 сек = ~10 сек (< 30 сек timeout)
+const BATCH_PER_CALL = 3  // 3 контакта × ~5 сек = ~15 сек (безопасно < 30 сек timeout)
 
 export async function POST(req: NextRequest) {
   if (!API_KEY()) {
@@ -88,12 +79,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, synced: 0, failed: 1, errors: [result.error] })
   }
 
-  // ── Масов sync — само BATCH_PER_CALL контакта на извикване ───────────────
-  //
-  // За "sync несинхронизирани": взима само unsynced
-  // За "full re-sync": взима всички валидни (syncAll=true)
-  // В двата случая: само 5 наведнъж → frontend вика пак ако hasMore=true
-
+  // ── Масов sync ────────────────────────────────────────────────────────────
   let query = supabaseAdmin
     .from('leads')
     .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id')
@@ -119,7 +105,6 @@ export async function POST(req: NextRequest) {
   let invalid = 0
   const errors: string[] = []
 
-  // Sequentially — НЕ parallel за да спазим rate limit
   for (const lead of leads as any[]) {
     const result = await syncContact({
       apiKey:        API_KEY(),
@@ -139,7 +124,6 @@ export async function POST(req: NextRequest) {
         systemeio_synced_at:     now,
         updated_at:              now,
       }).eq('id', lead.id)
-
     } else if (result.emailInvalid) {
       invalid++
       await supabaseAdmin.from('leads').update({
@@ -147,16 +131,14 @@ export async function POST(req: NextRequest) {
         systemeio_email_invalid: true,
         updated_at:              now,
       }).eq('id', lead.id)
-
     } else {
       errors.push(`${lead.email}: ${result.error}`)
     }
 
-    // 500ms пауза между контактите → ~1 заявка/сек → безопасно за rate limit
-    await sleep(500)
+    await sleep(1200)  // 1.2 сек пауза → безопасно за rate limit
   }
 
-  // Проверяваме дали има още за следващото извикване
+  // Проверяваме дали има още
   const remainingQuery = supabaseAdmin
     .from('leads')
     .select('*', { count: 'exact', head: true })
@@ -173,7 +155,7 @@ export async function POST(req: NextRequest) {
     synced,
     invalid,
     failed:  errors.length,
-    hasMore: (remaining ?? 0) > 0,  // Frontend вика пак ако true
+    hasMore: (remaining ?? 0) > 0,
     errors:  errors.length > 0 ? errors : undefined,
   })
 }
