@@ -1,4 +1,4 @@
-// lib/systemeio.ts — v14
+// lib/systemeio.ts — v15
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -8,9 +8,10 @@
 //     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
 //
 //  ✅ v13 FIX:
-//     1. fields.naruchnici върнато — полето вече съществува в акаунта
-//     2. isFieldSlugMissing() запазен като safety net
-//     3. Имена + телефон + naruchnici custom field се записват
+//     1. Rate limit retry: 3 опита с 3s/6s/9s пауза (беше 1 опит × 8s)
+//     2. След 409 дублиран → винаги PATCH за да се обновят имената
+//        (преди: само таг, без PATCH → имената никога не се записваха)
+//     3. naruchnici custom field + таг + имена всичко заедно
 //
 //  ЗАПАЗЕНО ОТ v11:
 //  ✅ GET /api/tags пагинация по 100
@@ -328,15 +329,20 @@ export async function syncContact(params: {
     }
 
     if (patchResult === 'rateLimited') {
-      // Rate limit → изчакваме и retry
-      await sleep(8000)
-      const retry = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
-      if (retry === 'ok') {
-        await sleep(200)
-        await addTag(apiKey, contactId, tag)
-        return { ok: true, contactId }
+      // Rate limit → изчакваме по-дълго и retry до 3 пъти
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await sleep(3000 * attempt)  // 3s, 6s, 9s
+        const retry = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
+        if (retry === 'ok') {
+          await sleep(300)
+          await addTag(apiKey, contactId, tag)
+          return { ok: true, contactId }
+        }
+        if (retry === 'notFound') { contactId = null; break }
+        if (retry === 'error')    { break }
+        // retry === 'rateLimited' → следваща итерация с по-дълга пауза
       }
-      if (retry !== 'notFound') {
+      if (contactId !== null) {
         return { ok: false, error: `PATCH rate limited for ${email}` }
       }
     }
@@ -373,19 +379,13 @@ export async function syncContact(params: {
     return { ok: false, error: 'No contact ID' }
   }
 
-  // При create: данните вече са включени в POST тялото,
-  // но ако е намерен чрез findByEmail (дублиран) → правим PATCH
-  if (params.contactId === null || params.contactId === undefined) {
-    // Нов контакт → данните са в CREATE body, само таг
-    await sleep(200)
-    await addTag(apiKey, contactId, tag)
-  } else {
-    // Намерен след 404 → PATCH + таг
-    await sleep(200)
-    await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
-    await sleep(200)
-    await addTag(apiKey, contactId, tag)
-  }
+  // Винаги правим PATCH след create/find — за да запишем имена, телефон, naruchnici
+  // (при нов контакт: POST body-то ги е включило, но PATCH ги потвърждава)
+  // (при 409 дублиран: findByEmail намери ID, PATCH обновява данните)
+  await sleep(300)
+  await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
+  await sleep(300)
+  await addTag(apiKey, contactId, tag)
 
   return { ok: true, contactId }
 }
