@@ -1,8 +1,11 @@
-// app/api/leads/sync/route.ts — v5
-// Промени спрямо v4:
-//   - Пропуска лийдове с systemeio_email_invalid=true при масов sync
-//   - GET статус включва и броя на невалидните имейли
-//   - emailInvalid се записва в БД при единичен sync
+// app/api/leads/sync/route.ts — v6
+//
+// Промени спрямо v5:
+//
+// ✅ FIX 1 — BATCH намален от 3 на 2 (по-малко rate limits)
+// ✅ FIX 2 — Sleep между батчове: 700ms → 1500ms
+// ✅ FIX 3 — GET статус: невалидните имейли НЕ се броят като "чакащи sync"
+//            (същото като v5, запазено)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -38,7 +41,7 @@ export async function POST(req: NextRequest) {
     if ((lead as any).systemeio_email_invalid) {
       return NextResponse.json({
         success: false, synced: 0, failed: 0,
-        message: 'Имейлът е маркиран като невалиден за Systeme.io (invalid_email). Пропуснат.',
+        message: 'Имейлът е маркиран като невалиден за Systeme.io. Пропуснат.',
         invalidEmail: true,
       })
     }
@@ -60,6 +63,7 @@ export async function POST(req: NextRequest) {
         updated_at:              now,
       }).eq('id', lead.id)
       return NextResponse.json({ success: true, synced: 1, failed: 0 })
+
     } else if (result.emailInvalid) {
       await supabaseAdmin.from('leads').update({
         systemeio_synced:        false,
@@ -71,6 +75,7 @@ export async function POST(req: NextRequest) {
         message: `Невалиден имейл: ${result.error}`,
         invalidEmail: true,
       })
+
     } else {
       return NextResponse.json({
         success: false, synced: 0, failed: 1,
@@ -84,8 +89,7 @@ export async function POST(req: NextRequest) {
     .from('leads')
     .select('id, email, name, phone, systemeio_contact_id')
     .eq('subscribed', true)
-    // Никога не sync-ваме невалидни имейли
-    .not('systemeio_email_invalid', 'eq', true)
+    .not('systemeio_email_invalid', 'eq', true) // Никога не sync-ваме невалидни имейли
 
   if (!syncAll) query = query.eq('systemeio_synced', false)
 
@@ -99,7 +103,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const BATCH = 3
+  const BATCH = 2  // ✅ FIX: 2 вместо 3 — по-малко rate limits
   let synced   = 0
   let invalid  = 0
   const errors: string[] = []
@@ -129,6 +133,7 @@ export async function POST(req: NextRequest) {
           systemeio_synced_at:     now,
           updated_at:              now,
         }).eq('id', l.id)
+
       } else if (r.emailInvalid) {
         invalid++
         await supabaseAdmin.from('leads').update({
@@ -136,12 +141,14 @@ export async function POST(req: NextRequest) {
           systemeio_email_invalid: true,
           updated_at:              now,
         }).eq('id', l.id)
+
       } else {
         errors.push(`${l.email}: ${r.error}`)
       }
     }
 
-    if (i + BATCH < leads.length) await sleep(700)
+    // ✅ FIX: 1500ms вместо 700ms — Systeme.io rate limit е ~60 req/min
+    if (i + BATCH < leads.length) await sleep(1500)
   }
 
   return NextResponse.json({
@@ -162,7 +169,7 @@ export async function GET() {
     .select('*', { count: 'exact', head: true })
     .eq('systemeio_synced', false)
     .eq('subscribed', true)
-    .not('systemeio_email_invalid', 'eq', true) // невалидните не се броят като "чакащи"
+    .not('systemeio_email_invalid', 'eq', true) // Невалидните не се броят като "чакащи"
 
   const { count: total } = await supabaseAdmin
     .from('leads')
