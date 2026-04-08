@@ -1,29 +1,24 @@
-// lib/systemeio.ts — v10
+// lib/systemeio.ts — v11
 //
 // ═══════════════════════════════════════════════════════════════
-//  ЗАЩО v9 НЕ РАБОТЕШЕ:
+//  ОПРАВЕН БАГ В v11:
 //
-//  Стар поток за вече синхронизиран контакт (Случай A):
-//    1. GET /api/contacts/{id}        ← проверка дали съществува
-//    2. PATCH /api/contacts/{id}      ← обновяване на данни
-//    3. GET /api/tags?limit=200       ← намиране на tag ID
-//    4. POST /api/contacts/{id}/tags  ← слагане на таг
-//    = 4 заявки × 329 контакта = 1316 заявки
-//    При rate limit 60/мин → трябва 22 мин.
-//    Vercel timeout = 30 сек → sync се прекъсва след ~25 контакта
+//  ❌ v10 BUG: GET /api/tags?limit=200 → 422 грешка!
+//     Systeme.io приема limit само 10–100.
+//     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
 //
-//  НОВИЯТ поток (v10):
-//    1. PATCH /api/contacts/{id}      ← директно, без предварителна проверка
-//       - Ако 404: намираме/създаваме контакта
-//    2. POST /api/contacts/{id}/tags  ← tag ID е в кеша (1 GET за всички)
-//    = 2 заявки × контакт (+ 1 GET за тагове веднъж за целия batch)
+//  ✅ v11 FIX:
+//     1. Пагинираме тагове по 100 (GET /api/tags?limit=100&page=N)
+//     2. Ако тагът не е намерен → POST /api/tags го създава
+//     3. Кешът използва lowercase ключове навсякъде
+//     4. addTag логва успех/неуспех подробно
 //
-//  ОПРАВЕНИ ПРОБЛЕМИ:
-//  ✅ phoneNumber е top-level поле (НЕ custom field slug)
-//  ✅ naruchnici custom field се попълва с slug на наръчника
-//  ✅ Премахнат предварителен GET per-контакт
-//  ✅ Tag ID се взема ВЕДНЪЖ за целия sync (не per-контакт)
-//  ✅ При 404 на PATCH → намираме/създаваме → после PATCH пак
+//  ЗАПАЗЕНО ОТ v10:
+//  ✅ phoneNumber е top-level поле (не custom field)
+//  ✅ naruchnici custom field с slug на наръчника
+//  ✅ Само 2 заявки/контакт (без предварителен GET)
+//  ✅ При 404 → findByEmail → create → PATCH
+//  ✅ Rate limit handling с retry
 // ═══════════════════════════════════════════════════════════════
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -194,52 +189,77 @@ async function patchContactDirect(
 }
 
 // ── Get tag ID (кеширано — само 1 GET за целия batch) ─────────────────────────
+// FIX: Systeme.io приема limit само между 10 и 100 (не 200!)
+// Затова пагинираме: взимаме по 100 докато намерим тага
 async function getTagId(apiKey: string, tagName: string): Promise<number | null> {
-  if (tagName in tagIdCache) return tagIdCache[tagName]
+  const key = tagName.toLowerCase()
+  if (key in tagIdCache) return tagIdCache[key]
 
-  // Взимаме всички тагове (1 заявка за целия sync процес)
-  const res = await sioFetch(apiKey, 'GET', '/api/tags?limit=200')
-  if (res.ok) {
-    const items = res.data?.items || res.data?.['hydra:member'] || []
+  // Пагинираме тагове по 100 (max допустим limit)
+  let page = 1
+  let found = false
+  while (true) {
+    const res = await sioFetch(apiKey, 'GET', `/api/tags?limit=100&page=${page}`)
+    if (!res.ok) {
+      if (isPlanLimit(res.status, res.data)) {
+        console.info(`[Sio] Таг "${tagName}" — план лимит`)
+        tagIdCache[key] = null
+        return null
+      }
+      console.warn(`[Sio] GET /api/tags page=${page} → ${res.status}`)
+      break
+    }
+
+    const items: any[] = res.data?.items || res.data?.['hydra:member'] || []
     for (const t of items) {
-      // Кешираме всички тагове наведнъж
-      if (t?.id && t?.name) tagIdCache[t.name.toLowerCase()] = Number(t.id)
+      if (t?.id && t?.name) {
+        tagIdCache[t.name.toLowerCase()] = Number(t.id)
+      }
     }
-    if (tagName.toLowerCase() in tagIdCache) {
-      console.info(`[Sio] Таг "${tagName}" → ID ${tagIdCache[tagName.toLowerCase()]}`)
-      // Нормализираме ключа
-      tagIdCache[tagName] = tagIdCache[tagName.toLowerCase()]
-      return tagIdCache[tagName]
+
+    if (key in tagIdCache) {
+      found = true
+      console.info(`[Sio] Таг "${tagName}" → ID ${tagIdCache[key]}`)
+      break
     }
+
+    // Проверяваме дали има следваща страница
+    const total   = res.data?.total ?? res.data?.['hydra:totalItems'] ?? 0
+    const hasMore = res.data?.hasMore === true || (page * 100 < total)
+    if (!hasMore || items.length === 0) break
+    page++
+    await sleep(300)
   }
 
-  // Тагът не съществува → опитваме да го създадем
-  if (isPlanLimit(res.status, res.data)) {
-    console.info(`[Sio] Таг "${tagName}" — план лимит`)
-    tagIdCache[tagName] = null
+  if (!found) {
+    // Тагът не съществува → създаваме го
+    console.info(`[Sio] Тагът "${tagName}" не е намерен → създаваме`)
+    const createRes = await sioFetch(apiKey, 'POST', '/api/tags', { name: tagName })
+    if (createRes.ok && createRes.data?.id) {
+      tagIdCache[key] = Number(createRes.data.id)
+      console.info(`[Sio] Таг "${tagName}" създаден → ID ${tagIdCache[key]}`)
+      return tagIdCache[key]
+    }
+    if (isPlanLimit(createRes.status, createRes.data)) {
+      tagIdCache[key] = null
+      return null
+    }
+    console.warn(`[Sio] Не можем да създадем таг "${tagName}": ${createRes.text?.slice(0, 200)}`)
+    tagIdCache[key] = null
     return null
   }
 
-  const createRes = await sioFetch(apiKey, 'POST', '/api/tags', { name: tagName })
-  if (createRes.ok && createRes.data?.id) {
-    tagIdCache[tagName] = Number(createRes.data.id)
-    console.info(`[Sio] Таг "${tagName}" създаден → ID ${tagIdCache[tagName]}`)
-    return tagIdCache[tagName]
-  }
-
-  if (isPlanLimit(createRes.status, createRes.data)) {
-    tagIdCache[tagName] = null
-    return null
-  }
-
-  tagIdCache[tagName] = null
-  return null
+  return tagIdCache[key] ?? null
 }
 
 // ── Add tag (само ако все още не е добавен) ───────────────────────────────────
 async function addTag(apiKey: string, contactId: string, tagName: string): Promise<void> {
-  const tagId = await getTagId(apiKey, tagName)
-  if (tagId === null) return
+  // FIX: винаги използваме lowercase за кеша
+  const tagId = await getTagId(apiKey, tagName.toLowerCase())
+  if (tagId === null) {
+    console.warn(`[Sio] addTag: не можем да намерим/създадем таг "${tagName}" — пропускаме`)
+    return
+  }
 
   const res = await sioFetch(apiKey, 'POST', `/api/contacts/${contactId}/tags`, { tagId })
 
@@ -250,7 +270,9 @@ async function addTag(apiKey: string, contactId: string, tagName: string): Promi
   }
   // 409 = вече има тага → нормално, не логваме
   if (!res.ok && res.status !== 409) {
-    console.warn(`[Sio] addTag ${tagName} → ${res.status}`)
+    console.warn(`[Sio] addTag "${tagName}" (id=${tagId}) → ${res.status}: ${res.text?.slice(0, 200)}`)
+  } else if (res.ok) {
+    console.info(`[Sio] Таг "${tagName}" добавен към контакт ${contactId} ✅`)
   }
 }
 
