@@ -1,15 +1,22 @@
-// lib/systemeio.ts — v6 FIXED
+// lib/systemeio.ts — v7 FIXED
 //
-// Промени спрямо v5:
-//   - addTag: Systeme.io изисква tagId (число), НЕ { name } директно към contacts/{id}/tags
-//     Правилният flow: POST /api/tags { name } → взимаме { id } → POST /api/contacts/{id}/tags { tagId }
-//   - tagId се кешира в паметта за да не се прави POST /api/tags при всяка синхронизация
-//   - Rate limit: sleep между операции е увеличен
+// Промени спрямо v6:
+//   - getOrCreateTagId: ако планът не позволява нови тагове (422 "upgrade plan"),
+//     СПИРАМЕ да се опитваме — кешираме tagName → null и пропускаме тага безшумно
+//     вместо да спамим API-то при всеки лийд.
+//   - ensureContact: имейли отхвърлени от Systeme.io като невалидни (422 email violation)
+//     се маркират с специален error код "EMAIL_INVALID" — caller-ът може да ги
+//     запише в БД и да НЕ retry-ва повече.
+//   - syncContact: ако error е "EMAIL_INVALID", връщаме ok:false + emailInvalid:true
+//     за да може route.ts да запише systemeio_email_invalid=true в БД.
+//   - isDuplicateEmail: по-стриктна проверка — само email violations, не всяко 422.
+//   - Всички 422 с "upgrade" → тихо игнориране без console.warn spam.
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-// ── Tag ID cache (in-memory, per process) ─────────────────────────────────────
-const tagIdCache: Record<string, number> = {}
+// ── Tag ID cache ──────────────────────────────────────────────────────────────
+// null = знаем, че тагът не може да се създаде (план лимит или не съществува)
+const tagIdCache: Record<string, number | null> = {}
 
 // ── Phone formatter ───────────────────────────────────────────────────────────
 export function formatPhone(phone?: string | null): string | undefined {
@@ -33,14 +40,36 @@ export function splitName(name?: string | null): { firstName: string; lastName: 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Проверява дали 422/409 отговорът е "duplicate email" специфично */
 function isDuplicateEmail(status: number, data: any): boolean {
   if (status === 409) return true
   if (status !== 422) return false
   const detail: string = data?.detail || data?.violations?.[0]?.message || ''
-  return (
-    detail.toLowerCase().includes('already used') ||
-    detail.toLowerCase().includes('already exists')
+  const lower = detail.toLowerCase()
+  return lower.includes('already used') || lower.includes('already exists')
+}
+
+/** Проверява дали 422 е заради невалиден имейл (домейн без MX, невалиден формат и т.н.) */
+function isEmailInvalid(status: number, data: any): boolean {
+  if (status !== 422) return false
+  const violations: any[] = data?.violations || []
+  // Проверяваме дали има violation за email поле
+  const emailViolation = violations.find(
+    (v: any) => v?.propertyPath === 'email' || (v?.message || '').toLowerCase().includes('email')
   )
+  if (!emailViolation) {
+    // Проверяваме и detail полето
+    const detail: string = data?.detail || ''
+    return detail.toLowerCase().includes('email') && !isDuplicateEmail(status, data)
+  }
+  return true
+}
+
+/** Проверява дали 422 е заради план лимит */
+function isPlanLimit(status: number, data: any): boolean {
+  if (status !== 422 && status !== 400) return false
+  const detail: string = data?.detail || data?.violations?.[0]?.message || ''
+  return detail.toLowerCase().includes('upgrade') || detail.toLowerCase().includes('plan')
 }
 
 function safeParseJson(text: string): any {
@@ -67,8 +96,14 @@ async function sioFetch(
   const text = await res.text()
   const data = safeParseJson(text)
 
-  const isDuplicate = isDuplicateEmail(res.status, data)
-  if (!res.ok && !isDuplicate && res.status !== 429) {
+  // Логваме само реални грешки — не дублирани имейли, не план лимити, не rate limits
+  if (
+    !res.ok &&
+    !isDuplicateEmail(res.status, data) &&
+    !isEmailInvalid(res.status, data) &&
+    !isPlanLimit(res.status, data) &&
+    res.status !== 429
+  ) {
     console.warn(`[Systeme.io] ${method} ${path} → ${res.status}:`, text.slice(0, 300))
   }
 
@@ -85,9 +120,13 @@ export async function findContactByEmail(apiKey: string, email: string): Promise
 }
 
 // ── Get or create tag → returns numeric tag ID ────────────────────────────────
+// Връща null ако:
+//   - планът не позволява нови тагове
+//   - тагът не може да се намери в списъка
+// В такъв случай кешираме null и НЕ правим повторни опити.
 async function getOrCreateTagId(apiKey: string, tagName: string): Promise<number | null> {
-  // 1. Проверяваме кеша
-  if (tagIdCache[tagName]) return tagIdCache[tagName]
+  // 1. Проверяваме кеша (включително null = знаем че не може)
+  if (tagName in tagIdCache) return tagIdCache[tagName]
 
   // 2. Опитваме да създадем тага
   const createRes = await sioFetch(apiKey, 'POST', '/api/tags', { name: tagName })
@@ -95,6 +134,13 @@ async function getOrCreateTagId(apiKey: string, tagName: string): Promise<number
   if (createRes.ok && createRes.data?.id) {
     tagIdCache[tagName] = Number(createRes.data.id)
     return tagIdCache[tagName]
+  }
+
+  // План лимит → кешираме null, спираме да опитваме
+  if (isPlanLimit(createRes.status, createRes.data)) {
+    console.info(`[Systeme.io] Таг "${tagName}" не може да се създаде (план лимит). Пропускаме безшумно.`)
+    tagIdCache[tagName] = null
+    return null
   }
 
   // Вече съществува → търсим в списъка
@@ -109,6 +155,10 @@ async function getOrCreateTagId(apiKey: string, tagName: string): Promise<number
         return tagIdCache[tagName]
       }
     }
+    // Не можем да го намерим и не можем да го създадем → кешираме null
+    console.info(`[Systeme.io] Таг "${tagName}" не е намерен и не може да се създаде.`)
+    tagIdCache[tagName] = null
+    return null
   }
 
   if (createRes.status === 429) {
@@ -118,9 +168,14 @@ async function getOrCreateTagId(apiKey: string, tagName: string): Promise<number
       tagIdCache[tagName] = Number(retry.data.id)
       return tagIdCache[tagName]
     }
+    if (isPlanLimit(retry.status, retry.data)) {
+      tagIdCache[tagName] = null
+      return null
+    }
   }
 
   console.warn(`[Systeme.io] Не можем да вземем tagId за "${tagName}"`)
+  tagIdCache[tagName] = null
   return null
 }
 
@@ -131,7 +186,7 @@ async function ensureContact(
   firstName: string,
   lastName: string,
   phone?: string
-): Promise<{ contactId: string | null; error?: string }> {
+): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
   const fields: { slug: string; value: string }[] = []
   if (phone) fields.push({ slug: 'phone_number', value: phone })
 
@@ -150,6 +205,13 @@ async function ensureContact(
     return { contactId }
   }
 
+  // Невалиден имейл (домейн без MX, невалиден формат) → маркираме специално
+  if (isEmailInvalid(res.status, res.data)) {
+    const detail = res.data?.violations?.[0]?.message || res.data?.detail || 'Invalid email'
+    console.info(`[Systeme.io] Невалиден имейл "${email}": ${detail}`)
+    return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
+  }
+
   if (res.status === 422) {
     const detail = res.data?.detail || res.data?.violations?.[0]?.message || res.text?.slice(0, 200)
     return { contactId: null, error: `422: ${detail}` }
@@ -159,10 +221,14 @@ async function ensureContact(
     console.warn('[Systeme.io] Rate limit при POST /api/contacts — изчакваме 5 сек...')
     await sleep(5000)
     const retry = await sioFetch(apiKey, 'POST', '/api/contacts', postBody)
-    if (retry.ok)                                   return { contactId: String(retry.data?.id) }
+    if (retry.ok)                                    return { contactId: String(retry.data?.id) }
     if (isDuplicateEmail(retry.status, retry.data)) {
       await sleep(500)
       return { contactId: await findContactByEmail(apiKey, email) }
+    }
+    if (isEmailInvalid(retry.status, retry.data)) {
+      const detail = retry.data?.violations?.[0]?.message || retry.data?.detail || 'Invalid email'
+      return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
     }
     return { contactId: null, error: `POST retry ${retry.status}: ${retry.text?.slice(0, 200)}` }
   }
@@ -219,11 +285,11 @@ async function patchContact(
   }
 }
 
-// ── Add tag (правилен начин: POST /api/tags → id → POST contacts/{id}/tags { tagId }) ──
+// ── Add tag ───────────────────────────────────────────────────────────────────
 async function addTag(apiKey: string, contactId: string, tagName: string): Promise<void> {
   const tagId = await getOrCreateTagId(apiKey, tagName)
-  if (!tagId) {
-    console.warn(`[Systeme.io] Пропускаме тага "${tagName}" — не можем да вземем ID`)
+  if (tagId === null) {
+    // Тихо пропускаме — вече сме логнали причината в getOrCreateTagId
     return
   }
 
@@ -250,7 +316,7 @@ export async function syncContact(params: {
   phone?:     string | null
   contactId?: string | null
   tag?:       string
-}): Promise<{ ok: boolean; contactId?: string; error?: string }> {
+}): Promise<{ ok: boolean; contactId?: string; error?: string; emailInvalid?: boolean }> {
   const { apiKey, email, tag = 'naruchnik' } = params
   const { firstName, lastName }              = splitName(params.name)
   const phone                                = formatPhone(params.phone)
@@ -261,18 +327,19 @@ export async function syncContact(params: {
   if (contactId) {
     const check = await getContactById(apiKey, contactId)
     if (!check.ok) {
-      if (check.notFound) {
-        contactId = null
-      } else {
-        console.warn(`[Systeme.io] GET contact ${contactId} → ${check.status}, продължаваме`)
-        contactId = null
-      }
+      contactId = null // нулираме и продължаваме — ensureContact ще го намери/създаде
     }
   }
 
   // 2. Създаваме или намираме контакта
   if (!contactId) {
     const result = await ensureContact(apiKey, email, firstName, lastName, phone)
+
+    // Невалиден имейл → веднага връщаме, без да продължаваме
+    if (result.emailInvalid) {
+      return { ok: false, error: result.error, emailInvalid: true }
+    }
+
     if (result.error) return { ok: false, error: result.error }
     contactId = result.contactId
   }
@@ -286,7 +353,7 @@ export async function syncContact(params: {
   await sleep(400)
   await patchContact(apiKey, contactId, firstName, lastName, phone)
 
-  // 4. Добавяме таг
+  // 4. Добавяме таг (безшумно пропуска ако планът не позволява)
   await sleep(300)
   await addTag(apiKey, contactId, tag)
 
@@ -294,13 +361,18 @@ export async function syncContact(params: {
 }
 
 // ── Sync with retry ───────────────────────────────────────────────────────────
+// НЕ retry-ваме ако имейлът е невалиден (няма смисъл)
 export async function syncContactWithRetry(
   params: Parameters<typeof syncContact>[0],
   retries = 2
-): Promise<{ ok: boolean; contactId?: string; error?: string }> {
+): Promise<{ ok: boolean; contactId?: string; error?: string; emailInvalid?: boolean }> {
   for (let i = 0; i <= retries; i++) {
     const result = await syncContact(params)
     if (result.ok) return result
+
+    // Невалиден имейл → не retry-ваме
+    if (result.emailInvalid) return result
+
     if (i < retries) {
       console.warn(`[Systeme.io] Retry ${i + 1} for ${params.email}:`, result.error)
       await sleep(1000 * (i + 1))

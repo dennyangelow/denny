@@ -1,5 +1,8 @@
-// app/api/leads/route.ts — v12 FINAL
-// Използва lib/systemeio.ts за sync логиката
+// app/api/leads/route.ts — v13
+// Промени спрямо v12:
+//   - Ако Systeme.io върне emailInvalid:true → записваме systemeio_email_invalid=true в БД
+//     и НЕ правим повторни опити при следващ sync (route и batch ги пропускат)
+//   - systemeioStatus = 'invalid_email' за по-ясно разграничение в отговора
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -93,48 +96,63 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Systeme.io ───────────────────────────────────────────────────────────
-    let systemeioStatus: 'ok' | 'skipped' | 'error' = 'skipped'
+    let systemeioStatus: 'ok' | 'skipped' | 'error' | 'invalid_email' = 'skipped'
     let systemeioError: string | undefined
 
     const apiKey = process.env.systemeio_api
     if (systemeioEnabled && apiKey) {
+      // Пропускаме ако вече знаем, че имейлът е невалиден за Systeme.io
       const { data: existing } = await supabaseAdmin
         .from('leads')
-        .select('systemeio_contact_id')
+        .select('systemeio_contact_id, systemeio_email_invalid')
         .eq('email', cleanEmail)
         .single()
 
-      const result = await syncContactWithRetry({
-        apiKey,
-        email:     cleanEmail,
-        name:      cleanName,
-        phone:     cleanPhone,
-        contactId: existing?.systemeio_contact_id || null,
-      })
-
-      systemeioStatus = result.ok ? 'ok' : 'error'
-      systemeioError  = result.error
-
-      if (result.ok) {
-        await supabaseAdmin.from('leads').update({
-          systemeio_synced:     true,
-          systemeio_contact_id: result.contactId || existing?.systemeio_contact_id || null,
-          systemeio_synced_at:  now,
-          updated_at:           now,
-        }).eq('email', cleanEmail)
+      if (existing?.systemeio_email_invalid) {
+        systemeioStatus = 'invalid_email'
       } else {
-        console.error('[Systeme.io] FAIL:', result.error)
-        await supabaseAdmin.from('leads').update({
-          systemeio_synced: false,
-          updated_at:       now,
-        }).eq('email', cleanEmail)
+        const result = await syncContactWithRetry({
+          apiKey,
+          email:     cleanEmail,
+          name:      cleanName,
+          phone:     cleanPhone,
+          contactId: existing?.systemeio_contact_id || null,
+        })
 
-        try {
-          await supabaseAdmin.from('settings').upsert(
-            { key: 'systemeio_last_error', value: `${now} | ${cleanEmail} | ${result.error}`, updated_at: now },
-            { onConflict: 'key' }
-          )
-        } catch { /* silent */ }
+        if (result.ok) {
+          systemeioStatus = 'ok'
+          await supabaseAdmin.from('leads').update({
+            systemeio_synced:         true,
+            systemeio_email_invalid:  false,
+            systemeio_contact_id:     result.contactId || existing?.systemeio_contact_id || null,
+            systemeio_synced_at:      now,
+            updated_at:               now,
+          }).eq('email', cleanEmail)
+        } else if (result.emailInvalid) {
+          systemeioStatus = 'invalid_email'
+          systemeioError  = result.error
+          // Маркираме веднъж — повече няма да се опитваме
+          await supabaseAdmin.from('leads').update({
+            systemeio_synced:        false,
+            systemeio_email_invalid: true,
+            updated_at:              now,
+          }).eq('email', cleanEmail)
+        } else {
+          systemeioStatus = 'error'
+          systemeioError  = result.error
+          console.error('[Systeme.io] FAIL:', result.error)
+          await supabaseAdmin.from('leads').update({
+            systemeio_synced: false,
+            updated_at:       now,
+          }).eq('email', cleanEmail)
+
+          try {
+            await supabaseAdmin.from('settings').upsert(
+              { key: 'systemeio_last_error', value: `${now} | ${cleanEmail} | ${result.error}`, updated_at: now },
+              { onConflict: 'key' }
+            )
+          } catch { /* silent */ }
+        }
       }
     }
 

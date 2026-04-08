@@ -1,5 +1,8 @@
-// app/api/leads/sync/route.ts — v4 FINAL
-// Използва lib/systemeio.ts
+// app/api/leads/sync/route.ts — v5
+// Промени спрямо v4:
+//   - Пропуска лийдове с systemeio_email_invalid=true при масов sync
+//   - GET статус включва и броя на невалидните имейли
+//   - emailInvalid се записва в БД при единичен sync
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -24,12 +27,20 @@ export async function POST(req: NextRequest) {
   if (singleId) {
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
-      .select('id, email, name, phone, systemeio_contact_id')
+      .select('id, email, name, phone, systemeio_contact_id, systemeio_email_invalid')
       .eq('id', singleId)
       .single()
 
     if (error || !lead) {
       return NextResponse.json({ error: 'Лийдът не е намерен' }, { status: 404 })
+    }
+
+    if ((lead as any).systemeio_email_invalid) {
+      return NextResponse.json({
+        success: false, synced: 0, failed: 0,
+        message: 'Имейлът е маркиран като невалиден за Systeme.io (invalid_email). Пропуснат.',
+        invalidEmail: true,
+      })
     }
 
     const result = await syncContact({
@@ -42,12 +53,24 @@ export async function POST(req: NextRequest) {
 
     if (result.ok) {
       await supabaseAdmin.from('leads').update({
-        systemeio_synced:     true,
-        systemeio_contact_id: result.contactId || lead.systemeio_contact_id || undefined,
-        systemeio_synced_at:  now,
-        updated_at:           now,
+        systemeio_synced:        true,
+        systemeio_email_invalid: false,
+        systemeio_contact_id:    result.contactId || lead.systemeio_contact_id || undefined,
+        systemeio_synced_at:     now,
+        updated_at:              now,
       }).eq('id', lead.id)
       return NextResponse.json({ success: true, synced: 1, failed: 0 })
+    } else if (result.emailInvalid) {
+      await supabaseAdmin.from('leads').update({
+        systemeio_synced:        false,
+        systemeio_email_invalid: true,
+        updated_at:              now,
+      }).eq('id', lead.id)
+      return NextResponse.json({
+        success: false, synced: 0, failed: 0,
+        message: `Невалиден имейл: ${result.error}`,
+        invalidEmail: true,
+      })
     } else {
       return NextResponse.json({
         success: false, synced: 0, failed: 1,
@@ -61,6 +84,8 @@ export async function POST(req: NextRequest) {
     .from('leads')
     .select('id, email, name, phone, systemeio_contact_id')
     .eq('subscribed', true)
+    // Никога не sync-ваме невалидни имейли
+    .not('systemeio_email_invalid', 'eq', true)
 
   if (!syncAll) query = query.eq('systemeio_synced', false)
 
@@ -76,6 +101,7 @@ export async function POST(req: NextRequest) {
 
   const BATCH = 3
   let synced   = 0
+  let invalid  = 0
   const errors: string[] = []
 
   for (let i = 0; i < leads.length; i += BATCH) {
@@ -93,13 +119,22 @@ export async function POST(req: NextRequest) {
     for (let j = 0; j < results.length; j++) {
       const r = results[j]
       const l = batch[j] as any
+
       if (r.ok) {
         synced++
         await supabaseAdmin.from('leads').update({
-          systemeio_synced:     true,
-          systemeio_contact_id: r.contactId || l.systemeio_contact_id || undefined,
-          systemeio_synced_at:  now,
-          updated_at:           now,
+          systemeio_synced:        true,
+          systemeio_email_invalid: false,
+          systemeio_contact_id:    r.contactId || l.systemeio_contact_id || undefined,
+          systemeio_synced_at:     now,
+          updated_at:              now,
+        }).eq('id', l.id)
+      } else if (r.emailInvalid) {
+        invalid++
+        await supabaseAdmin.from('leads').update({
+          systemeio_synced:        false,
+          systemeio_email_invalid: true,
+          updated_at:              now,
         }).eq('id', l.id)
       } else {
         errors.push(`${l.email}: ${r.error}`)
@@ -113,6 +148,7 @@ export async function POST(req: NextRequest) {
     success: true,
     total:   leads.length,
     synced,
+    invalid,
     failed:  errors.length,
     errors:  errors.length > 0 ? errors : undefined,
   })
@@ -126,11 +162,21 @@ export async function GET() {
     .select('*', { count: 'exact', head: true })
     .eq('systemeio_synced', false)
     .eq('subscribed', true)
+    .not('systemeio_email_invalid', 'eq', true) // невалидните не се броят като "чакащи"
 
   const { count: total } = await supabaseAdmin
     .from('leads')
     .select('*', { count: 'exact', head: true })
     .eq('subscribed', true)
 
-  return NextResponse.json({ unsynced: unsynced ?? 0, total: total ?? 0 })
+  const { count: invalidEmails } = await supabaseAdmin
+    .from('leads')
+    .select('*', { count: 'exact', head: true })
+    .eq('systemeio_email_invalid', true)
+
+  return NextResponse.json({
+    unsynced:      unsynced      ?? 0,
+    total:         total         ?? 0,
+    invalidEmails: invalidEmails ?? 0,
+  })
 }

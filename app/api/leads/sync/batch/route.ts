@@ -1,5 +1,5 @@
-// app/api/leads/sync/batch/route.ts — v4 FINAL
-// Използва lib/systemeio.ts
+// app/api/leads/sync/batch/route.ts — v5
+// Промени: пропуска лийдове с systemeio_email_invalid=true
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   const { data: leads, error } = await supabaseAdmin
     .from('leads')
-    .select('id, email, name, phone, systemeio_contact_id')
+    .select('id, email, name, phone, systemeio_contact_id, systemeio_email_invalid')
     .in('id', safeIds)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -26,13 +26,21 @@ export async function POST(req: NextRequest) {
 
   const now     = new Date().toISOString()
   let synced    = 0
+  let invalid   = 0
   const errors: string[] = []
 
-  // По 3 паралелно за да не ударим rate limit
   for (let i = 0; i < leads.length; i += 3) {
-    const batch   = (leads as any[]).slice(i, i + 3)
+    const batch = (leads as any[]).slice(i, i + 3)
+
+    // Пропускаме невалидните директно
+    const toSync   = batch.filter((l: any) => !l.systemeio_email_invalid)
+    const skipped  = batch.filter((l: any) =>  l.systemeio_email_invalid)
+    invalid += skipped.length
+
+    if (toSync.length === 0) continue
+
     const results = await Promise.all(
-      batch.map((l: any) => syncContact({
+      toSync.map((l: any) => syncContact({
         apiKey:    API_KEY(),
         email:     l.email,
         name:      l.name,
@@ -43,14 +51,23 @@ export async function POST(req: NextRequest) {
 
     for (let j = 0; j < results.length; j++) {
       const r = results[j]
-      const l = batch[j]
+      const l = toSync[j]
+
       if (r.ok) {
         synced++
         await supabaseAdmin.from('leads').update({
-          systemeio_synced:     true,
-          systemeio_contact_id: r.contactId || l.systemeio_contact_id || undefined,
-          systemeio_synced_at:  now,
-          updated_at:           now,
+          systemeio_synced:        true,
+          systemeio_email_invalid: false,
+          systemeio_contact_id:    r.contactId || l.systemeio_contact_id || undefined,
+          systemeio_synced_at:     now,
+          updated_at:              now,
+        }).eq('id', l.id)
+      } else if (r.emailInvalid) {
+        invalid++
+        await supabaseAdmin.from('leads').update({
+          systemeio_synced:        false,
+          systemeio_email_invalid: true,
+          updated_at:              now,
         }).eq('id', l.id)
       } else {
         errors.push(`${l.email}: ${r.error}`)
@@ -64,6 +81,7 @@ export async function POST(req: NextRequest) {
     success: true,
     total:   leads.length,
     synced,
+    invalid,
     failed:  errors.length,
     errors:  errors.length > 0 ? errors : undefined,
   })
