@@ -280,6 +280,8 @@ export function LeadsTab({ leads }: Props) {
       if (ids) { setInvalidIds(prev => { const next = new Set(prev); ids.forEach(id=>next.delete(id)); return next }) }
       else { setInvalidIds(new Set()) }
       toast.success(`✅ ${data.reset ?? ids?.length ?? '?'} контакта ресетнати — sync-ни пак`)
+      // Рефрешваме страницата за да се опреснят leads данните (unsyncedCount, banner)
+      setTimeout(() => window.location.reload(), 1200)
     } catch(e:any) { toast.error(`❌ ${e.message}`) }
     finally { setResettingInvalid(false) }
   }, [])

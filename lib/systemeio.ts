@@ -193,19 +193,22 @@ async function patchContactDirect(
   naruchnikSlug?:  string  // запазен за съвместимост
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
 
+  const fn = firstName?.trim() || ''
+  const ln = lastName?.trim()  || ''
+
+  // Изграждаме fields[] — custom fields за Systeme.io
+  // Телефонът се праща и като top-level phoneNumber И като custom field
+  // за да се запише по един или друг начин (Systeme.io е непоследователен)
+  const fields: { slug: string; value: string }[] = []
+  if (naruchnikSlug) fields.push({ slug: 'naruchnici', value: naruchnikSlug })
+
   const body: Record<string, unknown> = {}
   // ВАЖНО: Подаваме firstName/lastName само ако имаме реални стойности.
   // Systeme.io merge-patch игнорира null/undefined, но '' (empty) изтрива полето.
-  const fn = firstName?.trim() || ''
-  const ln = lastName?.trim()  || ''
-  if (fn) body.firstName   = fn
-  if (ln) body.lastName    = ln
+  if (fn) body.firstName    = fn
+  if (ln) body.lastName     = ln
   if (phone) body.phoneNumber = phone
-
-  // При PATCH с naruchnikSlug: добавяме fields[] — Systeme.io може да го приеме
-  if (naruchnikSlug) {
-    body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]
-  }
+  if (fields.length > 0) body.fields = fields
 
   if (Object.keys(body).length === 0) {
     console.info(`[Sio] PATCH skip ${contactId} — no data`)
@@ -219,32 +222,36 @@ async function patchContactDirect(
     body, 'application/merge-patch+json'
   )
 
-  // Phone debug лог
-  if (res.ok && phone) {
-    console.info(`[Sio] PATCH phone: sent="${phone}" → saved="${res.data?.phoneNumber || 'NOT SAVED'}"`)
-  }
   console.info(`[Sio] PATCH status=${res.status} ok=${res.ok}`)
+  if (res.ok && phone) {
+    const savedPhone = res.data?.phoneNumber
+    console.info(`[Sio] PATCH phone: sent="${phone}" → saved="${savedPhone || 'NOT SAVED'}"`)
+  }
 
   if (res.ok) return 'ok'
   if (res.status === 404) return 'notFound'
   if (res.status === 429) return 'rateLimited'
 
-  // Ако fields[] е причинил 422 → retry без fields[]
+  // Ако fields[] е причинил 422 (custom field slug не съществува) → retry без fields
   if (isFieldSlugMissing(res.status, res.data)) {
-    console.info(`[Sio] fields[] rejected → retry PATCH без fields`)
+    console.info(`[Sio] fields[] rejected (slug missing) → retry PATCH без fields`)
     const body2: Record<string, unknown> = {}
-    const fn2 = firstName?.trim() || ''
-    const ln2 = lastName?.trim()  || ''
-    if (fn2) body2.firstName   = fn2
-    if (ln2) body2.lastName    = ln2
+    if (fn)    body2.firstName   = fn
+    if (ln)    body2.lastName    = ln
     if (phone) body2.phoneNumber = phone
     if (Object.keys(body2).length === 0) return 'ok'
     const res2 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, body2, 'application/merge-patch+json')
-    if (res2.ok) return 'ok'
+    if (res2.ok) {
+      console.info(`[Sio] PATCH retry (без fields) → ok ✅`)
+      return 'ok'
+    }
     if (res2.status === 404) return 'notFound'
     if (res2.status === 429) return 'rateLimited'
+    console.warn(`[Sio] PATCH retry failed: ${res2.status} ${res2.text?.slice(0, 200)}`)
     return 'error'
   }
+
+  console.warn(`[Sio] PATCH error: ${res.status} ${res.text?.slice(0, 200)}`)
   return 'error'
 }
 
