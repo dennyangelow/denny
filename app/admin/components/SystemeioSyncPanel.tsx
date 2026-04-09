@@ -1,11 +1,14 @@
 'use client'
-// app/admin/components/SystemeioSyncPanel.tsx — v5
+// app/admin/components/SystemeioSyncPanel.tsx — v6
 //
-// ПОПРАВКИ v5:
-//   Sync вече върви ИЗЦЯЛО НА СЪРВЪРА — /api/leads/sync/background
-//   Браузърът poll-ва прогреса на всеки 3 сек.
-//   Дори да затвориш прозореца / презаредиш — sync продължава!
-//   При отваряне на панела автоматично се засича ако sync вече върви.
+// ПОПРАВКИ v6:
+//   1. runSync НЕ чака await fetch(POST) — пуска fire-and-forget.
+//      Vercel timeout убива заявката, но сървърът продължава да пише прогрес.
+//      Polling-ът засича финалния статус сам.
+//   2. "Stale job" детекция: ако updatedAt е > 35 сек стар и status='running' →
+//      показваме предупреждение вместо безкраен spinner.
+//   3. При stale job: бутон "Продължи от там" (рестартира sync от останалите).
+//   4. Poll interval: 3 сек (непроменено).
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
@@ -33,6 +36,7 @@ export function SystemeioSyncPanel() {
   const [status,   setStatus]   = useState<SyncStatus | null>(null)
   const [job,      setJob]      = useState<JobProgress>({ status: 'idle' })
   const [stopping, setStopping] = useState(false)
+  const [stale,    setStale]    = useState(false)
 
   const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null)
   const mountedRef = useRef(true)
@@ -48,18 +52,28 @@ export function SystemeioSyncPanel() {
 
   // ── Poll job progress ───────────────────────────────────────────────────────
   const startPolling = useCallback(() => {
-    if (pollRef.current) return // вече poll-ва
+    if (pollRef.current) return
     pollRef.current = setInterval(async () => {
       try {
         const res  = await fetch('/api/leads/sync/background')
         const data: JobProgress = await res.json()
         if (!mountedRef.current) return
+
         setJob(data)
+
+        // Stale detection: running но не е update-вано > 35 сек
+        if (data.status === 'running' && data.updatedAt) {
+          const age = Date.now() - new Date(data.updatedAt).getTime()
+          setStale(age > 35_000)
+        } else {
+          setStale(false)
+        }
+
         if (data.status !== 'running') {
-          // Спираме polling-а
           clearInterval(pollRef.current!)
           pollRef.current = null
           setStopping(false)
+          setStale(false)
           await fetchStatus()
         }
       } catch { /* silent */ }
@@ -78,7 +92,7 @@ export function SystemeioSyncPanel() {
         if (mountedRef.current) {
           setJob(data)
           if (data.status === 'running') {
-            startPolling() // Вече върви — закачаме се за прогреса
+            startPolling()
           }
         }
       } catch { /* silent */ }
@@ -96,25 +110,29 @@ export function SystemeioSyncPanel() {
   }, [fetchStatus, startPolling])
 
   // ── Стартиране на sync ──────────────────────────────────────────────────────
+  // ВАЖНО: НЕ await-ваме POST заявката!
+  // Vercel може да я убие след timeout, но сървърът продължава.
+  // Polling-ът сам засича края.
   const runSync = async (all: boolean) => {
     setStopping(false)
+    setStale(false)
 
     // Изчистваме abort
     await fetch('/api/leads/sync/abort', { method: 'DELETE' }).catch(() => {})
 
-    // Стартираме background job
+    // Показваме running веднага
     setJob({ status: 'running', total: 0, done: 0, synced: 0, failed: 0, invalid: 0 })
     startPolling()
 
-    try {
-      await fetch('/api/leads/sync/background', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ all }),
-      })
-      // Заявката се върна (sync завърши или Vercel timeout)
-      // Polling-ът ще засече финалния статус
-    } catch { /* silent — браузърът може да е затворил заявката */ }
+    // Fire-and-forget — не await-ваме!
+    fetch('/api/leads/sync/background', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ all }),
+    }).catch(() => {
+      // Заявката може да умре от timeout — OK, сървърът продължава
+      // Polling-ът ще засече финалния статус от settings таблицата
+    })
   }
 
   // ── Спиране ─────────────────────────────────────────────────────────────────
@@ -128,7 +146,7 @@ export function SystemeioSyncPanel() {
     ? status.total - status.unsynced - (status.invalidEmails ?? 0)
     : 0
 
-  const isRunning = job.status === 'running'
+  const isRunning  = job.status === 'running'
   const progressPct = (job.total ?? 0) > 0
     ? Math.round(((job.done ?? 0) / job.total!) * 100)
     : 0
@@ -138,12 +156,20 @@ export function SystemeioSyncPanel() {
       <div style={styles.header}>
         <span style={{ fontSize: 20 }}>🔄</span>
         <h3 style={styles.title}>Systeme.io Синхронизация</h3>
-        {isRunning && (
+        {isRunning && !stale && (
           <span style={{
             marginLeft: 'auto', fontSize: 11, color: '#22c55e',
             background: 'rgba(34,197,94,0.1)', padding: '3px 8px', borderRadius: 99,
           }}>
             ● РАБОТИ НА СЪРВЪРА
+          </span>
+        )}
+        {isRunning && stale && (
+          <span style={{
+            marginLeft: 'auto', fontSize: 11, color: '#f59e0b',
+            background: 'rgba(245,158,11,0.1)', padding: '3px 8px', borderRadius: 99,
+          }}>
+            ⚠ ПАУЗИРАН / TIMEOUT
           </span>
         )}
       </div>
@@ -183,23 +209,33 @@ export function SystemeioSyncPanel() {
       {isRunning && (
         <div style={styles.progressBox}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-            <span>⏳ Синхронизиране на сървъра...</span>
+            <span>{stale ? '⚠ Сървърът не отговаря...' : '⏳ Синхронизиране на сървъра...'}</span>
             <span>{job.done ?? 0} / {job.total ?? '?'} ({progressPct}%)</span>
           </div>
           <div style={styles.progressTrack}>
             <div style={{
               ...styles.progressBar,
-              width: `${progressPct}%`,
+              width:      `${progressPct}%`,
+              background: stale
+                ? 'linear-gradient(90deg, #f59e0b, #d97706)'
+                : 'linear-gradient(90deg, #22c55e, #16a34a)',
               transition: 'width 0.4s ease',
             }} />
           </div>
-          <p style={{ margin: '8px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
-            Можеш да затвориш прозореца — sync продължава на сървъра
-          </p>
+          {!stale && (
+            <p style={{ margin: '8px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
+              Можеш да затвориш прозореца — sync продължава на сървъра
+            </p>
+          )}
+          {stale && (
+            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#f59e0b', textAlign: 'center' }}>
+              Vercel timeout — натисни "Продължи" за да sync-неш останалите
+            </p>
+          )}
         </div>
       )}
 
-      {/* Бутони за стартиране */}
+      {/* Бутони: Стартиране (когато не върви) */}
       {!isRunning && (
         <div style={styles.actions}>
           <button
@@ -210,7 +246,7 @@ export function SystemeioSyncPanel() {
               background: status?.unsynced === 0
                 ? '#374151'
                 : 'linear-gradient(135deg, #f59e0b, #d97706)',
-              cursor: status?.unsynced === 0 ? 'not-allowed' : 'pointer',
+              cursor:  status?.unsynced === 0 ? 'not-allowed' : 'pointer',
               opacity: status?.unsynced === 0 ? 0.6 : 1,
             }}
           >
@@ -222,8 +258,8 @@ export function SystemeioSyncPanel() {
             style={{
               ...styles.btn,
               background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-              cursor: 'pointer',
-              fontSize: 13,
+              cursor:     'pointer',
+              fontSize:   13,
             }}
           >
             ♻️ Full re-sync (обнови всички — имена, телефони, тагове)
@@ -231,19 +267,33 @@ export function SystemeioSyncPanel() {
         </div>
       )}
 
-      {/* Бутон за спиране */}
+      {/* Бутони: Стале или спиране (когато върви) */}
       {isRunning && (
-        <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 12 }}>
+          {stale && (
+            <button
+              onClick={() => runSync(job.all ?? false)}
+              style={{
+                ...styles.btn,
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                cursor:     'pointer',
+                fontSize:   12,
+                padding:    '8px 20px',
+              }}
+            >
+              ▶ Продължи от там
+            </button>
+          )}
           <button
             onClick={stop}
             disabled={stopping}
             style={{
               ...styles.btn,
               background: stopping ? '#1f2937' : '#374151',
-              cursor: stopping ? 'not-allowed' : 'pointer',
-              fontSize: 12,
-              padding: '8px 20px',
-              opacity: stopping ? 0.7 : 1,
+              cursor:     stopping ? 'not-allowed' : 'pointer',
+              fontSize:   12,
+              padding:    '8px 20px',
+              opacity:    stopping ? 0.7 : 1,
             }}
           >
             {stopping ? '⏳ Спира...' : '⏹ Спри'}
@@ -275,6 +325,11 @@ export function SystemeioSyncPanel() {
               <span style={{ color: '#9ca3af' }}> · спрян ръчно</span>
             )}
           </p>
+          {job.status === 'error' && (
+            <p style={{ color: '#fca5a5', fontSize: 12, margin: '4px 0 0' }}>
+              Натисни "Sync несинхронизирани" за да продължиш — вече sync-натите са запазени.
+            </p>
+          )}
           {(job.errors?.length ?? 0) > 0 && (
             <div style={styles.errorList}>
               {job.errors!.slice(0, 5).map((e, i) => (
@@ -337,7 +392,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   progressBar: {
     height:       '100%',
-    background:   'linear-gradient(90deg, #22c55e, #16a34a)',
     borderRadius: 99,
   },
   actions: {

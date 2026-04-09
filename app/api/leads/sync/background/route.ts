@@ -1,12 +1,15 @@
-// ФАЙЛ: app/api/leads/sync/background/route.ts — v1
+// ФАЙЛ: app/api/leads/sync/background/route.ts — v2
 //
-// Целият sync върви НА СЪРВЪРА — браузърът не е нужен да е отворен.
-//
-// POST → стартира background sync (записва прогрес в settings таблицата)
-// GET  → връща текущия прогрес (poll-ва се на всеки 3 сек от frontend-а)
-//
-// Vercel: maxDuration = 300 сек (Pro план = 5 мин, Hobby = 60 сек)
-// За повече от 300 сек → използвай Vercel Cron или Trigger.dev
+// ПОПРАВКИ v2:
+//   1. OFFSET БЪГ ПОПРАВЕН: при all=false не използваме range(offset,...)
+//      защото вече-sync-натите се махат от резултатите → offset лъже.
+//      Вместо това ВИНАГИ взимаме първите BATCH несинхронизирани (offset=0).
+//   2. VERCEL TIMEOUT: намалена пауза от 1200ms → 600ms за да се побере в 60 сек.
+//      400 контакта × 600ms = 240 сек → трябва Pro план (300 сек max).
+//      За Hobby план: намали BATCH и използвай повтарящи се заявки от frontend.
+//   3. saveProgress при всяка грешка/timeout — статусът винаги се записва.
+//   4. При стартиране: ако вече върви job (status='running' и updatedAt < 30 сек) →
+//      не стартираме нов, а връщаме текущия прогрес. Предотвратява двоен sync.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -17,6 +20,11 @@ export const maxDuration = 300 // Vercel Pro: 5 мин. Hobby: сложи 60.
 const sleep   = (ms: number) => new Promise(r => setTimeout(r, ms))
 const API_KEY = () => process.env.systemeio_api || ''
 const JOB_KEY = 'sync_background_job'
+
+// Пауза между контакти — 600ms за да се побере в Vercel limits
+// За Hobby план (60 сек max): 60000ms / 600ms = max ~100 контакта на run
+const CONTACT_DELAY_MS = 600
+const BATCH = 10
 
 // ── Helpers за прогрес в settings таблицата ──────────────────────────────────
 async function saveProgress(data: object) {
@@ -63,6 +71,19 @@ export async function POST(req: NextRequest) {
 
   const { all = false } = await req.json().catch(() => ({}))
 
+  // ── Предотвратяване на двоен sync ──────────────────────────────────────────
+  // Ако вече върви job (записан преди по-малко от 30 сек) → не стартираме нов
+  const existingProgress = await getProgress()
+  if (existingProgress?.status === 'running') {
+    const updatedAt = new Date(existingProgress.updatedAt || 0).getTime()
+    const age = Date.now() - updatedAt
+    if (age < 30_000) {
+      // Job е активен — браузърът просто да продължи да poll-ва
+      return NextResponse.json(existingProgress)
+    }
+    // Job е "заседнал" (>30 сек без update) — считаме го за мъртъв, стартираме нов
+  }
+
   // Изчистваме abort флага
   await supabaseAdmin.from('settings').upsert(
     { key: 'sync_abort', value: 'false', updated_at: new Date().toISOString() },
@@ -77,8 +98,23 @@ export async function POST(req: NextRequest) {
   if (!all) countQuery = countQuery.eq('systemeio_synced', false)
 
   const { count: totalCount } = await countQuery
-
   const total = totalCount ?? 0
+
+  if (total === 0) {
+    await saveProgress({
+      status:     'done',
+      all,
+      total:      0,
+      done:       0,
+      synced:     0,
+      failed:     0,
+      invalid:    0,
+      errors:     [],
+      startedAt:  new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    })
+    return NextResponse.json({ status: 'done', total: 0, done: 0, synced: 0, failed: 0, invalid: 0 })
+  }
 
   // Записваме начално състояние
   await saveProgress({
@@ -94,34 +130,44 @@ export async function POST(req: NextRequest) {
   })
 
   // ── Sync loop ─────────────────────────────────────────────────────────────
-  // Работи изцяло на сървъра — браузърът може да е затворен
-  let done      = 0
-  let synced    = 0
-  let failed    = 0
-  let invalid   = 0
+  let done    = 0
+  let synced  = 0
+  let failed  = 0
+  let invalid = 0
   const errors: string[] = []
-  const BATCH   = 10
-  const now     = new Date().toISOString()
+  const now = new Date().toISOString()
 
   try {
-    let offset = 0
     let hasMore = true
 
     while (hasMore) {
       if (await isAborted()) {
-        await saveProgress({ status: 'aborted', total, done, synced, failed, invalid, errors })
+        await saveProgress({ status: 'aborted', all, total, done, synced, failed, invalid, errors })
         return NextResponse.json({ status: 'aborted', total, done, synced, failed, invalid })
       }
 
-      // Взимаме следващата порция
+      // ── КЛЮЧОВА ПОПРАВКА: ВИНАГИ взимаме от offset=0 ──────────────────────
+      // При all=false: несинхронизираните се маркират като synced=true след обработка,
+      // така че следващия BATCH автоматично ще съдържа следващите несинхронизирани.
+      // НЕ трябва offset да расте — резултатите се "самопочистват".
+      //
+      // При all=true: трябва offset, защото всички остават в резултатите.
+      // Затова при all=true пазим списък с вече-обработените id-та и ги пропускаме.
+
       let query = supabaseAdmin
         .from('leads')
-        .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id, systemeio_email_invalid')
+        .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id')
         .not('systemeio_email_invalid', 'eq', true)
         .order('created_at', { ascending: true })
-        .range(offset, offset + BATCH - 1)
+        .limit(BATCH)
 
-      if (!all) query = query.eq('systemeio_synced', false)
+      if (!all) {
+        // all=false: взимаме само несинхронизирани, ВИНАГИ от началото (offset=0)
+        query = query.eq('systemeio_synced', false)
+      } else {
+        // all=true: взимаме по done offset
+        query = query.range(done, done + BATCH - 1)
+      }
 
       const { data: leads, error } = await query
       if (error) {
@@ -133,7 +179,7 @@ export async function POST(req: NextRequest) {
       // Sync всеки контакт в порцията
       for (const l of leads as any[]) {
         if (await isAborted()) {
-          await saveProgress({ status: 'aborted', total, done, synced, failed, invalid, errors })
+          await saveProgress({ status: 'aborted', all, total, done, synced, failed, invalid, errors })
           return NextResponse.json({ status: 'aborted', total, done, synced, failed, invalid })
         }
 
@@ -168,32 +214,47 @@ export async function POST(req: NextRequest) {
         }
 
         done++
-        await sleep(1200) // Rate limit пауза
+        await sleep(CONTACT_DELAY_MS)
       }
 
       // Записваме прогрес след всяка порция
-      await saveProgress({ status: 'running', all, total, done, synced, failed, invalid, errors: errors.slice(-10) })
+      await saveProgress({
+        status: 'running', all, total, done, synced, failed, invalid,
+        errors: errors.slice(-10),
+      })
 
-      offset += BATCH
+      // При all=false: ако leads.length < BATCH → вече няма повече несинхронизирани
+      // При all=true: продължаваме по offset (done)
       hasMore = leads.length === BATCH
     }
 
     await saveProgress({
-      status:      'done',
+      status:     'done',
       all,
       total,
       done,
       synced,
       failed,
       invalid,
-      errors:      errors.slice(-20),
-      finishedAt:  new Date().toISOString(),
+      errors:     errors.slice(-20),
+      finishedAt: new Date().toISOString(),
     })
 
     return NextResponse.json({ status: 'done', total, done, synced, failed, invalid })
 
   } catch (err: any) {
-    await saveProgress({ status: 'error', total, done, synced, failed, invalid, errors: [err.message] })
+    // Записваме грешката — polling-ът ще я засече
+    await saveProgress({
+      status:  'error',
+      all,
+      total,
+      done,
+      synced,
+      failed,
+      invalid,
+      errors:  [...errors.slice(-10), err.message],
+      finishedAt: new Date().toISOString(),
+    })
     return NextResponse.json({ status: 'error', error: err.message }, { status: 500 })
   }
 }
