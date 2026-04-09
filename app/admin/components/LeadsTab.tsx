@@ -280,8 +280,6 @@ export function LeadsTab({ leads }: Props) {
       if (ids) { setInvalidIds(prev => { const next = new Set(prev); ids.forEach(id=>next.delete(id)); return next }) }
       else { setInvalidIds(new Set()) }
       toast.success(`✅ ${data.reset ?? ids?.length ?? '?'} контакта ресетнати — sync-ни пак`)
-      // Рефрешваме страницата за да се опреснят leads данните (unsyncedCount, banner)
-      setTimeout(() => window.location.reload(), 1200)
     } catch(e:any) { toast.error(`❌ ${e.message}`) }
     finally { setResettingInvalid(false) }
   }, [])
@@ -313,7 +311,8 @@ export function LeadsTab({ leads }: Props) {
   }, [syncedIds])
 
   // ── Bulk sync ─────────────────────────────────────────────────────────────
-  // ПОПРАВЕНО: използва syncedIds[] от response — не брой!
+  // Server-side abort: записваме sync_abort флаг в Supabase.
+  // Batch route-ът го проверява преди всеки контакт и спира ако е true.
   const handleBulkSync = useCallback(async (forceAll = false) => {
     const toSync = forceAll
       ? uniqueLeads.filter(l => l.subscribed && !invalidIds.has(l.id) && !(l as any).systemeio_email_invalid)
@@ -326,6 +325,9 @@ export function LeadsTab({ leads }: Props) {
         )
 
     if (toSync.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
+
+    // Изчистваме abort флага преди старт
+    await fetch('/api/leads/sync/abort', { method: 'DELETE' }).catch(() => {})
 
     setBulkSyncing(true)
     setBulkProgress({ done: 0, total: toSync.length })
@@ -344,6 +346,14 @@ export function LeadsTab({ leads }: Props) {
           })
           const data = await res.json()
 
+          // ── Server потвърди abort → спираме ──────────────────────────────
+          if (data.aborted) {
+            toast.success(`⏹ Спрян: ${totalSynced} синхронизирани`)
+            // Изчистваме флага след спиране
+            await fetch('/api/leads/sync/abort', { method: 'DELETE' }).catch(() => {})
+            break
+          }
+
           if (!res.ok) {
             console.error('[bulk] Batch error:', data.error)
             totalFailed += chunk.length
@@ -351,7 +361,6 @@ export function LeadsTab({ leads }: Props) {
             totalSynced += data.synced || 0
             totalFailed += data.failed || 0
 
-            // ✅ ПОПРАВЕНО: използваме точните syncedIds от сървъра
             if (data.syncedIds?.length > 0) {
               setSyncedIds(prev => {
                 const next = new Set(prev)
@@ -360,7 +369,6 @@ export function LeadsTab({ leads }: Props) {
               })
             }
 
-            // Маркираме невалидните имейли
             if (data.invalidIds?.length > 0) {
               setInvalidIds(prev => {
                 const next = new Set(prev)
@@ -376,7 +384,6 @@ export function LeadsTab({ leads }: Props) {
           totalFailed += chunk.length
         }
 
-        // Пауза между chunk-овете (само ако има следващ)
         if (i + CHUNK < toSync.length) await new Promise(r => setTimeout(r, 2000))
       }
 
@@ -388,7 +395,6 @@ export function LeadsTab({ leads }: Props) {
         toast.error(`❌ Всички ${totalFailed} контакта се провалиха — провери Vercel logs`)
       }
 
-      // Рефрешваме само ако е имало успешни sync-ове
       if (totalSynced > 0) {
         setTimeout(() => window.location.reload(), 1500)
       }
@@ -458,14 +464,27 @@ export function LeadsTab({ leads }: Props) {
       {/* ── Systeme.io sync banner / progress ── */}
       {bulkSyncing ? (
         <div style={{ background:'linear-gradient(135deg,#eff6ff,#dbeafe)', border:'1px solid #93c5fd', borderRadius:12, padding:'14px 18px', marginBottom:20 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8, fontSize:13, color:'#1e40af', fontWeight:700 }}>
-            <span>⏳ Синхронизиране...</span>
-            <span>{bulkProgress.done} / {bulkProgress.total} ({progressPct}%)</span>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+            <span style={{ fontSize:13, color:'#1e40af', fontWeight:700 }}>⏳ Синхронизиране...</span>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <span style={{ fontSize:13, color:'#1e40af', fontWeight:700 }}>{bulkProgress.done} / {bulkProgress.total} ({progressPct}%)</span>
+              {/* ── Бутон СПРИ в progress bar-а ── */}
+              <button
+                onClick={async () => {
+                  await fetch('/api/leads/sync/abort', { method: 'POST' }).catch(() => {})
+                  toast.success('⏹ Изпратен сигнал за спиране...')
+                }}
+                style={{ fontSize:11, padding:'4px 10px', borderRadius:6, border:'1px solid #93c5fd',
+                  background:'#fff', color:'#1e40af', fontWeight:700, cursor:'pointer', fontFamily:'inherit',
+                  whiteSpace:'nowrap' as const }}>
+                ⏹ Спри
+              </button>
+            </div>
           </div>
           <div style={{ height:10, background:'rgba(147,197,253,0.3)', borderRadius:99, overflow:'hidden' }}>
             <div style={{ height:'100%', width:`${progressPct}%`, background:'linear-gradient(90deg,#3b82f6,#2563eb)', borderRadius:99, transition:'width 0.4s ease' }} />
           </div>
-          <div style={{ fontSize:11, color:'#3b82f6', marginTop:6, textAlign:'center' }}>По 3 контакта наведнъж — страницата ще се опресни след края</div>
+          <div style={{ fontSize:11, color:'#3b82f6', marginTop:6, textAlign:'center' }}>По 3 контакта наведнъж — натисни ⏹ за да спреш</div>
         </div>
       ) : unsyncedCount > 0 ? (
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
@@ -486,22 +505,37 @@ export function LeadsTab({ leads }: Props) {
             </div>
           </div>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            <button onClick={() => handleBulkSync(false)} disabled={bulkSyncing}
-              style={{ background:bulkSyncing?'#d97706':'linear-gradient(135deg,#ea580c,#c2410c)',
-                color:'#fff', border:'none', borderRadius:9, padding:'10px 18px', cursor:bulkSyncing?'default':'pointer',
-                fontFamily:'inherit', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:7,
-                opacity:bulkSyncing?.7:1, boxShadow:'0 2px 8px rgba(194,65,12,.3)', whiteSpace:'nowrap' as const }}>
-              {bulkSyncing
-                ? <><span style={{ display:'inline-block', animation:'spin 1s linear infinite' }}>⏳</span> Синхронизира...</>
-                : <>🟠 Sync {unsyncedCount} → Systeme.io</>}
-            </button>
-            {/* Ре-sync бутон — винаги видим */}
-            <button onClick={() => handleBulkSync(true)} disabled={bulkSyncing}
-              style={{ fontSize:12, padding:'10px 14px', borderRadius:9, border:'1px solid #fde68a',
-                background:'#fffbeb', color:'#92400e', fontWeight:700, cursor:'pointer', fontFamily:'inherit',
-                opacity:bulkSyncing?0.6:1, whiteSpace:'nowrap' as const }}>
-              {bulkSyncing ? '⏳...' : '🔄 Ре-sync всички'}
-            </button>
+            {bulkSyncing ? (
+              // ── Бутон СПРИ — вика server-side abort ──────────────────────
+              <button
+                onClick={async () => {
+                  await fetch('/api/leads/sync/abort', { method: 'POST' }).catch(() => {})
+                  toast.success('⏹ Изпратен сигнал за спиране...')
+                }}
+                style={{ background:'#dc2626', color:'#fff', border:'none', borderRadius:9,
+                  padding:'10px 18px', cursor:'pointer', fontFamily:'inherit', fontSize:13,
+                  fontWeight:700, display:'flex', alignItems:'center', gap:7,
+                  boxShadow:'0 2px 8px rgba(220,38,38,.3)', whiteSpace:'nowrap' as const }}>
+                ⏹ Спри sync-а
+              </button>
+            ) : (
+              <button onClick={() => handleBulkSync(false)} disabled={bulkSyncing}
+                style={{ background:'linear-gradient(135deg,#ea580c,#c2410c)',
+                  color:'#fff', border:'none', borderRadius:9, padding:'10px 18px', cursor:'pointer',
+                  fontFamily:'inherit', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:7,
+                  boxShadow:'0 2px 8px rgba(194,65,12,.3)', whiteSpace:'nowrap' as const }}>
+                🟠 Sync {unsyncedCount} → Systeme.io
+              </button>
+            )}
+            {/* Ре-sync бутон — само когато не тече sync */}
+            {!bulkSyncing && (
+              <button onClick={() => handleBulkSync(true)}
+                style={{ fontSize:12, padding:'10px 14px', borderRadius:9, border:'1px solid #fde68a',
+                  background:'#fffbeb', color:'#92400e', fontWeight:700, cursor:'pointer', fontFamily:'inherit',
+                  whiteSpace:'nowrap' as const }}>
+                🔄 Ре-sync всички
+              </button>
+            )}
           </div>
         </div>
       ) : (

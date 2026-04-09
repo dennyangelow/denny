@@ -1,9 +1,9 @@
-// app/api/leads/sync/batch/route.ts — v10
+// app/api/leads/sync/batch/route.ts — v11
 //
-// КРИТИЧНИ ПОПРАВКИ:
-//   1. Връща syncedIds[] и invalidIds[] — frontend знае ТОЧНО кои са успели
-//   2. Добавен console.log за API key debug
-//   3. Увеличен sleep между контактите: 1500ms (стабилност)
+// НОВО: Server-side abort проверка преди всеки контакт
+//   - Чете sync_abort флаг от Supabase settings
+//   - Ако е true → спира и връща { aborted: true }
+//   - Frontend-ът спира loop-а при aborted=true
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -11,6 +11,20 @@ import { syncContact } from '@/lib/systemeio'
 
 const sleep   = (ms: number) => new Promise(r => setTimeout(r, ms))
 const API_KEY = () => process.env.systemeio_api || ''
+
+// Проверяваме дали е зададен abort флаг в Supabase
+async function isAborted(): Promise<boolean> {
+  try {
+    const { data } = await supabaseAdmin
+      .from('settings')
+      .select('value')
+      .eq('key', 'sync_abort')
+      .single()
+    return data?.value === 'true'
+  } catch {
+    return false  // При грешка → продължаваме (не прекъсваме sync-а)
+  }
+}
 
 export async function POST(req: NextRequest) {
   const apiKey = API_KEY()
@@ -24,7 +38,15 @@ export async function POST(req: NextRequest) {
   const { ids } = await req.json() as { ids: string[] }
   if (!ids?.length) return NextResponse.json({ error: 'Липсват ids' }, { status: 400 })
 
-  // Максимум 3 контакта на извикване → ~9 сек → безопасно под 30s Vercel timeout
+  // Проверяваме abort веднага при старт на batch-а
+  if (await isAborted()) {
+    console.info('[batch] Abort флаг е активен → спираме преди старт')
+    return NextResponse.json({
+      success: true, total: 0, synced: 0, invalid: 0, failed: 0,
+      syncedIds: [], invalidIds: [], aborted: true,
+    })
+  }
+
   const safeIds = ids.slice(0, 3)
   console.info(`[batch] Ще sync-нем ${safeIds.length} контакта: ${safeIds.join(', ')}`)
 
@@ -34,16 +56,31 @@ export async function POST(req: NextRequest) {
     .in('id', safeIds)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!leads?.length) return NextResponse.json({ success: true, synced: 0, failed: 0, syncedIds: [], invalidIds: [] })
+  if (!leads?.length) return NextResponse.json({
+    success: true, synced: 0, failed: 0, syncedIds: [], invalidIds: [], aborted: false,
+  })
 
   const now         = new Date().toISOString()
   let synced        = 0
   let invalid       = 0
   const errors:      string[] = []
-  const syncedIds:   string[] = []   // ← НОВО: точни ID-та на успешно синхронизираните
-  const invalidIds:  string[] = []   // ← НОВО: точни ID-та на невалидните имейли
+  const syncedIds:   string[] = []
+  const invalidIds:  string[] = []
 
   for (const l of leads as any[]) {
+    // ── Проверка за abort ПРЕДИ всеки контакт ──────────────────────────────
+    if (await isAborted()) {
+      console.info(`[batch] Abort флаг засечен преди ${l.email} → спираме`)
+      return NextResponse.json({
+        success: true,
+        total:   leads.length,
+        synced, invalid, failed: errors.length,
+        syncedIds, invalidIds,
+        aborted: true,
+        errors:  errors.length > 0 ? errors : undefined,
+      })
+    }
+
     if (l.systemeio_email_invalid) {
       invalid++
       invalidIds.push(l.id)
@@ -98,8 +135,9 @@ export async function POST(req: NextRequest) {
     synced,
     invalid,
     failed:     errors.length,
-    syncedIds,    // ← frontend ги използва за точен UI update
+    syncedIds,
     invalidIds,
+    aborted:    false,
     errors:     errors.length > 0 ? errors : undefined,
   })
 }
