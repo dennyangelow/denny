@@ -17,7 +17,7 @@ import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
 import type { Order }         from '@/lib/supabase'
 
-const AUTO_REFRESH_MS = 15 * 60 * 1000
+const AUTO_REFRESH_MS = 30 * 60 * 1000 // 30 мин — не прекъсва sync
 
 // ─── Loading screen ──────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -95,8 +95,6 @@ export default function AdminPage() {
   const [tab, setTab]               = useState<TabId>('dashboard')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [viewOrder, setViewOrder]   = useState<Order | null>(null)
-  // Докато sync върви — не правим авто-рефреш (ще събори прогреса)
-  const [syncRunning, setSyncRunning] = useState(false)
 
   const {
     orders, setOrders, leads, analytics, pageViews, stats,
@@ -104,13 +102,11 @@ export default function AdminPage() {
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
 
-  // Auto-refresh every 15 minutes — пропускаме ако sync върви
+  // Auto-refresh every 5 minutes
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (!syncRunning) fetchAll()
-    }, AUTO_REFRESH_MS)
+    const timer = setInterval(fetchAll, AUTO_REFRESH_MS)
     return () => clearInterval(timer)
-  }, [fetchAll, syncRunning])
+  }, [fetchAll])
 
   // Close mobile sidebar on tab change
   useEffect(() => { setMobileOpen(false) }, [tab])
@@ -160,7 +156,7 @@ export default function AdminPage() {
             />
           )}
 
-          {tab === 'leads'        && <LeadsTab leads={leads} onSyncStateChange={setSyncRunning} />}
+          {tab === 'leads'        && <LeadsTab leads={leads} />}
           {tab === 'content'      && <ContentTab />}
           {tab === 'marketing'    && <MarketingTab />}
           {tab === 'faq'          && <FaqTab />}

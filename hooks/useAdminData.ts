@@ -5,7 +5,7 @@
 //   - По-добра error обработка
 //   - Конверсията използва last30 orders (не всички)
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
 
 export interface AdminStats {
@@ -49,9 +49,12 @@ export function useAdminData() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
+  const initialFetchDone      = useRef(false)
 
   const fetchAll = useCallback(async () => {
-    setLoading(true)
+    // При първо зареждане → loading screen.
+    // При авто-рефреш → НЕ setLoading(true), за да не unmount-ва табовете и да не спира sync!
+    if (!initialFetchDone.current) setLoading(true)
     setError(null)
     try {
       const [ordRes, leadRes, affRes, pvRes] = await Promise.allSettled([
@@ -125,6 +128,7 @@ export function useAdminData() {
       setError(`Грешка: ${err instanceof Error ? err.message : 'Неизвестна'}`)
     } finally {
       setLoading(false)
+      initialFetchDone.current = true
     }
   }, [])
 
