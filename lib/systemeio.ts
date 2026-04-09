@@ -183,6 +183,13 @@ async function createContact(
   }
 
   if (isEmailInvalid(res.status, res.data)) {
+    // ВАЖНО: Systeme.io понякога връща 422 email invalid за реален имейл
+    // (spam/disposable detection). Проверяваме дали контактът вече съществува.
+    const existingId = await findContactByEmail(apiKey, email)
+    if (existingId) {
+      console.info(`[Sio] 422 emailInvalid но контактът съществува → id=${existingId}`)
+      return { contactId: existingId }
+    }
     const msg = res.data?.violations?.find((v: any) => v?.propertyPath === 'email')?.message
       || res.data?.detail || 'Invalid email'
     return { contactId: null, error: `EMAIL_INVALID: ${msg}`, emailInvalid: true }

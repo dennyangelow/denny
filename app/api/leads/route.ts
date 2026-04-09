@@ -1,11 +1,10 @@
-// ФАЙЛ: app/api/leads/route.ts — v15
+// ФАЙЛ: app/api/leads/route.ts — v16
 //
-// ПОПРАВКИ v15:
-//   1. При upsert: взимаме АКТУАЛНИТЕ данни от базата след upsert
-//      (не разчитаме само на body данните)
-//   2. syncContactWithRetry: подаваме name и phone от базата (не само от body)
-//      Ако потребителят е попълнил само имейл → name=null, phone=null → OK
-//   3. Подобрено error handling при Systeme.io грешки
+// ПОПРАВКИ v16:
+//   1. При upsert: НЕ презаписваме name/phone с null ако вече имат стойност
+//      (преди: upsert с cleanName=null → изтриваше съществуващото име!)
+//   2. syncName/syncPhone: взимаме от upsert резултата (вече коректни)
+//   3. Всичко останало непроменено
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -50,14 +49,26 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* defaults */ }
 
+    // ── Взимаме съществуващия запис ПРЕДИ upsert ──────────────────────────────
+    // Целта: да не презаписваме name/phone с null ако вече имат стойност
+    const { data: existingLead } = await supabaseAdmin
+      .from('leads')
+      .select('id, name, phone, systemeio_contact_id, systemeio_email_invalid')
+      .eq('email', cleanEmail)
+      .single()
+
+    // При upsert: пазим съществуващото name/phone ако новото е null
+    const upsertName  = cleanName  || existingLead?.name  || null
+    const upsertPhone = cleanPhone || existingLead?.phone || null
+
     // Upsert — при конфликт на email обновяваме данните
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
       .upsert(
         {
           email:              cleanEmail,
-          name:               cleanName,
-          phone:              cleanPhone,
+          name:               upsertName,
+          phone:              upsertPhone,
           source:             source || 'naruchnik',
           naruchnik_slug:     slug,
           utm_source:         utm_source   || null,
@@ -87,7 +98,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (resendEnabled && process.env.RESEND_API_KEY) {
-      const { subject, html } = welcomeEmail({ email: cleanEmail, name: cleanName ?? undefined, slug })
+      const { subject, html } = welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
       await new Resend(process.env.RESEND_API_KEY).emails
         .send({ from: 'Denny Angelow <denny@dennyangelow.com>', to: cleanEmail, subject, html })
         .catch(err => console.error('[Resend]', err))
@@ -99,25 +110,19 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.systemeio_api
     if (systemeioEnabled && apiKey) {
       // Взимаме актуалните данни от базата (включително systemeio_contact_id)
-      const { data: existing } = await supabaseAdmin
-        .from('leads')
-        .select('id, name, phone, systemeio_contact_id, systemeio_email_invalid')
-        .eq('email', cleanEmail)
-        .single()
+      // Използваме existingLead + новите данни (вече коректно upsert-нати)
+      const currentContactId = existingLead?.systemeio_contact_id || null
+      const isEmailInvalid   = existingLead?.systemeio_email_invalid || false
 
-      if (existing?.systemeio_email_invalid) {
+      if (isEmailInvalid) {
         systemeioStatus = 'invalid_email'
       } else {
-        // Използваме данните от базата (по-актуални от body при returning upsert)
-        const syncName  = existing?.name  || cleanName
-        const syncPhone = existing?.phone || cleanPhone
-
         const result = await syncContactWithRetry({
           apiKey,
           email:         cleanEmail,
-          name:          syncName,
-          phone:         syncPhone,
-          contactId:     existing?.systemeio_contact_id || null,
+          name:          upsertName,      // ← вече коректно (не null ако имаше преди)
+          phone:         upsertPhone,     // ← същото за phone
+          contactId:     currentContactId,
           naruchnikSlug: slug,
         })
 
@@ -126,7 +131,7 @@ export async function POST(req: NextRequest) {
           await supabaseAdmin.from('leads').update({
             systemeio_synced:        true,
             systemeio_email_invalid: false,
-            systemeio_contact_id:    result.contactId || existing?.systemeio_contact_id || null,
+            systemeio_contact_id:    result.contactId || currentContactId || null,
             systemeio_synced_at:     now,
             updated_at:              now,
           }).eq('email', cleanEmail)
