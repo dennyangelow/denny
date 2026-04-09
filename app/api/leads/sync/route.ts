@@ -1,21 +1,19 @@
-// ФАЙЛ: app/api/leads/sync/route.ts — v5
+// ФАЙЛ: app/api/leads/sync/route.ts — v6
 //
-// ⚠️  ВАЖНО: Този файл замества стария route.ts в app/api/leads/sync/
-//     Старият route пренасочваше към /api/leads/sync/batch
-//     Новият обработва sync директно (без batch redirect)
-//
-// ПОПРАВКИ v5:
-//   1. GET: unsynced НЕ включва невалидни имейли (systemeio_email_invalid=true)
-//   2. POST: ВИНАГИ изключва невалидни — и при sync, и при all=true
-//   3. Използва syncContactWithRetry директно (не вика /batch)
+// ПОПРАВКИ v6:
+//   1. GET ?id=xxx → sync на единичен контакт (за handleSyncOne в LeadsTab)
+//   2. GET (без id) → статус { total, unsynced, invalidEmails }
+//   3. POST → batch sync (5 контакта), поддържа ?all=true и ?id=xxx
+//   4. hasMore: поправена заявка — вече не хвърля грешка при uuid array
+//   5. Изключва невалидни НАВСЯКЪДЕ
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { syncContactWithRetry } from '@/lib/systemeio'
 
 const BATCH_SIZE = 5
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-const API_KEY = () => process.env.systemeio_api || ''
+const sleep      = (ms: number) => new Promise(r => setTimeout(r, ms))
+const API_KEY    = () => process.env.systemeio_api || ''
 
 // ── GET: Статус (unsynced БЕЗ невалидни) ─────────────────────────────────────
 export async function GET() {
@@ -33,7 +31,7 @@ export async function GET() {
     .select('*', { count: 'exact', head: true })
     .eq('systemeio_email_invalid', true)
 
-  // ✅ ПОПРАВКА: unsynced = synced=false AND NOT невалидни
+  // unsynced = synced=false AND NOT невалидни
   const { count: unsynced } = await supabaseAdmin
     .from('leads')
     .select('*', { count: 'exact', head: true })
@@ -47,7 +45,7 @@ export async function GET() {
   })
 }
 
-// ── POST: Batch sync (5 контакта) ─────────────────────────────────────────────
+// ── POST: Batch sync ──────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const apiKey = API_KEY()
   if (!apiKey) {
@@ -55,9 +53,72 @@ export async function POST(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const all = searchParams.get('all') === 'true'
+  const all      = searchParams.get('all') === 'true'
+  const singleId = searchParams.get('id')     // За handleSyncOne
 
-  // ✅ ВИНАГИ изключваме невалидните — и при sync, и при all=true
+  const now = new Date().toISOString()
+
+  // ── Единичен sync (?id=xxx) ─────────────────────────────────────────────────
+  if (singleId) {
+    const { data: lead, error } = await supabaseAdmin
+      .from('leads')
+      .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id, systemeio_email_invalid')
+      .eq('id', singleId)
+      .single()
+
+    if (error || !lead) {
+      return NextResponse.json({ error: 'Контактът не е намерен' }, { status: 404 })
+    }
+
+    if ((lead as any).systemeio_email_invalid) {
+      return NextResponse.json({
+        success: true, synced: 0, invalid: 1, failed: 0,
+        invalidEmail: true, hasMore: false,
+      })
+    }
+
+    const result = await syncContactWithRetry({
+      apiKey,
+      email:         (lead as any).email,
+      name:          (lead as any).name,
+      phone:         (lead as any).phone,
+      contactId:     (lead as any).systemeio_contact_id,
+      naruchnikSlug: (lead as any).naruchnik_slug,
+    })
+
+    if (result.ok) {
+      await supabaseAdmin.from('leads').update({
+        systemeio_synced:        true,
+        systemeio_email_invalid: false,
+        systemeio_contact_id:    result.contactId || (lead as any).systemeio_contact_id || undefined,
+        systemeio_synced_at:     now,
+        updated_at:              now,
+      }).eq('id', singleId)
+
+      return NextResponse.json({ success: true, synced: 1, invalid: 0, failed: 0, hasMore: false })
+    }
+
+    if (result.emailInvalid) {
+      await supabaseAdmin.from('leads').update({
+        systemeio_synced:        false,
+        systemeio_email_invalid: true,
+        updated_at:              now,
+      }).eq('id', singleId)
+
+      return NextResponse.json({
+        success: true, synced: 0, invalid: 1, failed: 0,
+        invalidEmail: true, hasMore: false,
+      })
+    }
+
+    return NextResponse.json({
+      success: false, synced: 0, invalid: 0, failed: 1,
+      error:   result.error, hasMore: false,
+    })
+  }
+
+  // ── Batch sync (без ?id) ────────────────────────────────────────────────────
+  // ВИНАГИ изключваме невалидните
   let query = supabaseAdmin
     .from('leads')
     .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id')
@@ -79,16 +140,25 @@ export async function POST(req: NextRequest) {
   }
 
   // Проверяваме дали има още след този batch
-  const leadIds = leads.map((l: any) => l.id)
-  let remainingQuery = supabaseAdmin
-    .from('leads')
-    .select('id', { count: 'exact', head: true })
-    .not('systemeio_email_invalid', 'eq', true)
-    .not('id', 'in', `(${leadIds.map((id: string) => `"${id}"`).join(',')})`)
-  if (!all) remainingQuery = remainingQuery.eq('systemeio_synced', false)
-  const { count: remaining } = await remainingQuery
+  // Използваме count заявка (без .not('id', 'in', ...) за да избегнем UUID проблеми)
+  let hasMore = false
+  try {
+    const processedIds = leads.map((l: any) => l.id)
 
-  const now     = new Date().toISOString()
+    // Вземаме следващия batch за да видим има ли още
+    let checkQuery = supabaseAdmin
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .not('systemeio_email_invalid', 'eq', true)
+    if (!all) checkQuery = checkQuery.eq('systemeio_synced', false)
+
+    const { count: totalRemaining } = await checkQuery
+    // hasMore = има повече от текущия batch
+    hasMore = (totalRemaining ?? 0) > BATCH_SIZE
+  } catch {
+    hasMore = false
+  }
+
   let synced    = 0
   let failed    = 0
   let invalid   = 0
@@ -135,7 +205,7 @@ export async function POST(req: NextRequest) {
     synced,
     failed,
     invalid,
-    hasMore: (remaining ?? 0) > 0,
+    hasMore,
     errors:  errors.length > 0 ? errors : undefined,
   })
 }
