@@ -139,14 +139,22 @@ async function createContact(
   phone?:          string,
   naruchnikSlug?:  string
 ): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
+  // ✅ ПРАВИЛНО: телефонът и custom fields се подават САМО чрез fields[]
+  // Systeme.io API документация: phone_number е slug в fields, НЕ top-level поле
+  const fields: { slug: string; value: string }[] = []
+  if (phone)         fields.push({ slug: 'phone_number', value: phone })
+  if (naruchnikSlug) fields.push({ slug: 'naruchnici',   value: naruchnikSlug })
+
   const body: Record<string, unknown> = { email, firstName, lastName }
-  if (phone) body.phoneNumber = phone  // top-level поле
-  if (naruchnikSlug) body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]  // custom field
+  if (fields.length > 0) body.fields = fields
 
   console.info(`[Sio] POST /api/contacts body:`, JSON.stringify(body))
   const res = await sioFetch(apiKey, 'POST', '/api/contacts', body)
 
-  if (res.ok) return { contactId: String(res.data?.id) }
+  if (res.ok) {
+    console.info(`[Sio] POST ok → contactId=${res.data?.id}`)
+    return { contactId: String(res.data?.id) }
+  }
 
   if (isDuplicateEmail(res.status, res.data)) {
     await sleep(400)
@@ -157,6 +165,22 @@ async function createContact(
     const detail = res.data?.violations?.[0]?.message || res.data?.detail || 'Invalid email'
     console.info(`[Sio] Invalid email "${email}": ${detail}`)
     return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
+  }
+
+  // При fields[] 422 (slug не съществува) → retry без fields
+  if (isFieldSlugMissing(res.status, res.data)) {
+    console.info(`[Sio] POST fields[] rejected → retry без fields`)
+    const body2: Record<string, unknown> = { email, firstName, lastName }
+    const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', body2)
+    if (r2.ok) return { contactId: String(r2.data?.id) }
+    if (isDuplicateEmail(r2.status, r2.data)) {
+      await sleep(400)
+      return { contactId: await findContactByEmail(apiKey, email) }
+    }
+    if (isEmailInvalid(r2.status, r2.data)) {
+      const detail = r2.data?.violations?.[0]?.message || r2.data?.detail || 'Invalid email'
+      return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
+    }
   }
 
   if (res.status === 429) {
@@ -179,35 +203,34 @@ async function createContact(
 
 // ── Patch contact ─────────────────────────────────────────────────────────────
 // Systeme.io: PATCH изисква "application/merge-patch+json".
-// ВАЖНО: firstName/lastName се записват само ако НЕ са empty string.
-//        merge-patch с празен string изтрива полето.
-//        Затова подаваме само непразните стойности.
-// fields[] не се поддържа от merge-patch → custom field се записва
-//        само при POST (createContact). При PATCH го пропускаме.
+//
+// ✅ ПРАВИЛНО (от официалната документация):
+//   - firstName, lastName → top-level полета
+//   - phone_number, naruchnici → fields[] масив с slug/value
+//   - НЕ phoneNumber като top-level (Systeme.io го приема но не го записва!)
+//
 async function patchContactDirect(
   apiKey:          string,
   contactId:       string,
   firstName:       string,
   lastName:        string,
   phone?:          string,
-  naruchnikSlug?:  string  // запазен за съвместимост
+  naruchnikSlug?:  string
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
 
   const fn = firstName?.trim() || ''
   const ln = lastName?.trim()  || ''
 
-  // Изграждаме fields[] — custom fields за Systeme.io
-  // Телефонът се праща и като top-level phoneNumber И като custom field
-  // за да се запише по един или друг начин (Systeme.io е непоследователен)
-  const fields: { slug: string; value: string }[] = []
-  if (naruchnikSlug) fields.push({ slug: 'naruchnici', value: naruchnikSlug })
+  // fields[] — телефон и naручник като custom fields
+  const fields: { slug: string; value: string | null }[] = []
+  if (phone)         fields.push({ slug: 'phone_number', value: phone })
+  if (naruchnikSlug) fields.push({ slug: 'naruchnici',   value: naruchnikSlug })
 
   const body: Record<string, unknown> = {}
-  // ВАЖНО: Подаваме firstName/lastName само ако имаме реални стойности.
-  // Systeme.io merge-patch игнорира null/undefined, но '' (empty) изтрива полето.
-  if (fn) body.firstName    = fn
-  if (ln) body.lastName     = ln
-  if (phone) body.phoneNumber = phone
+  // firstName/lastName → top-level (само непразни)
+  if (fn) body.firstName = fn
+  if (ln) body.lastName  = ln
+  // phone и naruchnici → само чрез fields[]
   if (fields.length > 0) body.fields = fields
 
   if (Object.keys(body).length === 0) {
@@ -223,22 +246,26 @@ async function patchContactDirect(
   )
 
   console.info(`[Sio] PATCH status=${res.status} ok=${res.ok}`)
-  if (res.ok && phone) {
-    const savedPhone = res.data?.phoneNumber
-    console.info(`[Sio] PATCH phone: sent="${phone}" → saved="${savedPhone || 'NOT SAVED'}"`)
+
+  if (res.ok) {
+    // Проверяваме дали телефонът е записан (от fields в response)
+    if (phone) {
+      const savedFields: any[] = res.data?.fields || []
+      const savedPhone = savedFields.find((f: any) => f.slug === 'phone_number')?.value
+      console.info(`[Sio] PATCH phone_number: sent="${phone}" → saved="${savedPhone || 'NOT IN RESPONSE'}"`)
+    }
+    return 'ok'
   }
 
-  if (res.ok) return 'ok'
   if (res.status === 404) return 'notFound'
   if (res.status === 429) return 'rateLimited'
 
-  // Ако fields[] е причинил 422 (custom field slug не съществува) → retry без fields
+  // Ако fields[] е причинил 422 (slug не съществува) → retry само с имена
   if (isFieldSlugMissing(res.status, res.data)) {
-    console.info(`[Sio] fields[] rejected (slug missing) → retry PATCH без fields`)
+    console.info(`[Sio] fields[] rejected (slug missing) → retry PATCH само с имена`)
     const body2: Record<string, unknown> = {}
-    if (fn)    body2.firstName   = fn
-    if (ln)    body2.lastName    = ln
-    if (phone) body2.phoneNumber = phone
+    if (fn) body2.firstName = fn
+    if (ln) body2.lastName  = ln
     if (Object.keys(body2).length === 0) return 'ok'
     const res2 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, body2, 'application/merge-patch+json')
     if (res2.ok) {
