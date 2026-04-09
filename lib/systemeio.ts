@@ -83,12 +83,20 @@ function isEmailInvalid(status: number, data: any): boolean {
   if (isFieldSlugMissing(status, data)) return false
   if (isPhoneInvalid(status, data)) return false
   const violations: any[] = data?.violations || []
+  // Улавяме всички violations свързани с email поле
   if (violations.some((v: any) => v?.propertyPath === 'email')) return true
-  if (violations.length === 0) {
-    const d = (data?.detail || '').toLowerCase()
-    return d.includes('not a valid email') || d.includes('email address is not valid')
-  }
-  return false
+  // Fallback: проверяваме detail текста за всякакви email грешки от Systeme.io
+  const d = (data?.detail || '').toLowerCase()
+  return (
+    d.includes('not a valid email') ||
+    d.includes('email address is not valid') ||
+    d.includes('email address is invalid') ||
+    d.includes('email is invalid') ||
+    d.includes('invalid email') ||
+    d.includes('lacks a valid mx') ||
+    d.includes('lacks a valid a dns') ||
+    d.includes('dns record')
+  )
 }
 
 function isPlanLimit(status: number, data: any): boolean {
@@ -235,9 +243,10 @@ async function updateContact(
   naruchnikSlug?: string
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
 
-  const fn = firstName?.trim() || ''
-  const ln = lastName?.trim() || ''
+  const fn = firstName?.trim() ?? ''
+  const ln = lastName?.trim() ?? ''
 
+  // Пропускаме само ако НАИСТИНА няма нищо за обновяване
   if (!fn && !ln && !phone && !naruchnikSlug) {
     console.info(`[Sio] UPDATE skip ${contactId} — няма данни`)
     return 'ok'
@@ -245,7 +254,8 @@ async function updateContact(
 
   const patchBody: Record<string, unknown> = {}
 
-  // Имена → горно ниво
+  // Имена → горно ниво (изпращаме дори при '' за да изтрием ако е нужно,
+  // но само ако имаме поне едно непразно — не искаме да изтриваме имена без причина)
   if (fn) patchBody.firstName = fn
   if (ln) patchBody.lastName = ln
 
@@ -383,7 +393,7 @@ export async function syncContact(params: {
   const phone = formatPhone(params.phone)
   const slug = params.naruchnikSlug || undefined
 
-  console.info(`[Sio] ── syncContact: ${email} | id=${params.contactId || 'none'} | fn="${firstName}" ln="${lastName}" | phone="${phone || ''}" | slug="${slug || ''}"`)
+  console.info(`[Sio] ── syncContact: ${email} | id=${params.contactId || 'none'} | rawName="${params.name || 'null'}" | fn="${firstName}" ln="${lastName}" | phone="${phone || ''}" | slug="${slug || ''}"`)
 
   let contactId: string | null = params.contactId || null
 
@@ -439,10 +449,11 @@ export async function syncContact(params: {
     const existingId = await findContactByEmail(apiKey, email)
 
     if (existingId) {
-      console.info(`[Sio] Намерен по email: ${existingId} → update`)
+      console.info(`[Sio] Намерен по email: ${existingId} → update | fn="${firstName}" ln="${lastName}"`)
       contactId = existingId
       await sleep(300)
-      await updateContact(apiKey, contactId, firstName, lastName, phone, slug)
+      const updResult = await updateContact(apiKey, contactId, firstName, lastName, phone, slug)
+      console.info(`[Sio] UPDATE result за ${email}: ${updResult}`)
       await sleep(300)
       await addTag(apiKey, contactId, tag)
       return { ok: true, contactId }
