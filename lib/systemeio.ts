@@ -1,4 +1,4 @@
-// lib/systemeio.ts — v17
+// lib/systemeio.ts — v18
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -7,10 +7,13 @@
 //     Systeme.io приема limit само 10–100.
 //     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
 //
-//  ✅ v17 FIX:
-//     1. PATCH content-type: application/json (не merge-patch)
-//        merge-patch НЕ записваше firstName/lastName в Systeme.io!
-//     2. Запазени всички v16 подобрения
+//  ✅ v18 FIX:
+//     Systeme.io PATCH изисква "application/merge-patch+json" — задължително!
+//     НО merge-patch не поддържа fields[] масив правилно.
+//     РЕШЕНИЕ: 2 отделни заявки:
+//       1. PATCH merge-patch+json  → firstName, lastName, phoneNumber (БЕЗ fields)
+//       2. PATCH merge-patch+json  → само fields: [{slug,value}] (отделно)
+//     Така и имената се записват И custom field-ът работи.
 //
 //  ЗАПАЗЕНО ОТ v11:
 //  ✅ GET /api/tags пагинация по 100
@@ -171,7 +174,10 @@ async function createContact(
 }
 
 // ── Patch contact ─────────────────────────────────────────────────────────────
-// Връща: ok | notFound | rateLimited | error
+// Systeme.io изисква "application/merge-patch+json" за PATCH.
+// НО merge-patch НЕ поддържа fields[] масив — трябват 2 отделни заявки:
+//   1. PATCH firstName/lastName/phoneNumber (без fields)
+//   2. PATCH fields: [{slug, value}] (отделно)
 async function patchContactDirect(
   apiKey:          string,
   contactId:       string,
@@ -180,22 +186,41 @@ async function patchContactDirect(
   phone?:          string,
   naruchnikSlug?:  string
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
-  const body: Record<string, unknown> = {}
-  if (firstName)     body.firstName   = firstName
-  if (lastName)      body.lastName    = lastName
-  if (phone)         body.phoneNumber = phone  // top-level поле
-  if (naruchnikSlug) body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]  // custom field
 
-  const res = await sioFetch(
+  // ── Заявка 1: имена + телефон (без fields) ────────────────────────────────
+  const body1: Record<string, unknown> = {}
+  if (firstName) body1.firstName   = firstName
+  if (lastName)  body1.lastName    = lastName
+  if (phone)     body1.phoneNumber = phone
+
+  const res1 = await sioFetch(
     apiKey, 'PATCH', `/api/contacts/${contactId}`,
-    body  // application/json — merge-patch не записва firstName/lastName!
+    body1, 'application/merge-patch+json'
   )
 
-  if (res.ok)                                      return 'ok'
-  if (isFieldSlugMissing(res.status, res.data))     return 'ok'  // fields 422 → данните са записани
-  if (res.status === 404)                           return 'notFound'
-  if (res.status === 429)                           return 'rateLimited'
-  return 'error'
+  if (res1.status === 404)   return 'notFound'
+  if (res1.status === 429)   return 'rateLimited'
+  if (!res1.ok && !isFieldSlugMissing(res1.status, res1.data)) return 'error'
+
+  // ── Заявка 2: custom field naruchnici (отделно) ───────────────────────────
+  if (naruchnikSlug) {
+    await sleep(200)
+    const body2: Record<string, unknown> = {
+      fields: [{ slug: 'naruchnici', value: naruchnikSlug }]
+    }
+    const res2 = await sioFetch(
+      apiKey, 'PATCH', `/api/contacts/${contactId}`,
+      body2, 'application/merge-patch+json'
+    )
+    // Ако fields-ът не съществува → не е фатално, имената са записани
+    if (res2.status === 429) return 'rateLimited'
+    if (!res2.ok && !isFieldSlugMissing(res2.status, res2.data)) {
+      console.warn(`[Sio] fields PATCH грешка за ${contactId}: ${res2.status}`)
+      // Не връщаме 'error' — имената са записани успешно
+    }
+  }
+
+  return 'ok'
 }
 
 // ── Get tag ID (кеширано — само 1 GET за целия batch) ─────────────────────────
