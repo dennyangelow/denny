@@ -25,7 +25,10 @@ const slugLabel = (slug: string) => {
   return slug
 }
 
-interface Props { leads: Lead[] }
+interface Props {
+  leads: Lead[]
+  onSyncStateChange?: (running: boolean) => void
+}
 type SortKey    = 'created_at' | 'email' | 'name' | 'naruchnik_slug'
 type SortDir    = 'asc' | 'desc'
 type SyncFilter = 'all' | 'synced' | 'unsynced'
@@ -58,7 +61,7 @@ function SyncDot({ synced }: { synced: boolean }) {
   )
 }
 
-export function LeadsTab({ leads }: Props) {
+export function LeadsTab({ leads, onSyncStateChange }: Props) {
   const [search,        setSearch]        = useState('')
   const [filter,        setFilter]        = useState<'all' | 'subscribed' | 'unsubscribed'>('all')
   const [syncFilter,    setSyncFilter]    = useState<SyncFilter>('all')
@@ -330,6 +333,7 @@ export function LeadsTab({ leads }: Props) {
     await fetch('/api/leads/sync/abort', { method: 'DELETE' }).catch(() => {})
 
     setBulkSyncing(true)
+    onSyncStateChange?.(true)
     setBulkProgress({ done: 0, total: toSync.length })
     let totalSynced = 0
     let totalFailed = 0
@@ -396,10 +400,10 @@ export function LeadsTab({ leads }: Props) {
       }
 
       // НЕ правим window.location.reload() — state вече е обновен локално
-      // чрез setSyncedIds / setInvalidIds по-горе в цикъла
     } catch { toast.error('Мрежова грешка') }
     finally {
       setBulkSyncing(false)
+      onSyncStateChange?.(false)
       setBulkProgress({ done: 0, total: 0 })
     }
   }, [uniqueLeads, syncedIds, invalidIds])
