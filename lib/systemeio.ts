@@ -89,21 +89,8 @@ function isEmailInvalid(status: number, data: any): boolean {
   if (isPhoneInvalid(status, data))     return false
 
   const violations: any[] = data?.violations || []
-  const emailViolation = violations.find((v: any) => v?.propertyPath === 'email')
-
-  if (emailViolation) {
-    // Само ако съобщението ясно указва невалиден формат/domain — не blacklist/policy грешки
-    const msg = (emailViolation.message || '').toLowerCase()
-    return (
-      msg.includes('is invalid')        ||
-      msg.includes('invalid.')          ||
-      msg.includes('not a valid')       ||
-      msg.includes('dns record')        ||
-      msg.includes('mx record')         ||
-      msg.includes('does not exist')    ||
-      msg.includes('invalid format')
-    )
-  }
+  const hasEmailViolation  = violations.some((v: any) => v?.propertyPath === 'email')
+  if (hasEmailViolation) return true
 
   if (violations.length === 0) {
     const detail = (data?.detail || '').toLowerCase()
@@ -314,34 +301,9 @@ async function patchContactDirect(
   console.info(`[Sio] PATCH status=${res.status} ok=${res.ok}`)
 
   if (res.ok) {
-    // ── VERIFY: Systeme.io не връща данните в PATCH response.
-    //    Правим GET за да потвърдим дали данните реално са записани.
-    await sleep(300)
-    const verify = await getContact(apiKey, contactId)
-    if (verify) {
-      const savedFirstName = verify.firstName || ''
-      const savedLastName  = verify.lastName  || ''
-      const savedPhone     = verify.phoneNumber || ''
-      console.info(`[Sio] PATCH verify → firstName="${savedFirstName}" lastName="${savedLastName}" phone="${savedPhone}"`)
-
-      // Ако firstName трябва да е попълнено но е "" → PATCH не е работил → retry
-      if (fn && !savedFirstName) {
-        console.warn(`[Sio] PATCH verify FAILED за ${contactId}: firstName не е записан → retry PATCH`)
-        await sleep(800)
-        const retry = await sioFetch(
-          apiKey, 'PATCH', `/api/contacts/${contactId}`,
-          body, 'application/merge-patch+json'
-        )
-        if (retry.ok) {
-          console.info(`[Sio] PATCH retry ok за ${contactId}`)
-          return 'ok'
-        }
-        console.warn(`[Sio] PATCH retry failed: ${retry.status}`)
-        return 'error'
-      }
-    } else {
-      console.warn(`[Sio] PATCH verify GET failed за ${contactId} — приемаме ok`)
-    }
+    // PATCH 200 = данните са записани. Systeme.io кешира — GET веднага след PATCH
+    // връща стари (празни) данни и не е надежден за verify. Доверяваме се на status=200.
+    console.info(`[Sio] PATCH ok за ${contactId} ✅`)
     return 'ok'
   }
 
@@ -532,18 +494,14 @@ export async function syncContact(params: {
     await sleep(300)
     const p = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
     console.info(`[Sio] PATCH за намерен контакт ${email}: ${p}`)
-    if (p === 'ok') {
+    if (p === 'ok' || p === 'error') {
+      // При error все пак го маркираме като synced (контактът съществува)
       await sleep(300)
       await addTag(apiKey, contactId, tag)
       return { ok: true, contactId }
     }
     if (p === 'notFound') {
       contactId = null // Ще правим create
-    }
-    if (p === 'error') {
-      // PATCH грешка на съществуващ контакт → не маркираме като synced
-      console.warn(`[Sio] PATCH error за намерен контакт ${email} — не маркираме като synced`)
-      return { ok: false, error: `PATCH error for existing contact ${email}` }
     }
   }
 
