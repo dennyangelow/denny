@@ -1,4 +1,8 @@
-// lib/systemeio.ts — v20
+// lib/systemeio.ts — v21
+// ПОПРАВКИ v21:
+//   1. patchContactDirect: fields[] при наличен naruchnikSlug (опит при PATCH)
+//   2. При 422 fields slug missing → retry PATCH без fields
+//   3. Phone debug лог — показва дали Systeme.io е записал телефона
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -198,6 +202,11 @@ async function patchContactDirect(
   if (ln) body.lastName    = ln
   if (phone) body.phoneNumber = phone
 
+  // При PATCH с naruchnikSlug: добавяме fields[] — Systeme.io може да го приеме
+  if (naruchnikSlug) {
+    body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]
+  }
+
   if (Object.keys(body).length === 0) {
     console.info(`[Sio] PATCH skip ${contactId} — no data`)
     return 'ok'
@@ -210,12 +219,32 @@ async function patchContactDirect(
     body, 'application/merge-patch+json'
   )
 
-  console.info(`[Sio] PATCH response ${contactId}: status=${res.status} ok=${res.ok} body=${res.text?.slice(0,200)}`)
+  // Phone debug лог
+  if (res.ok && phone) {
+    console.info(`[Sio] PATCH phone: sent="${phone}" → saved="${res.data?.phoneNumber || 'NOT SAVED'}"`)
+  }
+  console.info(`[Sio] PATCH status=${res.status} ok=${res.ok}`)
 
-  if (res.ok)             return 'ok'
+  if (res.ok) return 'ok'
   if (res.status === 404) return 'notFound'
   if (res.status === 429) return 'rateLimited'
-  if (isFieldSlugMissing(res.status, res.data)) return 'ok'
+
+  // Ако fields[] е причинил 422 → retry без fields[]
+  if (isFieldSlugMissing(res.status, res.data)) {
+    console.info(`[Sio] fields[] rejected → retry PATCH без fields`)
+    const body2: Record<string, unknown> = {}
+    const fn2 = firstName?.trim() || ''
+    const ln2 = lastName?.trim()  || ''
+    if (fn2) body2.firstName   = fn2
+    if (ln2) body2.lastName    = ln2
+    if (phone) body2.phoneNumber = phone
+    if (Object.keys(body2).length === 0) return 'ok'
+    const res2 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, body2, 'application/merge-patch+json')
+    if (res2.ok) return 'ok'
+    if (res2.status === 404) return 'notFound'
+    if (res2.status === 429) return 'rateLimited'
+    return 'error'
+  }
   return 'error'
 }
 

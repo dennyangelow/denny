@@ -77,6 +77,7 @@ export function LeadsTab({ leads }: Props) {
   const [syncingId,     setSyncingId]     = useState<string | null>(null)
   const [bulkSyncing,   setBulkSyncing]   = useState(false)
   const [bulkProgress,  setBulkProgress]  = useState({ done: 0, total: 0 })
+  const [resettingInvalid, setResettingInvalid] = useState(false)
   const [isMobile,      setIsMobile]      = useState(false)
   // Локален state за synced статуси (оптимистичен UI)
   const [syncedIds,     setSyncedIds]     = useState<Set<string>>(new Set())
@@ -252,6 +253,27 @@ export function LeadsTab({ leads }: Props) {
     } catch { toast.error('Грешка при отписване') }
   }, [])
 
+
+  // ── Ресет на невалидни имейли ─────────────────────────────────────────────
+  // Ресетва systemeio_email_invalid=false в Supabase за да може да се sync-не пак
+  const handleResetInvalid = useCallback(async (ids?: string[]) => {
+    setResettingInvalid(true)
+    try {
+      const res  = await fetch('/api/leads/sync/reset-invalid', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(ids ? { ids } : {}),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Грешка')
+      // Ресетваме локалния state
+      if (ids) { setInvalidIds(prev => { const next = new Set(prev); ids.forEach(id=>next.delete(id)); return next }) }
+      else { setInvalidIds(new Set()) }
+      toast.success(`✅ ${data.reset ?? ids?.length ?? '?'} контакта ресетнати — sync-ни пак`)
+    } catch(e:any) { toast.error(`❌ ${e.message}`) }
+    finally { setResettingInvalid(false) }
+  }, [])
+
   // ── Sync един lead ────────────────────────────────────────────────────────
   const handleSyncOne = useCallback(async (lead: Lead) => {
     const alreadySynced = syncedIds.has(lead.id) || !!(lead as any).systemeio_synced
@@ -401,8 +423,39 @@ export function LeadsTab({ leads }: Props) {
         </div>
       </div>
 
-      {/* ── Systeme.io sync banner ── */}
-      {unsyncedCount > 0 ? (
+
+      {/* ── Невалидни имейли banner ── */}
+      {invalidCount > 0 && (
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
+          background:'#fef2f2', border:'1px solid #fca5a5', borderRadius:12,
+          padding:'12px 16px', marginBottom:12 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span>⚠️</span>
+            <div>
+              <strong style={{ color:'#991b1b', fontSize:13 }}>{invalidCount} контакта с &quot;Невалиден&quot; статус</strong>
+              <div style={{ fontSize:12, color:'#b91c1c', marginTop:2 }}>Маркирани погрешно? Ресетни ги и sync-ни пак.</div>
+            </div>
+          </div>
+          <button onClick={() => handleResetInvalid()} disabled={resettingInvalid}
+            style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'1px solid #fca5a5', background:'#fff', color:'#991b1b', fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:resettingInvalid?0.6:1, whiteSpace:'nowrap' as const }}>
+            {resettingInvalid ? '⏳ Ресетва...' : '🔄 Ресетни всички невалидни'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Systeme.io sync banner / progress ── */}
+      {bulkSyncing ? (
+        <div style={{ background:'linear-gradient(135deg,#eff6ff,#dbeafe)', border:'1px solid #93c5fd', borderRadius:12, padding:'14px 18px', marginBottom:20 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8, fontSize:13, color:'#1e40af', fontWeight:700 }}>
+            <span>⏳ Синхронизиране...</span>
+            <span>{bulkProgress.done} / {bulkProgress.total} ({progressPct}%)</span>
+          </div>
+          <div style={{ height:10, background:'rgba(147,197,253,0.3)', borderRadius:99, overflow:'hidden' }}>
+            <div style={{ height:'100%', width:`${progressPct}%`, background:'linear-gradient(90deg,#3b82f6,#2563eb)', borderRadius:99, transition:'width 0.4s ease' }} />
+          </div>
+          <div style={{ fontSize:11, color:'#3b82f6', marginTop:6, textAlign:'center' }}>По 3 контакта наведнъж — страницата ще се опресни след края</div>
+        </div>
+      ) : unsyncedCount > 0 ? (
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
           background:'linear-gradient(135deg,#fff7ed,#fef3c7)', border:'1px solid #fde68a', borderRadius:12,
           padding:'14px 18px', marginBottom:20 }}>
@@ -650,10 +703,14 @@ export function LeadsTab({ leads }: Props) {
                           {/* Systeme.io status */}
                           <td style={{ padding:'11px 14px', borderBottom:'1px solid #f5f5f5', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
                             {isInvalid ? (
-                              <span style={{ fontSize:11, padding:'4px 10px', borderRadius:7, fontWeight:700,
-                                background:'#fef2f2', color:'#991b1b', border:'1px solid #fca5a5' }}>
+                              <button onClick={()=>handleResetInvalid([l.id])} disabled={resettingInvalid}
+                                title="Имейлът е маркиран невалиден — натисни за ресет"
+                                style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, padding:'4px 10px',
+                                  borderRadius:7, fontWeight:700, background:'#fef2f2', color:'#991b1b',
+                                  border:'1px solid #fca5a5', cursor:'pointer', fontFamily:'inherit',
+                                  opacity:resettingInvalid?0.6:1 }}>
                                 ⚠️ Невалиден
-                              </span>
+                              </button>
                             ) : (
                               <button
                                 onClick={()=>handleSyncOne(l)}
