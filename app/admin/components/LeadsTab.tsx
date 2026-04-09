@@ -273,7 +273,7 @@ export function LeadsTab({ leads }: Props) {
     let totalFailed = 0
 
     try {
-      const CHUNK = 3  // 3 контакта × ~3 сек = ~9 сек (< 30s timeout)
+      const CHUNK = 3
       for (let i = 0; i < toSync.length; i += CHUNK) {
         const chunk = toSync.slice(i, i + CHUNK)
         try {
@@ -285,22 +285,26 @@ export function LeadsTab({ leads }: Props) {
           const data = await res.json()
           totalSynced += data.synced || 0
           totalFailed += data.failed || 0
-          if (data.success || data.synced > 0) {
+          // Маркираме само реално синхронизираните като synced
+          if (data.synced > 0) {
             setSyncedIds(prev => {
               const next = new Set(prev)
-              chunk.forEach(l => next.add(l.id))
+              // Маркираме само chunk-а — сървърът е обновил Supabase
+              chunk.slice(0, data.synced).forEach(l => next.add(l.id))
               return next
             })
           }
         } catch { totalFailed += chunk.length }
-        // Пауза между chunk-овете — дава на Systeme.io да се възстанови
         if (i + CHUNK < toSync.length) await new Promise(r => setTimeout(r, 2000))
       }
+      // Показваме резултат и рефрешваме страницата за свежи данни
       if (totalFailed === 0) {
         toast.success(`✅ Синхронизирани ${totalSynced} контакта в Systeme.io!`)
       } else {
         toast.success(`✅ ${totalSynced} OK · ⚠️ ${totalFailed} грешки`)
       }
+      // Рефрешваме за да вземем актуалните systemeio_synced стойности от DB
+      if (totalSynced > 0) window.location.reload()
     } catch { toast.error('Мрежова грешка') }
     finally { setBulkSyncing(false) }
   }, [uniqueLeads, syncedIds])

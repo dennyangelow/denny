@@ -1,4 +1,4 @@
-// lib/systemeio.ts — v19
+// lib/systemeio.ts — v20
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -139,6 +139,7 @@ async function createContact(
   if (phone) body.phoneNumber = phone  // top-level поле
   if (naruchnikSlug) body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]  // custom field
 
+  console.info(`[Sio] POST /api/contacts body:`, JSON.stringify(body))
   const res = await sioFetch(apiKey, 'POST', '/api/contacts', body)
 
   if (res.ok) return { contactId: String(res.data?.id) }
@@ -185,30 +186,36 @@ async function patchContactDirect(
   firstName:       string,
   lastName:        string,
   phone?:          string,
-  naruchnikSlug?:  string  // запазен за съвместимост, не се ползва в PATCH
+  naruchnikSlug?:  string  // запазен за съвместимост
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
 
   const body: Record<string, unknown> = {}
-  // Записваме само непразните стойности — merge-patch с '' изтрива полето
-  if (firstName?.trim()) body.firstName   = firstName.trim()
-  if (lastName?.trim())  body.lastName    = lastName.trim()
-  if (phone)             body.phoneNumber = phone
+  // ВАЖНО: Подаваме firstName/lastName само ако имаме реални стойности.
+  // Systeme.io merge-patch игнорира null/undefined, но '' (empty) изтрива полето.
+  const fn = firstName?.trim() || ''
+  const ln = lastName?.trim()  || ''
+  if (fn) body.firstName   = fn
+  if (ln) body.lastName    = ln
+  if (phone) body.phoneNumber = phone
 
-  // Ако няма какво да обновяваме → skip (само тага ще се добави)
   if (Object.keys(body).length === 0) {
-    console.info(`[Sio] PATCH skip за ${contactId} — няма данни за обновяване`)
+    console.info(`[Sio] PATCH skip ${contactId} — no data`)
     return 'ok'
   }
+
+  console.info(`[Sio] PATCH body за ${contactId}:`, JSON.stringify(body))
 
   const res = await sioFetch(
     apiKey, 'PATCH', `/api/contacts/${contactId}`,
     body, 'application/merge-patch+json'
   )
 
+  console.info(`[Sio] PATCH response ${contactId}: status=${res.status} ok=${res.ok} body=${res.text?.slice(0,200)}`)
+
   if (res.ok)             return 'ok'
   if (res.status === 404) return 'notFound'
   if (res.status === 429) return 'rateLimited'
-  if (isFieldSlugMissing(res.status, res.data)) return 'ok'  // safety net
+  if (isFieldSlugMissing(res.status, res.data)) return 'ok'
   return 'error'
 }
 
