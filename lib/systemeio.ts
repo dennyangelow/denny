@@ -262,10 +262,12 @@ async function createContact(
   return { contactId: null, error: `POST ${res.status}: ${res.text?.slice(0, 200)}` }
 }
 
-// ── Patch contact (MERGE-PATCH) ───────────────────────────────────────────────
-// ВАЖНО: Systeme.io PATCH /api/contacts/{id} с Content-Type application/merge-patch+json
-// Приема: firstName, lastName, phoneNumber, fields[]
-// НЕ връща обновените данни в response — затова проверяваме с GET след това.
+// ── Update contact ────────────────────────────────────────────────────────────
+// Systeme.io PATCH с merge-patch+json записва само custom fields (naruchnici).
+// firstName / lastName / phoneNumber се записват САМО чрез PUT /api/contacts/{id}.
+// Стратегия:
+//   1. PUT  — за firstName, lastName, phoneNumber (изисква пълен обект от GET)
+//   2. PATCH — за custom fields (naruchnici slug)
 //
 async function patchContactDirect(
   apiKey:         string,
@@ -281,70 +283,88 @@ async function patchContactDirect(
 
   const hasData = fn !== '' || ln !== '' || !!phone || !!naruchnikSlug
   if (!hasData) {
-    console.info(`[Sio] PATCH skip ${contactId} — no data to update`)
+    console.info(`[Sio] update skip ${contactId} — no data`)
     return 'ok'
   }
 
-  const body: Record<string, unknown> = {}
-  if (fn)            body.firstName   = fn
-  if (ln)            body.lastName    = ln
-  if (phone)         body.phoneNumber = phone
-  if (naruchnikSlug) body.fields      = [{ slug: 'naruchnici', value: naruchnikSlug }]
+  // ── СТЪПКА 1: PUT за имена и телефон ─────────────────────────────────────
+  // PUT изисква пълния обект → първо GET, после PUT с merged данни
+  if (fn || ln || phone) {
+    const existing = await getContact(apiKey, contactId)
+    if (!existing) {
+      console.warn(`[Sio] GET за PUT върна null за ${contactId} → notFound`)
+      return 'notFound'
+    }
 
-  console.info(`[Sio] PATCH body за ${contactId}:`, JSON.stringify(body))
+    const putBody: Record<string, unknown> = {
+      ...existing,                              // запазваме всички полета
+      firstName:   fn   || existing.firstName  || '',
+      lastName:    ln   || existing.lastName   || '',
+      phoneNumber: phone || existing.phoneNumber || undefined,
+    }
+    // fields не се подават в PUT — само в PATCH
+    delete putBody.fields
+    delete putBody.tags
+    delete putBody.id
 
-  const res = await sioFetch(
-    apiKey, 'PATCH', `/api/contacts/${contactId}`,
-    body, 'application/merge-patch+json'
-  )
+    console.info(`[Sio] PUT body за ${contactId}: firstName="${putBody.firstName}" lastName="${putBody.lastName}" phone="${putBody.phoneNumber || ''}"`)
 
-  console.info(`[Sio] PATCH status=${res.status} ok=${res.ok}`)
+    const putRes = await sioFetch(apiKey, 'PUT', `/api/contacts/${contactId}`, putBody)
+    console.info(`[Sio] PUT status=${putRes.status} ok=${putRes.ok}`)
 
-  if (res.ok) {
-    // PATCH 200 = данните са записани. Systeme.io кешира — GET веднага след PATCH
-    // връща стари (празни) данни и не е надежден за verify. Доверяваме се на status=200.
-    console.info(`[Sio] PATCH ok за ${contactId} ✅`)
-    return 'ok'
+    if (!putRes.ok) {
+      if (putRes.status === 404) return 'notFound'
+      if (putRes.status === 429) return 'rateLimited'
+      if (isPhoneInvalid(putRes.status, putRes.data)) {
+        // Retry без телефон
+        console.warn(`[Sio] PUT phone invalid → retry без телефон`)
+        delete putBody.phoneNumber
+        const putRes2 = await sioFetch(apiKey, 'PUT', `/api/contacts/${contactId}`, putBody)
+        if (!putRes2.ok) {
+          if (putRes2.status === 404) return 'notFound'
+          if (putRes2.status === 429) return 'rateLimited'
+          console.warn(`[Sio] PUT retry error: ${putRes2.status}`)
+          return 'error'
+        }
+        console.info(`[Sio] PUT ok (без телефон) за ${contactId} ✅`)
+      } else {
+        console.warn(`[Sio] PUT error: ${putRes.status} ${putRes.text?.slice(0, 200)}`)
+        return 'error'
+      }
+    } else {
+      console.info(`[Sio] PUT ok за ${contactId} ✅`)
+    }
+
+    await sleep(300)
   }
 
-  if (res.status === 404) return 'notFound'
-  if (res.status === 429) return 'rateLimited'
+  // ── СТЪПКА 2: PATCH за custom field naruchnici ────────────────────────────
+  if (naruchnikSlug) {
+    const patchBody = { fields: [{ slug: 'naruchnici', value: naruchnikSlug }] }
+    console.info(`[Sio] PATCH fields за ${contactId}:`, JSON.stringify(patchBody))
 
-  // Phone грешка → retry без телефон
-  if (isPhoneInvalid(res.status, res.data)) {
-    console.warn(`[Sio] PATCH phone invalid → retry без телефон`)
-    const body2: Record<string, unknown> = {}
-    if (fn)            body2.firstName = fn
-    if (ln)            body2.lastName  = ln
-    if (naruchnikSlug) body2.fields    = [{ slug: 'naruchnici', value: naruchnikSlug }]
-    if (Object.keys(body2).length === 0) return 'ok'
-    const res2 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, body2, 'application/merge-patch+json')
-    if (res2.ok) return 'ok'
-    if (res2.status === 404) return 'notFound'
-    if (res2.status === 429) return 'rateLimited'
-  }
-
-  // Fields slug не съществува → retry без fields
-  if (isFieldSlugMissing(res.status, res.data)) {
-    console.info(`[Sio] PATCH fields[] rejected → retry без custom fields`)
-    const body2: Record<string, unknown> = {}
-    if (fn)    body2.firstName   = fn
-    if (ln)    body2.lastName    = ln
-    if (phone) body2.phoneNumber = phone
-    if (Object.keys(body2).length === 0) return 'ok'
-    const res2 = await sioFetch(
+    const patchRes = await sioFetch(
       apiKey, 'PATCH', `/api/contacts/${contactId}`,
-      body2, 'application/merge-patch+json'
+      patchBody, 'application/merge-patch+json'
     )
-    if (res2.ok) return 'ok'
-    if (res2.status === 404) return 'notFound'
-    if (res2.status === 429) return 'rateLimited'
-    console.warn(`[Sio] PATCH retry failed: ${res2.status} ${res2.text?.slice(0, 200)}`)
-    return 'error'
+    console.info(`[Sio] PATCH fields status=${patchRes.status} ok=${patchRes.ok}`)
+
+    if (!patchRes.ok) {
+      if (patchRes.status === 404) return 'notFound'
+      if (patchRes.status === 429) return 'rateLimited'
+      if (isFieldSlugMissing(patchRes.status, patchRes.data)) {
+        console.warn(`[Sio] PATCH fields: slug "naruchnici" не съществува — пропускаме`)
+        // Не е критично — данните са записани от PUT
+      } else {
+        console.warn(`[Sio] PATCH fields error: ${patchRes.status} ${patchRes.text?.slice(0, 200)}`)
+        // Не връщаме error — PUT е успешен, само полето не е записано
+      }
+    } else {
+      console.info(`[Sio] PATCH fields ok за ${contactId} ✅`)
+    }
   }
 
-  console.warn(`[Sio] PATCH error: ${res.status} ${res.text?.slice(0, 200)}`)
-  return 'error'
+  return 'ok'
 }
 
 // ── Get tag ID (cursor-based pagination) ──────────────────────────────────────
