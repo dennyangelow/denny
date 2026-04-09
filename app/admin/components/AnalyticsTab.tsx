@@ -79,10 +79,12 @@ function getOfferType(o: Order): OfferType {
 // ✅ Правилен брой посещения за всеки range
 function getVisitsForRange(pageViews: PageViewStats | null, range: Range): number {
   if (!pageViews) return 0
-  if (range === 1)     return pageViews.today   ?? 0
-  if (range === 7)     return pageViews.last7   ?? 0
-  if (range === 30)    return pageViews.last30  ?? 0
-  return pageViews.total ?? pageViews.last30 ?? 0
+  if (range === 1)     return pageViews.today    ?? 0
+  if (range === 7)     return pageViews.last7    ?? 0
+  if (range === 30)    return pageViews.last30   ?? 0
+  if (range === 90)    return (pageViews as any).last90  ?? pageViews.total ?? 0
+  if (range === 365)   return (pageViews as any).last365 ?? pageViews.total ?? 0
+  return pageViews.total ?? 0
 }
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
@@ -500,13 +502,11 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
 
   const rl = getRangeLabel(range)
 
-  // ✅ Page views chart спрямо range — генерираме правилния брой дни
+  // ✅ Page views chart спрямо range — dailyChart е 90 дни от API-то
   const pageViewsChart = useMemo(() => {
     if (!pageViews?.dailyChart?.length) return []
-    // dailyChart от API е винаги последните 30 дни
-    // За range <= 30 — показваме само последните N дни
-    // За range > 30 — показваме всичко налично (30 дни)
-    if (range === 'all' || (range as number) >= 30) return pageViews.dailyChart
+    // dailyChart от API е последните 90 дни
+    if (range === 'all' || (range as number) >= 90) return pageViews.dailyChart
     const days = range as number
     return pageViews.dailyChart.slice(-days)
   }, [pageViews, range])
@@ -639,6 +639,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
                 { label:'Днес',   value:pageViews.today,  unique:pageViews.todayUnique,  color:'#6366f1', active:range===1  },
                 { label:'7 дни',  value:pageViews.last7,  unique:pageViews.last7Unique,  color:'#0ea5e9', active:range===7  },
                 { label:'30 дни', value:pageViews.last30, unique:pageViews.last30Unique, color:'#8b5cf6', active:range===30 },
+                { label:'90 дни', value:(pageViews as any).last90 ?? pageViews.total, unique:(pageViews as any).last90Unique ?? pageViews.unique, color:'#f59e0b', active:range===90 },
                 {
                   label:'Всичко',
                   value:  pageViews.total  ?? pageViews.last30,
