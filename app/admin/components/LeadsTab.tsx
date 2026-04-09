@@ -179,6 +179,16 @@ export function LeadsTab({ leads }: Props) {
     ).length,
     [uniqueLeads, syncedIds, invalidIds])
 
+  // Брой невалидни имейли (за banner-а)
+  const invalidCount = useMemo(() =>
+    uniqueLeads.filter(l => invalidIds.has(l.id) || !!(l as any).systemeio_email_invalid).length,
+    [uniqueLeads, invalidIds])
+
+  // Прогрес процент за sync progress bar
+  const progressPct = bulkProgress.total > 0
+    ? Math.round((bulkProgress.done / bulkProgress.total) * 100)
+    : 0
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
     return uniqueLeads
