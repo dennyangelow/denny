@@ -1,13 +1,13 @@
 'use client'
-// app/admin/components/SystemeioSyncPanel.tsx — v4
+// app/admin/components/SystemeioSyncPanel.tsx — v5
 //
-// ПОПРАВКИ v4:
-//   1. GET статус: unsynced вече НЕ включва невалидни (fixed в sync/route.ts)
-//   2. Full re-sync: totalToSync = total - invalidEmails (само валидните)
-//   3. Abort: вика /api/leads/sync/abort преди да спре loop-а
-//   4. Бутон "Спри" показва "⏳ Спира..." докато чака сървъра
+// ПОПРАВКИ v5:
+//   Sync вече върви ИЗЦЯЛО НА СЪРВЪРА — /api/leads/sync/background
+//   Браузърът poll-ва прогреса на всеки 3 сек.
+//   Дори да затвориш прозореца / презаредиш — sync продължава!
+//   При отваряне на панела автоматично се засича ако sync вече върви.
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 interface SyncStatus {
   unsynced:      number
@@ -15,121 +15,122 @@ interface SyncStatus {
   invalidEmails: number
 }
 
-interface SyncResult {
-  success:  boolean
-  total:    number
-  synced:   number
-  failed:   number
-  invalid?: number
-  hasMore?: boolean
-  errors?:  string[]
-  aborted?: boolean
+interface JobProgress {
+  status:      'idle' | 'running' | 'done' | 'aborted' | 'error'
+  all?:        boolean
+  total?:      number
+  done?:       number
+  synced?:     number
+  failed?:     number
+  invalid?:    number
+  errors?:     string[]
+  startedAt?:  string
+  finishedAt?: string
+  updatedAt?:  string
 }
 
 export function SystemeioSyncPanel() {
-  const [status,      setStatus]      = useState<SyncStatus | null>(null)
-  const [loading,     setLoading]     = useState(false)
-  const [stopping,    setStopping]    = useState(false)
-  const [progress,    setProgress]    = useState({ done: 0, total: 0 })
-  const [finalResult, setFinalResult] = useState<{
-    synced: number; failed: number; invalid: number; errors: string[]
-  } | null>(null)
-  const abortRef = useRef(false)
+  const [status,   setStatus]   = useState<SyncStatus | null>(null)
+  const [job,      setJob]      = useState<JobProgress>({ status: 'idle' })
+  const [stopping, setStopping] = useState(false)
 
-  const fetchStatus = async () => {
+  const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mountedRef = useRef(true)
+
+  // ── Fetch status ────────────────────────────────────────────────────────────
+  const fetchStatus = useCallback(async () => {
     try {
       const res  = await fetch('/api/leads/sync')
       const data = await res.json()
-      setStatus(data)
+      if (mountedRef.current) setStatus(data)
     } catch { /* silent */ }
-  }
+  }, [])
 
-  useEffect(() => { fetchStatus() }, [])
-
-  const runSync = async (all = false) => {
-    setLoading(true)
-    setStopping(false)
-    setFinalResult(null)
-    abortRef.current = false
-
-    // Изчистваме abort флага на сървъра преди нов sync
-    try {
-      await fetch('/api/leads/sync/abort', { method: 'DELETE' })
-    } catch { /* non-critical */ }
-
-    // Вземаме текущия статус за да знаем колко трябва да се sync-нат
-    let statusData = status
-    if (!statusData) {
+  // ── Poll job progress ───────────────────────────────────────────────────────
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return // вече poll-ва
+    pollRef.current = setInterval(async () => {
       try {
-        const r = await fetch('/api/leads/sync')
-        statusData = await r.json()
-        setStatus(statusData)
-      } catch { /* ignore */ }
+        const res  = await fetch('/api/leads/sync/background')
+        const data: JobProgress = await res.json()
+        if (!mountedRef.current) return
+        setJob(data)
+        if (data.status !== 'running') {
+          // Спираме polling-а
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          setStopping(false)
+          await fetchStatus()
+        }
+      } catch { /* silent */ }
+    }, 3000)
+  }, [fetchStatus])
+
+  // ── При mount: проверяваме дали вече върви job ──────────────────────────────
+  useEffect(() => {
+    mountedRef.current = true
+
+    const init = async () => {
+      await fetchStatus()
+      try {
+        const res  = await fetch('/api/leads/sync/background')
+        const data: JobProgress = await res.json()
+        if (mountedRef.current) {
+          setJob(data)
+          if (data.status === 'running') {
+            startPolling() // Вече върви — закачаме се за прогреса
+          }
+        }
+      } catch { /* silent */ }
     }
 
-    // Валидни контакти = общо минус невалидните имейли
-    const validTotal  = (statusData?.total ?? 0) - (statusData?.invalidEmails ?? 0)
-    const totalToSync = all ? validTotal : (statusData?.unsynced ?? 0)
+    init()
 
-    setProgress({ done: 0, total: totalToSync })
+    return () => {
+      mountedRef.current = false
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+  }, [fetchStatus, startPolling])
 
-    let totalSynced  = 0
-    let totalFailed  = 0
-    let totalInvalid = 0
-    const allErrors: string[] = []
+  // ── Стартиране на sync ──────────────────────────────────────────────────────
+  const runSync = async (all: boolean) => {
+    setStopping(false)
+
+    // Изчистваме abort
+    await fetch('/api/leads/sync/abort', { method: 'DELETE' }).catch(() => {})
+
+    // Стартираме background job
+    setJob({ status: 'running', total: 0, done: 0, synced: 0, failed: 0, invalid: 0 })
+    startPolling()
 
     try {
-      let hasMore = true
-
-      while (hasMore && !abortRef.current) {
-        const res  = await fetch(`/api/leads/sync${all ? '?all=true' : ''}`, { method: 'POST' })
-        const data: SyncResult = await res.json()
-
-        totalSynced  += data.synced  ?? 0
-        totalFailed  += data.failed  ?? 0
-        totalInvalid += data.invalid ?? 0
-        if (data.errors) allErrors.push(...data.errors)
-
-        setProgress(p => ({
-          ...p,
-          done: Math.min(p.total, p.done + (data.synced ?? 0) + (data.invalid ?? 0)),
-        }))
-
-        if (data.aborted) break
-        hasMore = data.hasMore === true
-        if (!data.success && !hasMore) break
-
-        if (hasMore) await new Promise(r => setTimeout(r, 600))
-      }
-    } catch (err: any) {
-      allErrors.push(err.message)
-    } finally {
-      setLoading(false)
-      setStopping(false)
-      setFinalResult({
-        synced:  totalSynced,
-        failed:  totalFailed,
-        invalid: totalInvalid,
-        errors:  allErrors,
+      await fetch('/api/leads/sync/background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all }),
       })
-      await fetchStatus()
-    }
+      // Заявката се върна (sync завърши или Vercel timeout)
+      // Polling-ът ще засече финалния статус
+    } catch { /* silent — браузърът може да е затворил заявката */ }
   }
 
+  // ── Спиране ─────────────────────────────────────────────────────────────────
   const stop = async () => {
     setStopping(true)
-    abortRef.current = true
-    try {
-      await fetch('/api/leads/sync/abort', { method: 'POST' })
-    } catch { /* silent */ }
+    await fetch('/api/leads/sync/abort', { method: 'POST' }).catch(() => {})
   }
 
+  // ── Изчисления ──────────────────────────────────────────────────────────────
   const synced = status
     ? status.total - status.unsynced - (status.invalidEmails ?? 0)
     : 0
 
-  const progressPct = progress.total > 0
-    ? Math.round((progress.done / progress.total) * 100)
+  const isRunning = job.status === 'running'
+  const progressPct = (job.total ?? 0) > 0
+    ? Math.round(((job.done ?? 0) / job.total!) * 100)
     : 0
 
   return (
@@ -137,6 +138,14 @@ export function SystemeioSyncPanel() {
       <div style={styles.header}>
         <span style={{ fontSize: 20 }}>🔄</span>
         <h3 style={styles.title}>Systeme.io Синхронизация</h3>
+        {isRunning && (
+          <span style={{
+            marginLeft: 'auto', fontSize: 11, color: '#22c55e',
+            background: 'rgba(34,197,94,0.1)', padding: '3px 8px', borderRadius: 99,
+          }}>
+            ● РАБОТИ НА СЪРВЪРА
+          </span>
+        )}
       </div>
 
       {/* Статистика */}
@@ -171,11 +180,11 @@ export function SystemeioSyncPanel() {
       )}
 
       {/* Прогрес бар */}
-      {loading && progress.total > 0 && (
+      {isRunning && (
         <div style={styles.progressBox}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-            <span>⏳ Синхронизиране...</span>
-            <span>{progress.done} / {progress.total} ({progressPct}%)</span>
+            <span>⏳ Синхронизиране на сървъра...</span>
+            <span>{job.done ?? 0} / {job.total ?? '?'} ({progressPct}%)</span>
           </div>
           <div style={styles.progressTrack}>
             <div style={{
@@ -185,13 +194,13 @@ export function SystemeioSyncPanel() {
             }} />
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
-            Обработват се по 5 контакта наведнъж — моля изчакай
+            Можеш да затвориш прозореца — sync продължава на сървъра
           </p>
         </div>
       )}
 
       {/* Бутони за стартиране */}
-      {!loading && (
+      {!isRunning && (
         <div style={styles.actions}>
           <button
             onClick={() => runSync(false)}
@@ -223,7 +232,7 @@ export function SystemeioSyncPanel() {
       )}
 
       {/* Бутон за спиране */}
-      {loading && (
+      {isRunning && (
         <div style={{ textAlign: 'center', marginBottom: 12 }}>
           <button
             onClick={stop}
@@ -243,34 +252,40 @@ export function SystemeioSyncPanel() {
       )}
 
       {/* Краен резултат */}
-      {!loading && finalResult && (
+      {!isRunning && (job.status === 'done' || job.status === 'aborted' || job.status === 'error') && (
         <div style={{
           ...styles.result,
-          borderColor: finalResult.failed === 0 ? '#22c55e' : '#f59e0b',
-          background:  finalResult.failed === 0
+          borderColor: job.failed === 0 && job.status === 'done' ? '#22c55e' : '#f59e0b',
+          background:  job.failed === 0 && job.status === 'done'
             ? 'rgba(34,197,94,0.08)'
             : 'rgba(245,158,11,0.08)',
         }}>
           <p style={{ color: '#e5e7eb', margin: '0 0 4px', fontWeight: 700 }}>
-            ✅ Готово: {finalResult.synced} синхронизирани
-            {finalResult.failed  > 0 && (
-              <span style={{ color: '#fca5a5' }}> · {finalResult.failed} грешки</span>
+            {job.status === 'done'    && '✅'}
+            {job.status === 'aborted' && '⏹'}
+            {job.status === 'error'   && '❌'}
+            {' '}Готово: {job.synced ?? 0} синхронизирани
+            {(job.failed  ?? 0) > 0 && (
+              <span style={{ color: '#fca5a5' }}> · {job.failed} грешки</span>
             )}
-            {finalResult.invalid > 0 && (
-              <span style={{ color: '#fb923c' }}> · {finalResult.invalid} невалидни имейли</span>
+            {(job.invalid ?? 0) > 0 && (
+              <span style={{ color: '#fb923c' }}> · {job.invalid} невалидни имейли</span>
+            )}
+            {job.status === 'aborted' && (
+              <span style={{ color: '#9ca3af' }}> · спрян ръчно</span>
             )}
           </p>
-          {finalResult.errors.length > 0 && (
+          {(job.errors?.length ?? 0) > 0 && (
             <div style={styles.errorList}>
-              {finalResult.errors.slice(0, 5).map((e, i) => (
+              {job.errors!.slice(0, 5).map((e, i) => (
                 <p key={i} style={{ color: '#fca5a5', fontSize: 11, margin: '2px 0' }}>⚠️ {e}</p>
               ))}
-              {finalResult.errors.length > 5 && (
-                <p style={{ color: '#9ca3af', fontSize: 11 }}>
-                  ...и още {finalResult.errors.length - 5}
-                </p>
-              )}
             </div>
+          )}
+          {job.finishedAt && (
+            <p style={{ color: '#6b7280', fontSize: 10, margin: '6px 0 0' }}>
+              Завършено: {new Date(job.finishedAt).toLocaleTimeString('bg-BG')}
+            </p>
           )}
         </div>
       )}
