@@ -89,8 +89,21 @@ function isEmailInvalid(status: number, data: any): boolean {
   if (isPhoneInvalid(status, data))     return false
 
   const violations: any[] = data?.violations || []
-  const hasEmailViolation  = violations.some((v: any) => v?.propertyPath === 'email')
-  if (hasEmailViolation) return true
+  const emailViolation = violations.find((v: any) => v?.propertyPath === 'email')
+
+  if (emailViolation) {
+    // Само ако съобщението ясно указва невалиден формат/domain — не blacklist/policy грешки
+    const msg = (emailViolation.message || '').toLowerCase()
+    return (
+      msg.includes('is invalid')        ||
+      msg.includes('invalid.')          ||
+      msg.includes('not a valid')       ||
+      msg.includes('dns record')        ||
+      msg.includes('mx record')         ||
+      msg.includes('does not exist')    ||
+      msg.includes('invalid format')
+    )
+  }
 
   if (violations.length === 0) {
     const detail = (data?.detail || '').toLowerCase()
@@ -519,14 +532,18 @@ export async function syncContact(params: {
     await sleep(300)
     const p = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
     console.info(`[Sio] PATCH за намерен контакт ${email}: ${p}`)
-    if (p === 'ok' || p === 'error') {
-      // При error все пак го маркираме като synced (контактът съществува)
+    if (p === 'ok') {
       await sleep(300)
       await addTag(apiKey, contactId, tag)
       return { ok: true, contactId }
     }
     if (p === 'notFound') {
       contactId = null // Ще правим create
+    }
+    if (p === 'error') {
+      // PATCH грешка на съществуващ контакт → не маркираме като synced
+      console.warn(`[Sio] PATCH error за намерен контакт ${email} — не маркираме като synced`)
+      return { ok: false, error: `PATCH error for existing contact ${email}` }
     }
   }
 

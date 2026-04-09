@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const safeIds = ids.slice(0, 3)
+  const safeIds = ids.slice(0, 50)
   console.info(`[batch] Sync на ${safeIds.length} контакта: ${safeIds.join(', ')}`)
 
   // ✅ Изключваме невалидните ОТ ЗАЯВКАТА (не само при обработка)
