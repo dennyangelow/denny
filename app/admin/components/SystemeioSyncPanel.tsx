@@ -1,12 +1,11 @@
 'use client'
-// app/admin/components/SystemeioSyncPanel.tsx — v3
+// app/admin/components/SystemeioSyncPanel.tsx — v4
 //
-// КЛЮЧОВА ПРОМЯНА: Прогрес бар + автоматичен loop
-//
-// Защо: /api/leads/sync обработва само 5 контакта на извикване
-// (за да не превиши Vercel timeout от 30 сек).
-// Панелът вика API-то многократно докато hasMore=false.
-// Показва live прогрес: X/329 синхронизирани.
+// ПОПРАВКИ v4:
+//   1. GET статус: unsynced вече НЕ включва невалидни (fixed в sync/route.ts)
+//   2. Full re-sync: totalToSync = total - invalidEmails (само валидните)
+//   3. Abort: вика /api/leads/sync/abort преди да спре loop-а
+//   4. Бутон "Спри" показва "⏳ Спира..." докато чака сървъра
 
 import { useState, useEffect, useRef } from 'react'
 
@@ -17,21 +16,21 @@ interface SyncStatus {
 }
 
 interface SyncResult {
-  success:   boolean
-  total:     number
-  synced:    number
-  failed:    number
-  invalid?:  number
-  hasMore?:  boolean
-  errors?:   string[]
-  message?:  string
-  invalidEmail?: boolean
+  success:  boolean
+  total:    number
+  synced:   number
+  failed:   number
+  invalid?: number
+  hasMore?: boolean
+  errors?:  string[]
+  aborted?: boolean
 }
 
 export function SystemeioSyncPanel() {
-  const [status,    setStatus]    = useState<SyncStatus | null>(null)
-  const [loading,   setLoading]   = useState(false)
-  const [progress,  setProgress]  = useState({ done: 0, total: 0 })
+  const [status,      setStatus]      = useState<SyncStatus | null>(null)
+  const [loading,     setLoading]     = useState(false)
+  const [stopping,    setStopping]    = useState(false)
+  const [progress,    setProgress]    = useState({ done: 0, total: 0 })
   const [finalResult, setFinalResult] = useState<{
     synced: number; failed: number; invalid: number; errors: string[]
   } | null>(null)
@@ -49,10 +48,16 @@ export function SystemeioSyncPanel() {
 
   const runSync = async (all = false) => {
     setLoading(true)
+    setStopping(false)
     setFinalResult(null)
     abortRef.current = false
 
-    // Взимаме текущия статус за да знаем колко трябва да се sync-нат
+    // Изчистваме abort флага на сървъра преди нов sync
+    try {
+      await fetch('/api/leads/sync/abort', { method: 'DELETE' })
+    } catch { /* non-critical */ }
+
+    // Вземаме текущия статус за да знаем колко трябва да се sync-нат
     let statusData = status
     if (!statusData) {
       try {
@@ -62,9 +67,9 @@ export function SystemeioSyncPanel() {
       } catch { /* ignore */ }
     }
 
-    const totalToSync = all
-      ? (statusData?.total ?? 0) - (statusData?.invalidEmails ?? 0)
-      : (statusData?.unsynced ?? 0)
+    // Валидни контакти = общо минус невалидните имейли
+    const validTotal  = (statusData?.total ?? 0) - (statusData?.invalidEmails ?? 0)
+    const totalToSync = all ? validTotal : (statusData?.unsynced ?? 0)
 
     setProgress({ done: 0, total: totalToSync })
 
@@ -85,25 +90,39 @@ export function SystemeioSyncPanel() {
         totalInvalid += data.invalid ?? 0
         if (data.errors) allErrors.push(...data.errors)
 
-        setProgress(p => ({ ...p, done: p.done + (data.synced ?? 0) + (data.invalid ?? 0) }))
+        setProgress(p => ({
+          ...p,
+          done: Math.min(p.total, p.done + (data.synced ?? 0) + (data.invalid ?? 0)),
+        }))
 
+        if (data.aborted) break
         hasMore = data.hasMore === true
-
         if (!data.success && !hasMore) break
 
-        // Малка пауза между batch-овете
-        if (hasMore) await new Promise(r => setTimeout(r, 800))
+        if (hasMore) await new Promise(r => setTimeout(r, 600))
       }
     } catch (err: any) {
       allErrors.push(err.message)
     } finally {
       setLoading(false)
-      setFinalResult({ synced: totalSynced, failed: totalFailed, invalid: totalInvalid, errors: allErrors })
+      setStopping(false)
+      setFinalResult({
+        synced:  totalSynced,
+        failed:  totalFailed,
+        invalid: totalInvalid,
+        errors:  allErrors,
+      })
       await fetchStatus()
     }
   }
 
-  const stop = () => { abortRef.current = true }
+  const stop = async () => {
+    setStopping(true)
+    abortRef.current = true
+    try {
+      await fetch('/api/leads/sync/abort', { method: 'POST' })
+    } catch { /* silent */ }
+  }
 
   const synced = status
     ? status.total - status.unsynced - (status.invalidEmails ?? 0)
@@ -151,7 +170,7 @@ export function SystemeioSyncPanel() {
         </div>
       )}
 
-      {/* Прогрес бар — показва се само по време на sync */}
+      {/* Прогрес бар */}
       {loading && progress.total > 0 && (
         <div style={styles.progressBox}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
@@ -171,12 +190,12 @@ export function SystemeioSyncPanel() {
         </div>
       )}
 
-      {/* Бутони */}
+      {/* Бутони за стартиране */}
       {!loading && (
         <div style={styles.actions}>
           <button
             onClick={() => runSync(false)}
-            disabled={loading || status?.unsynced === 0}
+            disabled={status?.unsynced === 0}
             style={{
               ...styles.btn,
               background: status?.unsynced === 0
@@ -191,7 +210,6 @@ export function SystemeioSyncPanel() {
 
           <button
             onClick={() => runSync(true)}
-            disabled={loading}
             style={{
               ...styles.btn,
               background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
@@ -207,14 +225,19 @@ export function SystemeioSyncPanel() {
       {/* Бутон за спиране */}
       {loading && (
         <div style={{ textAlign: 'center', marginBottom: 12 }}>
-          <button onClick={stop} style={{
-            ...styles.btn,
-            background: '#374151',
-            cursor: 'pointer',
-            fontSize: 12,
-            padding: '8px 20px',
-          }}>
-            ⏹ Спри
+          <button
+            onClick={stop}
+            disabled={stopping}
+            style={{
+              ...styles.btn,
+              background: stopping ? '#1f2937' : '#374151',
+              cursor: stopping ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+              padding: '8px 20px',
+              opacity: stopping ? 0.7 : 1,
+            }}
+          >
+            {stopping ? '⏳ Спира...' : '⏹ Спри'}
           </button>
         </div>
       )}
@@ -224,12 +247,18 @@ export function SystemeioSyncPanel() {
         <div style={{
           ...styles.result,
           borderColor: finalResult.failed === 0 ? '#22c55e' : '#f59e0b',
-          background:  finalResult.failed === 0 ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
+          background:  finalResult.failed === 0
+            ? 'rgba(34,197,94,0.08)'
+            : 'rgba(245,158,11,0.08)',
         }}>
           <p style={{ color: '#e5e7eb', margin: '0 0 4px', fontWeight: 700 }}>
             ✅ Готово: {finalResult.synced} синхронизирани
-            {finalResult.failed  > 0 && <span style={{ color: '#fca5a5' }}> · {finalResult.failed} грешки</span>}
-            {finalResult.invalid > 0 && <span style={{ color: '#fb923c' }}> · {finalResult.invalid} невалидни имейли</span>}
+            {finalResult.failed  > 0 && (
+              <span style={{ color: '#fca5a5' }}> · {finalResult.failed} грешки</span>
+            )}
+            {finalResult.invalid > 0 && (
+              <span style={{ color: '#fb923c' }}> · {finalResult.invalid} невалидни имейли</span>
+            )}
           </p>
           {finalResult.errors.length > 0 && (
             <div style={styles.errorList}>
@@ -237,7 +266,9 @@ export function SystemeioSyncPanel() {
                 <p key={i} style={{ color: '#fca5a5', fontSize: 11, margin: '2px 0' }}>⚠️ {e}</p>
               ))}
               {finalResult.errors.length > 5 && (
-                <p style={{ color: '#9ca3af', fontSize: 11 }}>...и още {finalResult.errors.length - 5}</p>
+                <p style={{ color: '#9ca3af', fontSize: 11 }}>
+                  ...и още {finalResult.errors.length - 5}
+                </p>
               )}
             </div>
           )}
@@ -265,38 +296,58 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20,
   },
   stat: {
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 10, padding: '12px 8px', textAlign: 'center',
-    display: 'flex', flexDirection: 'column', gap: 4,
+    background:    'rgba(255,255,255,0.05)',
+    border:        '1px solid rgba(255,255,255,0.1)',
+    borderRadius:  10,
+    padding:       '12px 8px',
+    textAlign:     'center',
+    display:       'flex',
+    flexDirection: 'column',
+    gap:           4,
   },
   statNum:   { fontSize: 24, fontWeight: 800, color: '#fff' },
   statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)' },
   progressBox: {
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 10, padding: 14, marginBottom: 16,
+    background:   'rgba(255,255,255,0.05)',
+    border:       '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 10,
+    padding:      14,
+    marginBottom: 16,
   },
   progressTrack: {
-    height: 10, background: 'rgba(255,255,255,0.1)',
-    borderRadius: 99, overflow: 'hidden',
+    height:       10,
+    background:   'rgba(255,255,255,0.1)',
+    borderRadius: 99,
+    overflow:     'hidden',
   },
   progressBar: {
-    height: '100%',
-    background: 'linear-gradient(90deg, #22c55e, #16a34a)',
+    height:       '100%',
+    background:   'linear-gradient(90deg, #22c55e, #16a34a)',
     borderRadius: 99,
   },
   actions: {
-    display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16,
+    display:       'flex',
+    flexDirection: 'column',
+    gap:           10,
+    marginBottom:  16,
   },
   btn: {
-    padding: '12px 16px', borderRadius: 10, border: 'none',
-    color: '#fff', fontWeight: 700, fontSize: 14, transition: 'all 0.2s',
+    padding:      '12px 16px',
+    borderRadius: 10,
+    border:       'none',
+    color:        '#fff',
+    fontWeight:   700,
+    fontSize:     14,
+    transition:   'all 0.2s',
   },
   result: {
-    border: '1px solid', borderRadius: 10, padding: 14,
+    border:       '1px solid',
+    borderRadius: 10,
+    padding:      14,
   },
   errorList: {
-    marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.1)',
+    marginTop:  8,
+    paddingTop: 8,
+    borderTop:  '1px solid rgba(255,255,255,0.1)',
   },
 }

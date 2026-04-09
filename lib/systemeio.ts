@@ -1,8 +1,12 @@
-// lib/systemeio.ts — v21
-// ПОПРАВКИ v21:
-//   1. patchContactDirect: fields[] при наличен naruchnikSlug (опит при PATCH)
-//   2. При 422 fields slug missing → retry PATCH без fields
-//   3. Phone debug лог — показва дали Systeme.io е записал телефона
+// lib/systemeio.ts — v22
+// ПОПРАВКИ v22:
+//   1. patchContactDirect: ВИНАГИ изпраща firstName + lastName (дори "") —
+//      Systeme.io игнорира "" при merge-patch, но ако ги пропускаме
+//      contactId съществуващи контакти НИКОГА не получават имена при re-sync
+//   2. getTagId: cursor-based pagination (startingAfter=<last_id>)
+//      вместо грешното page=N — API-то не поддържа page= параметър!
+//   3. findContactByEmail: добавен order=asc за стабилен резултат
+//   4. PATCH retry без fields: коректна проверка на hasNameData
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -134,7 +138,7 @@ async function sioFetch(
 // ── Find contact by email ─────────────────────────────────────────────────────
 async function findContactByEmail(apiKey: string, email: string): Promise<string | null> {
   const { ok, data } = await sioFetch(
-    apiKey, 'GET', `/api/contacts?email=${encodeURIComponent(email)}&limit=10`
+    apiKey, 'GET', `/api/contacts?email=${encodeURIComponent(email)}&limit=10&order=asc`
   )
   if (!ok || !data) return null
   const items = data.items || data['hydra:member'] || []
@@ -243,12 +247,20 @@ async function patchContactDirect(
   if (phone)         fields.push({ slug: 'phone_number', value: phone })
   if (naruchnikSlug) fields.push({ slug: 'naruchnici',   value: naruchnikSlug })
 
-  const body: Record<string, unknown> = {}
-  if (fn) body.firstName = fn
-  if (ln) body.lastName  = ln
+  // ВАЖНО: Винаги изпращаме firstName/lastName дори и да са "" —
+  // Systeme.io игнорира празните низове и не трие данните.
+  // Ако ги пропускаме изцяло при merge-patch, полетата остават незасегнати
+  // само ако вече ги има. По-безопасно е да ги включим винаги.
+  const body: Record<string, unknown> = {
+    firstName: fn,
+    lastName:  ln,
+  }
   if (fields.length > 0) body.fields = fields
 
-  if (Object.keys(body).length === 0) {
+  // Ако наистина НЯМАМЕ никаква информация → skip
+  const hasNameData  = fn !== '' || ln !== ''
+  const hasFieldData = fields.length > 0
+  if (!hasNameData && !hasFieldData) {
     console.info(`[Sio] PATCH skip ${contactId} — no data`)
     return 'ok'
   }
@@ -277,10 +289,8 @@ async function patchContactDirect(
   // Ако fields[] slug-ове не съществуват → retry само с имена
   if (isFieldSlugMissing(res.status, res.data)) {
     console.info(`[Sio] PATCH fields[] rejected → retry само с имена`)
-    const body2: Record<string, unknown> = {}
-    if (fn) body2.firstName = fn
-    if (ln) body2.lastName  = ln
-    if (Object.keys(body2).length === 0) return 'ok'
+    if (!hasNameData) return 'ok'
+    const body2: Record<string, unknown> = { firstName: fn, lastName: ln }
     const res2 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, body2, 'application/merge-patch+json')
     if (res2.ok) {
       console.info(`[Sio] PATCH retry (без fields) → ok ✅`)
@@ -297,28 +307,33 @@ async function patchContactDirect(
 }
 
 // ── Get tag ID (кеширано — само 1 GET за целия batch) ─────────────────────────
-// FIX: Systeme.io приема limit само между 10 и 100 (не 200!)
-// Затова пагинираме: взимаме по 100 докато намерим тага
+// FIX v22: Systeme.io използва cursor-based pagination (startingAfter),
+//          НЕ page=N. page=N не връща различни резултати!
 async function getTagId(apiKey: string, tagName: string): Promise<number | null> {
   const key = tagName.toLowerCase()
   if (key in tagIdCache) return tagIdCache[key]
 
-  // Пагинираме тагове по 100 (max допустим limit)
-  let page = 1
-  let found = false
+  // Cursor-based pagination: startingAfter=<last_id>
+  let lastId: number | null = null
   while (true) {
-    const res = await sioFetch(apiKey, 'GET', `/api/tags?limit=100&page=${page}`)
+    const url = lastId
+      ? `/api/tags?limit=100&startingAfter=${lastId}`
+      : `/api/tags?limit=100`
+
+    const res = await sioFetch(apiKey, 'GET', url)
     if (!res.ok) {
       if (isPlanLimit(res.status, res.data)) {
         console.info(`[Sio] Таг "${tagName}" — план лимит`)
         tagIdCache[key] = null
         return null
       }
-      console.warn(`[Sio] GET /api/tags page=${page} → ${res.status}`)
+      console.warn(`[Sio] GET /api/tags → ${res.status}`)
       break
     }
 
     const items: any[] = res.data?.items || res.data?.['hydra:member'] || []
+
+    // Кешираме всички тагове от тази страница
     for (const t of items) {
       if (t?.id && t?.name) {
         tagIdCache[t.name.toLowerCase()] = Number(t.id)
@@ -326,38 +341,36 @@ async function getTagId(apiKey: string, tagName: string): Promise<number | null>
     }
 
     if (key in tagIdCache) {
-      found = true
       console.info(`[Sio] Таг "${tagName}" → ID ${tagIdCache[key]}`)
-      break
+      return tagIdCache[key] ?? null
     }
 
     // Проверяваме дали има следваща страница
-    const total   = res.data?.total ?? res.data?.['hydra:totalItems'] ?? 0
-    const hasMore = res.data?.hasMore === true || (page * 100 < total)
+    const hasMore = res.data?.hasMore === true
     if (!hasMore || items.length === 0) break
-    page++
+
+    // Курсор = ID на последния елемент
+    lastId = Number(items[items.length - 1]?.id) || null
+    if (!lastId) break
+
     await sleep(300)
   }
 
-  if (!found) {
-    // Тагът не съществува → създаваме го
-    console.info(`[Sio] Тагът "${tagName}" не е намерен → създаваме`)
-    const createRes = await sioFetch(apiKey, 'POST', '/api/tags', { name: tagName })
-    if (createRes.ok && createRes.data?.id) {
-      tagIdCache[key] = Number(createRes.data.id)
-      console.info(`[Sio] Таг "${tagName}" създаден → ID ${tagIdCache[key]}`)
-      return tagIdCache[key]
-    }
-    if (isPlanLimit(createRes.status, createRes.data)) {
-      tagIdCache[key] = null
-      return null
-    }
-    console.warn(`[Sio] Не можем да създадем таг "${tagName}": ${createRes.text?.slice(0, 200)}`)
+  // Тагът не съществува → създаваме го
+  console.info(`[Sio] Тагът "${tagName}" не е намерен → създаваме`)
+  const createRes = await sioFetch(apiKey, 'POST', '/api/tags', { name: tagName })
+  if (createRes.ok && createRes.data?.id) {
+    tagIdCache[key] = Number(createRes.data.id)
+    console.info(`[Sio] Таг "${tagName}" създаден → ID ${tagIdCache[key]}`)
+    return tagIdCache[key] ?? null
+  }
+  if (isPlanLimit(createRes.status, createRes.data)) {
     tagIdCache[key] = null
     return null
   }
-
-  return tagIdCache[key] ?? null
+  console.warn(`[Sio] Не можем да създадем таг "${tagName}": ${createRes.text?.slice(0, 200)}`)
+  tagIdCache[key] = null
+  return null
 }
 
 // ── Add tag (само ако все още не е добавен) ───────────────────────────────────
