@@ -144,7 +144,13 @@ async function findContactByEmail(apiKey: string, email: string): Promise<string
   const items = data.items || data['hydra:member'] || []
   const found = items.find((c: any) => c.email?.toLowerCase() === email.toLowerCase())
   const id = found?.id ? String(found.id) : null
-  console.info(`[Sio] findByEmail ${email} → ${id || 'не намерен'}`)
+  if (id && found) {
+    const fn = (found.fields || []).find((f: any) => f.slug === 'first_name')?.value || ''
+    const ln = (found.fields || []).find((f: any) => f.slug === 'surname')?.value || ''
+    console.info(`[Sio] findByEmail ${email} → id=${id} first_name="${fn}" surname="${ln}"`)
+  } else {
+    console.info(`[Sio] findByEmail ${email} → не намерен`)
+  }
   return id
 }
 
@@ -160,11 +166,17 @@ async function createContact(
   naruchnikSlug?: string
 ): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
 
+  // При POST: firstName/lastName работят на горно ниво
+  // Добавяме и fields first_name/surname за сигурност
   const body: Record<string, unknown> = { email }
   if (firstName) body.firstName = firstName
-  if (lastName) body.lastName = lastName
+  if (lastName)  body.lastName  = lastName
   if (phone) body.phoneNumber = phone
-  if (naruchnikSlug) body.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]
+  const createFields: Array<{ slug: string; value: string }> = []
+  if (firstName) createFields.push({ slug: 'first_name', value: firstName })
+  if (lastName)  createFields.push({ slug: 'surname',    value: lastName })
+  if (naruchnikSlug) createFields.push({ slug: 'naruchnici', value: naruchnikSlug })
+  if (createFields.length > 0) body.fields = createFields
 
   console.info(`[Sio] CREATE body: ${JSON.stringify(body)}`)
 
@@ -199,8 +211,12 @@ async function createContact(
     console.warn(`[Sio] Phone invalid при CREATE → retry без телефон`)
     const b2: Record<string, unknown> = { email }
     if (firstName) b2.firstName = firstName
-    if (lastName) b2.lastName = lastName
-    if (naruchnikSlug) b2.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]
+    if (lastName)  b2.lastName  = lastName
+    const f2: Array<{ slug: string; value: string }> = []
+    if (firstName) f2.push({ slug: 'first_name', value: firstName })
+    if (lastName)  f2.push({ slug: 'surname',    value: lastName })
+    if (naruchnikSlug) f2.push({ slug: 'naruchnici', value: naruchnikSlug })
+    if (f2.length > 0) b2.fields = f2
     const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', b2)
     if (r2.ok) return { contactId: String(r2.data?.id) }
     if (isDuplicateEmail(r2.status, r2.data)) return { contactId: await findContactByEmail(apiKey, email) }
@@ -209,11 +225,15 @@ async function createContact(
   }
 
   if (isFieldSlugMissing(res.status, res.data)) {
-    console.warn(`[Sio] Field slug missing при CREATE → retry без fields`)
+    console.warn(`[Sio] Field slug missing при CREATE → retry само с first_name/surname`)
     const b2: Record<string, unknown> = { email }
     if (firstName) b2.firstName = firstName
-    if (lastName) b2.lastName = lastName
+    if (lastName)  b2.lastName  = lastName
     if (phone) b2.phoneNumber = phone
+    const f2: Array<{ slug: string; value: string }> = []
+    if (firstName) f2.push({ slug: 'first_name', value: firstName })
+    if (lastName)  f2.push({ slug: 'surname',    value: lastName })
+    if (f2.length > 0) b2.fields = f2
     const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', b2)
     if (r2.ok) return { contactId: String(r2.data?.id) }
     if (isDuplicateEmail(r2.status, r2.data)) return { contactId: await findContactByEmail(apiKey, email) }
@@ -234,12 +254,13 @@ async function createContact(
 }
 
 // ── UPDATE contact (PATCH) ────────────────────────────────────────────────────
-// КРИТИЧНО: Systeme.io PATCH правила:
+// КРИТИЧНО: Systeme.io PATCH правила (потвърдено с реални тестове!):
 //
-//   firstName / lastName → горно ниво + fields slug "first_name"/"last_name"
-//                          (горно ниво → 200 OK но игнорирано → двоен подход!)
-//   phoneNumber          → fields slug "phone_number"
-//   naruchnici           → fields slug "naruchnici"
+//   firstName/lastName горно ниво → ИГНОРИРА СЕ (200 OK но не записва)
+//   first_name slug               → записва първото име ✅
+//   surname slug                  → записва фамилията ✅  (НЕ last_name!)
+//   phone_number slug             → записва телефона ✅
+//   naruchnici slug               → custom field ✅
 //
 async function updateContact(
   apiKey: string,
@@ -260,14 +281,13 @@ async function updateContact(
 
   const patchBody: Record<string, unknown> = {}
 
-  // Имена → горно ниво (camelCase)
-  if (fn) patchBody.firstName = fn
-  if (ln) patchBody.lastName = ln
-
-  // fields: имена като slug (двоен подход) + телефон + custom field
+  // КРИТИЧНО: firstName/lastName НЕ съществуват в Systeme.io response/PATCH!
+  // Имената се записват САМО чрез fields slugs:
+  //   first_name → първо име
+  //   surname    → фамилия  (НЕ last_name — не съществува!)
   const fields: Array<{ slug: string; value: string }> = []
   if (fn) fields.push({ slug: 'first_name', value: fn })
-  if (ln) fields.push({ slug: 'last_name',  value: ln })
+  if (ln) fields.push({ slug: 'surname',    value: ln })
   if (phone) fields.push({ slug: 'phone_number', value: phone })
   if (naruchnikSlug) fields.push({ slug: 'naruchnici', value: naruchnikSlug })
   if (fields.length > 0) patchBody.fields = fields
@@ -291,12 +311,9 @@ async function updateContact(
   if (isPhoneInvalid(res.status, res.data) || isFieldSlugMissing(res.status, res.data)) {
     console.warn(`[Sio] UPDATE phone/field проблем → retry без phone_number`)
     const b2: Record<string, unknown> = {}
-    if (fn) b2.firstName = fn
-    if (ln) b2.lastName = ln
-    // Двоен подход за имена + само naruchnici (без phone_number)
     const f2: Array<{ slug: string; value: string }> = []
     if (fn) f2.push({ slug: 'first_name', value: fn })
-    if (ln) f2.push({ slug: 'last_name',  value: ln })
+    if (ln) f2.push({ slug: 'surname',    value: ln })
     if (naruchnikSlug) f2.push({ slug: 'naruchnici', value: naruchnikSlug })
     if (f2.length > 0) b2.fields = f2
     if (Object.keys(b2).length === 0) return 'ok'
@@ -309,11 +326,9 @@ async function updateContact(
     // И naruchnici slug не съществува → само имена (двоен подход)
     if (isFieldSlugMissing(r2.status, r2.data)) {
       const b3: Record<string, unknown> = {}
-      if (fn) b3.firstName = fn
-      if (ln) b3.lastName = ln
       const f3: Array<{ slug: string; value: string }> = []
       if (fn) f3.push({ slug: 'first_name', value: fn })
-      if (ln) f3.push({ slug: 'last_name',  value: ln })
+      if (ln) f3.push({ slug: 'surname',    value: ln })
       if (f3.length > 0) b3.fields = f3
       if (Object.keys(b3).length === 0) return 'ok'
       const r3 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, b3, 'application/merge-patch+json')
