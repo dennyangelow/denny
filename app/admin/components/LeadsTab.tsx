@@ -395,9 +395,8 @@ export function LeadsTab({ leads }: Props) {
         toast.error(`❌ Всички ${totalFailed} контакта се провалиха — провери Vercel logs`)
       }
 
-      if (totalSynced > 0) {
-        setTimeout(() => window.location.reload(), 1500)
-      }
+      // НЕ правим window.location.reload() — state вече е обновен локално
+      // чрез setSyncedIds / setInvalidIds по-горе в цикъла
     } catch { toast.error('Мрежова грешка') }
     finally {
       setBulkSyncing(false)
