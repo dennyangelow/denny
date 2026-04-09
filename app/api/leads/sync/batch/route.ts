@@ -1,9 +1,7 @@
-// app/api/leads/sync/batch/route.ts — v8
+// app/api/leads/sync/batch/route.ts — v9
 //
-// ✅ v8 FIXES:
-//   1. Sequential (не parallel) — Promise.all причиняваше rate limit + Vercel timeout
-//   2. 1000ms пауза между контактите
-//   3. Подробно логване
+// v9: safeIds → 3 (не 10) за да не timeout-ва Vercel
+//     sleep 1500ms между контактите
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -20,7 +18,8 @@ export async function POST(req: NextRequest) {
   const { ids } = await req.json() as { ids: string[] }
   if (!ids?.length) return NextResponse.json({ error: 'Липсват ids' }, { status: 400 })
 
-  const safeIds = ids.slice(0, 10)
+  // Максимум 3 контакта на извикване → ~9 сек → безопасно под 30s Vercel timeout
+  const safeIds = ids.slice(0, 3)
 
   const { data: leads, error } = await supabaseAdmin
     .from('leads')
@@ -35,7 +34,6 @@ export async function POST(req: NextRequest) {
   let invalid   = 0
   const errors: string[] = []
 
-  // Sequential — НЕ parallel за да спазим rate limit и избегнем Vercel timeout
   for (const l of leads as any[]) {
     if (l.systemeio_email_invalid) {
       invalid++
@@ -72,8 +70,7 @@ export async function POST(req: NextRequest) {
       console.warn(`[batch] Неуспешен sync за ${l.email}:`, r.error)
     }
 
-    // 1000ms пауза между контактите
-    await sleep(1000)
+    await sleep(1500)
   }
 
   return NextResponse.json({

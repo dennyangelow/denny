@@ -259,21 +259,21 @@ export function LeadsTab({ leads }: Props) {
   }, [syncedIds])
 
   // ── Bulk sync ─────────────────────────────────────────────────────────────
-  // Праща по 10 ID-та на сервъра наведнъж от frontend за да избегне timeout
+  // Праща по 3 ID-та на сервъра — batch route обработва sequential с 1s пауза
+  // = ~5-10 сек/chunk, безопасно под Vercel 30s timeout
   const handleBulkSync = useCallback(async (forceAll = false) => {
     const toSync = forceAll
       ? uniqueLeads.filter(l => l.subscribed)
       : uniqueLeads.filter(l => !syncedIds.has(l.id) && !(l as any).systemeio_synced && l.subscribed)
 
     if (toSync.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
-    if (!confirm(`Ще се синхронизират ${toSync.length} контакта в Systeme.io. Продължи?`)) return
 
     setBulkSyncing(true)
     let totalSynced = 0
     let totalFailed = 0
 
     try {
-      const CHUNK = 10
+      const CHUNK = 3  // 3 контакта × ~3 сек = ~9 сек (< 30s timeout)
       for (let i = 0; i < toSync.length; i += CHUNK) {
         const chunk = toSync.slice(i, i + CHUNK)
         try {
@@ -283,9 +283,9 @@ export function LeadsTab({ leads }: Props) {
             body:    JSON.stringify({ ids: chunk.map(l => l.id) }),
           })
           const data = await res.json()
-          if (data.success) {
-            totalSynced += data.synced || 0
-            totalFailed += data.failed || 0
+          totalSynced += data.synced || 0
+          totalFailed += data.failed || 0
+          if (data.success || data.synced > 0) {
             setSyncedIds(prev => {
               const next = new Set(prev)
               chunk.forEach(l => next.add(l.id))
@@ -293,7 +293,8 @@ export function LeadsTab({ leads }: Props) {
             })
           }
         } catch { totalFailed += chunk.length }
-        if (i + CHUNK < toSync.length) await new Promise(r => setTimeout(r, 200))
+        // Пауза между chunk-овете — дава на Systeme.io да се възстанови
+        if (i + CHUNK < toSync.length) await new Promise(r => setTimeout(r, 2000))
       }
       if (totalFailed === 0) {
         toast.success(`✅ Синхронизирани ${totalSynced} контакта в Systeme.io!`)

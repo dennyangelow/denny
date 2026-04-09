@@ -1,4 +1,4 @@
-// lib/systemeio.ts — v18
+// lib/systemeio.ts — v19
 //
 // ═══════════════════════════════════════════════════════════════
 //  ОПРАВЕН БАГ В v11:
@@ -7,13 +7,12 @@
 //     Systeme.io приема limit само 10–100.
 //     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
 //
-//  ✅ v18 FIX:
-//     Systeme.io PATCH изисква "application/merge-patch+json" — задължително!
-//     НО merge-patch не поддържа fields[] масив правилно.
-//     РЕШЕНИЕ: 2 отделни заявки:
-//       1. PATCH merge-patch+json  → firstName, lastName, phoneNumber (БЕЗ fields)
-//       2. PATCH merge-patch+json  → само fields: [{slug,value}] (отделно)
-//     Така и имената се записват И custom field-ът работи.
+//  ✅ v19 FIX:
+//     1. patchContactDirect: само 1 PATCH заявка (не 2)
+//        fields[] не се записва с merge-patch → само при POST
+//     2. Имена се подават само ако НЕ са empty string
+//        (merge-patch с '' изтрива полето!)
+//     3. При skip (няма данни) → директно ok → само таг
 //
 //  ЗАПАЗЕНО ОТ v11:
 //  ✅ GET /api/tags пагинация по 100
@@ -174,53 +173,43 @@ async function createContact(
 }
 
 // ── Patch contact ─────────────────────────────────────────────────────────────
-// Systeme.io изисква "application/merge-patch+json" за PATCH.
-// НО merge-patch НЕ поддържа fields[] масив — трябват 2 отделни заявки:
-//   1. PATCH firstName/lastName/phoneNumber (без fields)
-//   2. PATCH fields: [{slug, value}] (отделно)
+// Systeme.io: PATCH изисква "application/merge-patch+json".
+// ВАЖНО: firstName/lastName се записват само ако НЕ са empty string.
+//        merge-patch с празен string изтрива полето.
+//        Затова подаваме само непразните стойности.
+// fields[] не се поддържа от merge-patch → custom field се записва
+//        само при POST (createContact). При PATCH го пропускаме.
 async function patchContactDirect(
   apiKey:          string,
   contactId:       string,
   firstName:       string,
   lastName:        string,
   phone?:          string,
-  naruchnikSlug?:  string
+  naruchnikSlug?:  string  // запазен за съвместимост, не се ползва в PATCH
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
 
-  // ── Заявка 1: имена + телефон (без fields) ────────────────────────────────
-  const body1: Record<string, unknown> = {}
-  if (firstName) body1.firstName   = firstName
-  if (lastName)  body1.lastName    = lastName
-  if (phone)     body1.phoneNumber = phone
+  const body: Record<string, unknown> = {}
+  // Записваме само непразните стойности — merge-patch с '' изтрива полето
+  if (firstName?.trim()) body.firstName   = firstName.trim()
+  if (lastName?.trim())  body.lastName    = lastName.trim()
+  if (phone)             body.phoneNumber = phone
 
-  const res1 = await sioFetch(
-    apiKey, 'PATCH', `/api/contacts/${contactId}`,
-    body1, 'application/merge-patch+json'
-  )
-
-  if (res1.status === 404)   return 'notFound'
-  if (res1.status === 429)   return 'rateLimited'
-  if (!res1.ok && !isFieldSlugMissing(res1.status, res1.data)) return 'error'
-
-  // ── Заявка 2: custom field naruchnici (отделно) ───────────────────────────
-  if (naruchnikSlug) {
-    await sleep(200)
-    const body2: Record<string, unknown> = {
-      fields: [{ slug: 'naruchnici', value: naruchnikSlug }]
-    }
-    const res2 = await sioFetch(
-      apiKey, 'PATCH', `/api/contacts/${contactId}`,
-      body2, 'application/merge-patch+json'
-    )
-    // Ако fields-ът не съществува → не е фатално, имената са записани
-    if (res2.status === 429) return 'rateLimited'
-    if (!res2.ok && !isFieldSlugMissing(res2.status, res2.data)) {
-      console.warn(`[Sio] fields PATCH грешка за ${contactId}: ${res2.status}`)
-      // Не връщаме 'error' — имената са записани успешно
-    }
+  // Ако няма какво да обновяваме → skip (само тага ще се добави)
+  if (Object.keys(body).length === 0) {
+    console.info(`[Sio] PATCH skip за ${contactId} — няма данни за обновяване`)
+    return 'ok'
   }
 
-  return 'ok'
+  const res = await sioFetch(
+    apiKey, 'PATCH', `/api/contacts/${contactId}`,
+    body, 'application/merge-patch+json'
+  )
+
+  if (res.ok)             return 'ok'
+  if (res.status === 404) return 'notFound'
+  if (res.status === 429) return 'rateLimited'
+  if (isFieldSlugMissing(res.status, res.data)) return 'ok'  // safety net
+  return 'error'
 }
 
 // ── Get tag ID (кеширано — само 1 GET за целия batch) ─────────────────────────
