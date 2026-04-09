@@ -234,13 +234,13 @@ async function createContact(
 }
 
 // ── UPDATE contact (PATCH) ────────────────────────────────────────────────────
-// КРИТИЧНО: Systeme.io PATCH правила (потвърдени от официалната документация):
+// КРИТИЧНО: Systeme.io PATCH правила:
 //
-//   firstName / lastName  → директно в body (горно ниво)
-//   phoneNumber           → чрез fields:[{slug:"phone_number", value:"+359..."}]
-//   naruchnici            → чрез fields:[{slug:"naruchnici",   value:"super-domati"}]
+//   firstName / lastName → горно ниво + fields slug "first_name"/"last_name"
+//                          (горно ниво → 200 OK но игнорирано → двоен подход!)
+//   phoneNumber          → fields slug "phone_number"
+//   naruchnici           → fields slug "naruchnici"
 //
-// Всичко в ЕДНО PATCH извикване.
 async function updateContact(
   apiKey: string,
   contactId: string,
@@ -253,7 +253,6 @@ async function updateContact(
   const fn = firstName?.trim() ?? ''
   const ln = lastName?.trim() ?? ''
 
-  // Пропускаме само ако НАИСТИНА няма нищо за обновяване
   if (!fn && !ln && !phone && !naruchnikSlug) {
     console.info(`[Sio] UPDATE skip ${contactId} — няма данни`)
     return 'ok'
@@ -261,14 +260,14 @@ async function updateContact(
 
   const patchBody: Record<string, unknown> = {}
 
-  // Имена → горно ниво (изпращаме дори при '' за да изтрием ако е нужно,
-  // но само ако имаме поне едно непразно — не искаме да изтриваме имена без причина)
+  // Имена → горно ниво (camelCase)
   if (fn) patchBody.firstName = fn
   if (ln) patchBody.lastName = ln
 
-  // Телефон → fields slug "phone_number" (НЕ phoneNumber на горно ниво!)
-  // Custom field → fields slug "naruchnici"
+  // fields: имена като slug (двоен подход) + телефон + custom field
   const fields: Array<{ slug: string; value: string }> = []
+  if (fn) fields.push({ slug: 'first_name', value: fn })
+  if (ln) fields.push({ slug: 'last_name',  value: ln })
   if (phone) fields.push({ slug: 'phone_number', value: phone })
   if (naruchnikSlug) fields.push({ slug: 'naruchnici', value: naruchnikSlug })
   if (fields.length > 0) patchBody.fields = fields
@@ -294,7 +293,12 @@ async function updateContact(
     const b2: Record<string, unknown> = {}
     if (fn) b2.firstName = fn
     if (ln) b2.lastName = ln
-    if (naruchnikSlug) b2.fields = [{ slug: 'naruchnici', value: naruchnikSlug }]
+    // Двоен подход за имена + само naruchnici (без phone_number)
+    const f2: Array<{ slug: string; value: string }> = []
+    if (fn) f2.push({ slug: 'first_name', value: fn })
+    if (ln) f2.push({ slug: 'last_name',  value: ln })
+    if (naruchnikSlug) f2.push({ slug: 'naruchnici', value: naruchnikSlug })
+    if (f2.length > 0) b2.fields = f2
     if (Object.keys(b2).length === 0) return 'ok'
 
     const r2 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, b2, 'application/merge-patch+json')
@@ -302,11 +306,15 @@ async function updateContact(
     if (r2.status === 404) return 'notFound'
     if (r2.status === 429) return 'rateLimited'
 
-    // И naruchnici slug не съществува → само имена
+    // И naruchnici slug не съществува → само имена (двоен подход)
     if (isFieldSlugMissing(r2.status, r2.data)) {
       const b3: Record<string, unknown> = {}
       if (fn) b3.firstName = fn
       if (ln) b3.lastName = ln
+      const f3: Array<{ slug: string; value: string }> = []
+      if (fn) f3.push({ slug: 'first_name', value: fn })
+      if (ln) f3.push({ slug: 'last_name',  value: ln })
+      if (f3.length > 0) b3.fields = f3
       if (Object.keys(b3).length === 0) return 'ok'
       const r3 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, b3, 'application/merge-patch+json')
       if (r3.ok) return 'ok'
