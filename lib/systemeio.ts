@@ -1,37 +1,23 @@
-// lib/systemeio.ts — v22
-// ПОПРАВКИ v22:
-//   1. patchContactDirect: ВИНАГИ изпраща firstName + lastName (дори "") —
-//      Systeme.io игнорира "" при merge-patch, но ако ги пропускаме
-//      contactId съществуващи контакти НИКОГА не получават имена при re-sync
-//   2. getTagId: cursor-based pagination (startingAfter=<last_id>)
-//      вместо грешното page=N — API-то не поддържа page= параметър!
-//   3. findContactByEmail: добавен order=asc за стабилен резултат
-//   4. PATCH retry без fields: коректна проверка на hasNameData
+// lib/systemeio.ts — v23
+// ФИНАЛНИ ПОПРАВКИ v23:
 //
-// ═══════════════════════════════════════════════════════════════
-//  ОПРАВЕН БАГ В v11:
+//  1. createContact: phoneNumber → TOP-LEVEL поле (не fields[phone_number]!)
+//     Официалната документация: POST body = { email, firstName, lastName, phoneNumber, fields[] }
+//     fields[] е САМО за custom полета (naruchnici и др.)
+//     Грешката: телефонът се записваше в custom field phone_number → записваше се без "+"
 //
-//  ❌ v10 BUG: GET /api/tags?limit=200 → 422 грешка!
-//     Systeme.io приема limit само 10–100.
-//     Резултат: tagId = null → тагът "naruchnik" НИКОГА не се слагаше!
+//  2. patchContactDirect: phoneNumber → TOP-LEVEL при PATCH също
+//     Systeme.io приема phoneNumber като top-level при merge-patch
 //
-//  ✅ v19 FIX:
-//     1. patchContactDirect: само 1 PATCH заявка (не 2)
-//        fields[] не се записва с merge-patch → само при POST
-//     2. Имена се подават само ако НЕ са empty string
-//        (merge-patch с '' изтрива полето!)
-//     3. При skip (няма данни) → директно ok → само таг
+//  3. Имената при PATCH: изпращат се ВИНАГИ (дори "") — вече работи (v22)
 //
-//  ЗАПАЗЕНО ОТ v11:
-//  ✅ GET /api/tags пагинация по 100
-//  ✅ phoneNumber е top-level поле
-//  ✅ При 404 → findByEmail → create → PATCH
-//  ✅ Rate limit handling с retry
+//  4. getTagId: cursor-based pagination с startingAfter (не page=N) — v22
+//
 // ═══════════════════════════════════════════════════════════════
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-// ── Tag ID cache — зарежда се веднъж за целия процес ─────────────────────────
+// ── Tag ID cache ──────────────────────────────────────────────────────────────
 const tagIdCache: Record<string, number | null> = {}
 
 // ── Phone formatter ───────────────────────────────────────────────────────────
@@ -49,7 +35,7 @@ export function formatPhone(phone?: string | null): string | undefined {
 // ── Name splitter ─────────────────────────────────────────────────────────────
 export function splitName(name?: string | null): { firstName: string; lastName: string } {
   const parts     = (name || '').trim().split(/\s+/).filter(Boolean)
-  const firstName = parts[0]            || ''
+  const firstName = parts[0]                 || ''
   const lastName  = parts.slice(1).join(' ') || ''
   return { firstName, lastName }
 }
@@ -62,36 +48,6 @@ function isDuplicateEmail(status: number, data: any): boolean {
   return d.includes('already used') || d.includes('already exists')
 }
 
-function isEmailInvalid(status: number, data: any): boolean {
-  if (status !== 422) return false
-  // ВАЖНО: Проверяваме ПЪРВО за field slug грешки → те НЕ са email грешки
-  // (Systeme.io понякога връща "Email address is invalid" като общо съобщение
-  //  когато реалният проблем е невалиден fields[] slug)
-  if (isFieldSlugMissing(status, data)) return false
-
-  const violations: any[] = data?.violations || []
-  // Само violations с propertyPath === 'email' са истински email грешки
-  const hasEmailViolation = violations.some(
-    (v: any) => v?.propertyPath === 'email'
-  )
-  if (hasEmailViolation) return true
-
-  // detail съдържа 'email' само ако НЕ е field грешка и НЕ е duplicate
-  if (violations.length === 0) {
-    const detail = (data?.detail || '').toLowerCase()
-    return detail.includes('email') && !isDuplicateEmail(status, data)
-  }
-
-  return false
-}
-
-function isPlanLimit(status: number, data: any): boolean {
-  if (status !== 422 && status !== 400) return false
-  const d = (data?.detail || data?.violations?.[0]?.message || '').toLowerCase()
-  return d.includes('upgrade') || d.includes('plan')
-}
-
-// Детектира 422 "custom field slug does not exist" → игнорираме (полето не е в акаунта)
 function isFieldSlugMissing(status: number, data: any): boolean {
   if (status !== 422) return false
   const violations: any[] = data?.violations || []
@@ -99,6 +55,29 @@ function isFieldSlugMissing(status: number, data: any): boolean {
     (v: any) => (v?.propertyPath || '').startsWith('fields[') &&
                 (v?.message || '').toLowerCase().includes('does not exist')
   )
+}
+
+function isEmailInvalid(status: number, data: any): boolean {
+  if (status !== 422) return false
+  if (isFieldSlugMissing(status, data)) return false
+
+  const violations: any[] = data?.violations || []
+  const hasEmailViolation = violations.some(
+    (v: any) => v?.propertyPath === 'email'
+  )
+  if (hasEmailViolation) return true
+
+  if (violations.length === 0) {
+    const detail = (data?.detail || '').toLowerCase()
+    return detail.includes('email') && !isDuplicateEmail(status, data)
+  }
+  return false
+}
+
+function isPlanLimit(status: number, data: any): boolean {
+  if (status !== 422 && status !== 400) return false
+  const d = (data?.detail || data?.violations?.[0]?.message || '').toLowerCase()
+  return d.includes('upgrade') || d.includes('plan')
 }
 
 function safeJson(text: string): any {
@@ -138,7 +117,8 @@ async function sioFetch(
 // ── Find contact by email ─────────────────────────────────────────────────────
 async function findContactByEmail(apiKey: string, email: string): Promise<string | null> {
   const { ok, data } = await sioFetch(
-    apiKey, 'GET', `/api/contacts?email=${encodeURIComponent(email)}&limit=10&order=asc`
+    apiKey, 'GET',
+    `/api/contacts?email=${encodeURIComponent(email)}&limit=10&order=asc`
   )
   if (!ok || !data) return null
   const items = data.items || data['hydra:member'] || []
@@ -147,23 +127,27 @@ async function findContactByEmail(apiKey: string, email: string): Promise<string
 }
 
 // ── Create contact ────────────────────────────────────────────────────────────
-// ✅ ПРАВИЛНО: phone_number и naruchnici → fields[], firstName/lastName → top-level
+// ✅ ПРАВИЛНО (официална документация):
+//   POST body: { email, firstName, lastName, phoneNumber, fields[] }
+//   phoneNumber → TOP-LEVEL системно поле
+//   fields[]    → САМО за custom полета (naruchnici и др.)
+//
 async function createContact(
-  apiKey:          string,
-  email:           string,
-  firstName:       string,
-  lastName:        string,
-  phone?:          string,
-  naruchnikSlug?:  string
+  apiKey:         string,
+  email:          string,
+  firstName:      string,
+  lastName:       string,
+  phone?:         string,
+  naruchnikSlug?: string
 ): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
 
-  // Опит 1: с fields[] (phone + naruchnici)
+  // Custom fields — САМО naruchnici (phone е top-level!)
   const fields: { slug: string; value: string }[] = []
-  if (phone)         fields.push({ slug: 'phone_number', value: phone })
-  if (naruchnikSlug) fields.push({ slug: 'naruchnici',   value: naruchnikSlug })
+  if (naruchnikSlug) fields.push({ slug: 'naruchnici', value: naruchnikSlug })
 
   const body: Record<string, unknown> = { email, firstName, lastName }
-  if (fields.length > 0) body.fields = fields
+  if (phone)          body.phoneNumber = phone          // ← TOP-LEVEL!
+  if (fields.length)  body.fields      = fields
 
   console.info(`[Sio] POST /api/contacts body:`, JSON.stringify(body))
   const res = await sioFetch(apiKey, 'POST', '/api/contacts', body)
@@ -184,15 +168,13 @@ async function createContact(
     return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
   }
 
-  // Ако fields[] slug-ове не съществуват → retry само с email + имена (БЕЗ fields)
+  // fields[] slug не съществува → retry без custom fields
   if (isFieldSlugMissing(res.status, res.data)) {
-    console.info(`[Sio] POST fields[] rejected (slug missing) → retry без fields`)
+    console.info(`[Sio] POST fields[] rejected → retry без custom fields`)
     const body2: Record<string, unknown> = { email, firstName, lastName }
+    if (phone) body2.phoneNumber = phone
     const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', body2)
-    if (r2.ok) {
-      console.info(`[Sio] POST retry (без fields) ok → contactId=${r2.data?.id}`)
-      return { contactId: String(r2.data?.id) }
-    }
+    if (r2.ok) return { contactId: String(r2.data?.id) }
     if (isDuplicateEmail(r2.status, r2.data)) {
       await sleep(400)
       return { contactId: await findContactByEmail(apiKey, email) }
@@ -216,54 +198,47 @@ async function createContact(
       const detail = r2.data?.violations?.[0]?.message || r2.data?.detail || 'Invalid email'
       return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
     }
-    return { contactId: null, error: `POST retry ${r2.status}: ${r2.text?.slice(0, 200)}` }
+    return { contactId: null, error: `POST 429 retry ${r2.status}: ${r2.text?.slice(0, 200)}` }
   }
 
   return { contactId: null, error: `POST ${res.status}: ${res.text?.slice(0, 200)}` }
 }
 
 // ── Patch contact ─────────────────────────────────────────────────────────────
-// Systeme.io: PATCH изисква "application/merge-patch+json".
-//
-// ✅ ПРАВИЛНО (от официалната документация):
-//   - firstName, lastName → top-level полета (само непразни!)
-//   - phone_number, naruchnici → fields[] масив с slug/value
-//   - НЕ phoneNumber като top-level (API го приема но НЕ го записва!)
+// ✅ ПРАВИЛНО (официална документация):
+//   PATCH Content-Type: application/merge-patch+json
+//   { firstName, lastName, phoneNumber, fields[] }
+//   phoneNumber → TOP-LEVEL (не fields[phone_number]!)
+//   fields[]    → само custom полета (naruchnici)
 //
 async function patchContactDirect(
-  apiKey:          string,
-  contactId:       string,
-  firstName:       string,
-  lastName:        string,
-  phone?:          string,
-  naruchnikSlug?:  string
+  apiKey:         string,
+  contactId:      string,
+  firstName:      string,
+  lastName:       string,
+  phone?:         string,
+  naruchnikSlug?: string
 ): Promise<'ok' | 'notFound' | 'rateLimited' | 'error'> {
 
   const fn = firstName?.trim() || ''
   const ln = lastName?.trim()  || ''
 
-  // fields[] — телефон и наръчник като custom fields (правилния начин)
+  // Custom fields — САМО naruchnici
   const fields: { slug: string; value: string }[] = []
-  if (phone)         fields.push({ slug: 'phone_number', value: phone })
-  if (naruchnikSlug) fields.push({ slug: 'naruchnici',   value: naruchnikSlug })
+  if (naruchnikSlug) fields.push({ slug: 'naruchnici', value: naruchnikSlug })
 
-  // ВАЖНО: Винаги изпращаме firstName/lastName дори и да са "" —
-  // Systeme.io игнорира празните низове и не трие данните.
-  // Ако ги пропускаме изцяло при merge-patch, полетата остават незасегнати
-  // само ако вече ги има. По-безопасно е да ги включим винаги.
+  const hasData = fn !== '' || ln !== '' || !!phone || fields.length > 0
+  if (!hasData) {
+    console.info(`[Sio] PATCH skip ${contactId} — no data`)
+    return 'ok'
+  }
+
   const body: Record<string, unknown> = {
     firstName: fn,
     lastName:  ln,
   }
-  if (fields.length > 0) body.fields = fields
-
-  // Ако наистина НЯМАМЕ никаква информация → skip
-  const hasNameData  = fn !== '' || ln !== ''
-  const hasFieldData = fields.length > 0
-  if (!hasNameData && !hasFieldData) {
-    console.info(`[Sio] PATCH skip ${contactId} — no data`)
-    return 'ok'
-  }
+  if (phone)         body.phoneNumber = phone   // ← TOP-LEVEL!
+  if (fields.length) body.fields      = fields
 
   console.info(`[Sio] PATCH body за ${contactId}:`, JSON.stringify(body))
 
@@ -276,9 +251,11 @@ async function patchContactDirect(
 
   if (res.ok) {
     if (phone) {
-      const savedFields: any[] = res.data?.fields || []
-      const savedPhone = savedFields.find((f: any) => f.slug === 'phone_number')?.value
-      console.info(`[Sio] phone_number: sent="${phone}" → saved="${savedPhone || 'не е в response'}"`)
+      const saved = res.data?.phoneNumber
+      console.info(`[Sio] phoneNumber: sent="${phone}" → saved="${saved || 'не е в response'}"`)
+    }
+    if (fn || ln) {
+      console.info(`[Sio] firstName="${res.data?.firstName}" lastName="${res.data?.lastName}"`)
     }
     return 'ok'
   }
@@ -286,12 +263,15 @@ async function patchContactDirect(
   if (res.status === 404) return 'notFound'
   if (res.status === 429) return 'rateLimited'
 
-  // Ако fields[] slug-ове не съществуват → retry само с имена
+  // fields[] slug не съществува → retry само с имена + телефон (без custom fields)
   if (isFieldSlugMissing(res.status, res.data)) {
-    console.info(`[Sio] PATCH fields[] rejected → retry само с имена`)
-    if (!hasNameData) return 'ok'
+    console.info(`[Sio] PATCH fields[] rejected → retry без custom fields`)
     const body2: Record<string, unknown> = { firstName: fn, lastName: ln }
-    const res2 = await sioFetch(apiKey, 'PATCH', `/api/contacts/${contactId}`, body2, 'application/merge-patch+json')
+    if (phone) body2.phoneNumber = phone
+    const res2 = await sioFetch(
+      apiKey, 'PATCH', `/api/contacts/${contactId}`,
+      body2, 'application/merge-patch+json'
+    )
     if (res2.ok) {
       console.info(`[Sio] PATCH retry (без fields) → ok ✅`)
       return 'ok'
@@ -306,24 +286,21 @@ async function patchContactDirect(
   return 'error'
 }
 
-// ── Get tag ID (кеширано — само 1 GET за целия batch) ─────────────────────────
-// FIX v22: Systeme.io използва cursor-based pagination (startingAfter),
-//          НЕ page=N. page=N не връща различни резултати!
+// ── Get tag ID (cursor-based pagination) ──────────────────────────────────────
+// Systeme.io: cursor-based pagination с startingAfter=<last_id>, НЕ page=N
 async function getTagId(apiKey: string, tagName: string): Promise<number | null> {
   const key = tagName.toLowerCase()
   if (key in tagIdCache) return tagIdCache[key]
 
-  // Cursor-based pagination: startingAfter=<last_id>
   let lastId: number | null = null
   while (true) {
     const url = lastId
-      ? `/api/tags?limit=100&startingAfter=${lastId}`
-      : `/api/tags?limit=100`
+      ? `/api/tags?limit=100&startingAfter=${lastId}&order=asc`
+      : `/api/tags?limit=100&order=asc`
 
     const res = await sioFetch(apiKey, 'GET', url)
     if (!res.ok) {
       if (isPlanLimit(res.status, res.data)) {
-        console.info(`[Sio] Таг "${tagName}" — план лимит`)
         tagIdCache[key] = null
         return null
       }
@@ -333,7 +310,6 @@ async function getTagId(apiKey: string, tagName: string): Promise<number | null>
 
     const items: any[] = res.data?.items || res.data?.['hydra:member'] || []
 
-    // Кешираме всички тагове от тази страница
     for (const t of items) {
       if (t?.id && t?.name) {
         tagIdCache[t.name.toLowerCase()] = Number(t.id)
@@ -345,14 +321,11 @@ async function getTagId(apiKey: string, tagName: string): Promise<number | null>
       return tagIdCache[key] ?? null
     }
 
-    // Проверяваме дали има следваща страница
     const hasMore = res.data?.hasMore === true
     if (!hasMore || items.length === 0) break
 
-    // Курсор = ID на последния елемент
     lastId = Number(items[items.length - 1]?.id) || null
     if (!lastId) break
-
     await sleep(300)
   }
 
@@ -373,9 +346,8 @@ async function getTagId(apiKey: string, tagName: string): Promise<number | null>
   return null
 }
 
-// ── Add tag (само ако все още не е добавен) ───────────────────────────────────
+// ── Add tag ───────────────────────────────────────────────────────────────────
 async function addTag(apiKey: string, contactId: string, tagName: string): Promise<void> {
-  // FIX: винаги използваме lowercase за кеша
   const tagId = await getTagId(apiKey, tagName.toLowerCase())
   if (tagId === null) {
     console.warn(`[Sio] addTag: не можем да намерим/създадем таг "${tagName}" — пропускаме`)
@@ -389,7 +361,6 @@ async function addTag(apiKey: string, contactId: string, tagName: string): Promi
     await sioFetch(apiKey, 'POST', `/api/contacts/${contactId}/tags`, { tagId })
     return
   }
-  // 409 = вече има тага → нормално, не логваме
   if (!res.ok && res.status !== 409) {
     console.warn(`[Sio] addTag "${tagName}" (id=${tagId}) → ${res.status}: ${res.text?.slice(0, 200)}`)
   } else if (res.ok) {
@@ -398,20 +369,6 @@ async function addTag(apiKey: string, contactId: string, tagName: string): Promi
 }
 
 // ── MAIN syncContact ──────────────────────────────────────────────────────────
-//
-//  НОВИ 2 ЗАЯВКИ НА КОНТАКТ (вместо 4):
-//
-//  Ако имаме contactId:
-//    1. PATCH /api/contacts/{id}          ← директно, без GET предварително
-//       - Ако 404: findByEmail или create → после PATCH пак
-//       - Ако 429: изчакваме → retry
-//    2. POST /api/contacts/{id}/tags      ← tagId е в кеша
-//
-//  Ако нямаме contactId:
-//    1. POST /api/contacts                ← create (включва phone + naruchnici)
-//       - Ако 409 (дублиран): findByEmail
-//    2. POST /api/contacts/{id}/tags
-//
 export async function syncContact(params: {
   apiKey:         string
   email:          string
@@ -431,7 +388,7 @@ export async function syncContact(params: {
   let contactId: string | null = params.contactId || null
 
   // ═══════════════════════════════════════════════════════════════
-  // CASE A: Имаме contactId → опитваме PATCH директно
+  // CASE A: Имаме contactId → PATCH директно
   // ═══════════════════════════════════════════════════════════════
   if (contactId) {
     const p1 = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
@@ -445,7 +402,6 @@ export async function syncContact(params: {
     }
 
     if (p1 === 'rateLimited') {
-      // До 3 retry с нарастваща пауза
       for (let attempt = 1; attempt <= 3; attempt++) {
         const wait = 4000 * attempt
         console.info(`[Sio] Rate limited за ${email} — чакам ${wait}ms (опит ${attempt}/3)`)
@@ -455,68 +411,53 @@ export async function syncContact(params: {
         if (rr === 'ok') {
           await sleep(300)
           await addTag(apiKey, contactId, tag)
-          console.info(`[Sio] ✅ ${email} — PATCH ok след retry`)
           return { ok: true, contactId }
         }
         if (rr === 'notFound') { contactId = null; break }
         if (rr === 'error')    { return { ok: false, error: `PATCH error after rate limit for ${email}` } }
-        // rr === 'rateLimited' → следваща итерация
       }
       if (contactId !== null) {
-        console.warn(`[Sio] ❌ ${email} — rate limited след 3 опита`)
         return { ok: false, error: `PATCH rate limited for ${email}` }
       }
-      // contactId = null → пада в CASE B по-долу
     }
 
     if (p1 === 'notFound') {
-      console.info(`[Sio] contactId ${contactId} не е намерен → ще търсим по email`)
+      console.info(`[Sio] contactId ${contactId} не е намерен → търсим по email`)
       contactId = null
-      // пада в CASE B
     }
 
     if (p1 === 'error') {
-      // Неочаквана грешка → опитваме findByEmail
-      console.warn(`[Sio] PATCH error за ${email} → findByEmail`)
       const found = await findContactByEmail(apiKey, email)
       if (found) {
-        console.info(`[Sio] Намерен по email: ${found}`)
         await sleep(300)
         await patchContactDirect(apiKey, found, firstName, lastName, phone, slug)
         await sleep(300)
         await addTag(apiKey, found, tag)
-        console.info(`[Sio] ✅ ${email} — PATCH ok след findByEmail`)
         return { ok: true, contactId: found }
       }
-      console.warn(`[Sio] ❌ ${email} — не е намерен по email след PATCH error`)
       return { ok: false, error: `PATCH error for ${email}` }
     }
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // CASE B: Нямаме contactId → POST (create or find by 409)
+  // CASE B: Нямаме contactId → POST (create)
   // ═══════════════════════════════════════════════════════════════
   console.info(`[Sio] POST /api/contacts за ${email}`)
   const created = await createContact(apiKey, email, firstName, lastName, phone, slug)
 
   if (created.emailInvalid) {
-    console.info(`[Sio] ❌ ${email} — невалиден имейл`)
     return { ok: false, error: created.error, emailInvalid: true }
   }
   if (created.error) {
-    console.warn(`[Sio] ❌ ${email} — createContact error: ${created.error}`)
     return { ok: false, error: created.error }
   }
 
   contactId = created.contactId
   if (!contactId) {
-    console.warn(`[Sio] ❌ ${email} — няма contactId след create`)
     return { ok: false, error: 'No contact ID' }
   }
 
-  console.info(`[Sio] contactId след create/find: ${contactId} → PATCH за имена`)
-  // PATCH след create — записва имена, телефон, naruchnici
-  // (при 409: POST не е записал нищо, PATCH обновява съществуващия)
+  // PATCH след create — обновява naruchnici custom field ако POST го е пропуснал
   await sleep(300)
   const p2 = await patchContactDirect(apiKey, contactId, firstName, lastName, phone, slug)
   console.info(`[Sio] PATCH #2 за ${email}: ${p2}`)
