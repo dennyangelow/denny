@@ -1,11 +1,10 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v6
-// ✅ Systeme.io статус колона (synced / не е синхронизиран)
-// ✅ Бутон "Sync всички → Systeme.io" (bulk)
-// ✅ Бутон за sync по отделно на всеки lead
-// ✅ Красив десктоп + мобилен изглед (карти)
-// ✅ Филтър по Systeme.io статус
-// ✅ Оптимистичен UI update след sync
+// app/admin/components/LeadsTab.tsx — v7
+// КРИТИЧНИ ПОПРАВКИ:
+//   1. handleBulkSync: използва syncedIds[] от response (не брой!)
+//   2. handleSyncOne: правилно обработва success/invalidEmail
+//   3. "Ре-sync всички" бутон е ВИНАГИ видим (не само когато всичко е synced)
+//   4. Прогрес показва реален брой (X/Y синхронизирани)
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { Lead } from '@/lib/supabase'
@@ -77,9 +76,12 @@ export function LeadsTab({ leads }: Props) {
   const [bSending,      setBSending]      = useState(false)
   const [syncingId,     setSyncingId]     = useState<string | null>(null)
   const [bulkSyncing,   setBulkSyncing]   = useState(false)
+  const [bulkProgress,  setBulkProgress]  = useState({ done: 0, total: 0 })
   const [isMobile,      setIsMobile]      = useState(false)
   // Локален state за synced статуси (оптимистичен UI)
   const [syncedIds,     setSyncedIds]     = useState<Set<string>>(new Set())
+  // Невалидни имейли (за да не се опитваме пак)
+  const [invalidIds,    setInvalidIds]    = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -88,11 +90,16 @@ export function LeadsTab({ leads }: Props) {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Инициализираме syncedIds от leads (ако има systemeio_synced поле)
+  // Инициализираме syncedIds от leads
   useEffect(() => {
-    const ids = new Set<string>()
-    leads.forEach(l => { if ((l as any).systemeio_synced) ids.add(l.id) })
-    setSyncedIds(ids)
+    const synced  = new Set<string>()
+    const invalid = new Set<string>()
+    leads.forEach(l => {
+      if ((l as any).systemeio_synced)        synced.add(l.id)
+      if ((l as any).systemeio_email_invalid) invalid.add(l.id)
+    })
+    setSyncedIds(synced)
+    setInvalidIds(invalid)
   }, [leads])
 
   // ── emailToSlugs ─────────────────────────────────────────────────────────
@@ -160,10 +167,16 @@ export function LeadsTab({ leads }: Props) {
 
   const subscribed = useMemo(() => uniqueLeads.filter(l=>l.subscribed), [uniqueLeads])
 
-  // Брой несинхронизирани
+  // Брой несинхронизирани (без невалидните имейли)
   const unsyncedCount = useMemo(() =>
-    uniqueLeads.filter(l => !syncedIds.has(l.id) && !(l as any).systemeio_synced).length,
-    [uniqueLeads, syncedIds])
+    uniqueLeads.filter(l =>
+      !syncedIds.has(l.id) &&
+      !(l as any).systemeio_synced &&
+      !invalidIds.has(l.id) &&
+      !(l as any).systemeio_email_invalid &&
+      l.subscribed
+    ).length,
+    [uniqueLeads, syncedIds, invalidIds])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
@@ -240,35 +253,48 @@ export function LeadsTab({ leads }: Props) {
   }, [])
 
   // ── Sync един lead ────────────────────────────────────────────────────────
-  // Използва /api/leads/sync (POST с ?id) — НЕ /api/leads, за да не тригерва
-  // публичния rate limiter (5 req/10min)
   const handleSyncOne = useCallback(async (lead: Lead) => {
-    if (syncedIds.has(lead.id) || (lead as any).systemeio_synced) return
+    const alreadySynced = syncedIds.has(lead.id) || !!(lead as any).systemeio_synced
+    if (alreadySynced) return
     setSyncingId(lead.id)
     try {
       const res  = await fetch(`/api/leads/sync?id=${lead.id}`, { method: 'POST' })
       const data = await res.json()
-      if (data.synced === 1 || data.success) {
+
+      // Успех: synced=1 или success=true (включително невалиден имейл — пропускаме тихо)
+      if (data.synced === 1) {
         setSyncedIds(prev => new Set([...prev, lead.id]))
         toast.success(`✅ ${lead.email} → Systeme.io`)
+      } else if (data.invalidEmail) {
+        setInvalidIds(prev => new Set([...prev, lead.id]))
+        toast.error(`⚠️ ${lead.email} — невалиден имейл, пропуснат`)
+      } else if (data.success === false && data.message) {
+        toast.error(`❌ ${data.message}`)
       } else {
-        toast.error(`❌ ${data.errors?.[0] || data.error || 'Грешка'}`)
+        const errMsg = data.errors?.[0] || data.error || 'Неизвестна грешка'
+        toast.error(`❌ ${errMsg}`)
       }
     } catch { toast.error('Мрежова грешка') }
     finally { setSyncingId(null) }
   }, [syncedIds])
 
   // ── Bulk sync ─────────────────────────────────────────────────────────────
-  // Праща по 3 ID-та на сервъра — batch route обработва sequential с 1s пауза
-  // = ~5-10 сек/chunk, безопасно под Vercel 30s timeout
+  // ПОПРАВЕНО: използва syncedIds[] от response — не брой!
   const handleBulkSync = useCallback(async (forceAll = false) => {
     const toSync = forceAll
-      ? uniqueLeads.filter(l => l.subscribed)
-      : uniqueLeads.filter(l => !syncedIds.has(l.id) && !(l as any).systemeio_synced && l.subscribed)
+      ? uniqueLeads.filter(l => l.subscribed && !invalidIds.has(l.id) && !(l as any).systemeio_email_invalid)
+      : uniqueLeads.filter(l =>
+          !syncedIds.has(l.id) &&
+          !(l as any).systemeio_synced &&
+          !invalidIds.has(l.id) &&
+          !(l as any).systemeio_email_invalid &&
+          l.subscribed
+        )
 
     if (toSync.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
 
     setBulkSyncing(true)
+    setBulkProgress({ done: 0, total: toSync.length })
     let totalSynced = 0
     let totalFailed = 0
 
@@ -283,31 +309,61 @@ export function LeadsTab({ leads }: Props) {
             body:    JSON.stringify({ ids: chunk.map(l => l.id) }),
           })
           const data = await res.json()
-          totalSynced += data.synced || 0
-          totalFailed += data.failed || 0
-          // Маркираме само реално синхронизираните като synced
-          if (data.synced > 0) {
-            setSyncedIds(prev => {
-              const next = new Set(prev)
-              // Маркираме само chunk-а — сървърът е обновил Supabase
-              chunk.slice(0, data.synced).forEach(l => next.add(l.id))
-              return next
-            })
+
+          if (!res.ok) {
+            console.error('[bulk] Batch error:', data.error)
+            totalFailed += chunk.length
+          } else {
+            totalSynced += data.synced || 0
+            totalFailed += data.failed || 0
+
+            // ✅ ПОПРАВЕНО: използваме точните syncedIds от сървъра
+            if (data.syncedIds?.length > 0) {
+              setSyncedIds(prev => {
+                const next = new Set(prev)
+                data.syncedIds.forEach((id: string) => next.add(id))
+                return next
+              })
+            }
+
+            // Маркираме невалидните имейли
+            if (data.invalidIds?.length > 0) {
+              setInvalidIds(prev => {
+                const next = new Set(prev)
+                data.invalidIds.forEach((id: string) => next.add(id))
+                return next
+              })
+            }
+
+            setBulkProgress(p => ({ ...p, done: p.done + (data.synced || 0) + (data.invalid || 0) }))
           }
-        } catch { totalFailed += chunk.length }
+        } catch (err) {
+          console.error('[bulk] Chunk error:', err)
+          totalFailed += chunk.length
+        }
+
+        // Пауза между chunk-овете (само ако има следващ)
         if (i + CHUNK < toSync.length) await new Promise(r => setTimeout(r, 2000))
       }
-      // Показваме резултат и рефрешваме страницата за свежи данни
+
       if (totalFailed === 0) {
         toast.success(`✅ Синхронизирани ${totalSynced} контакта в Systeme.io!`)
-      } else {
+      } else if (totalSynced > 0) {
         toast.success(`✅ ${totalSynced} OK · ⚠️ ${totalFailed} грешки`)
+      } else {
+        toast.error(`❌ Всички ${totalFailed} контакта се провалиха — провери Vercel logs`)
       }
-      // Рефрешваме за да вземем актуалните systemeio_synced стойности от DB
-      if (totalSynced > 0) window.location.reload()
+
+      // Рефрешваме само ако е имало успешни sync-ове
+      if (totalSynced > 0) {
+        setTimeout(() => window.location.reload(), 1500)
+      }
     } catch { toast.error('Мрежова грешка') }
-    finally { setBulkSyncing(false) }
-  }, [uniqueLeads, syncedIds])
+    finally {
+      setBulkSyncing(false)
+      setBulkProgress({ done: 0, total: 0 })
+    }
+  }, [uniqueLeads, syncedIds, invalidIds])
 
   const inp: React.CSSProperties = { padding:'8px 13px', border:'1px solid var(--border)', borderRadius:9, fontFamily:'inherit', fontSize:13, outline:'none', background:'#fff' }
   const SortArrow = ({ k }: { k: SortKey }) => (
@@ -346,7 +402,7 @@ export function LeadsTab({ leads }: Props) {
       </div>
 
       {/* ── Systeme.io sync banner ── */}
-      {unsyncedCount > 0 && (
+      {unsyncedCount > 0 ? (
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
           background:'linear-gradient(135deg,#fff7ed,#fef3c7)', border:'1px solid #fde68a', borderRadius:12,
           padding:'14px 18px', marginBottom:20 }}>
@@ -357,23 +413,33 @@ export function LeadsTab({ leads }: Props) {
                 {unsyncedCount} контакта не са синхронизирани в Systeme.io
               </div>
               <div style={{ fontSize:12, color:'#b45309', marginTop:2 }}>
-                Натисни бутона за да ги добавиш всички наведнъж
+                {bulkSyncing && bulkProgress.total > 0
+                  ? `⏳ ${bulkProgress.done} / ${bulkProgress.total} синхронизирани...`
+                  : 'Натисни бутона за да ги добавиш всички наведнъж'
+                }
               </div>
             </div>
           </div>
-          <button onClick={() => handleBulkSync()} disabled={bulkSyncing}
-            style={{ background:bulkSyncing?'#d97706':'linear-gradient(135deg,#ea580c,#c2410c)',
-              color:'#fff', border:'none', borderRadius:9, padding:'10px 18px', cursor:bulkSyncing?'default':'pointer',
-              fontFamily:'inherit', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:7,
-              opacity:bulkSyncing?.7:1, boxShadow:'0 2px 8px rgba(194,65,12,.3)', whiteSpace:'nowrap' as const }}>
-            {bulkSyncing
-              ? <><span style={{ display:'inline-block', animation:'spin 1s linear infinite' }}>⏳</span> Синхронизира се...</>
-              : <>🟠 Sync {unsyncedCount} → Systeme.io</>}
-          </button>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <button onClick={() => handleBulkSync(false)} disabled={bulkSyncing}
+              style={{ background:bulkSyncing?'#d97706':'linear-gradient(135deg,#ea580c,#c2410c)',
+                color:'#fff', border:'none', borderRadius:9, padding:'10px 18px', cursor:bulkSyncing?'default':'pointer',
+                fontFamily:'inherit', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:7,
+                opacity:bulkSyncing?.7:1, boxShadow:'0 2px 8px rgba(194,65,12,.3)', whiteSpace:'nowrap' as const }}>
+              {bulkSyncing
+                ? <><span style={{ display:'inline-block', animation:'spin 1s linear infinite' }}>⏳</span> Синхронизира...</>
+                : <>🟠 Sync {unsyncedCount} → Systeme.io</>}
+            </button>
+            {/* Ре-sync бутон — винаги видим */}
+            <button onClick={() => handleBulkSync(true)} disabled={bulkSyncing}
+              style={{ fontSize:12, padding:'10px 14px', borderRadius:9, border:'1px solid #fde68a',
+                background:'#fffbeb', color:'#92400e', fontWeight:700, cursor:'pointer', fontFamily:'inherit',
+                opacity:bulkSyncing?0.6:1, whiteSpace:'nowrap' as const }}>
+              {bulkSyncing ? '⏳...' : '🔄 Ре-sync всички'}
+            </button>
+          </div>
         </div>
-      )}
-
-      {unsyncedCount === 0 && uniqueLeads.length > 0 && (
+      ) : (
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
           background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'10px 16px', marginBottom:16, fontSize:13, color:'#065f46' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -428,36 +494,16 @@ export function LeadsTab({ leads }: Props) {
                   style={{flex:1,height:h,background:today?'#16a34a':v>0?'#86efac':'#f3f4f6',borderRadius:'3px 3px 0 0',alignSelf:'flex-end'}} />
               })}
             </div>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#d1d5db',marginTop:4}}><span>30 дни назад</span><span>Днес</span></div>
           </div>
 
           <div style={{ background:'#fff', border:'1px solid var(--border)', borderRadius:14, padding:'20px 22px' }}>
-            <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:12 }}>🔥 Изтеглили повече от 1 наръчник</div>
-            <div style={{ fontSize:42, fontWeight:900, color:'#f59e0b', letterSpacing:'-.03em', marginBottom:4 }}>{multiEmails.size}</div>
-            <div style={{ fontSize:13, color:'#6b7280', marginBottom:16 }}>от {uniqueLeads.length} уникални ({uniqueLeads.length?Math.round(multiEmails.size/uniqueLeads.length*100):0}%)</div>
-            <button onClick={()=>{setMultiFilter(true);setSection('list');setPage(1)}}
-              style={{fontSize:12,padding:'7px 14px',background:'#fef3c7',color:'#92400e',border:'1px solid #fde68a',borderRadius:8,cursor:'pointer',fontFamily:'inherit',fontWeight:700}}>
-              Виж тези контакти →
-            </button>
-          </div>
-
-          <div style={{ background:'#fff', border:'1px solid var(--border)', borderRadius:14, padding:'20px 22px' }}>
-            <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:14 }}>🔗 Трафик източници</div>
-            {utmData.map(([src,count])=>{
-              const pct=leads.length?Math.round(count/leads.length*100):0
-              return (
-                <div key={src} style={{marginBottom:10}}>
-                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}>
-                    <span style={{fontWeight:600,color:'#374151'}}>{src}</span>
-                    <span style={{color:'#6b7280'}}>{count} · {pct}%</span>
-                  </div>
-                  <div style={{height:6,background:'#f3f4f6',borderRadius:99}}>
-                    <div style={{height:'100%',width:`${pct}%`,background:'#818cf8',borderRadius:99}} />
-                  </div>
-                </div>
-              )
-            })}
-            {!utmData.length&&<p style={{color:'#9ca3af',fontSize:13}}>Няма UTM данни</p>}
+            <div style={{ fontSize:11, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:14 }}>🔗 UTM Источници</div>
+            {utmData.map(([src, cnt]) => (
+              <div key={src} style={{ display:'flex', justifyContent:'space-between', fontSize:13, padding:'5px 0', borderBottom:'1px solid #f9f9f9' }}>
+                <span style={{color:'#374151'}}>{src}</span>
+                <strong style={{color:'#111'}}>{cnt}</strong>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -465,213 +511,132 @@ export function LeadsTab({ leads }: Props) {
       {/* ══════════════ LIST ══════════════ */}
       {section==='list' && (
         <>
-          {/* Stat cards */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:10, marginBottom:16 }}>
-            {[
-              { label:'Уникални',    v:uniqueLeads.length,                          col:'#374151', bg:'#f9fafb' },
-              { label:'Активни',     v:subscribed.length,                            col:'#16a34a', bg:'#f0fdf4' },
-              { label:'Отписани',    v:uniqueLeads.filter(l=>!l.subscribed).length,  col:'#ef4444', bg:'#fef2f2' },
-              { label:'🟠 Unsynced', v:unsyncedCount,                                col:'#ea580c', bg:'#fff7ed', click:()=>{setSyncFilter('unsynced');setPage(1)} },
-              { label:'🔥 Multi-DL', v:multiEmails.size,                             col:'#8b5cf6', bg:'#faf5ff', click:()=>{setMultiFilter(!multiFilter);setPage(1)} },
-              { label:'Днес',        v:todayCount,                                   col:'#0ea5e9', bg:'#f0f9ff' },
-            ].map(c=>(
-              <div key={c.label} onClick={(c as any).click} style={{ background:c.bg, border:`1px solid ${c.col}22`, borderRadius:12, padding:'13px 15px', cursor:(c as any).click?'pointer':'default' }}>
-                <div style={{ fontSize:24, fontWeight:900, color:c.col, letterSpacing:'-.03em' }}>{c.v}</div>
-                <div style={{ fontSize:11, color:'#6b7280', fontWeight:600, marginTop:2 }}>{c.label}</div>
-              </div>
-            ))}
-          </div>
+          {/* ── Filters ── */}
+          <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+            <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}
+              placeholder="Имейл, имена, телефон..."
+              style={{ ...inp, minWidth:200, flex:1 }} />
 
-          {/* Filters */}
-          <div style={{ display:'flex', gap:8, marginBottom:10, flexWrap:'wrap', alignItems:'center' }}>
-            <input placeholder="🔍 Имейл, имена, телефон..." value={search}
-              onChange={e=>{setSearch(e.target.value);setPage(1)}}
-              style={{ ...inp, width: isMobile ? '100%' : 240 }}
-              onFocus={e=>e.target.style.borderColor='#2d6a4f'}
-              onBlur={e=>e.target.style.borderColor='var(--border)'} />
-
-            {/* Subscribed filter */}
+            {/* Subscription filter */}
             {(['all','subscribed','unsubscribed'] as const).map(f=>(
               <button key={f} onClick={()=>{setFilter(f);setPage(1)}}
-                style={{ padding:'6px 13px', borderRadius:99, border:`1px solid ${filter===f?'#2d6a4f':'var(--border)'}`,
-                  background:filter===f?'#2d6a4f':'#fff', color:filter===f?'#fff':'var(--muted)',
-                  cursor:'pointer', fontFamily:'inherit', fontSize:12, fontWeight:600 }}>
+                style={{ ...inp, cursor:'pointer', background:filter===f?'#1b4332':'#fff', color:filter===f?'#fff':'var(--text)',
+                  borderColor:filter===f?'#1b4332':'var(--border)', fontWeight:filter===f?700:400 }}>
                 {f==='all'?'Всички':f==='subscribed'?'✓ Активни':'✗ Отписани'}
               </button>
             ))}
 
-            {/* Systeme.io sync filter */}
-            <div style={{ display:'flex', border:'1px solid var(--border)', borderRadius:99, overflow:'hidden' }}>
-              {([['all','Всички'],['synced','✅ Sync'],['unsynced','🟠 Unsync']] as [SyncFilter,string][]).map(([f,label])=>(
-                <button key={f} onClick={()=>{setSyncFilter(f);setPage(1)}}
-                  style={{ padding:'6px 11px', border:'none', background:syncFilter===f?'#ea580c':'transparent',
-                    color:syncFilter===f?'#fff':'var(--muted)', cursor:'pointer', fontFamily:'inherit', fontSize:11, fontWeight:700 }}>
-                  {label}
-                </button>
-              ))}
-            </div>
+            {/* Sync filter */}
+            {(['all','synced','unsynced'] as const).map(f=>(
+              <button key={f} onClick={()=>{setSyncFilter(f);setPage(1)}}
+                style={{ ...inp, cursor:'pointer',
+                  background: syncFilter===f ? (f==='synced'?'#16a34a':f==='unsynced'?'#ea580c':'#374151') : '#fff',
+                  color: syncFilter===f?'#fff':'var(--text)',
+                  borderColor: syncFilter===f ? (f==='synced'?'#16a34a':f==='unsynced'?'#ea580c':'#374151') : 'var(--border)',
+                  fontWeight:syncFilter===f?700:400 }}>
+                {f==='all'?'Всички':f==='synced'?'✅ Sync':'🟠 Unsync'}
+              </button>
+            ))}
 
-            {allSlugs.length>1 && (
+            {/* Slug filter */}
+            {allSlugs.length > 1 && (
               <select value={slugFilter} onChange={e=>{setSlugFilter(e.target.value);setPage(1)}} style={{...inp,cursor:'pointer'}}>
-                <option value="">Всички наръчници</option>
+                <option value=''>Всички наръчници</option>
                 {allSlugs.map(s=><option key={s} value={s}>{slugEmoji(s)} {slugLabel(s)}</option>)}
               </select>
             )}
-            {allTags.length>0 && (
+
+            {/* Multi-DL filter */}
+            <button onClick={()=>{setMultiFilter(m=>!m);setPage(1)}}
+              style={{ ...inp, cursor:'pointer', background:multiFilter?'#7c3aed':'#fff',
+                color:multiFilter?'#fff':'var(--text)', borderColor:multiFilter?'#7c3aed':'var(--border)',
+                fontWeight:multiFilter?700:400 }}>
+              🔥 Multi-DL
+            </button>
+
+            {/* Tag filter */}
+            {allTags.length > 0 && (
               <select value={selectedTag} onChange={e=>{setSelectedTag(e.target.value);setPage(1)}} style={{...inp,cursor:'pointer'}}>
-                <option value="">Всички тагове</option>
+                <option value=''>Всички тагове</option>
                 {allTags.map(t=><option key={t} value={t}>{t}</option>)}
               </select>
             )}
-            {multiFilter && (
-              <button onClick={()=>{setMultiFilter(false);setPage(1)}}
-                style={{padding:'6px 12px',borderRadius:99,border:'1px solid #f59e0b',background:'#fef3c7',color:'#92400e',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700}}>
-                🔥 Multi-DL ✕
-              </button>
-            )}
-            {(search||filter!=='all'||syncFilter!=='all'||slugFilter||selectedTag||multiFilter) && (
-              <button onClick={()=>{setSearch('');setFilter('all');setSyncFilter('all');setSlugFilter('');setSelectedTag('');setMultiFilter(false);setPage(1)}}
-                style={{fontSize:12,color:'#2d6a4f',background:'none',border:'none',cursor:'pointer',fontWeight:700,textDecoration:'underline',padding:0}}>
+
+            {/* Clear filters */}
+            {(search||filter!=='all'||syncFilter!=='all'||slugFilter||multiFilter||selectedTag) && (
+              <button onClick={()=>{setSearch('');setFilter('all');setSyncFilter('all');setSlugFilter('');setMultiFilter(false);setSelectedTag('');setPage(1)}}
+                style={{...inp,cursor:'pointer',color:'#ef4444',borderColor:'#fca5a5'}}>
                 Изчисти
               </button>
             )}
           </div>
-          <div style={{ fontSize:12, color:'#9ca3af', marginBottom:10 }}>Показани: {filtered.length} контакта</div>
 
-          {/* ══ MOBILE CARDS ══ */}
-          <div className="mobile-only">
-            {paginated.length===0 && (
-              <div style={{textAlign:'center',color:'var(--muted)',padding:48,fontSize:14}}>
-                <div style={{fontSize:32,marginBottom:8}}>🔍</div>Няма резултати
-              </div>
-            )}
-            {paginated.map(l=>{
-              const slugs   = Array.from(emailToSlugs.get(l.email)||(l.naruchnik_slug?[l.naruchnik_slug]:[]))
-              const isMulti = slugs.length>1
-              const isSynced = syncedIds.has(l.id)||(l as any).systemeio_synced
-              const syncing  = syncingId===l.id
-              return (
-                <div key={l.id} style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:14, padding:'14px 16px', marginBottom:10, boxShadow:'0 1px 4px rgba(0,0,0,.05)' }}>
-                  {/* Row 1: email + sync dot */}
-                  <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:8 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
-                      <div style={{ width:34, height:34, borderRadius:'50%', background:isMulti?'linear-gradient(135deg,#f59e0b,#ef4444)':'#dcfce7',
-                        display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900,
-                        color:isMulti?'#fff':'#15803d', flexShrink:0 }}>
-                        {(l.name||l.email)[0].toUpperCase()}
-                      </div>
-                      <div style={{ minWidth:0 }}>
-                        <a href={`mailto:${l.email}`} style={{ color:'#2d6a4f', fontWeight:700, textDecoration:'none', fontSize:13, display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.email}</a>
-                        {l.name && <div style={{fontSize:11,color:'#6b7280'}}>{l.name}</div>}
-                      </div>
-                    </div>
-                    <SyncDot synced={isSynced} />
-                  </div>
-
-                  {/* Row 2: slugs + status */}
-                  <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10, alignItems:'center' }}>
-                    {slugs.map(s=>(
-                      <span key={s} style={{fontSize:10,padding:'2px 8px',background:'#f0fdf4',color:'#15803d',border:'1px solid #bbf7d0',borderRadius:99,fontWeight:700}}>
-                        {slugEmoji(s)} {slugLabel(s)}
-                      </span>
-                    ))}
-                    {isMulti && <span style={{fontSize:10,padding:'2px 7px',background:'#fef3c7',color:'#92400e',border:'1px solid #fde68a',borderRadius:99,fontWeight:800}}>🔥 Multi</span>}
-                    <span style={{fontSize:10,padding:'2px 8px',borderRadius:99,fontWeight:700,background:l.subscribed?'#d1fae5':'#fee2e2',color:l.subscribed?'#065f46':'#991b1b'}}>
-                      {l.subscribed?'✓ Активен':'✗ Отписан'}
-                    </span>
-                    <span style={{fontSize:10,padding:'2px 8px',borderRadius:99,fontWeight:700,background:isSynced?'#dcfce7':'#fff7ed',color:isSynced?'#15803d':'#ea580c',border:`1px solid ${isSynced?'#86efac':'#fed7aa'}`}}>
-                      {isSynced?'✅ Synced':'🟠 Unsynced'}
-                    </span>
-                  </div>
-
-                  {/* Row 3: actions */}
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                    <button onClick={()=>handleSyncOne(l)} disabled={syncing||isSynced}
-                      className="sync-btn"
-                      style={{ fontSize:11, padding:'5px 11px', background:isSynced?'#f0fdf4':'#fff7ed', color:isSynced?'#15803d':'#ea580c',
-                        border:`1px solid ${isSynced?'#86efac':'#fed7aa'}`, borderRadius:7, opacity:(syncing||isSynced)?.5:1 }}>
-                      {syncing?'⏳...':isSynced?'✅ Synced':'🟠 Sync'}
-                    </button>
-                    <a href={`mailto:${l.email}`}
-                      style={{fontSize:11,padding:'5px 11px',background:'#f0fdf4',color:'#2d6a4f',border:'1px solid #bbf7d0',borderRadius:7,textDecoration:'none',fontWeight:600}}>
-                      ✉️ Пиши
-                    </a>
-                    {l.phone && <a href={`tel:${l.phone}`} style={{fontSize:11,padding:'5px 11px',background:'#f0f9ff',color:'#0369a1',border:'1px solid #bae6fd',borderRadius:7,textDecoration:'none',fontWeight:600}}>📞</a>}
-                    <span style={{fontSize:10,color:'#9ca3af',padding:'5px 0',alignSelf:'center'}}>{new Date(l.created_at).toLocaleDateString('bg-BG',{day:'2-digit',month:'short'})}</span>
-                  </div>
-                </div>
-              )
-            })}
+          <div style={{ fontSize:12, color:'var(--muted)', marginBottom:10 }}>
+            Показани: {filtered.length} контакта
           </div>
 
-          {/* ══ DESKTOP TABLE ══ */}
-          <div className="desktop-only" style={{ background:'#fff', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
+          {/* ── Desktop table ── */}
+          <div className="desktop-only" style={{ background:'#fff', border:'1px solid var(--border)', borderRadius:14, overflow:'hidden' }}>
             <div style={{ overflowX:'auto' }}>
-              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13, minWidth:700 }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
                 <thead>
                   <tr style={{ background:'#f9fafb' }}>
-                    {([
-                      { label:'Имейл / Имена',  key:'email'          as SortKey },
-                      { label:'Наръчници',       key:'naruchnik_slug' as SortKey },
-                      { label:'Статус',           key:null },
-                      { label:'Systeme.io',       key:null },
-                      { label:'Дата',             key:'created_at'    as SortKey },
-                      { label:'',                 key:null },
-                    ] as {label:string;key:SortKey|null}[]).map(({label,key})=>(
-                      <th key={label} onClick={()=>key&&handleSort(key)}
-                        style={{ padding:'11px 14px', textAlign:'left', fontSize:11, fontWeight:700, color:'var(--muted)',
-                          textTransform:'uppercase', letterSpacing:'.05em', borderBottom:'1px solid var(--border)',
-                          whiteSpace:'nowrap', cursor:key?'pointer':'default', userSelect:'none',
-                          background:'#f9fafb' }}>
-                        {label}{key&&<SortArrow k={key} />}
-                      </th>
-                    ))}
+                    <th onClick={()=>handleSort('email')} style={{ padding:'10px 14px', textAlign:'left', fontWeight:700, fontSize:11, color:'#6b7280', textTransform:'uppercase', letterSpacing:'.06em', cursor:'pointer', whiteSpace:'nowrap' }}>
+                      Имейл / Имена <SortArrow k='email' />
+                    </th>
+                    <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:700, fontSize:11, color:'#6b7280', textTransform:'uppercase', letterSpacing:'.06em' }}>Наръчници</th>
+                    <th onClick={()=>handleSort('created_at')} style={{ padding:'10px 14px', textAlign:'left', fontWeight:700, fontSize:11, color:'#6b7280', textTransform:'uppercase', letterSpacing:'.06em', cursor:'pointer' }}>
+                      Статус <SortArrow k='created_at' />
+                    </th>
+                    <th style={{ padding:'10px 14px', textAlign:'center', fontWeight:700, fontSize:11, color:'#6b7280', textTransform:'uppercase', letterSpacing:'.06em' }}>Systeme.io</th>
+                    <th onClick={()=>handleSort('created_at')} style={{ padding:'10px 14px', textAlign:'left', fontWeight:700, fontSize:11, color:'#6b7280', textTransform:'uppercase', letterSpacing:'.06em', cursor:'pointer', whiteSpace:'nowrap' }}>
+                      Дата <SortArrow k='created_at' />
+                    </th>
+                    <th style={{ padding:'10px 14px', width:32 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginated.length===0 && (
-                    <tr><td colSpan={6} style={{textAlign:'center',color:'var(--muted)',padding:48}}>
-                      <div style={{fontSize:32,marginBottom:8}}>🔍</div>Няма резултати
-                    </td></tr>
-                  )}
-                  {paginated.map(l=>{
-                    const slugs    = Array.from(emailToSlugs.get(l.email)||(l.naruchnik_slug?[l.naruchnik_slug]:[]))
-                    const isMulti  = slugs.length>1
-                    const expanded = expandedId===l.id
-                    const isSynced = syncedIds.has(l.id)||(l as any).systemeio_synced
-                    const syncing  = syncingId===l.id
+                  {paginated.map(l => {
+                    const isSynced  = syncedIds.has(l.id) || !!(l as any).systemeio_synced
+                    const isInvalid = invalidIds.has(l.id) || !!(l as any).systemeio_email_invalid
+                    const syncing   = syncingId === l.id
+                    const expanded  = expandedId === l.id
+                    const slugSet   = emailToSlugs.get(l.email) || new Set<string>()
+                    const isMulti   = multiEmails.has(l.email)
 
                     return (
                       <>
-                        <tr key={l.id} className="lead-row"
-                          onClick={()=>setExpandedId(expanded?null:l.id)}
-                          style={{ background:expanded?'#f0fdf4':'' }}>
-
-                          {/* Email + name */}
+                        <tr key={l.id} className="lead-row" onClick={()=>setExpandedId(expanded?null:l.id)}>
+                          {/* Email / Name */}
                           <td style={{ padding:'11px 14px', borderBottom:'1px solid #f5f5f5' }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:9 }}>
-                              <div style={{ width:32, height:32, borderRadius:'50%', background:isMulti?'linear-gradient(135deg,#f59e0b,#ef4444)':'#dcfce7',
-                                display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900,
-                                color:isMulti?'#fff':'#15803d', flexShrink:0 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              <div style={{ width:32, height:32, borderRadius:'50%', background:'linear-gradient(135deg,#d1fae5,#a7f3d0)',
+                                display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#065f46', flexShrink:0 }}>
                                 {(l.name||l.email)[0].toUpperCase()}
                               </div>
                               <div>
-                                <a href={`mailto:${l.email}`} onClick={e=>e.stopPropagation()} style={{color:'#2d6a4f',fontWeight:700,textDecoration:'none',fontSize:13}}>{l.email}</a>
-                                {l.name  && <div style={{fontSize:11,color:'#6b7280',marginTop:1}}>{l.name}</div>}
-                                {l.phone && <div style={{fontSize:11,color:'#9ca3af'}}>📞 {l.phone}</div>}
+                                <div style={{ fontWeight:600, color:'#111', fontSize:13 }}>{l.email}</div>
+                                {l.name && <div style={{ fontSize:11, color:'#6b7280', marginTop:1 }}>{l.name}</div>}
+                                {l.phone && <div style={{ fontSize:11, color:'#9ca3af' }}>📞 {l.phone}</div>}
                               </div>
                             </div>
                           </td>
 
-                          {/* Slugs */}
+                          {/* Наръчници */}
                           <td style={{ padding:'11px 14px', borderBottom:'1px solid #f5f5f5' }}>
-                            <div style={{ display:'flex', gap:4, flexWrap:'wrap', alignItems:'center' }}>
-                              {slugs.map(slug=>(
-                                <span key={slug} style={{fontSize:11,padding:'3px 9px',background:'#f0fdf4',color:'#15803d',border:'1px solid #bbf7d0',borderRadius:99,fontWeight:700,whiteSpace:'nowrap'}}>
+                            <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                              {Array.from(slugSet).map(slug=>(
+                                <span key={slug} style={{ fontSize:11, padding:'2px 7px', borderRadius:99, fontWeight:700,
+                                  background:'#f0fdf4', color:'#15803d', border:'1px solid #bbf7d0' }}>
                                   {slugEmoji(slug)} {slugLabel(slug)}
                                 </span>
                               ))}
-                              {isMulti && <span style={{fontSize:10,padding:'2px 7px',background:'#fef3c7',color:'#92400e',border:'1px solid #fde68a',borderRadius:99,fontWeight:800}}>🔥 Multi</span>}
+                              {isMulti && (
+                                <span style={{ fontSize:10, padding:'2px 6px', borderRadius:99, fontWeight:800,
+                                  background:'#fef3c7', color:'#92400e', border:'1px solid #fde68a' }}>
+                                  🔥 Multi
+                                </span>
+                              )}
                             </div>
                           </td>
 
@@ -684,19 +649,28 @@ export function LeadsTab({ leads }: Props) {
 
                           {/* Systeme.io status */}
                           <td style={{ padding:'11px 14px', borderBottom:'1px solid #f5f5f5', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
-                            <button onClick={()=>handleSyncOne(l)} disabled={syncing||isSynced}
-                              className="sync-btn"
-                              title={isSynced?'Синхронизиран ✅':'Натисни за sync'}
-                              style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, padding:'4px 10px',
-                                borderRadius:7, fontWeight:700,
-                                background:isSynced?'#f0fdf4':'#fff7ed',
-                                color:isSynced?'#15803d':'#ea580c',
-                                border:`1px solid ${isSynced?'#86efac':'#fed7aa'}`,
-                                opacity:(syncing||isSynced)&&!syncing?.7:1,
-                                cursor:isSynced?'default':'pointer' }}>
-                              <SyncDot synced={isSynced} />
-                              {syncing?'⏳...':isSynced?'Synced':'Sync →'}
-                            </button>
+                            {isInvalid ? (
+                              <span style={{ fontSize:11, padding:'4px 10px', borderRadius:7, fontWeight:700,
+                                background:'#fef2f2', color:'#991b1b', border:'1px solid #fca5a5' }}>
+                                ⚠️ Невалиден
+                              </span>
+                            ) : (
+                              <button
+                                onClick={()=>handleSyncOne(l)}
+                                disabled={syncing || isSynced}
+                                className="sync-btn"
+                                title={isSynced?'Синхронизиран ✅':'Натисни за sync'}
+                                style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, padding:'4px 10px',
+                                  borderRadius:7, fontWeight:700,
+                                  background:isSynced?'#f0fdf4':'#fff7ed',
+                                  color:isSynced?'#15803d':'#ea580c',
+                                  border:`1px solid ${isSynced?'#86efac':'#fed7aa'}`,
+                                  opacity:(syncing&&!isSynced)?0.7:1,
+                                  cursor:isSynced?'default':'pointer' }}>
+                                <SyncDot synced={isSynced} />
+                                {syncing?'⏳...':isSynced?'Synced':'Sync →'}
+                              </button>
+                            )}
                           </td>
 
                           {/* Date */}
@@ -732,7 +706,7 @@ export function LeadsTab({ leads }: Props) {
                                   style={{fontSize:12,color:'#2d6a4f',fontWeight:700,textDecoration:'none',padding:'4px 12px',background:'#fff',border:'1px solid #bbf7d0',borderRadius:7}}>
                                   ✉️ Пиши
                                 </a>
-                                {!isSynced && (
+                                {!isSynced && !isInvalid && (
                                   <button onClick={e=>{e.stopPropagation();handleSyncOne(l)}} disabled={syncing}
                                     style={{fontSize:12,color:'#c2410c',fontWeight:700,padding:'4px 12px',background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:7,cursor:'pointer',fontFamily:'inherit',opacity:syncing?.5:1}}>
                                     {syncing?'⏳ Syncing...':'🟠 Sync → Systeme.io'}
@@ -754,6 +728,53 @@ export function LeadsTab({ leads }: Props) {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* ── Mobile cards ── */}
+          <div className="mobile-only">
+            {paginated.map(l => {
+              const isSynced  = syncedIds.has(l.id) || !!(l as any).systemeio_synced
+              const isInvalid = invalidIds.has(l.id) || !!(l as any).systemeio_email_invalid
+              const syncing   = syncingId === l.id
+              const slugSet   = emailToSlugs.get(l.email) || new Set<string>()
+              return (
+                <div key={l.id} style={{ background:'#fff', border:'1px solid var(--border)', borderRadius:12, padding:'14px 16px', marginBottom:10 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:14, color:'#111', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.email}</div>
+                      {l.name && <div style={{ fontSize:12, color:'#6b7280', marginTop:2 }}>{l.name}</div>}
+                      {l.phone && <div style={{ fontSize:12, color:'#9ca3af' }}>📞 {l.phone}</div>}
+                    </div>
+                    <span style={{ fontSize:11, padding:'3px 8px', borderRadius:99, fontWeight:700, flexShrink:0,
+                      background:l.subscribed?'#d1fae5':'#fee2e2', color:l.subscribed?'#065f46':'#991b1b' }}>
+                      {l.subscribed?'✓':'✗'}
+                    </span>
+                  </div>
+                  <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginTop:8 }}>
+                    {Array.from(slugSet).map(slug=>(
+                      <span key={slug} style={{ fontSize:11, padding:'2px 7px', borderRadius:99, fontWeight:700, background:'#f0fdf4', color:'#15803d', border:'1px solid #bbf7d0' }}>
+                        {slugEmoji(slug)} {slugLabel(slug)}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:10 }}>
+                    <span style={{ fontSize:11, color:'#9ca3af' }}>
+                      {new Date(l.created_at).toLocaleDateString('bg-BG',{day:'2-digit',month:'short',year:'2-digit'})}
+                    </span>
+                    {isInvalid ? (
+                      <span style={{ fontSize:11, padding:'4px 10px', borderRadius:7, fontWeight:700, background:'#fef2f2', color:'#991b1b', border:'1px solid #fca5a5' }}>⚠️ Невалиден</span>
+                    ) : (
+                      <button onClick={()=>handleSyncOne(l)} disabled={syncing||isSynced}
+                        style={{ fontSize:11, padding:'5px 12px', borderRadius:7, fontWeight:700, border:'none',
+                          background:isSynced?'#f0fdf4':'#fff7ed', color:isSynced?'#15803d':'#ea580c',
+                          cursor:isSynced?'default':'pointer', fontFamily:'inherit', opacity:(syncing&&!isSynced)?0.7:1 }}>
+                        {syncing?'⏳...':isSynced?'✅ Synced':'🟠 Sync →'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {/* Pagination */}
