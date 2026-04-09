@@ -1,46 +1,40 @@
-// app/api/leads/sync/batch/route.ts — v11
+// ФАЙЛ: app/api/leads/sync/batch/route.ts — v12
 //
-// НОВО: Server-side abort проверка преди всеки контакт
-//   - Чете sync_abort флаг от Supabase settings
-//   - Ако е true → спира и връща { aborted: true }
-//   - Frontend-ът спира loop-а при aborted=true
+// ПОПРАВКИ v12:
+//   1. Използва syncContactWithRetry (не syncContact) — retry при грешки
+//   2. Query филтрира systemeio_email_invalid=true ПРЕДВАРИТЕЛНО
+//      (не взима невалидни и после ги пропуска)
+//   3. Abort проверка остава (server-side)
+//   4. Логове за диагностика
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { syncContact } from '@/lib/systemeio'
+import { syncContactWithRetry } from '@/lib/systemeio'
 
 const sleep   = (ms: number) => new Promise(r => setTimeout(r, ms))
 const API_KEY = () => process.env.systemeio_api || ''
 
-// Проверяваме дали е зададен abort флаг в Supabase
 async function isAborted(): Promise<boolean> {
   try {
     const { data } = await supabaseAdmin
-      .from('settings')
-      .select('value')
-      .eq('key', 'sync_abort')
-      .single()
+      .from('settings').select('value').eq('key', 'sync_abort').single()
     return data?.value === 'true'
-  } catch {
-    return false  // При грешка → продължаваме (не прекъсваме sync-а)
-  }
+  } catch { return false }
 }
 
 export async function POST(req: NextRequest) {
   const apiKey = API_KEY()
   if (!apiKey) {
-    console.error('[batch] systemeio_api е ПРАЗЕН — провери Environment Variables!')
+    console.error('[batch] systemeio_api е ПРАЗЕН!')
     return NextResponse.json({ error: 'systemeio_api не е зададен' }, { status: 500 })
   }
 
-  console.info(`[batch] API key present: ${apiKey.slice(0, 8)}...`)
+  console.info(`[batch] API key: ${apiKey.slice(0, 8)}...`)
 
   const { ids } = await req.json() as { ids: string[] }
   if (!ids?.length) return NextResponse.json({ error: 'Липсват ids' }, { status: 400 })
 
-  // Проверяваме abort веднага при старт на batch-а
   if (await isAborted()) {
-    console.info('[batch] Abort флаг е активен → спираме преди старт')
     return NextResponse.json({
       success: true, total: 0, synced: 0, invalid: 0, failed: 0,
       syncedIds: [], invalidIds: [], aborted: true,
@@ -48,49 +42,43 @@ export async function POST(req: NextRequest) {
   }
 
   const safeIds = ids.slice(0, 3)
-  console.info(`[batch] Ще sync-нем ${safeIds.length} контакта: ${safeIds.join(', ')}`)
+  console.info(`[batch] Sync на ${safeIds.length} контакта: ${safeIds.join(', ')}`)
 
+  // ✅ Изключваме невалидните ОТ ЗАЯВКАТА (не само при обработка)
   const { data: leads, error } = await supabaseAdmin
     .from('leads')
     .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id, systemeio_email_invalid')
     .in('id', safeIds)
+    .not('systemeio_email_invalid', 'eq', true)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!leads?.length) return NextResponse.json({
-    success: true, synced: 0, failed: 0, syncedIds: [], invalidIds: [], aborted: false,
+    success: true, synced: 0, failed: 0, invalid: 0,
+    syncedIds: [], invalidIds: [], aborted: false,
   })
 
-  const now         = new Date().toISOString()
-  let synced        = 0
-  let invalid       = 0
-  const errors:      string[] = []
-  const syncedIds:   string[] = []
-  const invalidIds:  string[] = []
+  const now        = new Date().toISOString()
+  let synced       = 0
+  let invalid      = 0
+  const errors:    string[] = []
+  const syncedIds: string[] = []
+  const invalidIds: string[] = []
 
   for (const l of leads as any[]) {
-    // ── Проверка за abort ПРЕДИ всеки контакт ──────────────────────────────
     if (await isAborted()) {
-      console.info(`[batch] Abort флаг засечен преди ${l.email} → спираме`)
+      console.info(`[batch] Abort преди ${l.email}`)
       return NextResponse.json({
-        success: true,
-        total:   leads.length,
+        success: true, total: leads.length,
         synced, invalid, failed: errors.length,
-        syncedIds, invalidIds,
-        aborted: true,
-        errors:  errors.length > 0 ? errors : undefined,
+        syncedIds, invalidIds, aborted: true,
+        errors: errors.length > 0 ? errors : undefined,
       })
     }
 
-    if (l.systemeio_email_invalid) {
-      invalid++
-      invalidIds.push(l.id)
-      console.info(`[batch] Пропускаме ${l.email} — невалиден имейл`)
-      continue
-    }
+    console.info(`[batch] Sync: ${l.email} (contactId=${l.systemeio_contact_id || 'none'})`)
 
-    console.info(`[batch] Sync за ${l.email} (contactId=${l.systemeio_contact_id || 'none'})`)
-
-    const r = await syncContact({
+    // ✅ syncContactWithRetry (не syncContact)
+    const r = await syncContactWithRetry({
       apiKey,
       email:         l.email,
       name:          l.name,
@@ -99,7 +87,7 @@ export async function POST(req: NextRequest) {
       naruchnikSlug: l.naruchnik_slug,
     })
 
-    console.info(`[batch] Резултат за ${l.email}: ok=${r.ok} emailInvalid=${r.emailInvalid} error=${r.error || 'none'}`)
+    console.info(`[batch] Резултат ${l.email}: ok=${r.ok} emailInvalid=${r.emailInvalid} error=${r.error || 'none'}`)
 
     if (r.ok) {
       synced++
@@ -121,7 +109,7 @@ export async function POST(req: NextRequest) {
       }).eq('id', l.id)
     } else {
       errors.push(`${l.email}: ${r.error}`)
-      console.warn(`[batch] НЕУСПЕШЕН sync за ${l.email}:`, r.error)
+      console.warn(`[batch] FAIL ${l.email}:`, r.error)
     }
 
     await sleep(1500)
@@ -130,14 +118,14 @@ export async function POST(req: NextRequest) {
   console.info(`[batch] Готово: synced=${synced}, invalid=${invalid}, failed=${errors.length}`)
 
   return NextResponse.json({
-    success:    true,
-    total:      leads.length,
+    success:   true,
+    total:     leads.length,
     synced,
     invalid,
-    failed:     errors.length,
+    failed:    errors.length,
     syncedIds,
     invalidIds,
-    aborted:    false,
-    errors:     errors.length > 0 ? errors : undefined,
+    aborted:   false,
+    errors:    errors.length > 0 ? errors : undefined,
   })
 }

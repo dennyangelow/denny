@@ -1,5 +1,11 @@
-// app/api/leads/route.ts — v14
-// Промяна: подава naruchnikSlug към syncContactWithRetry
+// ФАЙЛ: app/api/leads/route.ts — v15
+//
+// ПОПРАВКИ v15:
+//   1. При upsert: взимаме АКТУАЛНИТЕ данни от базата след upsert
+//      (не разчитаме само на body данните)
+//   2. syncContactWithRetry: подаваме name и phone от базата (не само от body)
+//      Ако потребителят е попълнил само имейл → name=null, phone=null → OK
+//   3. Подобрено error handling при Systeme.io грешки
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -44,6 +50,7 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* defaults */ }
 
+    // Upsert — при конфликт на email обновяваме данните
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
       .upsert(
@@ -91,22 +98,27 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.systemeio_api
     if (systemeioEnabled && apiKey) {
+      // Взимаме актуалните данни от базата (включително systemeio_contact_id)
       const { data: existing } = await supabaseAdmin
         .from('leads')
-        .select('systemeio_contact_id, systemeio_email_invalid')
+        .select('id, name, phone, systemeio_contact_id, systemeio_email_invalid')
         .eq('email', cleanEmail)
         .single()
 
       if (existing?.systemeio_email_invalid) {
         systemeioStatus = 'invalid_email'
       } else {
+        // Използваме данните от базата (по-актуални от body при returning upsert)
+        const syncName  = existing?.name  || cleanName
+        const syncPhone = existing?.phone || cleanPhone
+
         const result = await syncContactWithRetry({
           apiKey,
           email:         cleanEmail,
-          name:          cleanName,
-          phone:         cleanPhone,
+          name:          syncName,
+          phone:         syncPhone,
           contactId:     existing?.systemeio_contact_id || null,
-          naruchnikSlug: slug,   // ✅ slug на наръчника → custom field naruchnici
+          naruchnikSlug: slug,
         })
 
         if (result.ok) {
@@ -129,7 +141,7 @@ export async function POST(req: NextRequest) {
         } else {
           systemeioStatus = 'error'
           systemeioError  = result.error
-          console.error('[Systeme.io] FAIL:', result.error)
+          console.error('[leads] Systeme.io FAIL:', result.error)
           await supabaseAdmin.from('leads').update({
             systemeio_synced: false,
             updated_at:       now,
