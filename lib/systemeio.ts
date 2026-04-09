@@ -60,13 +60,25 @@ function isDuplicateEmail(status: number, data: any): boolean {
 
 function isEmailInvalid(status: number, data: any): boolean {
   if (status !== 422) return false
+  // ВАЖНО: Проверяваме ПЪРВО за field slug грешки → те НЕ са email грешки
+  // (Systeme.io понякога връща "Email address is invalid" като общо съобщение
+  //  когато реалният проблем е невалиден fields[] slug)
+  if (isFieldSlugMissing(status, data)) return false
+
   const violations: any[] = data?.violations || []
+  // Само violations с propertyPath === 'email' са истински email грешки
   const hasEmailViolation = violations.some(
-    (v: any) => v?.propertyPath === 'email' || (v?.message || '').toLowerCase().includes('email')
+    (v: any) => v?.propertyPath === 'email'
   )
   if (hasEmailViolation) return true
-  const detail = (data?.detail || '').toLowerCase()
-  return detail.includes('email') && !isDuplicateEmail(status, data)
+
+  // detail съдържа 'email' само ако НЕ е field грешка и НЕ е duplicate
+  if (violations.length === 0) {
+    const detail = (data?.detail || '').toLowerCase()
+    return detail.includes('email') && !isDuplicateEmail(status, data)
+  }
+
+  return false
 }
 
 function isPlanLimit(status: number, data: any): boolean {
@@ -131,6 +143,7 @@ async function findContactByEmail(apiKey: string, email: string): Promise<string
 }
 
 // ── Create contact ────────────────────────────────────────────────────────────
+// ✅ ПРАВИЛНО: phone_number и naruchnici → fields[], firstName/lastName → top-level
 async function createContact(
   apiKey:          string,
   email:           string,
@@ -139,8 +152,8 @@ async function createContact(
   phone?:          string,
   naruchnikSlug?:  string
 ): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
-  // ✅ ПРАВИЛНО: телефонът и custom fields се подават САМО чрез fields[]
-  // Systeme.io API документация: phone_number е slug в fields, НЕ top-level поле
+
+  // Опит 1: с fields[] (phone + naruchnici)
   const fields: { slug: string; value: string }[] = []
   if (phone)         fields.push({ slug: 'phone_number', value: phone })
   if (naruchnikSlug) fields.push({ slug: 'naruchnici',   value: naruchnikSlug })
@@ -167,12 +180,15 @@ async function createContact(
     return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
   }
 
-  // При fields[] 422 (slug не съществува) → retry без fields
+  // Ако fields[] slug-ове не съществуват → retry само с email + имена (БЕЗ fields)
   if (isFieldSlugMissing(res.status, res.data)) {
-    console.info(`[Sio] POST fields[] rejected → retry без fields`)
+    console.info(`[Sio] POST fields[] rejected (slug missing) → retry без fields`)
     const body2: Record<string, unknown> = { email, firstName, lastName }
     const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', body2)
-    if (r2.ok) return { contactId: String(r2.data?.id) }
+    if (r2.ok) {
+      console.info(`[Sio] POST retry (без fields) ok → contactId=${r2.data?.id}`)
+      return { contactId: String(r2.data?.id) }
+    }
     if (isDuplicateEmail(r2.status, r2.data)) {
       await sleep(400)
       return { contactId: await findContactByEmail(apiKey, email) }
@@ -181,6 +197,7 @@ async function createContact(
       const detail = r2.data?.violations?.[0]?.message || r2.data?.detail || 'Invalid email'
       return { contactId: null, error: `EMAIL_INVALID: ${detail}`, emailInvalid: true }
     }
+    return { contactId: null, error: `POST retry ${r2.status}: ${r2.text?.slice(0, 200)}` }
   }
 
   if (res.status === 429) {
@@ -205,9 +222,9 @@ async function createContact(
 // Systeme.io: PATCH изисква "application/merge-patch+json".
 //
 // ✅ ПРАВИЛНО (от официалната документация):
-//   - firstName, lastName → top-level полета
+//   - firstName, lastName → top-level полета (само непразни!)
 //   - phone_number, naruchnici → fields[] масив с slug/value
-//   - НЕ phoneNumber като top-level (Systeme.io го приема но не го записва!)
+//   - НЕ phoneNumber като top-level (API го приема но НЕ го записва!)
 //
 async function patchContactDirect(
   apiKey:          string,
@@ -221,16 +238,14 @@ async function patchContactDirect(
   const fn = firstName?.trim() || ''
   const ln = lastName?.trim()  || ''
 
-  // fields[] — телефон и naручник като custom fields
-  const fields: { slug: string; value: string | null }[] = []
+  // fields[] — телефон и наръчник като custom fields (правилния начин)
+  const fields: { slug: string; value: string }[] = []
   if (phone)         fields.push({ slug: 'phone_number', value: phone })
   if (naruchnikSlug) fields.push({ slug: 'naruchnici',   value: naruchnikSlug })
 
   const body: Record<string, unknown> = {}
-  // firstName/lastName → top-level (само непразни)
   if (fn) body.firstName = fn
   if (ln) body.lastName  = ln
-  // phone и naruchnici → само чрез fields[]
   if (fields.length > 0) body.fields = fields
 
   if (Object.keys(body).length === 0) {
@@ -248,11 +263,10 @@ async function patchContactDirect(
   console.info(`[Sio] PATCH status=${res.status} ok=${res.ok}`)
 
   if (res.ok) {
-    // Проверяваме дали телефонът е записан (от fields в response)
     if (phone) {
       const savedFields: any[] = res.data?.fields || []
       const savedPhone = savedFields.find((f: any) => f.slug === 'phone_number')?.value
-      console.info(`[Sio] PATCH phone_number: sent="${phone}" → saved="${savedPhone || 'NOT IN RESPONSE'}"`)
+      console.info(`[Sio] phone_number: sent="${phone}" → saved="${savedPhone || 'не е в response'}"`)
     }
     return 'ok'
   }
@@ -260,9 +274,9 @@ async function patchContactDirect(
   if (res.status === 404) return 'notFound'
   if (res.status === 429) return 'rateLimited'
 
-  // Ако fields[] е причинил 422 (slug не съществува) → retry само с имена
+  // Ако fields[] slug-ове не съществуват → retry само с имена
   if (isFieldSlugMissing(res.status, res.data)) {
-    console.info(`[Sio] fields[] rejected (slug missing) → retry PATCH само с имена`)
+    console.info(`[Sio] PATCH fields[] rejected → retry само с имена`)
     const body2: Record<string, unknown> = {}
     if (fn) body2.firstName = fn
     if (ln) body2.lastName  = ln
