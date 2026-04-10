@@ -1014,10 +1014,18 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                                 headers: { 'Content-Type': 'application/json' },
                                 body:    JSON.stringify({ email: newEmail.trim().toLowerCase() }),
                               })
+                              const d = await patchRes.json().catch(() => ({}))
                               if (!patchRes.ok) {
-                                const d = await patchRes.json().catch(() => ({}))
                                 toast.error(`❌ Грешка при запис: ${d.error || patchRes.status}`)
                                 return
+                              }
+                              if (d.merged) {
+                                // Имейлът съществуваше → merge-нато, старият запис изтрит
+                                // Маркираме невалидния ID като изчистен (той вече не съществува)
+                                setInvalidIds(prev => { const n = new Set(prev); n.delete(l.id); return n })
+                                setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
+                                toast.success(`✅ Обединено с ${newEmail} — sync-ни пак`)
+                                return // Не викаме handleResetInvalid — записът вече го няма
                               }
                               toast.success(`✏️ Имейлът е обновен → ${newEmail}`)
                               // Изчистваме редактирането за този контакт
