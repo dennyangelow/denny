@@ -61,19 +61,44 @@ function getPartnerMeta(partner: string | null | undefined) {
   return PARTNER_TYPE_MAP[partner] ?? { label: partner, emoji: '🔘', color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb' }
 }
 
-type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell' | null
+type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell'
 
-function getOfferType(o: Order): OfferType {
+// Връща ВСИЧКИ активни оферти за поръчката
+function getOfferTypes(o: Order): OfferType[] {
   const notes = o.customer_notes || ''
-  if (notes.includes('[POST-PURCHASE UPSELL]')) return 'post_purchase'
-  if (notes.includes('[CART-UPSELL]'))          return 'cart_upsell'
-  if (notes.includes('[CROSS-SELL]'))           return 'cross_sell'
-  if (notes.includes('[HAS-OFFER]'))            return 'cart_upsell'
+  const oo    = o as any
   const items = o.order_items || []
-  if (items.some((i: any) => (i.product_name || '').toLowerCase().includes('upsell'))) return 'cart_upsell'
-  if (items.some((i: any) => (i.product_name || '').toLowerCase().includes('cross')))  return 'cross_sell'
-  if (items.some((i: any) => /\(-\d+%\)/.test(i.product_name || '')))                 return 'cross_sell'
-  return null
+  const found = new Set<OfferType>()
+
+  // Post-purchase
+  if (
+    oo.has_post_purchase_upsell ||
+    oo.offer_type === 'post_purchase' ||
+    notes.includes('[POST-PURCHASE')
+  ) found.add('post_purchase')
+
+  // Cart upsell
+  if (
+    oo.offer_type === 'cart_upsell' ||
+    notes.includes('[CART-UPSELL]') ||
+    notes.includes('[HAS-OFFER]') ||
+    items.some((i: any) => (i.product_name || '').toLowerCase().includes('upsell'))
+  ) found.add('cart_upsell')
+
+  // Cross-sell
+  if (
+    oo.offer_type === 'cross_sell' ||
+    notes.includes('[CROSS-SELL]') ||
+    items.some((i: any) => /\(-\d+%\)/.test(i.product_name || '')) ||
+    items.some((i: any) => (i.product_name || '').toLowerCase().includes('cross'))
+  ) found.add('cross_sell')
+
+  return Array.from(found)
+}
+
+// Обратна съвместимост
+function getOfferType(o: Order): OfferType | null {
+  const t = getOfferTypes(o); return t.length > 0 ? t[0] : null
 }
 
 // ✅ Правилен брой посещения за всеки range
@@ -461,14 +486,24 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   // ── Offer analytics ────────────────────────────────────────────────
   const offerStats = useMemo(() => {
     const active    = filteredOrders.filter(o => o.status !== 'cancelled')
-    const postPurch = active.filter(o => getOfferType(o) === 'post_purchase')
-    const upsell    = active.filter(o => getOfferType(o) === 'cart_upsell')
-    const crossSell = active.filter(o => getOfferType(o) === 'cross_sell')
-    const withOffer = active.filter(o => getOfferType(o) !== null)
-    const offerRev  = withOffer.reduce((s, o) => s + Number(o.total), 0)
-    const totalRev  = active.reduce((s, o) => s + Number(o.total), 0)
-    const offerRate = active.length ? Math.round(withOffer.length / active.length * 100) : 0
-    const revShare  = totalRev ? Math.round(offerRev / totalRev * 100) : 0
+    // Поръчка може да има МНОЖЕСТВО оферти — броим независимо
+    const postPurch  = active.filter(o => getOfferTypes(o).includes('post_purchase'))
+    const upsell     = active.filter(o => getOfferTypes(o).includes('cart_upsell'))
+    const crossSell  = active.filter(o => getOfferTypes(o).includes('cross_sell'))
+    const withOffer  = active.filter(o => getOfferTypes(o).length > 0)
+    const offerRev   = withOffer.reduce((s, o) => s + Number(o.total), 0)
+    const totalRev   = active.reduce((s, o) => s + Number(o.total), 0)
+    const offerRate  = active.length ? Math.round(withOffer.length / active.length * 100) : 0
+    const revShare   = totalRev ? Math.round(offerRev / totalRev * 100) : 0
+
+    // PP extra revenue — само добавената стойност от post-purchase items
+    const ppExtraRev = postPurch.reduce((sum, o) => {
+      const ppItems = (o.order_items || []).filter((i: any) =>
+        (i.product_name || '').toLowerCase().includes('post-purchase') ||
+        (i.product_name || '').toLowerCase().includes('post purchase')
+      )
+      return sum + ppItems.reduce((s: number, i: any) => s + Number(i.total_price), 0)
+    }, 0)
 
     const days = range === 'all' ? 90 : Math.min(range as number, 90)
     const now  = new Date()
@@ -480,20 +515,21 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
     active.forEach(o => {
       const d = o.created_at.slice(0, 10)
       if (!dailyMap[d]) return
-      if (getOfferType(o) !== null) dailyMap[d].offer++
+      if (getOfferTypes(o).length > 0) dailyMap[d].offer++
       else dailyMap[d].normal++
     })
 
     const dailyChart = Object.entries(dailyMap).map(([date, v]) => ({ date: date.slice(5), ...v }))
     const typePie = [
-      { name:'⚡ Post-purchase', value: postPurch.length, color:'#dc2626' },
-      { name:'⬆️ Ъпсел',        value: upsell.length,    color:'#7c3aed' },
-      { name:'🔀 Крос-сел',      value: crossSell.length, color:'#1d4ed8' },
+      { name:'⚡ Post-purchase', value: postPurch.length,  color:'#dc2626' },
+      { name:'⬆️ Ъпсел',        value: upsell.length,     color:'#7c3aed' },
+      { name:'🔀 Крос-сел',      value: crossSell.length,  color:'#1d4ed8' },
     ].filter(x => x.value > 0)
 
     return {
       withOffer, postPurch, upsell, crossSell,
       offerRev, totalRev, offerRate, revShare,
+      ppExtraRev,
       dailyChart, typePie,
       noOfferCount: active.length - withOffer.length,
       noOfferRev:   totalRev - offerRev,
@@ -836,6 +872,13 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
               <div style={{ fontSize:20, fontWeight:900 }}>{formatPrice(offerStats.offerRev)}</div>
               <div style={{ fontSize:11, opacity:.7 }}>{offerStats.revShare}% от общия</div>
             </div>
+            {offerStats.ppExtraRev > 0 && (
+              <div className="offer-card" style={{ background:'linear-gradient(135deg,#b91c1c,#991b1b)' }}>
+                <div style={{ fontSize:10, opacity:.75, fontWeight:800, marginBottom:3, textTransform:'uppercase' }}>⚡ PP Extra приход</div>
+                <div style={{ fontSize:20, fontWeight:900 }}>{formatPrice(offerStats.ppExtraRev)}</div>
+                <div style={{ fontSize:11, opacity:.7 }}>само от PP добавки</div>
+              </div>
+            )}
             <div className="offer-card-light">
               <div style={{ fontSize:10, color:'#94a3b8', fontWeight:800, marginBottom:3, textTransform:'uppercase' }}>📊 Конверсия</div>
               <div style={{ fontSize:24, fontWeight:900, color:'#7c3aed' }}>{offerStats.offerRate}%</div>

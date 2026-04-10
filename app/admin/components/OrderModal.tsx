@@ -533,12 +533,37 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                           })}
                         </tbody>
                         <tfoot>
+                          {/* Subtotal ред — само ако има offer items (за по-ясен breakdown) */}
+                          {offerItems.length > 0 && (order as any).subtotal != null && (
+                            <tr style={{ borderTop: '1px solid #f0f0f0' }}>
+                              <td colSpan={2} style={{ padding: '8px 10px', color: '#6b7280', fontSize: 12 }}>Продукти (subtotal)</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', color: '#6b7280', fontSize: 12 }}>{formatPrice((order as any).subtotal)}</td>
+                            </tr>
+                          )}
+                          {/* PP добавка — само ако е post_purchase */}
+                          {isPostPurch && offerItems.length > 0 && (
+                            <tr>
+                              <td colSpan={2} style={{ padding: '4px 10px', color: '#dc2626', fontSize: 11, fontWeight: 700 }}>
+                                ⚡ Post-purchase добавен
+                              </td>
+                              <td style={{ padding: '4px 10px', textAlign: 'right', color: '#dc2626', fontSize: 11, fontWeight: 700 }}>
+                                +{formatPrice(offerItems.reduce((s, i) => s + Number(i.total_price), 0))}
+                              </td>
+                            </tr>
+                          )}
                           <tr>
                             <td colSpan={2} style={{ padding: '10px', color: '#6b7280', fontSize: 12 }}>Доставка ({courierLabel})</td>
                             <td style={{ padding: '10px', textAlign: 'right', color: '#6b7280' }}>{formatPrice(order.shipping)}</td>
                           </tr>
                           <tr style={{ borderTop: '2px solid #e5e7eb' }}>
-                            <td colSpan={2} style={{ padding: '10px', fontWeight: 800, fontSize: 15 }}>Общо</td>
+                            <td colSpan={2} style={{ padding: '10px', fontWeight: 800, fontSize: 15 }}>
+                              Общо
+                              {isPostPurch && offerItems.length > 0 && (
+                                <span style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 99, padding: '1px 7px', marginLeft: 8 }}>
+                                  с PP ⚡
+                                </span>
+                              )}
+                            </td>
                             <td style={{ padding: '10px', textAlign: 'right', fontWeight: 900, fontSize: 16, color: '#16a34a' }}>{formatPrice(order.total)}</td>
                           </tr>
                         </tfoot>
