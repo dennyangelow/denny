@@ -1,10 +1,12 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v7
-// КРИТИЧНИ ПОПРАВКИ:
-//   1. handleBulkSync: използва syncedIds[] от response (не брой!)
-//   2. handleSyncOne: правилно обработва success/invalidEmail
-//   3. "Ре-sync всички" бутон е ВИНАГИ видим (не само когато всичко е synced)
-//   4. Прогрес показва реален брой (X/Y синхронизирани)
+// app/admin/components/LeadsTab.tsx — v8
+// ПОПРАВКИ v8:
+//   1. resetedIds state → unsyncedCount се обновява ВЕДНАГА след ресет (без refresh)
+//   2. handleResetInvalid → добавя ID-тата в resetedIds за оптимистичен UI
+//   3. handleBulkSync → включва resetedIds в toSync (ресетнатите се синхронизират)
+//   4. Нов modal "Невалидни имейли" — списък + inline редактиране на имейл + ресет
+//   5. Невалидните в таблицата показват бутон "✏️ Редактирай" вместо само ресет
+//   6. Mobile: невалидните имат бутон за отваряне на modal
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { Lead } from '@/lib/supabase'
@@ -86,6 +88,12 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   const [syncedIds,     setSyncedIds]     = useState<Set<string>>(new Set())
   // Невалидни имейли (за да не се опитваме пак)
   const [invalidIds,    setInvalidIds]    = useState<Set<string>>(new Set())
+  // Ресетнати невалидни — добавяме ги в unsyncedCount веднага (без refresh)
+  const [resetedIds,    setResetedIds]    = useState<Set<string>>(new Set())
+  // Modal за преглед/редактиране на невалидни имейли
+  const [showInvalidModal, setShowInvalidModal] = useState(false)
+  // Inline редактиране на имейл в modal: { [leadId]: newEmail }
+  const [editingEmail,  setEditingEmail]  = useState<Record<string, string>>({})
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -172,15 +180,24 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   const subscribed = useMemo(() => uniqueLeads.filter(l=>l.subscribed), [uniqueLeads])
 
   // Брой несинхронизирани (без невалидните имейли)
-  const unsyncedCount = useMemo(() =>
-    uniqueLeads.filter(l =>
+  // resetedIds се добавят веднага след ресет → бутонът "Sync N" се появява без refresh
+  const unsyncedCount = useMemo(() => {
+    const fromLeads = uniqueLeads.filter(l =>
       !syncedIds.has(l.id) &&
       !(l as any).systemeio_synced &&
       !invalidIds.has(l.id) &&
       !(l as any).systemeio_email_invalid &&
+      !resetedIds.has(l.id) &&  // изключваме ресетнатите от leads (те ще се broят по-долу)
       l.subscribed
-    ).length,
-    [uniqueLeads, syncedIds, invalidIds])
+    ).length
+    // Ресетнатите невалидни → трябва sync (subscribed проверяваме от leads)
+    const fromReseted = uniqueLeads.filter(l =>
+      resetedIds.has(l.id) &&
+      !syncedIds.has(l.id) &&
+      l.subscribed
+    ).length
+    return fromLeads + fromReseted
+  }, [uniqueLeads, syncedIds, invalidIds, resetedIds])
 
   // Брой невалидни имейли (за banner-а)
   const invalidCount = useMemo(() =>
@@ -269,6 +286,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
 
   // ── Ресет на невалидни имейли ─────────────────────────────────────────────
   // Ресетва systemeio_email_invalid=false в Supabase за да може да се sync-не пак
+  // ПОПРАВКА v8: добавя ID-тата в resetedIds → unsyncedCount се обновява ВЕДНАГА
   const handleResetInvalid = useCallback(async (ids?: string[]) => {
     setResettingInvalid(true)
     try {
@@ -279,9 +297,18 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Грешка')
-      // Ресетваме локалния state
-      if (ids) { setInvalidIds(prev => { const next = new Set(prev); ids.forEach(id=>next.delete(id)); return next }) }
-      else { setInvalidIds(new Set()) }
+
+      if (ids) {
+        // Маха от невалидни, добавя в ресетнати
+        setInvalidIds(prev => { const next = new Set(prev); ids.forEach(id => next.delete(id)); return next })
+        setResetedIds(prev => { const next = new Set(prev); ids.forEach(id => next.add(id)); return next })
+      } else {
+        // Ресетни всички — взимаме snapshot на invalidIds преди да ги изчистим
+        setInvalidIds(prev => {
+          setResetedIds(prevR => { const next = new Set(prevR); prev.forEach(id => next.add(id)); return next })
+          return new Set()
+        })
+      }
       toast.success(`✅ ${data.reset ?? ids?.length ?? '?'} контакта ресетнати — sync-ни пак`)
     } catch(e:any) { toast.error(`❌ ${e.message}`) }
     finally { setResettingInvalid(false) }
@@ -319,13 +346,13 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   const handleBulkSync = useCallback(async (forceAll = false) => {
     const toSync = forceAll
       ? uniqueLeads.filter(l => l.subscribed && !invalidIds.has(l.id) && !(l as any).systemeio_email_invalid)
-      : uniqueLeads.filter(l =>
-          !syncedIds.has(l.id) &&
-          !(l as any).systemeio_synced &&
-          !invalidIds.has(l.id) &&
-          !(l as any).systemeio_email_invalid &&
-          l.subscribed
-        )
+      : uniqueLeads.filter(l => {
+          if (!l.subscribed) return false
+          if (invalidIds.has(l.id) || (l as any).systemeio_email_invalid) return false
+          // Ресетнатите невалидни ВИНАГИ влизат в sync (дори systemeio_synced=false в props)
+          if (resetedIds.has(l.id)) return !syncedIds.has(l.id)
+          return !syncedIds.has(l.id) && !(l as any).systemeio_synced
+        })
 
     if (toSync.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
 
@@ -399,6 +426,8 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
         toast.error(`❌ Всички ${totalFailed} контакта се провалиха — провери Vercel logs`)
       }
 
+      // Изчистваме resetedIds след приключване — вече са sync-нати (или са в syncedIds)
+      setResetedIds(new Set())
       // НЕ правим window.location.reload() — state вече е обновен локално
     } catch { toast.error('Мрежова грешка') }
     finally {
@@ -406,7 +435,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       onSyncStateChange?.(false)
       setBulkProgress({ done: 0, total: 0 })
     }
-  }, [uniqueLeads, syncedIds, invalidIds])
+  }, [uniqueLeads, syncedIds, invalidIds, resetedIds])
 
   const inp: React.CSSProperties = { padding:'8px 13px', border:'1px solid var(--border)', borderRadius:9, fontFamily:'inherit', fontSize:13, outline:'none', background:'#fff' }
   const SortArrow = ({ k }: { k: SortKey }) => (
@@ -454,13 +483,19 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
             <span>⚠️</span>
             <div>
               <strong style={{ color:'#991b1b', fontSize:13 }}>{invalidCount} контакта с &quot;Невалиден&quot; статус</strong>
-              <div style={{ fontSize:12, color:'#b91c1c', marginTop:2 }}>Маркирани погрешно? Ресетни ги и sync-ни пак.</div>
+              <div style={{ fontSize:12, color:'#b91c1c', marginTop:2 }}>Погрешен имейл? Редактирай го и sync-ни пак.</div>
             </div>
           </div>
-          <button onClick={() => handleResetInvalid()} disabled={resettingInvalid}
-            style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'1px solid #fca5a5', background:'#fff', color:'#991b1b', fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:resettingInvalid?0.6:1, whiteSpace:'nowrap' as const }}>
-            {resettingInvalid ? '⏳ Ресетва...' : '🔄 Ресетни всички невалидни'}
-          </button>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <button onClick={() => setShowInvalidModal(true)}
+              style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'1px solid #fca5a5', background:'#fff', color:'#1d4ed8', fontWeight:700, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
+              🔍 Прегледай
+            </button>
+            <button onClick={() => handleResetInvalid()} disabled={resettingInvalid}
+              style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'1px solid #fca5a5', background:'#fff', color:'#991b1b', fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:resettingInvalid?0.6:1, whiteSpace:'nowrap' as const }}>
+              {resettingInvalid ? '⏳ Ресетва...' : '🔄 Ресетни всички'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -752,13 +787,12 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                           {/* Systeme.io status */}
                           <td style={{ padding:'11px 14px', borderBottom:'1px solid #f5f5f5', textAlign:'center' }} onClick={e=>e.stopPropagation()}>
                             {isInvalid ? (
-                              <button onClick={()=>handleResetInvalid([l.id])} disabled={resettingInvalid}
-                                title="Имейлът е маркиран невалиден — натисни за ресет"
+                              <button onClick={()=>{ setEditingEmail({}); setShowInvalidModal(true) }}
+                                title="Невалиден имейл — натисни за преглед и редактиране"
                                 style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, padding:'4px 10px',
                                   borderRadius:7, fontWeight:700, background:'#fef2f2', color:'#991b1b',
-                                  border:'1px solid #fca5a5', cursor:'pointer', fontFamily:'inherit',
-                                  opacity:resettingInvalid?0.6:1 }}>
-                                ⚠️ Невалиден
+                                  border:'1px solid #fca5a5', cursor:'pointer', fontFamily:'inherit' }}>
+                                ⚠️ Невалиден ✏️
                               </button>
                             ) : (
                               <button
@@ -868,7 +902,10 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                       {new Date(l.created_at).toLocaleDateString('bg-BG',{day:'2-digit',month:'short',year:'2-digit'})}
                     </span>
                     {isInvalid ? (
-                      <span style={{ fontSize:11, padding:'4px 10px', borderRadius:7, fontWeight:700, background:'#fef2f2', color:'#991b1b', border:'1px solid #fca5a5' }}>⚠️ Невалиден</span>
+                      <button onClick={()=>{ setEditingEmail({}); setShowInvalidModal(true) }}
+                        style={{ fontSize:11, padding:'4px 10px', borderRadius:7, fontWeight:700, background:'#fef2f2', color:'#991b1b', border:'1px solid #fca5a5', cursor:'pointer', fontFamily:'inherit' }}>
+                        ⚠️ Невалиден ✏️
+                      </button>
                     ) : (
                       <button onClick={()=>handleSyncOne(l)} disabled={syncing||isSynced}
                         style={{ fontSize:11, padding:'5px 12px', borderRadius:7, fontWeight:700, border:'none',
@@ -895,6 +932,141 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
           )}
         </>
       )}
+
+      {/* ── Modal: Невалидни имейли ── */}
+      {showInvalidModal && (() => {
+        const invalidLeads = uniqueLeads.filter(l => invalidIds.has(l.id) || !!(l as any).systemeio_email_invalid)
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', display:'flex',
+            alignItems:'center', justifyContent:'center', padding:16, zIndex:300 }}
+            onClick={e=>{ if (e.target===e.currentTarget) setShowInvalidModal(false) }}>
+            <div style={{ background:'#fff', borderRadius:20, padding:0, width:'100%', maxWidth:660,
+              maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 60px rgba(0,0,0,.35)' }}>
+
+              {/* Header */}
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                padding:'20px 24px 16px', borderBottom:'1px solid #fee2e2', flexShrink:0 }}>
+                <div>
+                  <h2 style={{ fontSize:17, fontWeight:900, margin:0, color:'#991b1b' }}>⚠️ Невалидни имейли</h2>
+                  <p style={{ fontSize:12, color:'#b91c1c', margin:'3px 0 0' }}>
+                    {invalidLeads.length} контакта · Редактирай имейла ако е сгрешен, после ресетни
+                  </p>
+                </div>
+                <button onClick={()=>setShowInvalidModal(false)}
+                  style={{ background:'#fef2f2', border:'1px solid #fca5a5', borderRadius:8,
+                    padding:'6px 11px', cursor:'pointer', fontSize:14, color:'#991b1b', fontWeight:700 }}>
+                  ✕
+                </button>
+              </div>
+
+              {/* List */}
+              <div style={{ overflowY:'auto', flex:1, padding:'0 24px' }}>
+                {invalidLeads.length === 0 ? (
+                  <div style={{ textAlign:'center', padding:'40px 0', color:'#9ca3af', fontSize:14 }}>
+                    ✅ Няма невалидни имейли
+                  </div>
+                ) : invalidLeads.map((l, idx) => {
+                  const currentVal = editingEmail[l.id] ?? l.email
+                  const isEdited   = currentVal !== l.email
+                  return (
+                    <div key={l.id} style={{ display:'flex', alignItems:'center', gap:10,
+                      padding:'12px 0', borderBottom: idx < invalidLeads.length-1 ? '1px solid #fef2f2' : 'none' }}>
+
+                      {/* Avatar */}
+                      <div style={{ width:34, height:34, borderRadius:'50%', background:'#fef2f2',
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        fontSize:13, fontWeight:700, color:'#991b1b', flexShrink:0 }}>
+                        {(l.name || l.email)[0].toUpperCase()}
+                      </div>
+
+                      {/* Info + Input */}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        {l.name && (
+                          <div style={{ fontSize:11, color:'#6b7280', marginBottom:3 }}>{l.name}</div>
+                        )}
+                        <input
+                          value={currentVal}
+                          onChange={e => setEditingEmail(prev => ({ ...prev, [l.id]: e.target.value }))}
+                          style={{ width:'100%', fontSize:13, padding:'7px 10px',
+                            border: `1.5px solid ${isEdited ? '#f59e0b' : '#fca5a5'}`,
+                            borderRadius:8, fontFamily:'inherit', outline:'none',
+                            background: isEdited ? '#fffbeb' : '#fff',
+                            boxSizing:'border-box' as const }}
+                          placeholder="Имейл адрес..."
+                        />
+                        {isEdited && (
+                          <div style={{ fontSize:10, color:'#d97706', marginTop:2 }}>
+                            ✏️ Редактиран — ще се запише при ресет
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Reset button */}
+                      <button
+                        disabled={resettingInvalid}
+                        onClick={async () => {
+                          const newEmail = editingEmail[l.id]
+                          // Ако имейлът е редактиран → PATCH в Supabase преди ресет
+                          if (newEmail && newEmail !== l.email && newEmail.includes('@')) {
+                            try {
+                              const patchRes = await fetch(`/api/leads/${l.id}`, {
+                                method:  'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body:    JSON.stringify({ email: newEmail.trim().toLowerCase() }),
+                              })
+                              if (!patchRes.ok) {
+                                const d = await patchRes.json().catch(() => ({}))
+                                toast.error(`❌ Грешка при запис: ${d.error || patchRes.status}`)
+                                return
+                              }
+                              toast.success(`✏️ Имейлът е обновен → ${newEmail}`)
+                              // Изчистваме редактирането за този контакт
+                              setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
+                            } catch {
+                              toast.error('❌ Мрежова грешка при запис на имейла')
+                              return
+                            }
+                          }
+                          await handleResetInvalid([l.id])
+                        }}
+                        style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'none',
+                          background: resettingInvalid ? '#e5e7eb' : '#16a34a',
+                          color: resettingInvalid ? '#9ca3af' : '#fff',
+                          fontWeight:700, cursor: resettingInvalid ? 'not-allowed' : 'pointer',
+                          fontFamily:'inherit', whiteSpace:'nowrap' as const, flexShrink:0 }}>
+                        ✓ Ресетни
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Footer */}
+              <div style={{ display:'flex', gap:10, justifyContent:'space-between', alignItems:'center',
+                padding:'16px 24px 20px', borderTop:'1px solid #fee2e2', flexShrink:0, flexWrap:'wrap' }}>
+                <div style={{ fontSize:12, color:'#9ca3af' }}>
+                  След ресет → sync-ни ги от главния banner
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  {invalidLeads.length > 0 && (
+                    <button onClick={() => handleResetInvalid()} disabled={resettingInvalid}
+                      style={{ padding:'9px 18px', background:'#dc2626', color:'#fff', border:'none',
+                        borderRadius:10, cursor: resettingInvalid ? 'not-allowed' : 'pointer',
+                        fontFamily:'inherit', fontWeight:700, fontSize:13, opacity: resettingInvalid ? 0.6 : 1 }}>
+                      {resettingInvalid ? '⏳ Ресетва...' : `🔄 Ресетни всички (${invalidLeads.length})`}
+                    </button>
+                  )}
+                  <button onClick={()=>setShowInvalidModal(false)}
+                    style={{ padding:'9px 18px', border:'1px solid #e5e7eb', borderRadius:10,
+                      background:'#fff', cursor:'pointer', fontFamily:'inherit', fontSize:13, color:'#374151' }}>
+                    Затвори
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Broadcast modal ── */}
       {broadcastOpen && (
