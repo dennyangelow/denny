@@ -1,5 +1,15 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v11
+// app/admin/components/LeadsTab.tsx — v12
+//
+// ПОПРАВКИ v12:
+//   1. blockedIds ≠ invalidIds:
+//      - invalidIds = временно невалидни (Systeme.io върна грешка) → могат да се ресетнат
+//      - blockedIds = перманентно блокирани от потребителя → НЕ влизат в sync никога
+//   2. "Ресетни" бутон ВЕЧЕ работи индивидуално за всеки невалиден (не блокиран)
+//   3. Modal с два таба: "Невалидни" и "Блокирани"
+//   4. Блокираните се записват като tag "systemeio_blocked" в DB
+//   5. Блокираните могат да се деблокират (изтриване на tag + ресет за нов sync)
+//   6. Отделен banner за блокирани в главния изглед
 // ПОПРАВКИ v9:
 //   1. handleBulkSync: НЕ филтрира по l.subscribed → оправя бъга "Sync 7 → всички невалидни"
 //   2. handleBulkSync: totalInvalid брояч → финалното съобщение е информативно
@@ -90,6 +100,8 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   const [resetedIds,    setResetedIds]    = useState<Set<string>>(new Set())
   // Modal за преглед/редактиране на невалидни имейли
   const [showInvalidModal, setShowInvalidModal] = useState(false)
+  // Таб в модала: 'invalid' | 'blocked'
+  const [invalidModalTab, setInvalidModalTab]   = useState<'invalid' | 'blocked'>('invalid')
   // Inline редактиране на имейл в modal: { [leadId]: newEmail }
   const [editingEmail,  setEditingEmail]  = useState<Record<string, string>>({})
   // Перманентно блокирани — маркирани ръчно като "невалиден, не sync-вай"
@@ -106,14 +118,17 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   useEffect(() => {
     const synced  = new Set<string>()
     const invalid = new Set<string>()
+    const blocked = new Set<string>()
     leads.forEach(l => {
       if ((l as any).systemeio_synced)        synced.add(l.id)
-      if ((l as any).systemeio_email_invalid) invalid.add(l.id)
+      // invalid = email_invalid=true НО НЕ е блокиран от потребителя
+      if ((l as any).systemeio_email_invalid && !(l.tags||[]).includes('systemeio_blocked')) invalid.add(l.id)
+      // blocked = перманентно блокирани (маркирани от потребителя с tag)
+      if ((l.tags||[]).includes('systemeio_blocked')) blocked.add(l.id)
     })
     setSyncedIds(synced)
     setInvalidIds(invalid)
-    // blockedIds = тези с email_invalid (не се ресетват автоматично)
-    setBlockedIds(new Set(leads.filter(l => !!(l as any).systemeio_email_invalid).map(l => l.id)))
+    setBlockedIds(blocked)
   }, [leads])
 
   // ── emailToSlugs ─────────────────────────────────────────────────────────
@@ -317,33 +332,58 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     finally { setResettingInvalid(false) }
   }, [])
 
-  // ── Маркирай като перманентно невалиден (никога повече в sync) ─────────────
+  // ── Маркирай като перманентно блокиран (tag: systemeio_blocked) ─────────────
   const handleMarkPermanentlyInvalid = useCallback(async (id: string) => {
+    const lead = uniqueLeads.find(l => l.id === id)
+    if (!lead) return
     try {
-      const now = new Date().toISOString()
+      // Добавяме tag 'systemeio_blocked' към съществуващите тагове
+      const existingTags = (lead.tags || []).filter((t: string) => t !== 'systemeio_blocked')
+      const newTags = [...existingTags, 'systemeio_blocked']
       const res = await fetch(`/api/leads/${id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          systemeio_synced:        false,
-          systemeio_email_invalid: true,
-        }),
+        body:    JSON.stringify({ tags: newTags }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         toast.error(`❌ Грешка: ${d.error || res.status}`)
         return
       }
-      // Добавяме в blockedIds и invalidIds → изчезва от sync завинаги
+      // Добавяме в blockedIds, махаме от invalidIds и resetedIds
       setBlockedIds(prev => new Set([...prev, id]))
-      setInvalidIds(prev => new Set([...prev, id]))
-      // Махаме от resetedIds ако е там
+      setInvalidIds(prev => { const n = new Set(prev); n.delete(id); return n })
       setResetedIds(prev => { const n = new Set(prev); n.delete(id); return n })
-      toast.success('🚫 Маркиран като невалиден — няма да влиза в sync')
+      toast.success('🚫 Блокиран — няма да влиза в sync')
     } catch {
       toast.error('❌ Мрежова грешка')
     }
-  }, [])
+  }, [uniqueLeads])
+
+  // ── Деблокирай (премахни tag systemeio_blocked) ───────────────────────────
+  const handleUnblock = useCallback(async (id: string) => {
+    const lead = uniqueLeads.find(l => l.id === id)
+    if (!lead) return
+    try {
+      const newTags = (lead.tags || []).filter((t: string) => t !== 'systemeio_blocked')
+      const res = await fetch(`/api/leads/${id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ tags: newTags }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast.error(`❌ Грешка: ${d.error || res.status}`)
+        return
+      }
+      // Деблокиран — вади от blockedIds, маркира като невалиден (ще трябва ресет)
+      setBlockedIds(prev => { const n = new Set(prev); n.delete(id); return n })
+      setInvalidIds(prev => new Set([...prev, id]))
+      toast.success('✅ Деблокиран — ресетни за нов sync')
+    } catch {
+      toast.error('❌ Мрежова грешка')
+    }
+  }, [uniqueLeads])
 
   // ── Sync един lead ────────────────────────────────────────────────────────
   const handleSyncOne = useCallback(async (lead: Lead) => {
@@ -537,7 +577,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       {invalidCount > 0 && (
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
           background:'#fef2f2', border:'1px solid #fca5a5', borderRadius:12,
-          padding:'12px 16px', marginBottom:12 }}>
+          padding:'12px 16px', marginBottom:8 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <span>⚠️</span>
             <div>
@@ -546,7 +586,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
             </div>
           </div>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            <button onClick={() => setShowInvalidModal(true)}
+            <button onClick={() => { setInvalidModalTab('invalid'); setShowInvalidModal(true) }}
               style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'1px solid #fca5a5', background:'#fff', color:'#1d4ed8', fontWeight:700, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
               🔍 Прегледай
             </button>
@@ -555,6 +595,25 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
               {resettingInvalid ? '⏳ Ресетва...' : '🔄 Ресетни всички'}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ── Блокирани banner ── */}
+      {blockedIds.size > 0 && (
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10,
+          background:'#faf5ff', border:'1px solid #ddd6fe', borderRadius:12,
+          padding:'10px 16px', marginBottom:12 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span>🚫</span>
+            <div>
+              <strong style={{ color:'#6d28d9', fontSize:13 }}>{blockedIds.size} блокирани контакта</strong>
+              <div style={{ fontSize:12, color:'#7c3aed', marginTop:2 }}>Изключени от sync. Управлявай от списъка.</div>
+            </div>
+          </div>
+          <button onClick={() => { setInvalidModalTab('blocked'); setShowInvalidModal(true) }}
+            style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'1px solid #ddd6fe', background:'#fff', color:'#7c3aed', fontWeight:700, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
+            📋 Управлявай
+          </button>
         </div>
       )}
 
@@ -992,139 +1051,212 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
         </>
       )}
 
-      {/* ── Modal: Невалидни имейли ── */}
+      {/* ── Modal: Невалидни и Блокирани имейли ── */}
       {showInvalidModal && (() => {
-        const invalidLeads = uniqueLeads.filter(l => invalidIds.has(l.id) || !!(l as any).systemeio_email_invalid)
+        const invalidLeads = uniqueLeads.filter(l =>
+          (invalidIds.has(l.id) || !!(l as any).systemeio_email_invalid) &&
+          !blockedIds.has(l.id)
+        )
+        const blockedLeads = uniqueLeads.filter(l => blockedIds.has(l.id))
+        const shownLeads   = invalidModalTab === 'invalid' ? invalidLeads : blockedLeads
+
         return (
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', display:'flex',
             alignItems:'center', justifyContent:'center', padding:16, zIndex:300 }}
             onClick={e=>{ if (e.target===e.currentTarget) setShowInvalidModal(false) }}>
             <div style={{ background:'#fff', borderRadius:20, padding:0, width:'100%', maxWidth:660,
-              maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 60px rgba(0,0,0,.35)' }}>
+              maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 60px rgba(0,0,0,.35)' }}>
 
               {/* Header */}
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                padding:'20px 24px 16px', borderBottom:'1px solid #fee2e2', flexShrink:0 }}>
-                <div>
-                  <h2 style={{ fontSize:17, fontWeight:900, margin:0, color:'#991b1b' }}>⚠️ Невалидни имейли</h2>
-                  <p style={{ fontSize:12, color:'#b91c1c', margin:'3px 0 0' }}>
-                    {invalidLeads.length} контакта · Редактирай имейла ако е сгрешен, после ресетни
-                  </p>
+              <div style={{ padding:'20px 24px 0', flexShrink:0 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:14 }}>
+                  <div>
+                    <h2 style={{ fontSize:17, fontWeight:900, margin:0, color:'#111' }}>📋 Управление на имейли</h2>
+                    <p style={{ fontSize:12, color:'#6b7280', margin:'3px 0 0' }}>
+                      Редактирай, ресетни или блокирай контакти
+                    </p>
+                  </div>
+                  <button onClick={()=>setShowInvalidModal(false)}
+                    style={{ background:'#f5f5f5', border:'none', borderRadius:8,
+                      padding:'6px 11px', cursor:'pointer', fontSize:14, color:'#374151', fontWeight:700 }}>
+                    ✕
+                  </button>
                 </div>
-                <button onClick={()=>setShowInvalidModal(false)}
-                  style={{ background:'#fef2f2', border:'1px solid #fca5a5', borderRadius:8,
-                    padding:'6px 11px', cursor:'pointer', fontSize:14, color:'#991b1b', fontWeight:700 }}>
-                  ✕
-                </button>
+
+                {/* Табове */}
+                <div style={{ display:'flex', gap:0, borderBottom:'2px solid #f3f4f6' }}>
+                  <button
+                    onClick={() => setInvalidModalTab('invalid')}
+                    style={{ padding:'9px 20px', border:'none', background:'none', cursor:'pointer',
+                      fontFamily:'inherit', fontSize:13, fontWeight:700,
+                      color: invalidModalTab === 'invalid' ? '#dc2626' : '#9ca3af',
+                      borderBottom: invalidModalTab === 'invalid' ? '2px solid #dc2626' : '2px solid transparent',
+                      marginBottom: -2, transition:'all .15s' }}>
+                    ⚠️ Невалидни ({invalidLeads.length})
+                  </button>
+                  <button
+                    onClick={() => setInvalidModalTab('blocked')}
+                    style={{ padding:'9px 20px', border:'none', background:'none', cursor:'pointer',
+                      fontFamily:'inherit', fontSize:13, fontWeight:700,
+                      color: invalidModalTab === 'blocked' ? '#7c3aed' : '#9ca3af',
+                      borderBottom: invalidModalTab === 'blocked' ? '2px solid #7c3aed' : '2px solid transparent',
+                      marginBottom: -2, transition:'all .15s' }}>
+                    🚫 Блокирани ({blockedLeads.length})
+                  </button>
+                </div>
               </div>
 
-              {/* List */}
+              {/* Описание на таба */}
+              <div style={{
+                padding: '10px 24px 8px',
+                background: invalidModalTab === 'invalid' ? '#fef2f2' : '#faf5ff',
+                borderBottom: `1px solid ${invalidModalTab === 'invalid' ? '#fee2e2' : '#ede9fe'}`,
+                flexShrink: 0,
+              }}>
+                {invalidModalTab === 'invalid' ? (
+                  <p style={{ margin:0, fontSize:12, color:'#b91c1c' }}>
+                    Systeme.io върна грешка за тези имейли. Редактирай ако е сгрешен, после натисни ✓ Ресетни.
+                  </p>
+                ) : (
+                  <p style={{ margin:0, fontSize:12, color:'#7c3aed' }}>
+                    Тези контакти са перманентно изключени от sync. Натисни ✓ Деблокирай за да ги върнеш.
+                  </p>
+                )}
+              </div>
+
+              {/* Списък */}
               <div style={{ overflowY:'auto', flex:1, padding:'0 24px' }}>
-                {invalidLeads.length === 0 ? (
-                  <div style={{ textAlign:'center', padding:'40px 0', color:'#9ca3af', fontSize:14 }}>
-                    ✅ Няма невалидни имейли
+                {shownLeads.length === 0 ? (
+                  <div style={{ textAlign:'center', padding:'48px 0', color:'#9ca3af', fontSize:14 }}>
+                    {invalidModalTab === 'invalid'
+                      ? '✅ Няма невалидни имейли'
+                      : '✅ Няма блокирани контакти'}
                   </div>
-                ) : invalidLeads.map((l, idx) => {
+                ) : shownLeads.map((l, idx) => {
                   const currentVal = editingEmail[l.id] ?? l.email
                   const isEdited   = currentVal !== l.email
+                  const isBlocked  = invalidModalTab === 'blocked'
+
                   return (
                     <div key={l.id} style={{ display:'flex', alignItems:'center', gap:10,
-                      padding:'12px 0', borderBottom: idx < invalidLeads.length-1 ? '1px solid #fef2f2' : 'none' }}>
+                      padding:'13px 0', borderBottom: idx < shownLeads.length-1
+                        ? `1px solid ${isBlocked ? '#f3f0ff' : '#fef2f2'}` : 'none' }}>
 
                       {/* Avatar */}
-                      <div style={{ width:34, height:34, borderRadius:'50%', background:'#fef2f2',
+                      <div style={{ width:36, height:36, borderRadius:'50%',
+                        background: isBlocked ? '#faf5ff' : '#fef2f2',
                         display:'flex', alignItems:'center', justifyContent:'center',
-                        fontSize:13, fontWeight:700, color:'#991b1b', flexShrink:0 }}>
+                        fontSize:13, fontWeight:700,
+                        color: isBlocked ? '#7c3aed' : '#991b1b', flexShrink:0 }}>
                         {(l.name || l.email)[0].toUpperCase()}
                       </div>
 
                       {/* Info + Input */}
                       <div style={{ flex:1, minWidth:0 }}>
                         {l.name && (
-                          <div style={{ fontSize:11, color:'#6b7280', marginBottom:3 }}>{l.name}</div>
+                          <div style={{ fontSize:11, color:'#6b7280', marginBottom:3, fontWeight:600 }}>{l.name}</div>
                         )}
                         <input
                           value={currentVal}
-                          onChange={e => setEditingEmail(prev => ({ ...prev, [l.id]: e.target.value }))}
+                          onChange={e => !isBlocked && setEditingEmail(prev => ({ ...prev, [l.id]: e.target.value }))}
+                          readOnly={isBlocked}
                           style={{ width:'100%', fontSize:13, padding:'7px 10px',
-                            border: `1.5px solid ${isEdited ? '#f59e0b' : '#fca5a5'}`,
+                            border: `1.5px solid ${isBlocked ? '#ddd6fe' : isEdited ? '#f59e0b' : '#fca5a5'}`,
                             borderRadius:8, fontFamily:'inherit', outline:'none',
-                            background: isEdited ? '#fffbeb' : '#fff',
-                            boxSizing:'border-box' as const }}
+                            background: isBlocked ? '#faf5ff' : isEdited ? '#fffbeb' : '#fff',
+                            boxSizing:'border-box' as const,
+                            color: isBlocked ? '#7c3aed' : '#111',
+                          }}
                           placeholder="Имейл адрес..."
                         />
-                        {blockedIds.has(l.id) && !isEdited && (
-                          <div style={{ fontSize:10, color:'#dc2626', marginTop:2, fontWeight:700 }}>
-                            🚫 Маркиран като невалиден — не влиза в sync
+                        {isBlocked ? (
+                          <div style={{ fontSize:10, color:'#7c3aed', marginTop:2, fontWeight:700 }}>
+                            🚫 Блокиран — не влиза в sync
                           </div>
-                        )}
-                        {isEdited && (
+                        ) : isEdited ? (
                           <div style={{ fontSize:10, color:'#d97706', marginTop:2 }}>
                             ✏️ Редактиран — ще се запише при ресет
+                          </div>
+                        ) : (
+                          <div style={{ fontSize:10, color:'#dc2626', marginTop:2 }}>
+                            ⚠️ Невалиден имейл — Systeme.io го отхвърли
                           </div>
                         )}
                       </div>
 
                       {/* Бутони */}
                       <div style={{ display:'flex', flexDirection:'column', gap:6, flexShrink:0 }}>
-                        {/* ✓ Ресетни — опита отново при следващ sync */}
-                        <button
-                          disabled={resettingInvalid || blockedIds.has(l.id)}
-                          onClick={async () => {
-                            const newEmail = editingEmail[l.id]
-                            if (newEmail && newEmail !== l.email && newEmail.includes('@')) {
-                              try {
-                                const patchRes = await fetch(`/api/leads/${l.id}`, {
-                                  method:  'PATCH',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body:    JSON.stringify({ email: newEmail.trim().toLowerCase() }),
-                                })
-                                const d = await patchRes.json().catch(() => ({}))
-                                if (!patchRes.ok) {
-                                  toast.error(`❌ Грешка при запис: ${d.error || patchRes.status}`)
-                                  return
-                                }
-                                if (d.merged) {
-                                  setInvalidIds(prev => { const n = new Set(prev); n.delete(l.id); return n })
-                                  setBlockedIds(prev => { const n = new Set(prev); n.delete(l.id); return n })
+                        {isBlocked ? (
+                          /* ── Деблокирай ── */
+                          <button
+                            onClick={() => {
+                              if (!confirm(`Деблокирай ${l.email}?\nЩе трябва да се ресетне за нов sync.`)) return
+                              handleUnblock(l.id)
+                            }}
+                            style={{ fontSize:12, padding:'7px 13px', borderRadius:8, border:'1px solid #ddd6fe',
+                              background:'#faf5ff', color:'#7c3aed', fontWeight:700,
+                              cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
+                            ✓ Деблокирай
+                          </button>
+                        ) : (
+                          /* ── Ресетни (индивидуално) ── */
+                          <button
+                            disabled={resettingInvalid}
+                            onClick={async () => {
+                              const newEmail = editingEmail[l.id]
+                              if (newEmail && newEmail !== l.email && newEmail.includes('@')) {
+                                try {
+                                  const patchRes = await fetch(`/api/leads/${l.id}`, {
+                                    method:  'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body:    JSON.stringify({ email: newEmail.trim().toLowerCase() }),
+                                  })
+                                  const d = await patchRes.json().catch(() => ({}))
+                                  if (!patchRes.ok) {
+                                    toast.error(`❌ Грешка при запис: ${d.error || patchRes.status}`)
+                                    return
+                                  }
+                                  if (d.merged) {
+                                    setInvalidIds(prev => { const n = new Set(prev); n.delete(l.id); return n })
+                                    setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
+                                    toast.success(`✅ Обединено с ${newEmail} — sync-ни пак`)
+                                    return
+                                  }
+                                  toast.success(`✏️ Имейлът е обновен → ${newEmail}`)
                                   setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
-                                  toast.success(`✅ Обединено с ${newEmail} — sync-ни пак`)
+                                } catch {
+                                  toast.error('❌ Мрежова грешка при запис на имейла')
                                   return
                                 }
-                                toast.success(`✏️ Имейлът е обновен → ${newEmail}`)
-                                setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
-                              } catch {
-                                toast.error('❌ Мрежова грешка при запис на имейла')
-                                return
                               }
-                            }
-                            await handleResetInvalid([l.id])
-                          }}
-                          style={{ fontSize:12, padding:'7px 13px', borderRadius:8, border:'none',
-                            background: (resettingInvalid || blockedIds.has(l.id)) ? '#e5e7eb' : '#16a34a',
-                            color: (resettingInvalid || blockedIds.has(l.id)) ? '#9ca3af' : '#fff',
-                            fontWeight:700,
-                            cursor: (resettingInvalid || blockedIds.has(l.id)) ? 'not-allowed' : 'pointer',
-                            fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
-                          ✓ Ресетни
-                        </button>
-                        {/* 🚫 Невалиден — маркира завинаги, не влиза в sync */}
-                        <button
-                          disabled={blockedIds.has(l.id)}
-                          onClick={() => {
-                            if (!confirm(`Маркирай ${l.email} като невалиден завинаги?\nНяма да влиза в sync повече.`)) return
-                            handleMarkPermanentlyInvalid(l.id)
-                          }}
-                          title="Маркирай като невалиден — няма да влиза в sync повече"
-                          style={{ fontSize:12, padding:'7px 13px', borderRadius:8,
-                            border: blockedIds.has(l.id) ? '1px solid #e5e7eb' : '1px solid #fca5a5',
-                            background: blockedIds.has(l.id) ? '#f9fafb' : '#fff',
-                            color: blockedIds.has(l.id) ? '#9ca3af' : '#dc2626',
-                            fontWeight:700,
-                            cursor: blockedIds.has(l.id) ? 'default' : 'pointer',
-                            fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
-                          {blockedIds.has(l.id) ? '🚫 Блокиран' : '🚫 Невалиден'}
-                        </button>
+                              await handleResetInvalid([l.id])
+                            }}
+                            style={{ fontSize:12, padding:'7px 13px', borderRadius:8, border:'none',
+                              background: resettingInvalid ? '#e5e7eb' : '#16a34a',
+                              color: resettingInvalid ? '#9ca3af' : '#fff',
+                              fontWeight:700,
+                              cursor: resettingInvalid ? 'not-allowed' : 'pointer',
+                              fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
+                            {resettingInvalid ? '⏳...' : '✓ Ресетни'}
+                          </button>
+                        )}
+
+                        {/* 🚫 Блокирай / вече блокиран */}
+                        {!isBlocked && (
+                          <button
+                            onClick={() => {
+                              if (!confirm(`Блокирай ${l.email} перманентно?\nНяма да влиза в sync повече.\nМожеш да деблокираш от таб "Блокирани".`)) return
+                              handleMarkPermanentlyInvalid(l.id)
+                            }}
+                            title="Блокирай — перманентно изключи от sync"
+                            style={{ fontSize:12, padding:'7px 13px', borderRadius:8,
+                              border:'1px solid #fca5a5',
+                              background:'#fff', color:'#dc2626',
+                              fontWeight:700, cursor:'pointer',
+                              fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
+                            🚫 Блокирай
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
@@ -1133,25 +1265,42 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
 
               {/* Footer */}
               <div style={{ display:'flex', gap:10, justifyContent:'space-between', alignItems:'center',
-                padding:'16px 24px 20px', borderTop:'1px solid #fee2e2', flexShrink:0, flexWrap:'wrap' }}>
-                <div style={{ fontSize:12, color:'#9ca3af' }}>
-                  След ресет → sync-ни ги от главния banner
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  {invalidLeads.length > 0 && (
-                    <button onClick={() => handleResetInvalid()} disabled={resettingInvalid}
-                      style={{ padding:'9px 18px', background:'#dc2626', color:'#fff', border:'none',
-                        borderRadius:10, cursor: resettingInvalid ? 'not-allowed' : 'pointer',
-                        fontFamily:'inherit', fontWeight:700, fontSize:13, opacity: resettingInvalid ? 0.6 : 1 }}>
-                      {resettingInvalid ? '⏳ Ресетва...' : `🔄 Ресетни всички (${invalidLeads.length})`}
+                padding:'14px 24px 18px', borderTop:'1px solid #f3f4f6', flexShrink:0, flexWrap:'wrap',
+                background: invalidModalTab === 'blocked' ? '#faf5ff' : '#fff',
+                borderRadius: '0 0 20px 20px' }}>
+                {invalidModalTab === 'invalid' ? (
+                  <>
+                    <div style={{ fontSize:11, color:'#9ca3af' }}>
+                      След ресет → sync-ни ги от главния banner
+                    </div>
+                    <div style={{ display:'flex', gap:8 }}>
+                      {invalidLeads.length > 0 && (
+                        <button onClick={() => handleResetInvalid()} disabled={resettingInvalid}
+                          style={{ padding:'9px 18px', background:'#dc2626', color:'#fff', border:'none',
+                            borderRadius:10, cursor: resettingInvalid ? 'not-allowed' : 'pointer',
+                            fontFamily:'inherit', fontWeight:700, fontSize:13, opacity: resettingInvalid ? 0.6 : 1 }}>
+                          {resettingInvalid ? '⏳ Ресетва...' : `🔄 Ресетни всички (${invalidLeads.length})`}
+                        </button>
+                      )}
+                      <button onClick={()=>setShowInvalidModal(false)}
+                        style={{ padding:'9px 18px', border:'1px solid #e5e7eb', borderRadius:10,
+                          background:'#fff', cursor:'pointer', fontFamily:'inherit', fontSize:13, color:'#374151' }}>
+                        Затвори
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize:11, color:'#7c3aed' }}>
+                      {blockedLeads.length} блокирани · Деблокирай за да ги върнеш в sync
+                    </div>
+                    <button onClick={()=>setShowInvalidModal(false)}
+                      style={{ padding:'9px 18px', border:'1px solid #e5e7eb', borderRadius:10,
+                        background:'#fff', cursor:'pointer', fontFamily:'inherit', fontSize:13, color:'#374151' }}>
+                      Затвори
                     </button>
-                  )}
-                  <button onClick={()=>setShowInvalidModal(false)}
-                    style={{ padding:'9px 18px', border:'1px solid #e5e7eb', borderRadius:10,
-                      background:'#fff', cursor:'pointer', fontFamily:'inherit', fontSize:13, color:'#374151' }}>
-                    Затвори
-                  </button>
-                </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
