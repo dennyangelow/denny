@@ -1,11 +1,12 @@
-// ФАЙЛ: app/api/leads/sync/batch/route.ts — v12
+// ФАЙЛ: app/api/leads/sync/batch/route.ts — v13
 //
-// ПОПРАВКИ v12:
-//   1. Използва syncContactWithRetry (не syncContact) — retry при грешки
-//   2. Query филтрира systemeio_email_invalid=true ПРЕДВАРИТЕЛНО
-//      (не взима невалидни и после ги пропуска)
-//   3. Abort проверка остава (server-side)
-//   4. Логове за диагностика
+// ПОПРАВКИ v13:
+//   1. КЛЮЧОВА ПОПРАВКА: Leads с systemeio_email_invalid=true в DB се връщат
+//      в invalidIds отговора (вместо мълчаливо да се пропускат).
+//      Преди: frontend пращаше ID → DB го изключваше → изчезваше без трас →
+//             progress bar заседваше (done < total)
+//      Сега: взимаме ВСИЧКИ ids с select, разделяме на "за sync" и "вече невалидни"
+//            → невалидните влизат директно в invalidIds без API call към Systeme.io
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -42,33 +43,40 @@ export async function POST(req: NextRequest) {
   }
 
   const safeIds = ids.slice(0, 50)
-  console.info(`[batch] Sync на ${safeIds.length} контакта: ${safeIds.join(', ')}`)
+  console.info(`[batch] Получени ${safeIds.length} id-та за sync`)
 
-  // ✅ Изключваме невалидните ОТ ЗАЯВКАТА (не само при обработка)
-  const { data: leads, error } = await supabaseAdmin
+  // ✅ ПОПРАВКА v13: Взимаме ВСИЧКИ поискани leads (без .not filter)
+  // Разделяме ги на две групи:
+  //   - alreadyInvalid: systemeio_email_invalid=true → директно в invalidIds (без API call)
+  //   - toProcess: останалите → минават през syncContactWithRetry
+  const { data: allLeads, error } = await supabaseAdmin
     .from('leads')
     .select('id, email, name, phone, naruchnik_slug, systemeio_contact_id, systemeio_email_invalid')
     .in('id', safeIds)
-    .not('systemeio_email_invalid', 'eq', true)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!leads?.length) return NextResponse.json({
+  if (!allLeads?.length) return NextResponse.json({
     success: true, synced: 0, failed: 0, invalid: 0,
     syncedIds: [], invalidIds: [], aborted: false,
   })
 
-  const now        = new Date().toISOString()
-  let synced       = 0
-  let invalid      = 0
-  const errors:    string[] = []
-  const syncedIds: string[] = []
-  const invalidIds: string[] = []
+  const alreadyInvalid = (allLeads as any[]).filter(l => l.systemeio_email_invalid === true)
+  const toProcess      = (allLeads as any[]).filter(l => !l.systemeio_email_invalid)
 
-  for (const l of leads as any[]) {
+  console.info(`[batch] За sync: ${toProcess.length}, вече невалидни в DB: ${alreadyInvalid.length}`)
+
+  const now         = new Date().toISOString()
+  let synced        = 0
+  let invalid       = alreadyInvalid.length
+  const errors:     string[] = []
+  const syncedIds:  string[] = []
+  const invalidIds: string[] = alreadyInvalid.map(l => l.id)
+
+  for (const l of toProcess) {
     if (await isAborted()) {
       console.info(`[batch] Abort преди ${l.email}`)
       return NextResponse.json({
-        success: true, total: leads.length,
+        success: true, total: allLeads.length,
         synced, invalid, failed: errors.length,
         syncedIds, invalidIds, aborted: true,
         errors: errors.length > 0 ? errors : undefined,
@@ -77,7 +85,6 @@ export async function POST(req: NextRequest) {
 
     console.info(`[batch] Sync: ${l.email} (contactId=${l.systemeio_contact_id || 'none'})`)
 
-    // ✅ syncContactWithRetry (не syncContact)
     const r = await syncContactWithRetry({
       apiKey,
       email:         l.email,
@@ -87,7 +94,7 @@ export async function POST(req: NextRequest) {
       naruchnikSlug: l.naruchnik_slug,
     })
 
-    console.info(`[batch] Резултат ${l.email}: ok=${r.ok} emailInvalid=${r.emailInvalid} error=${r.error || 'none'}`)
+    console.info(`[batch] ${l.email}: ok=${r.ok} emailInvalid=${r.emailInvalid} error=${r.error || 'none'}`)
 
     if (r.ok) {
       synced++
@@ -119,7 +126,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success:   true,
-    total:     leads.length,
+    total:     allLeads.length,
     synced,
     invalid,
     failed:    errors.length,

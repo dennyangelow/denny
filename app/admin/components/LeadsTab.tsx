@@ -1,12 +1,10 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v8
-// ПОПРАВКИ v8:
-//   1. resetedIds state → unsyncedCount се обновява ВЕДНАГА след ресет (без refresh)
-//   2. handleResetInvalid → добавя ID-тата в resetedIds за оптимистичен UI
-//   3. handleBulkSync → включва resetedIds в toSync (ресетнатите се синхронизират)
-//   4. Нов modal "Невалидни имейли" — списък + inline редактиране на имейл + ресет
-//   5. Невалидните в таблицата показват бутон "✏️ Редактирай" вместо само ресет
-//   6. Mobile: невалидните имат бутон за отваряне на modal
+// app/admin/components/LeadsTab.tsx — v9
+// ПОПРАВКИ v9:
+//   1. handleBulkSync: НЕ филтрира по l.subscribed → оправя бъга "Sync 7 → всички невалидни"
+//   2. handleBulkSync: totalInvalid брояч → финалното съобщение е информативно
+//   3. handleBulkSync: прогресът брои synced+invalid+failed (не само synced+invalid)
+//   4. (от v8) resetedIds, invalid modal, inline email edit
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { Lead } from '@/lib/supabase'
@@ -341,17 +339,24 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   }, [syncedIds])
 
   // ── Bulk sync ─────────────────────────────────────────────────────────────
-  // Server-side abort: записваме sync_abort флаг в Supabase.
-  // Batch route-ът го проверява преди всеки контакт и спира ако е true.
+  // ПОПРАВКА v9: toSync НЕ филтрира по l.subscribed при forceAll=false —
+  // subscribed филтърът изключваше leads с невалиден имейл в стария им статус,
+  // което причиняваше "Sync 7 → всички невалидни" бъга.
+  // Batch route-ът сам знае кои са невалидни от DB → връща ги в invalidIds.
   const handleBulkSync = useCallback(async (forceAll = false) => {
     const toSync = forceAll
-      ? uniqueLeads.filter(l => l.subscribed && !invalidIds.has(l.id) && !(l as any).systemeio_email_invalid)
+      ? uniqueLeads.filter(l =>
+          !invalidIds.has(l.id) &&
+          !(l as any).systemeio_email_invalid
+        )
       : uniqueLeads.filter(l => {
-          if (!l.subscribed) return false
-          if (invalidIds.has(l.id) || (l as any).systemeio_email_invalid) return false
-          // Ресетнатите невалидни ВИНАГИ влизат в sync (дори systemeio_synced=false в props)
+          // Ресетнатите невалидни ВИНАГИ влизат в sync
           if (resetedIds.has(l.id)) return !syncedIds.has(l.id)
-          return !syncedIds.has(l.id) && !(l as any).systemeio_synced
+          // Пропускаме невалидни (по локален state ИЛИ по props)
+          if (invalidIds.has(l.id) || (l as any).systemeio_email_invalid) return false
+          // Пропускаме вече sync-нати (по локален state ИЛИ по props)
+          if (syncedIds.has(l.id) || (l as any).systemeio_synced) return false
+          return true
         })
 
     if (toSync.length === 0) { toast.success('Всички са синхронизирани! ✅'); return }
@@ -362,8 +367,9 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     setBulkSyncing(true)
     onSyncStateChange?.(true)
     setBulkProgress({ done: 0, total: toSync.length })
-    let totalSynced = 0
-    let totalFailed = 0
+    let totalSynced  = 0
+    let totalFailed  = 0
+    let totalInvalid = 0
 
     try {
       const CHUNK = 3
@@ -380,7 +386,6 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
           // ── Server потвърди abort → спираме ──────────────────────────────
           if (data.aborted) {
             toast.success(`⏹ Спрян: ${totalSynced} синхронизирани`)
-            // Изчистваме флага след спиране
             await fetch('/api/leads/sync/abort', { method: 'DELETE' }).catch(() => {})
             break
           }
@@ -389,8 +394,9 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
             console.error('[bulk] Batch error:', data.error)
             totalFailed += chunk.length
           } else {
-            totalSynced += data.synced || 0
-            totalFailed += data.failed || 0
+            totalSynced  += data.synced  || 0
+            totalFailed  += data.failed  || 0
+            totalInvalid += data.invalid || 0
 
             if (data.syncedIds?.length > 0) {
               setSyncedIds(prev => {
@@ -408,27 +414,37 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
               })
             }
 
-            setBulkProgress(p => ({ ...p, done: p.done + (data.synced || 0) + (data.invalid || 0) }))
+            // Прогресът брои всички обработени: synced + invalid + failed
+            setBulkProgress(p => ({
+              ...p,
+              done: p.done + (data.synced || 0) + (data.invalid || 0) + (data.failed || 0),
+            }))
           }
         } catch (err) {
           console.error('[bulk] Chunk error:', err)
           totalFailed += chunk.length
+          setBulkProgress(p => ({ ...p, done: p.done + chunk.length }))
         }
 
         if (i + CHUNK < toSync.length) await new Promise(r => setTimeout(r, 2000))
       }
 
-      if (totalFailed === 0) {
+      // Финално съобщение — информативно за всички случаи
+      if (totalFailed === 0 && totalInvalid === 0) {
         toast.success(`✅ Синхронизирани ${totalSynced} контакта в Systeme.io!`)
-      } else if (totalSynced > 0) {
-        toast.success(`✅ ${totalSynced} OK · ⚠️ ${totalFailed} грешки`)
+      } else if (totalFailed === 0) {
+        const parts = [`✅ ${totalSynced} синхронизирани`]
+        if (totalInvalid > 0) parts.push(`⚠️ ${totalInvalid} невалидни имейли (провери Невалидни)`)
+        toast.success(parts.join(' · '))
       } else {
-        toast.error(`❌ Всички ${totalFailed} контакта се провалиха — провери Vercel logs`)
+        const parts: string[] = []
+        if (totalSynced  > 0) parts.push(`✅ ${totalSynced} OK`)
+        if (totalInvalid > 0) parts.push(`⚠️ ${totalInvalid} невалидни`)
+        if (totalFailed  > 0) parts.push(`❌ ${totalFailed} грешки`)
+        toast.error(parts.join(' · '))
       }
 
-      // Изчистваме resetedIds след приключване — вече са sync-нати (или са в syncedIds)
       setResetedIds(new Set())
-      // НЕ правим window.location.reload() — state вече е обновен локално
     } catch { toast.error('Мрежова грешка') }
     finally {
       setBulkSyncing(false)
