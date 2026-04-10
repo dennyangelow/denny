@@ -1,10 +1,10 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v9
-// ПОПРАВКИ v9:
-//   1. handleBulkSync: НЕ филтрира по l.subscribed → оправя бъга "Sync 7 → всички невалидни"
-//   2. handleBulkSync: totalInvalid брояч → финалното съобщение е информативно
-//   3. handleBulkSync: прогресът брои synced+invalid+failed (не само synced+invalid)
-//   4. (от v8) resetedIds, invalid modal, inline email edit
+// app/admin/components/LeadsTab.tsx — v11
+// ПОПРАВКИ v11:
+//   1. isKnownDomain: различаваме 'Systeme.io блокира' vs 'грешен имейл' в modal
+//   2. Banner + Modal: ясно показваме причината за всеки невалиден контакт
+//   3. (от v10) forceAll=true включва resetedIds
+//   4. (от v9) handleBulkSync без subscribed филтър
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { Lead } from '@/lib/supabase'
@@ -23,6 +23,17 @@ const slugLabel = (slug: string) => {
   if (slug.includes('krastavic')) return 'Краставици'
   if (slug.includes('chushk'))    return 'Чушки'
   return slug
+}
+
+// Познати домейни → Systeme.io блокира при inbox verification (не грешен имейл)
+const KNOWN_DOMAINS = new Set([
+  'gmail.com','yahoo.com','hotmail.com','outlook.com','abv.bg',
+  'mail.bg','dir.bg','gbg.bg','icloud.com','live.com','msn.com',
+  'proton.me','protonmail.com','me.com','mac.com','yandex.com',
+])
+const isKnownDomain = (email: string): boolean => {
+  const domain = email.split('@')[1]?.toLowerCase() || ''
+  return KNOWN_DOMAINS.has(domain)
 }
 
 interface Props {
@@ -506,8 +517,8 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <span>⚠️</span>
             <div>
-              <strong style={{ color:'#991b1b', fontSize:13 }}>{invalidCount} контакта с &quot;Невалиден&quot; статус</strong>
-              <div style={{ fontSize:12, color:'#b91c1c', marginTop:2 }}>Погрешен имейл? Редактирай го и sync-ни пак.</div>
+              <strong style={{ color:'#991b1b', fontSize:13 }}>{invalidCount} контакта отхвърлени от Systeme.io</strong>
+              <div style={{ fontSize:12, color:'#b91c1c', marginTop:2 }}>Реален имейл → ресетни и retry. Грешен → редактирай първо.</div>
             </div>
           </div>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
@@ -973,7 +984,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                 <div>
                   <h2 style={{ fontSize:17, fontWeight:900, margin:0, color:'#991b1b' }}>⚠️ Невалидни имейли</h2>
                   <p style={{ fontSize:12, color:'#b91c1c', margin:'3px 0 0' }}>
-                    {invalidLeads.length} контакта · Редактирай имейла ако е сгрешен, после ресетни
+                    {invalidLeads.length} контакта · 🔒 блокирани от Systeme.io или ✏️ грешен имейл
                   </p>
                 </div>
                 <button onClick={()=>setShowInvalidModal(false)}
@@ -992,32 +1003,52 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                 ) : invalidLeads.map((l, idx) => {
                   const currentVal = editingEmail[l.id] ?? l.email
                   const isEdited   = currentVal !== l.email
+                  const isBlocked  = isKnownDomain(l.email) // познат домейн → Systeme.io го блокира
                   return (
                     <div key={l.id} style={{ display:'flex', alignItems:'center', gap:10,
                       padding:'12px 0', borderBottom: idx < invalidLeads.length-1 ? '1px solid #fef2f2' : 'none' }}>
 
                       {/* Avatar */}
-                      <div style={{ width:34, height:34, borderRadius:'50%', background:'#fef2f2',
+                      <div style={{ width:34, height:34, borderRadius:'50%',
+                        background: isBlocked ? '#eff6ff' : '#fef2f2',
                         display:'flex', alignItems:'center', justifyContent:'center',
-                        fontSize:13, fontWeight:700, color:'#991b1b', flexShrink:0 }}>
+                        fontSize:13, fontWeight:700,
+                        color: isBlocked ? '#1d4ed8' : '#991b1b', flexShrink:0 }}>
                         {(l.name || l.email)[0].toUpperCase()}
                       </div>
 
                       {/* Info + Input */}
                       <div style={{ flex:1, minWidth:0 }}>
-                        {l.name && (
-                          <div style={{ fontSize:11, color:'#6b7280', marginBottom:3 }}>{l.name}</div>
-                        )}
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                          {l.name && <span style={{ fontSize:11, color:'#6b7280' }}>{l.name}</span>}
+                          <span style={{
+                            fontSize:10, padding:'1px 7px', borderRadius:99, fontWeight:700,
+                            background: isBlocked ? '#dbeafe' : '#fee2e2',
+                            color:      isBlocked ? '#1d4ed8' : '#991b1b',
+                          }}>
+                            {isBlocked ? '🔒 Блокиран от Systeme.io' : '✏️ Вероятно грешен имейл'}
+                          </span>
+                        </div>
                         <input
                           value={currentVal}
                           onChange={e => setEditingEmail(prev => ({ ...prev, [l.id]: e.target.value }))}
                           style={{ width:'100%', fontSize:13, padding:'7px 10px',
-                            border: `1.5px solid ${isEdited ? '#f59e0b' : '#fca5a5'}`,
+                            border: `1.5px solid ${isEdited ? '#f59e0b' : isBlocked ? '#93c5fd' : '#fca5a5'}`,
                             borderRadius:8, fontFamily:'inherit', outline:'none',
                             background: isEdited ? '#fffbeb' : '#fff',
                             boxSizing:'border-box' as const }}
                           placeholder="Имейл адрес..."
                         />
+                        {!isEdited && isBlocked && (
+                          <div style={{ fontSize:10, color:'#1d4ed8', marginTop:2 }}>
+                            Имейлът изглежда реален — Systeme.io отказва да го добави. Ресетни за нов опит.
+                          </div>
+                        )}
+                        {!isEdited && !isBlocked && (
+                          <div style={{ fontSize:10, color:'#b91c1c', marginTop:2 }}>
+                            Провери дали е написан правилно — редактирай и ресетни.
+                          </div>
+                        )}
                         {isEdited && (
                           <div style={{ fontSize:10, color:'#d97706', marginTop:2 }}>
                             ✏️ Редактиран — ще се запише при ресет
@@ -1123,7 +1154,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
             <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
               <button onClick={()=>setBroadcastOpen(false)} style={{padding:'10px 20px',border:'1px solid var(--border)',borderRadius:10,background:'#fff',cursor:'pointer',fontFamily:'inherit',fontSize:14}}>Отказ</button>
               <button onClick={sendBroadcast} disabled={bSending}
-                style={{padding:'10px 24px',background:'#1b4332',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:700,opacity:bSending?.6:1}}>
+                style={{padding:'10px 24px',background:'#1b4332',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:700,opacity:bSending ? .6 : 1}}>
                 {bSending?'⏳ Изпраща...':'✉️ Изпрати'}
               </button>
             </div>
@@ -1133,4 +1164,3 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     </div>
   )
 }
-  
