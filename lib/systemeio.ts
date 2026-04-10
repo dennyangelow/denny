@@ -1,10 +1,17 @@
-// lib/systemeio.ts — v27
+// lib/systemeio.ts — v28
+// ПОПРАВКА v28:
+//   КРИТИЧНА: При CREATE (POST /api/contacts) — firstName/lastName СЕ ИЗПРАЩАТ
+//   само в fields[{slug:"first_name"}, {slug:"surname"}], НЕ на горно ниво.
+//   Причина: Systeme.io понякога хвърля 422 "email invalid" когато firstName/lastName
+//   на горно ниво съдържат кирилица — погрешно класифицирано като emailInvalid.
+//   При PATCH вече беше само в fields (коректно). Сега CREATE е еднакво.
 // ═══════════════════════════════════════════════════════════════
 // КЛЮЧОВИ ОТКРИТИЯ (от официалната документация на Systeme.io):
 //
 //  POST /api/contacts (CREATE):
-//    - email, firstName, lastName, phoneNumber → горно ниво ✅
-//    - fields: [{slug:"naruchnici", value:...}] → custom fields ✅
+//    - email, phoneNumber → горно ниво ✅
+//    - firstName, lastName на горно ниво → ИЗБЯГВАМЕ! Кирилица причинява 422 "email invalid" ❌
+//    - fields: [{slug:"first_name"}, {slug:"surname"}, {slug:"naruchnici"}] → ЕДИНСТВЕНИЯТ надежден начин ✅
 //
 //  PATCH /api/contacts/{id} (UPDATE) с Content-Type: application/merge-patch+json:
 //    - firstName, lastName → горно ниво ✅
@@ -166,11 +173,10 @@ async function createContact(
   naruchnikSlug?: string
 ): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
 
-  // При POST: firstName/lastName работят на горно ниво
-  // Добавяме и fields first_name/surname за сигурност
+  // КРИТИЧНО v28: firstName/lastName се изпращат САМО в fields[], НЕ на горно ниво.
+  // Systeme.io хвърля 422 "email invalid" при кирилица в firstName/lastName на горно ниво.
+  // Имената работят надеждно само чрез fields slugs: first_name / surname.
   const body: Record<string, unknown> = { email }
-  if (firstName) body.firstName = firstName
-  if (lastName)  body.lastName  = lastName
   if (phone) body.phoneNumber = phone
   const createFields: Array<{ slug: string; value: string }> = []
   if (firstName) createFields.push({ slug: 'first_name', value: firstName })
@@ -210,8 +216,6 @@ async function createContact(
   if (isPhoneInvalid(res.status, res.data)) {
     console.warn(`[Sio] Phone invalid при CREATE → retry без телефон`)
     const b2: Record<string, unknown> = { email }
-    if (firstName) b2.firstName = firstName
-    if (lastName)  b2.lastName  = lastName
     const f2: Array<{ slug: string; value: string }> = []
     if (firstName) f2.push({ slug: 'first_name', value: firstName })
     if (lastName)  f2.push({ slug: 'surname',    value: lastName })
@@ -227,8 +231,6 @@ async function createContact(
   if (isFieldSlugMissing(res.status, res.data)) {
     console.warn(`[Sio] Field slug missing при CREATE → retry само с first_name/surname`)
     const b2: Record<string, unknown> = { email }
-    if (firstName) b2.firstName = firstName
-    if (lastName)  b2.lastName  = lastName
     if (phone) b2.phoneNumber = phone
     const f2: Array<{ slug: string; value: string }> = []
     if (firstName) f2.push({ slug: 'first_name', value: firstName })
