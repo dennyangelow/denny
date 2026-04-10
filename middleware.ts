@@ -1,6 +1,8 @@
-// middleware.ts — v4
-// ПРОМЕНИ спрямо v3:
-//   - /api/leads/sync добавен в PROTECTED_API_PREFIXES (admin only)
+// middleware.ts — v5
+// ПРОМЕНИ спрямо v4:
+//   - /api/leads (GET) добавен в PROTECTED (admin листа)
+//   - /api/leads/:id (PATCH/DELETE/GET) добавени в PROTECTED (admin операции)
+//     Изключение: POST /api/leads е публичен (форма за изтегляне на наръчник)
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -24,6 +26,8 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/naruchnici/track')                                  return true
   if (pathname === '/api/orders' && method === 'POST')                       return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST') return true
+  // ✅ POST /api/leads е публичен (форма за изтегляне на наръчник)
+  //    Всички останали операции (GET листа, PATCH, DELETE по id) са admin only
   if (pathname === '/api/leads' && method === 'POST')                        return true
   if (pathname === '/api/leads/unsubscribe')                                 return true
   if (pathname === '/api/leads/sequence' && method === 'GET')                return true
@@ -46,7 +50,8 @@ const PROTECTED_API_PREFIXES = [
   '/api/ginegar',
   '/api/upload',
   '/api/leads/broadcast',
-  '/api/leads/sync',   // admin only: масов sync към Systeme.io
+  '/api/leads/sync',    // admin only: масов sync към Systeme.io
+  '/api/leads',         // ✅ admin only: GET листа + PATCH/DELETE по id
   '/api/orders',
   '/api/marketing',
 ]
