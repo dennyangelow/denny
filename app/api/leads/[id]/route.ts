@@ -33,7 +33,7 @@ export async function PATCH(
   }
 
   // Позволени полета за обновяване (whitelist за сигурност)
-  const ALLOWED = ['email', 'name', 'phone', 'subscribed', 'tags'] as const
+const ALLOWED = ['email', 'name', 'phone', 'subscribed', 'systemeio_blocked'] as const
 
   const updates: Record<string, unknown> = {}
   for (const key of ALLOWED) {
