@@ -1,10 +1,12 @@
-// lib/systemeio.ts — v28
-// ПОПРАВКА v28:
-//   КРИТИЧНА: При CREATE (POST /api/contacts) — firstName/lastName СЕ ИЗПРАЩАТ
-//   само в fields[{slug:"first_name"}, {slug:"surname"}], НЕ на горно ниво.
-//   Причина: Systeme.io понякога хвърля 422 "email invalid" когато firstName/lastName
-//   на горно ниво съдържат кирилица — погрешно класифицирано като emailInvalid.
-//   При PATCH вече беше само в fields (коректно). Сега CREATE е еднакво.
+// lib/systemeio.ts — v29
+// ПОПРАВКИ v28-v29:
+//   v28: При CREATE firstName/lastName само в fields[] (не на горно ниво)
+//   v29: КЛЮЧОВА: Systeme.io хвърля "email address is invalid" за РЕАЛНИ Gmail
+//        акаунти (spam/MX проверка от тяхна страна — false positive).
+//        Разделяме на два вида:
+//          isEmailInvalid  = DNS/MX/синтаксис → emailInvalid=true (маркираме вечно)
+//          isEmailSoftFail = общо "invalid" съобщение → failed (временна, retry)
+//        Резултат: реални имейли не се маркират вечно при временен Systeme.io проблем.
 // ═══════════════════════════════════════════════════════════════
 // КЛЮЧОВИ ОТКРИТИЯ (от официалната документация на Systeme.io):
 //
@@ -85,24 +87,42 @@ function isPhoneInvalid(status: number, data: any): boolean {
   )
 }
 
+// isEmailInvalid: само НАИСТИНА невалидни формати — синтактична грешка или DNS/MX проблем
+// УМИШЛЕНО изключено: 'email address is invalid' — Systeme.io го хвърля
+// и за реални Gmail акаунти (spam/MX check). Третираме го отделно като soft fail.
 function isEmailInvalid(status: number, data: any): boolean {
   if (status !== 422) return false
   if (isFieldSlugMissing(status, data)) return false
   if (isPhoneInvalid(status, data)) return false
+  const d = (data?.detail || '').toLowerCase()
   const violations: any[] = data?.violations || []
-  // Улавяме всички violations свързани с email поле
+  const emailMsg = (violations.find((v: any) => v?.propertyPath === 'email')?.message || '').toLowerCase()
+  const allText = d + ' ' + emailMsg
+  return (
+    allText.includes('lacks a valid mx') ||
+    allText.includes('lacks a valid a dns') ||
+    allText.includes('dns record') ||
+    allText.includes('disposable') ||
+    allText.includes('not a valid email') ||
+    allText.includes('email address is not valid')
+    // НЕ включваме 'email address is invalid' — виж isEmailSoftFail
+  )
+}
+
+// isEmailSoftFail: Systeme.io хвърля 422 email грешка за РЕАЛНИ имейли (false positive)
+// Gmail/spam проверка. Третираме като временна грешка — НЕ маркираме вечно.
+function isEmailSoftFail(status: number, data: any): boolean {
+  if (status !== 422) return false
+  if (isEmailInvalid(status, data)) return false
+  if (isFieldSlugMissing(status, data)) return false
+  if (isPhoneInvalid(status, data)) return false
+  const violations: any[] = data?.violations || []
   if (violations.some((v: any) => v?.propertyPath === 'email')) return true
-  // Fallback: проверяваме detail текста за всякакви email грешки от Systeme.io
   const d = (data?.detail || '').toLowerCase()
   return (
-    d.includes('not a valid email') ||
-    d.includes('email address is not valid') ||
     d.includes('email address is invalid') ||
     d.includes('email is invalid') ||
-    d.includes('invalid email') ||
-    d.includes('lacks a valid mx') ||
-    d.includes('lacks a valid a dns') ||
-    d.includes('dns record')
+    d.includes('invalid email')
   )
 }
 
@@ -200,41 +220,50 @@ async function createContact(
     return { contactId: await findContactByEmail(apiKey, email) }
   }
 
+  // isEmailInvalid = DNS/MX/синтаксис → маркираме за вечно
   if (isEmailInvalid(res.status, res.data)) {
-    // ВАЖНО: Systeme.io понякога връща 422 email invalid за реален имейл
-    // (spam/disposable detection или кирилица в fields).
-    // Стратегия 1: Проверяваме дали контактът вече съществува.
     const existingId = await findContactByEmail(apiKey, email)
     if (existingId) {
       console.info(`[Sio] 422 emailInvalid но контактът съществува → id=${existingId}`)
       return { contactId: existingId }
     }
-    // Стратегия 2: Retry само с email (без fields/phone) — изолираме дали
-    // fields с кирилица са проблемът.
-    console.warn(`[Sio] 422 emailInvalid → retry само с email (без fields/phone)`)
-    await sleep(1000)
+    const msg = res.data?.violations?.find((v: any) => v?.propertyPath === 'email')?.message
+      || res.data?.detail || 'Invalid email'
+    console.warn(`[Sio] EMAIL_INVALID (постоянна) за ${email}: ${msg}`)
+    return { contactId: null, error: `EMAIL_INVALID: ${msg}`, emailInvalid: true }
+  }
+
+  // isEmailSoftFail = Systeme.io spam/MX check за реален имейл (false positive)
+  // → третираме като временна грешка, НЕ маркираме вечно
+  if (isEmailSoftFail(res.status, res.data)) {
+    // Проверяваме дали контактът вече съществува
+    const existingId = await findContactByEmail(apiKey, email)
+    if (existingId) {
+      console.info(`[Sio] softFail но контактът съществува → id=${existingId}`)
+      return { contactId: existingId }
+    }
+    // Retry само с email (изолираме дали phone/fields причиняват проблема)
+    console.warn(`[Sio] softFail за ${email} → retry само с email`)
+    await sleep(1500)
     const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', { email })
     if (r2.ok) {
       const id2 = r2.data?.id ? String(r2.data.id) : null
-      console.info(`[Sio] CREATE email-only ok → id=${id2}`)
+      console.info(`[Sio] softFail retry ok → id=${id2}`)
       return { contactId: id2 }
     }
-    if (isDuplicateEmail(r2.status, r2.data)) {
-      return { contactId: await findContactByEmail(apiKey, email) }
-    }
-    // Стратегия 3: Retry с email + phoneNumber (без fields)
+    if (isDuplicateEmail(r2.status, r2.data)) return { contactId: await findContactByEmail(apiKey, email) }
+    // Retry с phone (без fields)
     if (phone) {
-      console.warn(`[Sio] email-only fail → retry email+phone`)
-      await sleep(1000)
+      await sleep(1500)
       const r3 = await sioFetch(apiKey, 'POST', '/api/contacts', { email, phoneNumber: phone })
       if (r3.ok) return { contactId: r3.data?.id ? String(r3.data.id) : null }
       if (isDuplicateEmail(r3.status, r3.data)) return { contactId: await findContactByEmail(apiKey, email) }
     }
-    // Всички опити изчерпани → наистина невалиден
-    const msg = res.data?.violations?.find((v: any) => v?.propertyPath === 'email')?.message
-      || res.data?.detail || 'Invalid email'
-    console.warn(`[Sio] Всички retries изчерпани за ${email} → EMAIL_INVALID`)
-    return { contactId: null, error: `EMAIL_INVALID: ${msg}`, emailInvalid: true }
+    // Всички retries fail → временна грешка (failed), НЕ emailInvalid!
+    // Ще се опита пак при следващ sync.
+    const msg = res.data?.detail || 'Systeme.io отхвърли имейла (временно)'
+    console.warn(`[Sio] softFail: всички retries fail за ${email} → failed (не emailInvalid)`)
+    return { contactId: null, error: `SOFT_FAIL: ${msg}`, emailInvalid: false }
   }
 
   if (isPhoneInvalid(res.status, res.data)) {

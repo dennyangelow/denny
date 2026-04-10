@@ -1123,7 +1123,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
             <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
               <button onClick={()=>setBroadcastOpen(false)} style={{padding:'10px 20px',border:'1px solid var(--border)',borderRadius:10,background:'#fff',cursor:'pointer',fontFamily:'inherit',fontSize:14}}>Отказ</button>
               <button onClick={sendBroadcast} disabled={bSending}
-                style={{padding:'10px 24px',background:'#1b4332',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:700,opacity:bSending?.6:1}}>
+                style={{padding:'10px 24px',background:'#1b4332',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:700,opacity:bSending ? .6 : 1}}>
                 {bSending?'⏳ Изпраща...':'✉️ Изпрати'}
               </button>
             </div>
