@@ -1,19 +1,10 @@
-// lib/systemeio.ts — v29
-// ПОПРАВКИ v28-v29:
-//   v28: При CREATE firstName/lastName само в fields[] (не на горно ниво)
-//   v29: КЛЮЧОВА: Systeme.io хвърля "email address is invalid" за РЕАЛНИ Gmail
-//        акаунти (spam/MX проверка от тяхна страна — false positive).
-//        Разделяме на два вида:
-//          isEmailInvalid  = DNS/MX/синтаксис → emailInvalid=true (маркираме вечно)
-//          isEmailSoftFail = общо "invalid" съобщение → failed (временна, retry)
-//        Резултат: реални имейли не се маркират вечно при временен Systeme.io проблем.
+// lib/systemeio.ts — v27
 // ═══════════════════════════════════════════════════════════════
 // КЛЮЧОВИ ОТКРИТИЯ (от официалната документация на Systeme.io):
 //
 //  POST /api/contacts (CREATE):
-//    - email, phoneNumber → горно ниво ✅
-//    - firstName, lastName на горно ниво → ИЗБЯГВАМЕ! Кирилица причинява 422 "email invalid" ❌
-//    - fields: [{slug:"first_name"}, {slug:"surname"}, {slug:"naruchnici"}] → ЕДИНСТВЕНИЯТ надежден начин ✅
+//    - email, firstName, lastName, phoneNumber → горно ниво ✅
+//    - fields: [{slug:"naruchnici", value:...}] → custom fields ✅
 //
 //  PATCH /api/contacts/{id} (UPDATE) с Content-Type: application/merge-patch+json:
 //    - firstName, lastName → горно ниво ✅
@@ -87,42 +78,24 @@ function isPhoneInvalid(status: number, data: any): boolean {
   )
 }
 
-// isEmailInvalid: само НАИСТИНА невалидни формати — синтактична грешка или DNS/MX проблем
-// УМИШЛЕНО изключено: 'email address is invalid' — Systeme.io го хвърля
-// и за реални Gmail акаунти (spam/MX check). Третираме го отделно като soft fail.
 function isEmailInvalid(status: number, data: any): boolean {
   if (status !== 422) return false
   if (isFieldSlugMissing(status, data)) return false
   if (isPhoneInvalid(status, data)) return false
-  const d = (data?.detail || '').toLowerCase()
   const violations: any[] = data?.violations || []
-  const emailMsg = (violations.find((v: any) => v?.propertyPath === 'email')?.message || '').toLowerCase()
-  const allText = d + ' ' + emailMsg
-  return (
-    allText.includes('lacks a valid mx') ||
-    allText.includes('lacks a valid a dns') ||
-    allText.includes('dns record') ||
-    allText.includes('disposable') ||
-    allText.includes('not a valid email') ||
-    allText.includes('email address is not valid')
-    // НЕ включваме 'email address is invalid' — виж isEmailSoftFail
-  )
-}
-
-// isEmailSoftFail: Systeme.io хвърля 422 email грешка за РЕАЛНИ имейли (false positive)
-// Gmail/spam проверка. Третираме като временна грешка — НЕ маркираме вечно.
-function isEmailSoftFail(status: number, data: any): boolean {
-  if (status !== 422) return false
-  if (isEmailInvalid(status, data)) return false
-  if (isFieldSlugMissing(status, data)) return false
-  if (isPhoneInvalid(status, data)) return false
-  const violations: any[] = data?.violations || []
+  // Улавяме всички violations свързани с email поле
   if (violations.some((v: any) => v?.propertyPath === 'email')) return true
+  // Fallback: проверяваме detail текста за всякакви email грешки от Systeme.io
   const d = (data?.detail || '').toLowerCase()
   return (
+    d.includes('not a valid email') ||
+    d.includes('email address is not valid') ||
     d.includes('email address is invalid') ||
     d.includes('email is invalid') ||
-    d.includes('invalid email')
+    d.includes('invalid email') ||
+    d.includes('lacks a valid mx') ||
+    d.includes('lacks a valid a dns') ||
+    d.includes('dns record')
   )
 }
 
@@ -193,10 +166,11 @@ async function createContact(
   naruchnikSlug?: string
 ): Promise<{ contactId: string | null; error?: string; emailInvalid?: boolean }> {
 
-  // КРИТИЧНО v28: firstName/lastName се изпращат САМО в fields[], НЕ на горно ниво.
-  // Systeme.io хвърля 422 "email invalid" при кирилица в firstName/lastName на горно ниво.
-  // Имената работят надеждно само чрез fields slugs: first_name / surname.
+  // При POST: firstName/lastName работят на горно ниво
+  // Добавяме и fields first_name/surname за сигурност
   const body: Record<string, unknown> = { email }
+  if (firstName) body.firstName = firstName
+  if (lastName)  body.lastName  = lastName
   if (phone) body.phoneNumber = phone
   const createFields: Array<{ slug: string; value: string }> = []
   if (firstName) createFields.push({ slug: 'first_name', value: firstName })
@@ -220,8 +194,9 @@ async function createContact(
     return { contactId: await findContactByEmail(apiKey, email) }
   }
 
-  // isEmailInvalid = DNS/MX/синтаксис → маркираме за вечно
   if (isEmailInvalid(res.status, res.data)) {
+    // ВАЖНО: Systeme.io понякога връща 422 email invalid за реален имейл
+    // (spam/disposable detection). Проверяваме дали контактът вече съществува.
     const existingId = await findContactByEmail(apiKey, email)
     if (existingId) {
       console.info(`[Sio] 422 emailInvalid но контактът съществува → id=${existingId}`)
@@ -229,46 +204,14 @@ async function createContact(
     }
     const msg = res.data?.violations?.find((v: any) => v?.propertyPath === 'email')?.message
       || res.data?.detail || 'Invalid email'
-    console.warn(`[Sio] EMAIL_INVALID (постоянна) за ${email}: ${msg}`)
     return { contactId: null, error: `EMAIL_INVALID: ${msg}`, emailInvalid: true }
-  }
-
-  // isEmailSoftFail = Systeme.io spam/MX check за реален имейл (false positive)
-  // → третираме като временна грешка, НЕ маркираме вечно
-  if (isEmailSoftFail(res.status, res.data)) {
-    // Проверяваме дали контактът вече съществува
-    const existingId = await findContactByEmail(apiKey, email)
-    if (existingId) {
-      console.info(`[Sio] softFail но контактът съществува → id=${existingId}`)
-      return { contactId: existingId }
-    }
-    // Retry само с email (изолираме дали phone/fields причиняват проблема)
-    console.warn(`[Sio] softFail за ${email} → retry само с email`)
-    await sleep(1500)
-    const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', { email })
-    if (r2.ok) {
-      const id2 = r2.data?.id ? String(r2.data.id) : null
-      console.info(`[Sio] softFail retry ok → id=${id2}`)
-      return { contactId: id2 }
-    }
-    if (isDuplicateEmail(r2.status, r2.data)) return { contactId: await findContactByEmail(apiKey, email) }
-    // Retry с phone (без fields)
-    if (phone) {
-      await sleep(1500)
-      const r3 = await sioFetch(apiKey, 'POST', '/api/contacts', { email, phoneNumber: phone })
-      if (r3.ok) return { contactId: r3.data?.id ? String(r3.data.id) : null }
-      if (isDuplicateEmail(r3.status, r3.data)) return { contactId: await findContactByEmail(apiKey, email) }
-    }
-    // Всички retries fail → временна грешка (failed), НЕ emailInvalid!
-    // Ще се опита пак при следващ sync.
-    const msg = res.data?.detail || 'Systeme.io отхвърли имейла (временно)'
-    console.warn(`[Sio] softFail: всички retries fail за ${email} → failed (не emailInvalid)`)
-    return { contactId: null, error: `SOFT_FAIL: ${msg}`, emailInvalid: false }
   }
 
   if (isPhoneInvalid(res.status, res.data)) {
     console.warn(`[Sio] Phone invalid при CREATE → retry без телефон`)
     const b2: Record<string, unknown> = { email }
+    if (firstName) b2.firstName = firstName
+    if (lastName)  b2.lastName  = lastName
     const f2: Array<{ slug: string; value: string }> = []
     if (firstName) f2.push({ slug: 'first_name', value: firstName })
     if (lastName)  f2.push({ slug: 'surname',    value: lastName })
@@ -284,6 +227,8 @@ async function createContact(
   if (isFieldSlugMissing(res.status, res.data)) {
     console.warn(`[Sio] Field slug missing при CREATE → retry само с first_name/surname`)
     const b2: Record<string, unknown> = { email }
+    if (firstName) b2.firstName = firstName
+    if (lastName)  b2.lastName  = lastName
     if (phone) b2.phoneNumber = phone
     const f2: Array<{ slug: string; value: string }> = []
     if (firstName) f2.push({ slug: 'first_name', value: firstName })
