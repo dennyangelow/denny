@@ -1,5 +1,5 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v9
+// app/admin/components/LeadsTab.tsx — v11
 // ПОПРАВКИ v9:
 //   1. handleBulkSync: НЕ филтрира по l.subscribed → оправя бъга "Sync 7 → всички невалидни"
 //   2. handleBulkSync: totalInvalid брояч → финалното съобщение е информативно
@@ -92,6 +92,8 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   const [showInvalidModal, setShowInvalidModal] = useState(false)
   // Inline редактиране на имейл в modal: { [leadId]: newEmail }
   const [editingEmail,  setEditingEmail]  = useState<Record<string, string>>({})
+  // Перманентно блокирани — маркирани ръчно като "невалиден, не sync-вай"
+  const [blockedIds,    setBlockedIds]    = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -110,6 +112,8 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     })
     setSyncedIds(synced)
     setInvalidIds(invalid)
+    // blockedIds = тези с email_invalid (не се ресетват автоматично)
+    setBlockedIds(new Set(leads.filter(l => !!(l as any).systemeio_email_invalid).map(l => l.id)))
   }, [leads])
 
   // ── emailToSlugs ─────────────────────────────────────────────────────────
@@ -185,6 +189,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       !(l as any).systemeio_synced &&
       !invalidIds.has(l.id) &&
       !(l as any).systemeio_email_invalid &&
+      !blockedIds.has(l.id) &&
       !resetedIds.has(l.id) &&  // изключваме ресетнатите от leads (те ще се broят по-долу)
       l.subscribed
     ).length
@@ -195,7 +200,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       l.subscribed
     ).length
     return fromLeads + fromReseted
-  }, [uniqueLeads, syncedIds, invalidIds, resetedIds])
+  }, [uniqueLeads, syncedIds, invalidIds, blockedIds, resetedIds])
 
   // Брой невалидни имейли (за banner-а)
   const invalidCount = useMemo(() =>
@@ -312,6 +317,34 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     finally { setResettingInvalid(false) }
   }, [])
 
+  // ── Маркирай като перманентно невалиден (никога повече в sync) ─────────────
+  const handleMarkPermanentlyInvalid = useCallback(async (id: string) => {
+    try {
+      const now = new Date().toISOString()
+      const res = await fetch(`/api/leads/${id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          systemeio_synced:        false,
+          systemeio_email_invalid: true,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast.error(`❌ Грешка: ${d.error || res.status}`)
+        return
+      }
+      // Добавяме в blockedIds и invalidIds → изчезва от sync завинаги
+      setBlockedIds(prev => new Set([...prev, id]))
+      setInvalidIds(prev => new Set([...prev, id]))
+      // Махаме от resetedIds ако е там
+      setResetedIds(prev => { const n = new Set(prev); n.delete(id); return n })
+      toast.success('🚫 Маркиран като невалиден — няма да влиза в sync')
+    } catch {
+      toast.error('❌ Мрежова грешка')
+    }
+  }, [])
+
   // ── Sync един lead ────────────────────────────────────────────────────────
   const handleSyncOne = useCallback(async (lead: Lead) => {
     const alreadySynced = syncedIds.has(lead.id) || !!(lead as any).systemeio_synced
@@ -353,14 +386,16 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       ? uniqueLeads.filter(l => {
           // Ресетнатите невалидни ВИНАГИ влизат (независимо от props)
           if (resetedIds.has(l.id)) return !syncedIds.has(l.id)
-          // Пропускаме невалидни по локален state ИЛИ props (ако не са ресетнати)
+          // Пропускаме невалидни и блокирани по локален state ИЛИ props
+          if (blockedIds.has(l.id)) return false
           if (invalidIds.has(l.id) || (l as any).systemeio_email_invalid) return false
           return true
         })
       : uniqueLeads.filter(l => {
           // Ресетнатите невалидни ВИНАГИ влизат в sync
           if (resetedIds.has(l.id)) return !syncedIds.has(l.id)
-          // Пропускаме невалидни (по локален state ИЛИ по props)
+          // Пропускаме невалидни и блокирани (по локален state ИЛИ по props)
+          if (blockedIds.has(l.id)) return false
           if (invalidIds.has(l.id) || (l as any).systemeio_email_invalid) return false
           // Пропускаме вече sync-нати (по локален state ИЛИ по props)
           if (syncedIds.has(l.id) || (l as any).systemeio_synced) return false
@@ -459,7 +494,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       onSyncStateChange?.(false)
       setBulkProgress({ done: 0, total: 0 })
     }
-  }, [uniqueLeads, syncedIds, invalidIds, resetedIds])
+  }, [uniqueLeads, syncedIds, invalidIds, blockedIds, resetedIds])
 
   const inp: React.CSSProperties = { padding:'8px 13px', border:'1px solid var(--border)', borderRadius:9, fontFamily:'inherit', fontSize:13, outline:'none', background:'#fff' }
   const SortArrow = ({ k }: { k: SortKey }) => (
@@ -1018,6 +1053,11 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                             boxSizing:'border-box' as const }}
                           placeholder="Имейл адрес..."
                         />
+                        {blockedIds.has(l.id) && !isEdited && (
+                          <div style={{ fontSize:10, color:'#dc2626', marginTop:2, fontWeight:700 }}>
+                            🚫 Маркиран като невалиден — не влиза в sync
+                          </div>
+                        )}
                         {isEdited && (
                           <div style={{ fontSize:10, color:'#d97706', marginTop:2 }}>
                             ✏️ Редактиран — ще се запише при ресет
@@ -1025,49 +1065,67 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                         )}
                       </div>
 
-                      {/* Reset button */}
-                      <button
-                        disabled={resettingInvalid}
-                        onClick={async () => {
-                          const newEmail = editingEmail[l.id]
-                          // Ако имейлът е редактиран → PATCH в Supabase преди ресет
-                          if (newEmail && newEmail !== l.email && newEmail.includes('@')) {
-                            try {
-                              const patchRes = await fetch(`/api/leads/${l.id}`, {
-                                method:  'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body:    JSON.stringify({ email: newEmail.trim().toLowerCase() }),
-                              })
-                              const d = await patchRes.json().catch(() => ({}))
-                              if (!patchRes.ok) {
-                                toast.error(`❌ Грешка при запис: ${d.error || patchRes.status}`)
+                      {/* Бутони */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:6, flexShrink:0 }}>
+                        {/* ✓ Ресетни — опита отново при следващ sync */}
+                        <button
+                          disabled={resettingInvalid || blockedIds.has(l.id)}
+                          onClick={async () => {
+                            const newEmail = editingEmail[l.id]
+                            if (newEmail && newEmail !== l.email && newEmail.includes('@')) {
+                              try {
+                                const patchRes = await fetch(`/api/leads/${l.id}`, {
+                                  method:  'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body:    JSON.stringify({ email: newEmail.trim().toLowerCase() }),
+                                })
+                                const d = await patchRes.json().catch(() => ({}))
+                                if (!patchRes.ok) {
+                                  toast.error(`❌ Грешка при запис: ${d.error || patchRes.status}`)
+                                  return
+                                }
+                                if (d.merged) {
+                                  setInvalidIds(prev => { const n = new Set(prev); n.delete(l.id); return n })
+                                  setBlockedIds(prev => { const n = new Set(prev); n.delete(l.id); return n })
+                                  setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
+                                  toast.success(`✅ Обединено с ${newEmail} — sync-ни пак`)
+                                  return
+                                }
+                                toast.success(`✏️ Имейлът е обновен → ${newEmail}`)
+                                setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
+                              } catch {
+                                toast.error('❌ Мрежова грешка при запис на имейла')
                                 return
                               }
-                              if (d.merged) {
-                                // Имейлът съществуваше → merge-нато, старият запис изтрит
-                                // Маркираме невалидния ID като изчистен (той вече не съществува)
-                                setInvalidIds(prev => { const n = new Set(prev); n.delete(l.id); return n })
-                                setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
-                                toast.success(`✅ Обединено с ${newEmail} — sync-ни пак`)
-                                return // Не викаме handleResetInvalid — записът вече го няма
-                              }
-                              toast.success(`✏️ Имейлът е обновен → ${newEmail}`)
-                              // Изчистваме редактирането за този контакт
-                              setEditingEmail(prev => { const n = {...prev}; delete n[l.id]; return n })
-                            } catch {
-                              toast.error('❌ Мрежова грешка при запис на имейла')
-                              return
                             }
-                          }
-                          await handleResetInvalid([l.id])
-                        }}
-                        style={{ fontSize:12, padding:'8px 14px', borderRadius:8, border:'none',
-                          background: resettingInvalid ? '#e5e7eb' : '#16a34a',
-                          color: resettingInvalid ? '#9ca3af' : '#fff',
-                          fontWeight:700, cursor: resettingInvalid ? 'not-allowed' : 'pointer',
-                          fontFamily:'inherit', whiteSpace:'nowrap' as const, flexShrink:0 }}>
-                        ✓ Ресетни
-                      </button>
+                            await handleResetInvalid([l.id])
+                          }}
+                          style={{ fontSize:12, padding:'7px 13px', borderRadius:8, border:'none',
+                            background: (resettingInvalid || blockedIds.has(l.id)) ? '#e5e7eb' : '#16a34a',
+                            color: (resettingInvalid || blockedIds.has(l.id)) ? '#9ca3af' : '#fff',
+                            fontWeight:700,
+                            cursor: (resettingInvalid || blockedIds.has(l.id)) ? 'not-allowed' : 'pointer',
+                            fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
+                          ✓ Ресетни
+                        </button>
+                        {/* 🚫 Невалиден — маркира завинаги, не влиза в sync */}
+                        <button
+                          disabled={blockedIds.has(l.id)}
+                          onClick={() => {
+                            if (!confirm(`Маркирай ${l.email} като невалиден завинаги?\nНяма да влиза в sync повече.`)) return
+                            handleMarkPermanentlyInvalid(l.id)
+                          }}
+                          title="Маркирай като невалиден — няма да влиза в sync повече"
+                          style={{ fontSize:12, padding:'7px 13px', borderRadius:8,
+                            border: blockedIds.has(l.id) ? '1px solid #e5e7eb' : '1px solid #fca5a5',
+                            background: blockedIds.has(l.id) ? '#f9fafb' : '#fff',
+                            color: blockedIds.has(l.id) ? '#9ca3af' : '#dc2626',
+                            fontWeight:700,
+                            cursor: blockedIds.has(l.id) ? 'default' : 'pointer',
+                            fontFamily:'inherit', whiteSpace:'nowrap' as const }}>
+                          {blockedIds.has(l.id) ? '🚫 Блокиран' : '🚫 Невалиден'}
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
