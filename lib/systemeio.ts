@@ -202,14 +202,38 @@ async function createContact(
 
   if (isEmailInvalid(res.status, res.data)) {
     // ВАЖНО: Systeme.io понякога връща 422 email invalid за реален имейл
-    // (spam/disposable detection). Проверяваме дали контактът вече съществува.
+    // (spam/disposable detection или кирилица в fields).
+    // Стратегия 1: Проверяваме дали контактът вече съществува.
     const existingId = await findContactByEmail(apiKey, email)
     if (existingId) {
       console.info(`[Sio] 422 emailInvalid но контактът съществува → id=${existingId}`)
       return { contactId: existingId }
     }
+    // Стратегия 2: Retry само с email (без fields/phone) — изолираме дали
+    // fields с кирилица са проблемът.
+    console.warn(`[Sio] 422 emailInvalid → retry само с email (без fields/phone)`)
+    await sleep(1000)
+    const r2 = await sioFetch(apiKey, 'POST', '/api/contacts', { email })
+    if (r2.ok) {
+      const id2 = r2.data?.id ? String(r2.data.id) : null
+      console.info(`[Sio] CREATE email-only ok → id=${id2}`)
+      return { contactId: id2 }
+    }
+    if (isDuplicateEmail(r2.status, r2.data)) {
+      return { contactId: await findContactByEmail(apiKey, email) }
+    }
+    // Стратегия 3: Retry с email + phoneNumber (без fields)
+    if (phone) {
+      console.warn(`[Sio] email-only fail → retry email+phone`)
+      await sleep(1000)
+      const r3 = await sioFetch(apiKey, 'POST', '/api/contacts', { email, phoneNumber: phone })
+      if (r3.ok) return { contactId: r3.data?.id ? String(r3.data.id) : null }
+      if (isDuplicateEmail(r3.status, r3.data)) return { contactId: await findContactByEmail(apiKey, email) }
+    }
+    // Всички опити изчерпани → наистина невалиден
     const msg = res.data?.violations?.find((v: any) => v?.propertyPath === 'email')?.message
       || res.data?.detail || 'Invalid email'
+    console.warn(`[Sio] Всички retries изчерпани за ${email} → EMAIL_INVALID`)
     return { contactId: null, error: `EMAIL_INVALID: ${msg}`, emailInvalid: true }
   }
 

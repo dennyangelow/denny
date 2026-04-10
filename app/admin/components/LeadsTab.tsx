@@ -343,12 +343,20 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   // subscribed филтърът изключваше leads с невалиден имейл в стария им статус,
   // което причиняваше "Sync 7 → всички невалидни" бъга.
   // Batch route-ът сам знае кои са невалидни от DB → връща ги в invalidIds.
+  //
+  // ПОПРАВКА v10: forceAll=true също включва resetedIds (ресетнати невалидни)
+  // Преди: forceAll=true разчиташе на props.systemeio_email_invalid → ако страницата
+  // не е refresh-ната, ресетнатите се пропускаха мълчаливо (изглеждаше "работи"
+  // но всъщност не ги изпращаше). Сега: resetedIds винаги влизат и при двата режима.
   const handleBulkSync = useCallback(async (forceAll = false) => {
     const toSync = forceAll
-      ? uniqueLeads.filter(l =>
-          !invalidIds.has(l.id) &&
-          !(l as any).systemeio_email_invalid
-        )
+      ? uniqueLeads.filter(l => {
+          // Ресетнатите невалидни ВИНАГИ влизат (независимо от props)
+          if (resetedIds.has(l.id)) return !syncedIds.has(l.id)
+          // Пропускаме невалидни по локален state ИЛИ props (ако не са ресетнати)
+          if (invalidIds.has(l.id) || (l as any).systemeio_email_invalid) return false
+          return true
+        })
       : uniqueLeads.filter(l => {
           // Ресетнатите невалидни ВИНАГИ влизат в sync
           if (resetedIds.has(l.id)) return !syncedIds.has(l.id)
