@@ -60,26 +60,46 @@ function StatusTimeline({ currentStatus }: { currentStatus: string }) {
   )
 }
 
-// ─── ЦЕНТРАЛИЗИРАНА OFFER DETECTION (same as OrdersTab) ──────────────────────
-type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell' | null
+// ─── ЦЕНТРАЛИЗИРАНА OFFER DETECTION (поддържа множество оферти едновременно) ──
+type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell'
 
-function getOfferType(order: Order): OfferType {
-  const notes = order.customer_notes || ''
-  // Primary: notes markers (set by checkout)
-  if (notes.includes('[POST-PURCHASE UPSELL]')) return 'post_purchase'
-  if (notes.includes('[CART-UPSELL]'))          return 'cart_upsell'
-  if (notes.includes('[CROSS-SELL]'))           return 'cross_sell'
-  if (notes.includes('[HAS-OFFER]'))            return 'cart_upsell'
-
-  // Fallback: product_name patterns
+// Връща масив от всички активни оферти за тази поръчка
+function getOfferTypes(order: Order): OfferType[] {
+  const notes = (order.customer_notes || '').toLowerCase()
+  const o     = order as any
   const items = order.order_items || []
-  const hasUpsellName  = items.some(i => (i.product_name || '').toLowerCase().includes('upsell'))
-  const hasCrossName   = items.some(i => (i.product_name || '').toLowerCase().includes('cross'))
-  const hasDiscount    = items.some(i => /\(-\d+%\)/.test(i.product_name || ''))
-  if (hasUpsellName) return 'cart_upsell'
-  if (hasCrossName)  return 'cross_sell'
-  if (hasDiscount)   return 'cross_sell'
-  return null
+  const found = new Set<OfferType>()
+
+  // ── Post-purchase ──────────────────────────────────────────────────────────
+  if (
+    o.has_post_purchase_upsell ||
+    o.offer_type === 'post_purchase' ||
+    (order.customer_notes || '').includes('[POST-PURCHASE')
+  ) found.add('post_purchase')
+
+  // ── Cart Upsell ────────────────────────────────────────────────────────────
+  if (
+    o.offer_type === 'cart_upsell' ||
+    (order.customer_notes || '').includes('[CART-UPSELL]') ||
+    (order.customer_notes || '').includes('[HAS-OFFER]') ||
+    items.some(i => (i.product_name || '').toLowerCase().includes('upsell'))
+  ) found.add('cart_upsell')
+
+  // ── Cross-sell ─────────────────────────────────────────────────────────────
+  if (
+    o.offer_type === 'cross_sell' ||
+    (order.customer_notes || '').includes('[CROSS-SELL]') ||
+    items.some(i => /\(-\d+%\)/.test(i.product_name || '')) ||
+    items.some(i => (i.product_name || '').toLowerCase().includes('cross'))
+  ) found.add('cross_sell')
+
+  return Array.from(found)
+}
+
+// Обратна съвместимост — връща само първия (за header badge)
+function getOfferType(order: Order): OfferType | null {
+  const types = getOfferTypes(order)
+  return types.length > 0 ? types[0] : null
 }
 
 // Offer item detection (individual items within order)
@@ -87,11 +107,12 @@ function isOfferItem(name: string): boolean {
   return !!(
     name?.includes('(-') ||
     name?.toLowerCase().includes('upsell') ||
-    name?.toLowerCase().includes('cross')
+    name?.toLowerCase().includes('cross') ||
+    name?.toLowerCase().includes('post-purchase')
   )
 }
 
-const OFFER_META = {
+const OFFER_META: Record<OfferType, { label: string; sublabel: string; icon: string; color: string; bg: string; border: string }> = {
   post_purchase: {
     label: '⚡ Post-purchase оферта',
     sublabel: 'Клиентът е приел post-purchase оферта след финализиране на поръчката.',
@@ -118,14 +139,19 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
   const [activeTab,      setActiveTab]      = useState<'details' | 'status' | 'offer'>('details')
   const backdropRef = useRef<HTMLDivElement>(null)
 
-  // Offer detection
-  const offerType  = getOfferType(order)
-  const offerM     = offerType ? OFFER_META[offerType] : null
-  const isPostPurch = offerType === 'post_purchase'
+  // Offer detection — поддържа множество оферти едновременно
+  const offerTypes  = getOfferTypes(order)
+  const offerType   = offerTypes[0] ?? null   // за header badge (първия)
+  const offerM      = offerType ? OFFER_META[offerType] : null
+  const isPostPurch = offerTypes.includes('post_purchase')
+  const hasOffer    = offerTypes.length > 0
+
+  // Invoice — чете се от invoice_data (така е записано в DB)
+  const invoiceData = (order as any).invoice_data || (order as any).invoice || null
+  const hasInvoice  = invoiceData && invoiceData.type && invoiceData.type !== 'none'
 
   // Items marked as offer items (by product name patterns)
   const offerItems = (order.order_items || []).filter(i => isOfferItem(i.product_name))
-  const hasOffer   = offerType !== null
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -265,7 +291,16 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                       {offerM.label.split(' ').slice(0, 2).join(' ')}
                     </span>
                   )}
-                  {(order as any).invoice?.type && (order as any).invoice.type !== 'none' && (
+                  {/* Ако има post_purchase допълнително към друга оферта — показваме и неговия badge */}
+                  {offerTypes.length > 1 && offerTypes.slice(1).map(ot => {
+                    const m = OFFER_META[ot]
+                    return (
+                      <span key={ot} style={{ padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 800, background: m.bg, color: m.color, border: `1px solid ${m.border}` }}>
+                        {m.icon} {m.label.split(' ').slice(1, 3).join(' ')}
+                      </span>
+                    )
+                  })}
+                  {hasInvoice && (
                     <span style={{ padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 800, background: '#faf5ff', color: '#6d28d9', border: '1px solid #ede9fe' }}>
                       🧾 Фактура
                     </span>
@@ -295,8 +330,8 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                 style={{ position: 'relative' }}>
                 📣 Оферта
                 {hasOffer && (
-                  <span style={{ marginLeft: 5, background: offerM?.color || '#7c3aed', color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 5px', verticalAlign: 'middle' }}>
-                    ✓
+                  <span style={{ marginLeft: 5, background: offerTypes.length > 1 ? '#dc2626' : (offerM?.color || '#7c3aed'), color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 6px', verticalAlign: 'middle' }}>
+                    {offerTypes.length > 1 ? offerTypes.length : '✓'}
                   </span>
                 )}
               </button>
@@ -366,8 +401,8 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                         <div className="info-value" style={{ color: '#92400e' }}>{order.customer_notes}</div>
                       </div>
                     )}
-                    {(order as any).invoice && (order as any).invoice.type !== 'none' && (() => {
-                      const inv = (order as any).invoice
+                    {hasInvoice && (() => {
+                      const inv = invoiceData
                       const isCompany = inv.type === 'company'
                       return (
                         <div className="info-item" style={{ gridColumn: '1/-1', background: 'linear-gradient(135deg,#faf5ff,#f3e8ff)', border: '1.5px solid #c4b5fd', borderRadius: 12, padding: 0, overflow: 'hidden' }}>
@@ -559,49 +594,91 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                   </div>
                 ) : (
                   <>
-                    {/* Offer type banner */}
-                    <div style={{ background: offerM!.bg, border: `1px solid ${offerM!.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ fontSize: 28 }}>{offerM!.icon}</div>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: offerM!.color }}>{offerM!.label}</div>
-                        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{offerM!.sublabel}</div>
-                      </div>
+                    {/* ── Всички активни оферти — по един banner за всяка ── */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+                      {offerTypes.map(ot => {
+                        const m = OFFER_META[ot]
+                        return (
+                          <div key={ot} style={{ background: m.bg, border: `1px solid ${m.border}`, borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ fontSize: 26, flexShrink: 0 }}>{m.icon}</div>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: m.color }}>{m.label}</div>
+                              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{m.sublabel}</div>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
 
-                    {/* Notes (if post-purchase) */}
-                    {isPostPurch && order.customer_notes && (
-                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>Бележка от поръчката</div>
-                        <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.5 }}>{order.customer_notes}</div>
+                    {/* Комбиниран брой оферти */}
+                    {offerTypes.length > 1 && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400e', fontWeight: 700 }}>
+                        ⚠️ Тази поръчка има {offerTypes.length} вида оферти едновременно!
                       </div>
                     )}
 
-                    {/* Offer items list (by product name detection) */}
+                    {/* Notes (ако има post-purchase) */}
+                    {isPostPurch && order.customer_notes && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>Бележка от поръчката</div>
+                        <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.5 }}>
+                          {order.customer_notes
+                            .replace(/\[POST-PURCHASE[^\]]*\]/g, '')
+                            .replace(/\[CART-UPSELL\]/g, '')
+                            .replace(/\[CROSS-SELL\]/g, '')
+                            .trim() || <em style={{ color: '#d97706' }}>Само системни маркери</em>}
+                        </div>
+                        <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {(order.customer_notes || '').includes('[POST-PURCHASE') && (
+                            <span style={{ fontSize: 10, fontWeight: 800, background: '#fecaca', color: '#dc2626', borderRadius: 99, padding: '2px 8px' }}>⚡ POST-PURCHASE</span>
+                          )}
+                          {(order.customer_notes || '').includes('[CART-UPSELL]') && (
+                            <span style={{ fontSize: 10, fontWeight: 800, background: '#ede9fe', color: '#7c3aed', borderRadius: 99, padding: '2px 8px' }}>⬆️ CART-UPSELL</span>
+                          )}
+                          {(order.customer_notes || '').includes('[CROSS-SELL]') && (
+                            <span style={{ fontSize: 10, fontWeight: 800, background: '#bfdbfe', color: '#1d4ed8', borderRadius: 99, padding: '2px 8px' }}>🔀 CROSS-SELL</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Offer items list */}
                     {offerItems.length > 0 && (
                       <div style={{ marginBottom: 18 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
                           Продукти от оферта ({offerItems.length})
                         </div>
                         <div style={{ border: '1px solid #ede9fe', borderRadius: 10, overflow: 'hidden' }}>
-                          {offerItems.map((item, i) => (
-                            <div key={item.id} style={{
-                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                              padding: '12px 14px',
-                              borderBottom: i < offerItems.length - 1 ? '1px solid #f5f0ff' : 'none',
-                              background: '#faf5ff',
-                            }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e1b4b' }}>{item.product_name}</div>
-                                <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 2 }}>× {item.quantity} бр.</div>
+                          {offerItems.map((item, i) => {
+                            // Цвят по тип оферта
+                            const isPP   = item.product_name?.toLowerCase().includes('post-purchase')
+                            const isCross = item.product_name?.includes('(-') || item.product_name?.toLowerCase().includes('cross')
+                            const itemColor  = isPP ? '#dc2626' : isCross ? '#1d4ed8' : '#7c3aed'
+                            const itemBg     = isPP ? '#fff1f2' : isCross ? '#eff6ff' : '#faf5ff'
+                            const itemBorder = isPP ? '#fecaca' : isCross ? '#bfdbfe' : '#f5f0ff'
+                            const itemIcon   = isPP ? '⚡' : isCross ? '🔀' : '⬆️'
+                            return (
+                              <div key={item.id} style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '12px 14px',
+                                borderBottom: i < offerItems.length - 1 ? `1px solid ${itemBorder}` : 'none',
+                                background: itemBg,
+                              }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e1b4b' }}>
+                                    <span style={{ marginRight: 6 }}>{itemIcon}</span>{item.product_name}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: itemColor, marginTop: 2 }}>× {item.quantity} бр.</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 15, fontWeight: 900, color: itemColor }}>{formatPrice(item.total_price)}</div>
+                                  {item.quantity > 1 && (
+                                    <div style={{ fontSize: 11, color: '#9ca3af' }}>{formatPrice(item.unit_price)} / бр.</div>
+                                  )}
+                                </div>
                               </div>
-                              <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: 15, fontWeight: 900, color: '#7c3aed' }}>{formatPrice(item.total_price)}</div>
-                                {item.quantity > 1 && (
-                                  <div style={{ fontSize: 11, color: '#9ca3af' }}>{formatPrice(item.unit_price)} / бр.</div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: '#f5f3ff', borderTop: '2px solid #ede9fe' }}>
                             <span style={{ fontSize: 13, fontWeight: 800, color: '#6d28d9' }}>Сума от оферти</span>
                             <span style={{ fontSize: 15, fontWeight: 900, color: '#6d28d9' }}>
@@ -618,11 +695,17 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                         <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700, marginBottom: 4 }}>ОБЩА ПОРЪЧКА</div>
                         <div style={{ fontSize: 20, fontWeight: 900, color: '#16a34a' }}>{formatPrice(order.total)}</div>
                       </div>
-                      <div style={{ background: offerM!.bg, border: `1px solid ${offerM!.border}`, borderRadius: 10, padding: '12px 14px' }}>
-                        <div style={{ fontSize: 11, color: offerM!.color, fontWeight: 700, marginBottom: 4 }}>ТИП ОФЕРТА</div>
-                        <div style={{ fontSize: 15, fontWeight: 900, color: offerM!.color }}>{offerM!.icon} {offerM!.label.split(' ').slice(1).join(' ')}</div>
+                      <div style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 14px' }}>
+                        <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700, marginBottom: 4 }}>ОФЕРТИ</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {offerTypes.map(ot => (
+                            <div key={ot} style={{ fontSize: 13, fontWeight: 800, color: OFFER_META[ot].color }}>
+                              {OFFER_META[ot].icon} {OFFER_META[ot].label.split(' ').slice(1).join(' ')}
+                            </div>
+                          ))}
+                        </div>
                         {offerItems.length > 0 && (
-                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
                             {offerItems.length} артикул{offerItems.length > 1 ? 'а' : ''} от оферта
                           </div>
                         )}

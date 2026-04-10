@@ -18,27 +18,47 @@ type SortField = 'date' | 'total' | 'name' | 'status'
 type SortDir   = 'asc' | 'desc'
 
 // ─── OFFER DETECTION ──────────────────────────────────────────────────────────
-export type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell' | null
+export type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell'
 
-export function getOfferType(o: Order & { offer_type?: string | null; has_post_purchase_upsell?: boolean }): OfferType {
-  if (o.offer_type === 'post_purchase') return 'post_purchase'
-  if (o.offer_type === 'cart_upsell')   return 'cart_upsell'
-  if (o.offer_type === 'cross_sell')    return 'cross_sell'
-  if (o.has_post_purchase_upsell)       return 'post_purchase'
+// Връща ВСИЧКИ активни оферти за поръчката (масив)
+export function getOfferTypes(o: Order & { offer_type?: string | null; has_post_purchase_upsell?: boolean }): OfferType[] {
   const notes = o.customer_notes || ''
-  if (notes.includes('[POST-PURCHASE UPSELL]')) return 'post_purchase'
-  if (notes.includes('[CART-UPSELL]'))          return 'cart_upsell'
-  if (notes.includes('[CROSS-SELL]'))           return 'cross_sell'
-  if (notes.includes('[HAS-OFFER]'))            return 'cart_upsell'
-  const items = o.order_items || []
-  if (items.some(i => /\(-\d+%\)/.test(i.product_name || '')))                  return 'cross_sell'
-  if (items.some(i => (i.product_name || '').toLowerCase().includes('upsell'))) return 'cart_upsell'
-  if (items.some(i => (i.product_name || '').toLowerCase().includes('cross')))  return 'cross_sell'
-  return null
+  const found = new Set<OfferType>()
+
+  // Post-purchase
+  if (
+    (o as any).has_post_purchase_upsell ||
+    o.offer_type === 'post_purchase' ||
+    notes.includes('[POST-PURCHASE')
+  ) found.add('post_purchase')
+
+  // Cart upsell
+  if (
+    o.offer_type === 'cart_upsell' ||
+    notes.includes('[CART-UPSELL]') ||
+    notes.includes('[HAS-OFFER]') ||
+    (o.order_items || []).some(i => (i.product_name || '').toLowerCase().includes('upsell'))
+  ) found.add('cart_upsell')
+
+  // Cross-sell
+  if (
+    o.offer_type === 'cross_sell' ||
+    notes.includes('[CROSS-SELL]') ||
+    (o.order_items || []).some(i => /\(-\d+%\)/.test(i.product_name || '')) ||
+    (o.order_items || []).some(i => (i.product_name || '').toLowerCase().includes('cross'))
+  ) found.add('cross_sell')
+
+  return Array.from(found)
+}
+
+// Обратна съвместимост — само първия тип
+export function getOfferType(o: Order & { offer_type?: string | null; has_post_purchase_upsell?: boolean }): OfferType | null {
+  const types = getOfferTypes(o)
+  return types.length > 0 ? types[0] : null
 }
 
 export function hasAnyOffer(o: Order): boolean {
-  return getOfferType(o) !== null
+  return getOfferTypes(o).length > 0
 }
 
 export const OFFER_META: Record<NonNullable<OfferType>, { label: string; icon: string; color: string; bg: string; border: string }> = {
@@ -156,10 +176,11 @@ function OrderCard({ o, onOpen, formatPrice }: {
   onOpen: () => void
   formatPrice: (n: number) => string
 }) {
-  const offerType = getOfferType(o)
-  const offerM    = offerType ? OFFER_META[offerType] : null
-  const s         = STATUS_LABELS[o.status]
-  const hasPP     = (o as any).has_post_purchase_upsell
+  const offerTypes  = getOfferTypes(o)
+  const offerType   = offerTypes[0] ?? null
+  const offerM      = offerType ? OFFER_META[offerType] : null
+  const s           = STATUS_LABELS[o.status]
+  const hasPP       = offerTypes.includes('post_purchase')
   const discordSent = (o as any).discord_sent ?? true
 
   return (
@@ -195,24 +216,20 @@ function OrderCard({ o, onOpen, formatPrice }: {
 
       {/* Row 3: offer + total + date */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {offerM && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 3,
-              fontSize: 9.5, fontWeight: 800, padding: '2px 7px',
-              borderRadius: 99, border: `1px solid ${offerM.border}`,
-              background: offerM.bg, color: offerM.color,
-            }}>
-              {offerM.icon} {offerM.label}
-            </span>
-          )}
-          {hasPP && offerType !== 'post_purchase' && (
-            <span style={{
-              fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 5,
-              background: '#fff1f2', color: '#dc2626', border: '1px solid #fecaca',
-            }}>⚡ PP</span>
-          )}
-          {!offerM && !hasPP && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+          {offerTypes.length > 0 ? offerTypes.map(ot => {
+            const m = OFFER_META[ot]
+            return (
+              <span key={ot} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                fontSize: 9.5, fontWeight: 800, padding: '2px 7px',
+                borderRadius: 99, border: `1px solid ${m.border}`,
+                background: m.bg, color: m.color,
+              }}>
+                {m.icon} {m.label}
+              </span>
+            )
+          }) : (
             <span style={{ fontSize: 11, color: '#d1d5db' }}>без оферта</span>
           )}
         </div>
@@ -690,9 +707,10 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
                 </td></tr>
               )}
               {paginated.map(o => {
-                const offerType   = getOfferType(o)
+                const offerTypes  = getOfferTypes(o)
+                const offerType   = offerTypes[0] ?? null
                 const offerM      = offerType ? OFFER_META[offerType] : null
-                const hasPP       = (o as any).has_post_purchase_upsell
+                const hasPP       = offerTypes.includes('post_purchase')
                 const discordSent = (o as any).discord_sent ?? true // стари поръчки = true (вече изпратени)
                 return (
                   <tr key={o.id} className="order-tr"
@@ -718,21 +736,19 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
                     <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={e => e.stopPropagation()}>
                       <InlineStatusSelect order={o} onStatusChange={onStatusChange} />
                     </td>
-                    {/* Offer badge */}
+                    {/* Offer badge — показваме ВСИЧКИ оферти */}
                     <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
-                      {offerM ? (
+                      {offerTypes.length > 0 ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
-                          <span className="offer-badge" style={{ background: offerM.bg, color: offerM.color, borderColor: offerM.border }}>
-                            {offerM.icon} {offerM.label}
-                          </span>
-                          {hasPP && offerType !== 'post_purchase' && (
-                            <span className="pp-badge">⚡ PP</span>
-                          )}
+                          {offerTypes.map(ot => {
+                            const m = OFFER_META[ot]
+                            return (
+                              <span key={ot} className="offer-badge" style={{ background: m.bg, color: m.color, borderColor: m.border }}>
+                                {m.icon} {m.label}
+                              </span>
+                            )
+                          })}
                         </div>
-                      ) : hasPP ? (
-                        <span className="offer-badge" style={{ background: '#fff1f2', color: '#dc2626', borderColor: '#fecaca' }}>
-                          ⚡ Post-purchase
-                        </span>
                       ) : (
                         <span style={{ fontSize: 11, color: '#d1d5db' }}>—</span>
                       )}
