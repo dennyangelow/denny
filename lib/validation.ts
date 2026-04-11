@@ -1,9 +1,12 @@
-// lib/validation.ts — v1
-// Споделена валидация за LeadForm + NaruchnikClient + API route
-// Използва се на ТРИ места: frontend (две форми) + backend (route.ts)
+// lib/validation.ts — v2
+// ПОПРАВКИ v2:
+//   1. Имейл: блокира кирилски/нелатински символи в домейна
+//   2. Имейл: по-строга проверка на TLD (мин. 2 латински букви)
+//   3. Телефон: strip-ва кирилски ПРЕДИ валидация (не само цифри)
+//   4. Телефон: блокира явни нецифрени символи в началото
+//   5. Имена: запазени — кирилицата е ОК за имена
 
 // ── Disposable / фалшиви домейни ──────────────────────────────────────────────
-// Списък с най-често срещаните временни/фалшиви имейл домейни
 const DISPOSABLE_DOMAINS = new Set([
   'mailinator.com', 'guerrillamail.com', 'tempmail.com', 'throwam.com',
   'sharklasers.com', 'guerrillamailblock.com', 'grr.la', 'guerrillamail.info',
@@ -13,8 +16,8 @@ const DISPOSABLE_DOMAINS = new Set([
   'moncourrier.fr.nf', 'monemail.fr.nf', 'monmail.fr.nf',
   'mailnull.com', 'spamgourmet.com', 'spamgourmet.net', 'spamgourmet.org',
   'maildrop.cc', 'discard.email', 'spamfree24.org', 'spamfree24.de',
-  'fakeinbox.com', 'throwam.com', 'throwaway.email', 'tempinbox.com',
-  'tempr.email', 'dispostable.com', 'mailnew.com', 'getonemail.com',
+  'fakeinbox.com', 'throwaway.email', 'tempinbox.com',
+  'tempr.email', 'mailnew.com', 'getonemail.com',
   'spambox.us', 'spamevader.com', 'filzmail.com', 'mail-temporaire.fr',
   'jetable.org', 'jetable.net', 'jetable.com', 'nada.email', 'spamgrap.net',
   'bugmenot.com', 'crapmail.org', 'fakemailgenerator.com', 'mtmdev.com',
@@ -29,8 +32,7 @@ const DISPOSABLE_DOMAINS = new Set([
   'mt2014.com', 'mt2015.com', 'nwytg.com', 'spamoff.de',
 ])
 
-// ── Очевидно фалшиви patterns ─────────────────────────────────────────────────
-// Имейли като test@, aaa@, 123@, asdf@ и т.н.
+// ── Очевидно фалшиви patterns (само за latin local part) ─────────────────────
 const FAKE_LOCAL_PATTERNS = [
   /^test\d*$/i,
   /^asdf/i,
@@ -49,7 +51,6 @@ const FAKE_LOCAL_PATTERNS = [
   /^noemail/i,
   /^nope/i,
   /^none/i,
-  /^no@/i,
   /^spam/i,
   /^blah/i,
   /^trash/i,
@@ -67,22 +68,30 @@ export function validateEmail(value: string): string {
   const v = value.trim().toLowerCase()
   if (!v) return 'Имейлът е задължителен'
 
-  // Основен формат
+  // Основен формат — само ASCII символи в имейл адреса
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) return 'Невалиден имейл адрес'
 
   // Двойно @
   if ((v.match(/@/g) || []).length > 1) return 'Невалиден имейл адрес'
 
-  // Домейн трябва да има поне 1 точка след @
   const parts = v.split('@')
   const local  = parts[0]
   const domain = parts[1]
 
   if (!domain || !domain.includes('.')) return 'Невалиден домейн'
 
-  // TLD минимум 2 символа
+  // ── НОВО v2: Домейнът трябва да е само латиница/цифри/тирета/точки ─────────
+  // Блокира: асдадад@ацац.бр, test@тест.ком и всички кирилски домейни
+  if (!/^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)*$/.test(domain)) {
+    return 'Домейнът трябва да е на латиница (напр. gmail.com)'
+  }
+
+  // TLD: само латински букви, минимум 2 символа
   const tld = domain.split('.').pop() || ''
-  if (tld.length < 2) return 'Невалиден имейл адрес'
+  if (!/^[a-z]{2,}$/.test(tld)) return 'Невалиден имейл адрес'
+
+  // Известни невалидни TLD-та (едноциферни, само цифри)
+  if (/^\d+$/.test(tld)) return 'Невалиден имейл адрес'
 
   // Disposable домейни
   if (DISPOSABLE_DOMAINS.has(domain)) return 'Моля, използвай реален имейл адрес'
@@ -91,6 +100,10 @@ export function validateEmail(value: string): string {
   for (const pattern of FAKE_LOCAL_PATTERNS) {
     if (pattern.test(local)) return 'Моля, въведи реален имейл адрес'
   }
+
+  // ── НОВО v2: Local частта не трябва да е само кирилица ───────────────────
+  // Реалните имейли не използват кирилица в local частта
+  if (/^[а-яёА-ЯЁ]+$/.test(local)) return 'Невалиден имейл адрес'
 
   // Прекалено кратък local (1 символ)
   if (local.length < 2) return 'Невалиден имейл адрес'
@@ -102,6 +115,13 @@ export function validateEmail(value: string): string {
 export function validatePhone(value: string): string {
   const v = value.trim()
   if (!v) return 'Телефонът е задължителен'
+
+  // ── НОВО v2: Ако въведеното съдържа букви (включително кирилски) → грешка ──
+  // Преди: strip-вахме всичко освен цифри СЛЕД валидацията → буквите минаваха
+  // Сега: проверяваме RAW стойността ПРЕДИ да вземем цифрите
+  if (/[а-яёА-ЯЁa-zA-Z]/.test(v)) {
+    return 'Телефонът трябва да съдържа само цифри'
+  }
 
   // Само цифри, +, интервали, тирета, скоби
   if (!/^[0-9+\s\-().]+$/.test(v)) return 'Телефонът съдържа невалидни символи'
@@ -119,19 +139,18 @@ export function validatePhone(value: string): string {
 
   // BG мобилен: 08X или +3598X или 003598X
   const isBG = (
-    /^08[7-9]\d{7}$/.test(digits) ||           // 087/088/089 XXXXXXX
-    /^3598[7-9]\d{7}$/.test(digits) ||          // +359 87/88/89...
-    /^003598[7-9]\d{7}$/.test(digits)           // 00359...
+    /^08[7-9]\d{7}$/.test(digits) ||
+    /^3598[7-9]\d{7}$/.test(digits) ||
+    /^003598[7-9]\d{7}$/.test(digits)
   )
 
-  // Ако изглежда като BG номер (започва с 08 или 359) но е грешен формат
   if (/^08/.test(digits) && !isBG) return 'Невалиден български мобилен номер (напр. 0887 123 456)'
   if (/^359/.test(digits) && digits.length < 12) return 'Невалиден номер с код +359'
 
   return ''
 }
 
-// ── Валидация на имена ────────────────────────────────────────────────────────
+// ── Валидация на имена (кирилица е ОК) ───────────────────────────────────────
 export function validateName(value: string): string {
   const v = value.trim()
   if (!v) return 'Името е задължително'
@@ -141,22 +160,24 @@ export function validateName(value: string): string {
   // Само цифри
   if (/^\d+$/.test(v)) return 'Въведи реално име'
 
-  // Само специални символи / емоджи
-  if (!/[a-zA-Zа-яА-ЯёЁ]/.test(v)) return 'Въведи реално име (само букви)'
+  // Трябва да съдържа поне една буква (латиница ИЛИ кирилица)
+  if (!/[a-zA-Zа-яА-ЯёЁ]/.test(v)) return 'Въведи реално ime (само букви)'
 
-  // Повтарящ се символ 4+ пъти (aaaa, хххх)
+  // Повтарящ се символ 4+ пъти (aaaa, хххх, аааа)
   if (/(.)\1{3,}/.test(v)) return 'Въведи реално ime'
 
-  // Само съгласни (безсмислени низове: dfgjk, xzxzxz)
-  const noVowels = v.replace(/[^a-zA-Zа-яА-Я]/g, '')
-  const vowels   = noVowels.replace(/[^aeiouаеиоуяюAEIOUАЕИОУЯЮ]/gi, '')
-  if (noVowels.length > 5 && vowels.length === 0) return 'Въведи реално ime'
+  // Само съгласни латински (безсмислени низове: dfgjk, xzxzxz)
+  // Не прилагаме за кирилица — BG имена могат да изглеждат без гласни ако са кратки
+  const latinOnly = v.replace(/[^a-zA-Z]/g, '')
+  if (latinOnly.length > 5) {
+    const latinVowels = latinOnly.replace(/[^aeiouAEIOU]/g, '')
+    if (latinVowels.length === 0) return 'Въведи реално ime'
+  }
 
   return ''
 }
 
 // ── Сървърна валидация (за API route) ────────────────────────────────────────
-// Връща { ok: true } или { ok: false, field: string, error: string }
 export function serverValidate(data: {
   email?: string
   name?: string

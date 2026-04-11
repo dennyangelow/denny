@@ -1034,7 +1034,7 @@ export default function NaruchnikClient({ nar, others }: Props) {
                   <button
                     className={`nb-cta-btn ${loading ? 'nb-cta-loading' : isValid ? 'nb-cta-ready' : 'nb-cta-inactive'}`}
                     onClick={handleSubmit}
-                    disabled={loading}
+                    disabled={loading || !isValid}
                     aria-label={isValid ? `Изтегли безплатно ${nar.title}` : 'Попълни всички полета'}
                     aria-busy={loading}
                   >
