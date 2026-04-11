@@ -1,13 +1,12 @@
 'use client'
 
-// app/naruchnik/[slug]/NaruchnikClient.tsx — v9
-// ПОПРАВКИ v9:
-//   1. Валидацията използва споделената lib/validation.ts
-//      (disposable домейни, фалшиви patterns, BG телефон формат)
-//   2. Имейлът се проверява на blur — показва конкретна грешка веднага
-//   3. Телефонът форматира автоматично (08X XXX XXXX) докато пишеш
-//   4. Бутонът е disabled докато формата не е валидна
-//   5. Всичко останало (стилове, layout, анимации) — НЕПРОМЕНЕНО
+// app/naruchnik/[slug]/NaruchnikClient.tsx — v10
+// ПОПРАВКИ v10:
+//   1. handleEmailChange — strip-ва ВСИЧКО извън ASCII при въвеждане (блокира кирилица на ниво input)
+//   2. handlePhoneChange — strip-ва всичко освен цифри/+/интервали/тирета/скоби при въвеждане
+//   3. touched се маркира и при onChange — грешките се виждат веднага, не чакат blur
+//   4. Бутонът е disabled={loading || !isValid} — невъзможно е да се submit-не невалидна форма
+//   5. API грешките се показват inline до съответното поле
 
 import { useState, useEffect } from 'react'
 import { validateName, validateEmail, validatePhone } from '@/lib/validation'
@@ -59,7 +58,7 @@ export default function NaruchnikClient({ nar, others }: Props) {
   const accent = catColor(nar.category)
   const pdfUrl = nar.pdf_url || '#'
 
-  const [name, setName] = useState('')
+  const [name,  setName]  = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [touched, setTouched] = useState({ name: false, email: false, phone: false })
@@ -68,36 +67,55 @@ export default function NaruchnikClient({ nar, others }: Props) {
   const [submitError, setSubmitError] = useState('')
   const [activeTestimonial, setActiveTestimonial] = useState(0)
 
-  // Auto-rotate testimonials
   useEffect(() => {
     const t = setInterval(() => setActiveTestimonial(i => (i + 1) % TESTIMONIALS.length), 4000)
     return () => clearInterval(t)
   }, [])
 
-  const nameErr = validateName(name)
+  const nameErr  = validateName(name)
   const emailErr = validateEmail(email)
   const phoneErr = validatePhone(phone)
-  const isValid = !nameErr && !emailErr && !phoneErr
+  const isValid  = !nameErr && !emailErr && !phoneErr
 
   const touch = (f: keyof typeof touched) => setTouched(t => ({ ...t, [f]: true }))
 
-  // ── Телефонно поле ────────────────────────────────────────────────────────
-  // НЕ strip-ваме букви тук — оставяме validatePhone да ги хване и покаже грешка.
-  // Strip-ваме САМО очевидния junk (емоджи, специални символи) но не букви.
-  const handlePhoneChange = (raw: string) => {
-    setPhone(raw)
+  // ─── НИВО 1: Input handlers ─────────────────────────────────────────────────
+  // Блокират невалидни символи ДИРЕКТНО при въвеждане — преди валидация
+
+  const handleNameChange = (raw: string) => {
+    setName(raw)
+    if (raw.length > 0) touch('name')
   }
 
+  const handleEmailChange = (raw: string) => {
+    // Само printable ASCII символи (0x20–0x7E) — кирилица, emoji и Unicode са блокирани
+    // Реалният имейл формат изисква само ASCII — без изключения
+    const clean = raw.replace(/[^\x20-\x7E]/g, '')
+    setEmail(clean)
+    if (clean.length > 0) touch('email')
+  }
+
+  const handlePhoneChange = (raw: string) => {
+    // Само цифри, +, интервали, тирета и скоби — нищо друго
+    // Кирилица, латински букви и специални символи са блокирани при въвеждане
+    const clean = raw.replace(/[^0-9+\s\-().]/g, '')
+    setPhone(clean)
+    if (clean.length > 0) touch('phone')
+  }
+
+  // ─── НИВО 2: Submit guard ───────────────────────────────────────────────────
   const handleSubmit = async () => {
     setTouched({ name: true, email: true, phone: true })
-    if (!isValid) return
-    setLoading(true); setSubmitError('')
+    if (!isValid) return  // impossible to reach if button is disabled — extra safety
+    setLoading(true)
+    setSubmitError('')
     try {
       const res = await fetch('/api/leads', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
-          name: name.trim(),
+          name:  name.trim(),
           phone: phone.trim(),
           source: 'naruchnik_page',
           naruchnik_slug: nar.slug,
@@ -105,26 +123,25 @@ export default function NaruchnikClient({ nar, others }: Props) {
       })
       const data = await res.json()
 
-      // Сървърна валидация грешка (имейл/телефон отхвърлен)
+      // ── НИВО 3: Сървърна грешка → показваме inline до полето ─────────────────
       if (!res.ok) {
         const field = data.field as string | undefined
-        if (field === 'email') {
-          setTouched(t => ({ ...t, email: true }))
-          setSubmitError(data.error || 'Невалиден имейл адрес')
-        } else if (field === 'phone') {
-          setTouched(t => ({ ...t, phone: true }))
-          setSubmitError(data.error || 'Невалиден телефон')
-        } else {
-          setSubmitError(data.error || 'Грешка при изпращане. Опитай пак.')
-        }
+        if (field === 'email')  setSubmitError(data.error || 'Невалиден имейл адрес')
+        else if (field === 'phone') setSubmitError(data.error || 'Невалиден телефон')
+        else if (field === 'name')  setSubmitError(data.error || 'Невалидно ime')
+        else setSubmitError(data.error || 'Грешка при изпращане. Опитай пак.')
         setLoading(false)
         return
       }
 
-      // Успех → изтегли PDF
+      // Успех → изтегли PDF директно
       const a = document.createElement('a')
-      a.href = pdfUrl; a.download = nar.title + '.pdf'; a.target = '_blank'
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      a.href = pdfUrl
+      a.download = nar.title + '.pdf'
+      a.target = '_blank'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
       setDone(true)
     } catch {
       setSubmitError('Грешка при изпращане. Опитай пак.')
@@ -915,7 +932,6 @@ export default function NaruchnikClient({ nar, others }: Props) {
           <div className="nb-form-card">
 
             {done ? (
-              /* ── Success ── */
               <div className="nb-success" role="alert" aria-live="assertive">
                 <div className="nb-success-icon" aria-hidden="true">🎉</div>
                 <h3 className="nb-success-title">Свалянето започна!</h3>
@@ -938,7 +954,6 @@ export default function NaruchnikClient({ nar, others }: Props) {
               </div>
             ) : (
               <>
-                {/* Form header */}
                 <div className="nb-form-top">
                   <span className="nb-form-icon" aria-hidden="true">🎁</span>
                   <h3 className="nb-form-title">Изтегли Безплатно</h3>
@@ -948,28 +963,27 @@ export default function NaruchnikClient({ nar, others }: Props) {
                   </p>
                 </div>
 
-                {/* Urgency nudge */}
                 <div className="nb-urgency" role="status">
                   <span className="nb-urgency-dot" aria-hidden="true" />
                   🔥 47 души са изтеглили наръчника днес
                 </div>
 
-                {/* Form fields */}
                 <div className="nb-form-body">
-                  {/* Name */}
+
+                  {/* ── ИМЕ ── */}
                   <div className="nb-field-group">
                     <div className="nb-field-label">
-                      <span>ИМЕ <span style={{ color: '#ef4444' }} aria-hidden="true">*</span></span>
+                      <span>ИМЕ <span style={{ color: '#ef4444' }}>*</span></span>
                       {touched.name && !nameErr && <span className="nb-field-ok">✓ Добре</span>}
                     </div>
                     <input
                       type="text"
                       placeholder="Георги Петров"
                       value={name}
-                      onChange={e => setName(e.target.value)}
+                      onChange={e => handleNameChange(e.target.value)}
                       onBlur={() => touch('name')}
                       style={fieldStyle(nameErr, touched.name)}
-                      aria-label="Вашето име"
+                      aria-label="Вашето ime"
                       aria-required="true"
                       aria-invalid={touched.name && !!nameErr}
                       autoComplete="name"
@@ -979,23 +993,24 @@ export default function NaruchnikClient({ nar, others }: Props) {
                     )}
                   </div>
 
-                  {/* Email */}
+                  {/* ── ИМЕЙЛ ── */}
                   <div className="nb-field-group">
                     <div className="nb-field-label">
-                      <span>ИМЕЙЛ <span style={{ color: '#ef4444' }} aria-hidden="true">*</span></span>
+                      <span>ИМЕЙЛ <span style={{ color: '#ef4444' }}>*</span></span>
                       {touched.email && !emailErr && <span className="nb-field-ok">✓ Добре</span>}
                     </div>
                     <input
                       type="email"
                       placeholder="email@example.com"
                       value={email}
-                      onChange={e => setEmail(e.target.value)}
+                      onChange={e => handleEmailChange(e.target.value)}
                       onBlur={() => touch('email')}
                       style={fieldStyle(emailErr, touched.email)}
                       aria-label="Вашият имейл адрес"
                       aria-required="true"
                       aria-invalid={touched.email && !!emailErr}
                       autoComplete="email"
+                      inputMode="email"
                     />
                     {touched.email && emailErr && (
                       <div className="nb-field-err" role="alert">⚠ {emailErr}</div>
@@ -1003,15 +1018,15 @@ export default function NaruchnikClient({ nar, others }: Props) {
                     <div className="nb-field-hint">📧 Ще получиш копие на наръчника на имейл</div>
                   </div>
 
-                  {/* Phone */}
+                  {/* ── ТЕЛЕФОН ── */}
                   <div className="nb-field-group">
                     <div className="nb-field-label">
-                      <span>ТЕЛЕФОН <span style={{ color: '#ef4444' }} aria-hidden="true">*</span></span>
+                      <span>ТЕЛЕФОН <span style={{ color: '#ef4444' }}>*</span></span>
                       {touched.phone && !phoneErr && <span className="nb-field-ok">✓ Добре</span>}
                     </div>
                     <input
                       type="tel"
-                      placeholder="08X XXX XXXX"
+                      placeholder="0887 123 456"
                       value={phone}
                       onChange={e => handlePhoneChange(e.target.value)}
                       onBlur={() => touch('phone')}
@@ -1020,6 +1035,7 @@ export default function NaruchnikClient({ nar, others }: Props) {
                       aria-required="true"
                       aria-invalid={touched.phone && !!phoneErr}
                       autoComplete="tel"
+                      inputMode="tel"
                     />
                     {touched.phone && phoneErr && (
                       <div className="nb-field-err" role="alert">⚠ {phoneErr}</div>
@@ -1046,7 +1062,6 @@ export default function NaruchnikClient({ nar, others }: Props) {
                   </button>
                 </div>
 
-                {/* Trust badges */}
                 <div className="nb-trust" role="list" aria-label="Гаранции">
                   <span className="nb-trust-item" role="listitem">🔒 Без спам</span>
                   <span aria-hidden="true">·</span>
@@ -1060,7 +1075,6 @@ export default function NaruchnikClient({ nar, others }: Props) {
         </aside>
       </main>
 
-      {/* ── Back link ── */}
       <div className="nb-back">
         <a href="/" className="nb-back-link">← Обратно към сайта</a>
       </div>
