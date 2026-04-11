@@ -1,8 +1,14 @@
 'use client'
-// components/marketing/LeadForm.tsx
+// components/marketing/LeadForm.tsx — v2
+// ПОПРАВКИ v2:
+//   1. Валидация чрез споделената lib/validation.ts
+//   2. Inline грешки под всяко поле (показват се след blur)
+//   3. Бутонът е disabled докато не са попълнени правилно задължителните полета
+//   4. Стиловете и структурата са запазени
 
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 
 /** * Интерфейси за сигурност на данните 
  */
@@ -32,6 +38,21 @@ export function LeadForm({
   const [error, setError] = useState('')
   const [naruchnici, setNaruchnici] = useState<Naruchnik[]>([])
   const [selectedSlug, setSelectedSlug] = useState(naruchnikSlug || '')
+  const [touched, setTouched] = useState({ name: false, email: false, phone: false })
+
+  // Изчислени грешки
+  const nameErr  = validateName(form.name)
+  const emailErr = validateEmail(form.email)
+  // Телефонът е по желание в LeadForm — валидираме само ако е попълнен
+  const phoneErr = form.phone.trim() ? validatePhone(form.phone) : ''
+  const isValid  = !nameErr && !emailErr && !phoneErr
+
+  const touch = (f: keyof typeof touched) => setTouched(t => ({ ...t, [f]: true }))
+
+  const handlePhoneChange = (raw: string) => {
+    const clean = raw.replace(/[^0-9+\s\-().]/g, '')
+    setForm(p => ({ ...p, phone: clean }))
+  }
 
   const router = useRouter()
 
@@ -69,7 +90,8 @@ export function LeadForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.email || !selectedSlug) return
+    setTouched({ name: true, email: true, phone: true })
+    if (!form.email || !selectedSlug || !isValid) return
     
     setLoading(true)
     setError('')
@@ -79,7 +101,9 @@ export function LeadForm({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...form,
+          name:           form.name.trim(),
+          email:          form.email.trim().toLowerCase(),
+          phone:          form.phone.trim(),
           source,
           naruchnik_slug: selectedSlug,
           ...utmParams
@@ -89,7 +113,6 @@ export function LeadForm({
       const data = await res.json()
 
       if (res.ok) {
-        // Успех: Пренасочване с персонализирано съобщение
         const params = new URLSearchParams({ 
           email: form.email, 
           name: form.name,
@@ -147,10 +170,15 @@ export function LeadForm({
             <input 
               className="lead-field" 
               type="text" 
-              placeholder="Твоето име"
+              placeholder="Твоето име *"
               value={form.name}
               onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+              onBlur={() => touch('name')}
+              style={{ borderColor: touched.name && nameErr ? '#f87171' : touched.name && !nameErr ? '#4ade80' : undefined }}
             />
+            {touched.name && nameErr && (
+              <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {nameErr}</div>
+            )}
           </div>
 
           <div className="input-wrapper">
@@ -161,7 +189,12 @@ export function LeadForm({
               required
               value={form.email}
               onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+              onBlur={() => touch('email')}
+              style={{ borderColor: touched.email && emailErr ? '#f87171' : touched.email && !emailErr ? '#4ade80' : undefined }}
             />
+            {touched.email && emailErr && (
+              <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {emailErr}</div>
+            )}
           </div>
 
           <div className="input-wrapper">
@@ -170,8 +203,13 @@ export function LeadForm({
               type="tel" 
               placeholder="Телефон (по желание)"
               value={form.phone}
-              onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
+              onChange={e => handlePhoneChange(e.target.value)}
+              onBlur={() => touch('phone')}
+              style={{ borderColor: touched.phone && phoneErr ? '#f87171' : touched.phone && form.phone && !phoneErr ? '#4ade80' : undefined }}
             />
+            {touched.phone && phoneErr && (
+              <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {phoneErr}</div>
+            )}
           </div>
         </div>
 
@@ -179,7 +217,7 @@ export function LeadForm({
         {error && <div className="error-bubble">{error}</div>}
 
         {/* Бутон за изпращане */}
-        <button className="submit-action" type="submit" disabled={loading}>
+        <button className="submit-action" type="submit" disabled={loading || !isValid}>
           {loading ? (
             <span className="loader" />
           ) : (

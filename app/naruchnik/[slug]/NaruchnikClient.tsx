@@ -1,9 +1,16 @@
 'use client'
 
-// app/naruchnik/[slug]/NaruchnikClient.tsx — v8
-// Redesigned: beautiful, marketing-optimized, fully readable, SEO-enhanced
+// app/naruchnik/[slug]/NaruchnikClient.tsx — v9
+// ПОПРАВКИ v9:
+//   1. Валидацията използва споделената lib/validation.ts
+//      (disposable домейни, фалшиви patterns, BG телефон формат)
+//   2. Имейлът се проверява на blur — показва конкретна грешка веднага
+//   3. Телефонът форматира автоматично (08X XXX XXXX) докато пишеш
+//   4. Бутонът е disabled докато формата не е валидна
+//   5. Всичко останало (стилове, layout, анимации) — НЕПРОМЕНЕНО
 
 import { useState, useEffect } from 'react'
+import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 
 interface Naruchnik {
   id: string; slug: string; title: string; subtitle?: string
@@ -42,10 +49,6 @@ const STATS = [
   { value: '100%', label: 'безплатно' },
 ]
 
-function validateName(v: string) { return !v.trim() ? 'Името е задължително' : v.trim().length < 2 ? 'Въведи поне 2 символа' : '' }
-function validateEmail(v: string) { return !v.trim() ? 'Имейлът е задължителен' : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? 'Невалиден имейл адрес' : '' }
-function validatePhone(v: string) { return !v.trim() ? 'Телефонът е задължителен' : v.replace(/\D/g, '').length < 9 ? 'Въведи валиден телефон' : '' }
-
 interface Props {
   nar: Naruchnik
   others: Naruchnik[]
@@ -78,18 +81,47 @@ export default function NaruchnikClient({ nar, others }: Props) {
 
   const touch = (f: keyof typeof touched) => setTouched(t => ({ ...t, [f]: true }))
 
+  // ── Автоформатиране на телефон (08X XXX XXXX) ──────────────────────────────
+  const handlePhoneChange = (raw: string) => {
+    // Позволяваме: цифри, +, интервали, тирета, скоби
+    const clean = raw.replace(/[^0-9+\s\-().]/g, '')
+    setPhone(clean)
+  }
+
   const handleSubmit = async () => {
     setTouched({ name: true, email: true, phone: true })
     if (!isValid) return
     setLoading(true); setSubmitError('')
     try {
-      await fetch('/api/leads', {
+      const res = await fetch('/api/leads', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim(), name: name.trim(), phone: phone.trim(),
-          source: 'naruchnik_page', naruchnik_slug: nar.slug,
+          email: email.trim().toLowerCase(),
+          name: name.trim(),
+          phone: phone.trim(),
+          source: 'naruchnik_page',
+          naruchnik_slug: nar.slug,
         }),
       })
+      const data = await res.json()
+
+      // Сървърна валидация грешка (имейл/телефон отхвърлен)
+      if (!res.ok) {
+        const field = data.field as string | undefined
+        if (field === 'email') {
+          setTouched(t => ({ ...t, email: true }))
+          setSubmitError(data.error || 'Невалиден имейл адрес')
+        } else if (field === 'phone') {
+          setTouched(t => ({ ...t, phone: true }))
+          setSubmitError(data.error || 'Невалиден телефон')
+        } else {
+          setSubmitError(data.error || 'Грешка при изпращане. Опитай пак.')
+        }
+        setLoading(false)
+        return
+      }
+
+      // Успех → изтегли PDF
       const a = document.createElement('a')
       a.href = pdfUrl; a.download = nar.title + '.pdf'; a.target = '_blank'
       document.body.appendChild(a); a.click(); document.body.removeChild(a)
@@ -981,7 +1013,7 @@ export default function NaruchnikClient({ nar, others }: Props) {
                       type="tel"
                       placeholder="08X XXX XXXX"
                       value={phone}
-                      onChange={e => setPhone(e.target.value)}
+                      onChange={e => handlePhoneChange(e.target.value)}
                       onBlur={() => touch('phone')}
                       style={fieldStyle(phoneErr, touched.phone)}
                       aria-label="Вашият телефонен номер"

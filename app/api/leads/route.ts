@@ -1,10 +1,13 @@
-// ФАЙЛ: app/api/leads/route.ts — v16
+// ФАЙЛ: app/api/leads/route.ts — v17
 //
-// ПОПРАВКИ v16:
-//   1. При upsert: НЕ презаписваме name/phone с null ако вече имат стойност
-//      (преди: upsert с cleanName=null → изтриваше съществуващото име!)
-//   2. syncName/syncPhone: взимаме от upsert резултата (вече коректни)
-//   3. Всичко останало непроменено
+// ПОПРАВКИ v17 (спрямо v16):
+//   1. Сървърна валидация чрез lib/validation.ts (serverValidate)
+//      - Блокира disposable имейли (mailinator, yopmail, tempmail и др.)
+//      - Блокира очевидно фалшиви имейли (test@, aaa@, 1234@...)
+//      - Валидира BG телефон формат ако е подаден
+//      - Валидира имена ако са подадени
+//      - Връща { error, field } с HTTP 400 → frontend показва грешката inline
+//   2. Всичко от v16 е запазено непроменено
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -12,6 +15,7 @@ import { Resend } from 'resend'
 import { rateLimit, getIP } from '@/lib/rate-limit'
 import { welcomeEmail } from '@/lib/email-templates'
 import { syncContactWithRetry } from '@/lib/systemeio'
+import { serverValidate } from '@/lib/validation'
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req)
@@ -27,8 +31,20 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { email, name, phone, source, utm_source, utm_campaign, utm_medium, naruchnik_slug } = body
 
+    // ── Основна проверка ──────────────────────────────────────────────────────
     if (!email || !email.includes('@') || email.length > 255) {
-      return NextResponse.json({ error: 'Невалиден имейл' }, { status: 400 })
+      return NextResponse.json({ error: 'Невалиден имейл', field: 'email' }, { status: 400 })
+    }
+
+    // ── Разширена сървърна валидация ──────────────────────────────────────────
+    // Хваща disposable домейни, фалшиви patterns, невалидни телефони
+    // Работи независимо от frontend — последна линия на защита
+    const validation = serverValidate({ email, name, phone })
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: validation.error, field: validation.field },
+        { status: 400 }
+      )
     }
 
     const slug       = naruchnik_slug || 'super-domati'
@@ -109,8 +125,6 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.systemeio_api
     if (systemeioEnabled && apiKey) {
-      // Взимаме актуалните данни от базата (включително systemeio_contact_id)
-      // Използваме existingLead + новите данни (вече коректно upsert-нати)
       const currentContactId = existingLead?.systemeio_contact_id || null
       const isEmailInvalid   = existingLead?.systemeio_email_invalid || false
 
@@ -120,8 +134,8 @@ export async function POST(req: NextRequest) {
         const result = await syncContactWithRetry({
           apiKey,
           email:         cleanEmail,
-          name:          upsertName,      // ← вече коректно (не null ако имаше преди)
-          phone:         upsertPhone,     // ← същото за phone
+          name:          upsertName,
+          phone:         upsertPhone,
           contactId:     currentContactId,
           naruchnikSlug: slug,
         })
