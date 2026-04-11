@@ -50,8 +50,17 @@ export function LeadForm({
   const touch = (f: keyof typeof touched) => setTouched(t => ({ ...t, [f]: true }))
 
   const handlePhoneChange = (raw: string) => {
+    // Strip ВСИЧКИ букви (кирилски О изглежда като 0 — блокираме всяка буква)
     const clean = raw.replace(/[^0-9+\s\-().]/g, '')
     setForm(p => ({ ...p, phone: clean }))
+    touch('phone')
+  }
+
+  const handleEmailChange = (raw: string) => {
+    // Strip ВСИЧКИ не-ASCII символи (кирилица, emoji и т.н.)
+    const clean = raw.replace(/[^!-~]/g, '').toLowerCase()
+    setForm(p => ({ ...p, email: clean }))
+    touch('email')
   }
 
   const router = useRouter()
@@ -184,12 +193,15 @@ export function LeadForm({
           <div className="input-wrapper">
             <input 
               className="lead-field" 
-              type="email" 
+              type="text" 
               placeholder="Имейл адрес *" 
-              required
               value={form.email}
-              onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+              onChange={e => handleEmailChange(e.target.value)}
               onBlur={() => touch('email')}
+              onPaste={e => { e.preventDefault(); handleEmailChange(e.clipboardData.getData('text')) }}
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
               style={{ borderColor: touched.email && emailErr ? '#f87171' : touched.email && !emailErr ? '#4ade80' : undefined }}
             />
             {touched.email && emailErr && (
@@ -205,6 +217,8 @@ export function LeadForm({
               value={form.phone}
               onChange={e => handlePhoneChange(e.target.value)}
               onBlur={() => touch('phone')}
+              onKeyDown={e => { if (e.key.length === 1 && /[a-zA-ZЀ-ӿ]/.test(e.key)) e.preventDefault() }}
+              onPaste={e => { e.preventDefault(); handlePhoneChange(e.clipboardData.getData('text')) }}
               style={{ borderColor: touched.phone && phoneErr ? '#f87171' : touched.phone && form.phone && !phoneErr ? '#4ade80' : undefined }}
             />
             {touched.phone && phoneErr && (

@@ -84,23 +84,29 @@ export default function NaruchnikClient({ nar, others }: Props) {
 
   const handleNameChange = (raw: string) => {
     setName(raw)
-    if (raw.length > 0) touch('name')
+    touch('name')
   }
 
   const handleEmailChange = (raw: string) => {
-    // Само printable ASCII символи (0x20–0x7E) — кирилица, emoji и Unicode са блокирани
-    // Реалният имейл формат изисква само ASCII — без изключения
-    const clean = raw.replace(/[^\x20-\x7E]/g, '')
+    // ── ЖЕЛЕЗНА ЗАЩИТА: strip-ваме ВСЯКО не-ASCII при въвеждане ──────────────
+    // Кирилица (а-яА-Я), emoji, и всякакви Unicode символи са НЕВАЛИДНИ в имейл.
+    // RFC 5321 изисква само 7-bit ASCII. Символите се изтриват веднага при typing.
+    // Допълнително strip-ваме и интервали (невалидни в имейл адреси).
+    const clean = raw
+      .replace(/[^\x21-\x7E]/g, '') // само printable ASCII без интервал
+      .toLowerCase()
     setEmail(clean)
-    if (clean.length > 0) touch('email')
+    // Маркираме touched веднага — грешката се вижда в реално време
+    touch('email')
   }
 
   const handlePhoneChange = (raw: string) => {
-    // Само цифри, +, интервали, тирета и скоби — нищо друго
-    // Кирилица, латински букви и специални символи са блокирани при въвеждане
+    // ── ЖЕЛЕЗНА ЗАЩИТА: strip-ваме ВСИЧКИ букви при въвеждане ────────────────
+    // Кирилски О изглежда като цифра 0 — затова блокираме ВСЯКАbukva
+    // Позволени са: цифри 0-9, +, интервал, тире, скоби, точка — НИЩО друго
     const clean = raw.replace(/[^0-9+\s\-().]/g, '')
     setPhone(clean)
-    if (clean.length > 0) touch('phone')
+    touch('phone')
   }
 
   // ─── НИВО 2: Submit guard ───────────────────────────────────────────────────
@@ -1000,17 +1006,25 @@ export default function NaruchnikClient({ nar, others }: Props) {
                       {touched.email && !emailErr && <span className="nb-field-ok">✓ Добре</span>}
                     </div>
                     <input
-                      type="email"
+                      type="text"
                       placeholder="email@example.com"
                       value={email}
                       onChange={e => handleEmailChange(e.target.value)}
                       onBlur={() => touch('email')}
+                      onPaste={e => {
+                        e.preventDefault()
+                        const pasted = e.clipboardData.getData('text')
+                        handleEmailChange(pasted)
+                      }}
                       style={fieldStyle(emailErr, touched.email)}
                       aria-label="Вашият имейл адрес"
                       aria-required="true"
                       aria-invalid={touched.email && !!emailErr}
                       autoComplete="email"
                       inputMode="email"
+                      spellCheck={false}
+                      autoCapitalize="none"
+                      autoCorrect="off"
                     />
                     {touched.email && emailErr && (
                       <div className="nb-field-err" role="alert">⚠ {emailErr}</div>
@@ -1030,6 +1044,16 @@ export default function NaruchnikClient({ nar, others }: Props) {
                       value={phone}
                       onChange={e => handlePhoneChange(e.target.value)}
                       onBlur={() => touch('phone')}
+                      onKeyDown={e => {
+                        // Блокира директно въвеждане на букви (кирилски и латински)
+                        const isLetter = e.key.length === 1 && /[^0-9+\-().\ ]/.test(e.key)
+                        if (isLetter) e.preventDefault()
+                      }}
+                      onPaste={e => {
+                        e.preventDefault()
+                        const pasted = e.clipboardData.getData('text')
+                        handlePhoneChange(pasted)
+                      }}
                       style={fieldStyle(phoneErr, touched.phone)}
                       aria-label="Вашият телефонен номер"
                       aria-required="true"

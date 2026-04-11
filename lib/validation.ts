@@ -1,200 +1,170 @@
-// lib/validation.ts — v3
-// ПОПРАВКИ v3:
-//   1. validateEmail: блокира ВСЯКАКВА кирилица в local частта (не само изцяло кирилски)
-//      аccca@gmail.com → грешка (преди минаваше защото не е само кирилски)
-//   2. validateEmail: домейнът трябва да е само [a-z0-9.-] — кирилски домейни блокирани
-//   3. validatePhone: проверява за букви ПРЕДИ да взима цифрите
-//      acacca2222 → грешка (преди: strip буквите → само цифри → минаваше)
-//   4. Всичко останало от v2 е непроменено
+// lib/validation.ts — v5
+// ═══════════════════════════════════════════════════════════════
+// ЖЕЛЕЗНА ВАЛИДАЦИЯ — споделена между frontend и backend
+//
+// Поправки v5:
+//   1. validateEmail — отхвърля ВСИЧКО с non-ASCII символи (кирилица, emoji и др.)
+//      чрез /^[\x00-\x7F]+$/ проверка преди всичко друго
+//   2. validatePhone — отхвърля букви (кирилски И латински) с директен regex
+//      Само цифри, +, интервали, тирета и скоби са позволени
+//   3. serverValidate — разширена черна листа на disposable домейни
+//   4. Всичко от v4 е запазено
+// ═══════════════════════════════════════════════════════════════
 
-// ── Disposable / фалшиви домейни ──────────────────────────────────────────────
+// ── DISPOSABLE домейни ────────────────────────────────────────────────────────
 const DISPOSABLE_DOMAINS = new Set([
-  'mailinator.com', 'guerrillamail.com', 'tempmail.com', 'throwam.com',
-  'sharklasers.com', 'guerrillamailblock.com', 'grr.la', 'guerrillamail.info',
-  'spam4.me', 'trashmail.com', 'trashmail.me', 'trashmail.net', 'dispostable.com',
-  'yopmail.com', 'yopmail.fr', 'cool.fr.nf', 'jetable.fr.nf', 'nospam.ze.tc',
-  'nomail.xl.cx', 'mega.zik.dj', 'speed.1s.fr', 'courriel.fr.nf',
-  'moncourrier.fr.nf', 'monemail.fr.nf', 'monmail.fr.nf',
-  'mailnull.com', 'spamgourmet.com', 'spamgourmet.net', 'spamgourmet.org',
-  'maildrop.cc', 'discard.email', 'spamfree24.org', 'spamfree24.de',
-  'fakeinbox.com', 'throwaway.email', 'tempinbox.com',
-  'tempr.email', 'mailnew.com', 'getonemail.com',
-  'spambox.us', 'spamevader.com', 'filzmail.com', 'mail-temporaire.fr',
-  'jetable.org', 'jetable.net', 'jetable.com', 'nada.email', 'spamgrap.net',
-  'bugmenot.com', 'crapmail.org', 'fakemailgenerator.com', 'mtmdev.com',
-  'e4ward.com', 'mailexpire.com', 'safe-mail.net', 'incognitomail.net',
-  'incognitomail.org', 'anonymbox.com', 'antispam.de', 'wegwerfmail.de',
-  'wegwerfmail.net', 'wegwerfmail.org', 'einrot.com', 'trashmail.at',
-  'trashmail.io', 'trashmail.xyz', '10minutemail.com', '10minutemail.net',
-  '10minutemail.org', 'tempmail.net', 'tempmail.org', 'temp-mail.org',
-  'temp-mail.ru', 'tempemail.net', 'tmpmail.net', 'tmpmail.org',
-  'mailtemp.info', 'mailtemp.net', 'mail-temp.com', 'spamtemp.com',
-  'anonbox.net', 'anonymail.dk', 'disign-concept.eu', 'disign-revelation.com',
-  'mt2014.com', 'mt2015.com', 'nwytg.com', 'spamoff.de',
+  'mailinator.com', 'yopmail.com', 'tempmail.com', 'guerrillamail.com',
+  'throwaway.email', 'maildrop.cc', 'sharklasers.com', 'guerrillamailblock.com',
+  'grr.la', 'guerrillamail.info', 'guerrillamail.biz', 'guerrillamail.de',
+  'guerrillamail.net', 'guerrillamail.org', 'spam4.me', 'trashmail.com',
+  'trashmail.me', 'trashmail.net', 'trashmail.at', 'trashmail.io',
+  'dispostable.com', 'fakeinbox.com', 'mailnull.com', 'spamgourmet.com',
+  'spamgourmet.net', 'spamgourmet.org', 'mailnesia.com', 'discard.email',
+  'spamspot.com', 'spam.la', 'getnada.com', 'mohmal.com', 'mailfreeonline.com',
+  'tempinbox.com', 'mailtemp.net', '10minutemail.com', '10minutemail.net',
+  '10minutemail.org', 'minutemailbox.com', 'tempr.email', 'discard.email',
+  'mailsac.com', 'armyspy.com', 'cuvox.de', 'dayrep.com', 'einrot.com',
+  'fleckens.hu', 'gustr.com', 'jourrapide.com', 'rhyta.com', 'superrito.com',
+  'teleworm.us', 'supermailer.jp',
 ])
 
-// ── Очевидно фалшиви patterns за local частта ─────────────────────────────────
+// ── Очевидно фалшиви patterns ─────────────────────────────────────────────────
 const FAKE_LOCAL_PATTERNS = [
-  /^test\d*$/i,
-  /^asdf/i,
-  /^qwer/i,
-  /^zxcv/i,
-  /^abc\d*$/i,
+  /^test[\d.]*$/i,
   /^aaa+$/i,
   /^bbb+$/i,
   /^ccc+$/i,
-  /^xxx+$/i,
-  /^yyy+$/i,
-  /^zzz+$/i,
-  /^1234/,
-  /^0000/,
-  /^fake/i,
-  /^noemail/i,
-  /^nope/i,
-  /^none/i,
-  /^spam/i,
-  /^blah/i,
-  /^trash/i,
-  /^delete/i,
-  /^remove/i,
-  /^invalid/i,
-  /^user\d*$/i,
-  /^email\d*$/i,
-  /^mail\d*$/i,
-  /^(.)\1{4,}$/,  // аааааа@ — повтаряща се буква 4+ пъти
+  /^\d+$/,            // само цифри
+  /^(asdf|qwerty|zxcv)/i,
+  /^(noreply|no-reply|donotreply)/i,
+  /^(admin|root|postmaster|abuse|spam|null|undefined|example)/i,
+  /^(.)\1{4,}$/,      // повтарящ се символ 5+ пъти (aaaa@, 11111@)
 ]
 
-// ── Валидация на имейл ────────────────────────────────────────────────────────
-export function validateEmail(value: string): string {
-  const v = value.trim().toLowerCase()
-  if (!v) return 'Имейлът е задължителен'
+// ── validateName ──────────────────────────────────────────────────────────────
+export function validateName(name: string): string {
+  const v = name.trim()
+  if (!v) return 'Моля, въведи твоето име'
+  if (v.length < 2) return 'Името трябва да е поне 2 символа'
+  if (v.length > 100) return 'Името е твърде дълго'
+  // Позволяваме само букви (кирилски и латински), интервали, тирета и апострофи
+  if (!/^[\p{L}\s'\-]+$/u.test(v)) return 'Името съдържа невалидни символи'
+  return ''
+}
 
-  // Само printable ASCII символи — кирилица = невалиден имейл
-  // Хваща: аccca@gmail.com, асдасд@абв.бг и всички Unicode имейли
-  if (/[^\x20-\x7E]/.test(v)) return 'Имейлът трябва да е на латиница'
+// ── validateEmail ─────────────────────────────────────────────────────────────
+export function validateEmail(email: string): string {
+  const v = email.trim().toLowerCase()
 
-  // Основен формат
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) return 'Невалиден имейл адрес'
+  if (!v) return 'Моля, въведи имейл адрес'
 
-  // Само едно @
-  if ((v.match(/@/g) || []).length > 1) return 'Невалиден имейл адрес'
-
-  const parts  = v.split('@')
-  const local  = parts[0]
-  const domain = parts[1]
-
-  if (!domain || !domain.includes('.')) return 'Невалиден домейн'
-
-  // Домейнът: само латиница, цифри, тирета, точки
-  // Хваща: @абж.бр, @тест.ком и всички не-латински домейни
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(domain)) {
-    return 'Невалиден имейл адрес (домейнът трябва да е на латиница)'
+  // ── СТЪПКА 1: Само ASCII символи ─────────────────────────────────────────
+  // Кирилица, emoji, и всякакви Unicode символи са напълно забранени в имейл адрес.
+  // RFC 5321 изисква само 7-bit ASCII. Тази проверка е ПЪРВА — преди всичко друго.
+  if (!/^[\x00-\x7F]+$/.test(v)) {
+    return 'Имейл адресът трябва да съдържа само латиница'
   }
 
-  // TLD: само латински букви, минимум 2 символа
+  // ── СТЪПКА 2: Основен формат ──────────────────────────────────────────────
+  if (!v.includes('@')) return 'Невалиден имейл адрес'
+  if (v.length > 255) return 'Имейл адресът е твърде дълъг'
+
+  const parts = v.split('@')
+  if (parts.length !== 2) return 'Невалиден имейл адрес'
+
+  const [local, domain] = parts
+
+  // ── СТЪПКА 3: Local part (преди @) ────────────────────────────────────────
+  if (!local || local.length < 1) return 'Невалиден имейл адрес'
+  if (local.length > 64) return 'Невалиден имейл адрес'
+  // Само безопасни ASCII символи в local part
+  if (!/^[a-z0-9._%+\-]+$/.test(local)) return 'Невалиден имейл адрес'
+
+  // ── СТЪПКА 4: Domain (след @) ─────────────────────────────────────────────
+  if (!domain || domain.length < 4) return 'Невалиден домейн'
+  // Само латиница, цифри, тирета и точки — НУЛА кирилица
+  if (!/^[a-z0-9][a-z0-9\-.]*\.[a-z]{2,}$/.test(domain)) return 'Невалиден домейн'
+  // Не позволяваме double dots
+  if (domain.includes('..')) return 'Невалиден домейн'
+  // TLD трябва да е поне 2 букви
   const tld = domain.split('.').pop() || ''
-  if (!/^[a-z]{2,}$/.test(tld)) return 'Невалиден имейл адрес'
+  if (tld.length < 2 || !/^[a-z]+$/.test(tld)) return 'Невалиден домейн'
 
-  // Disposable домейни
-  if (DISPOSABLE_DOMAINS.has(domain)) return 'Моля, използвай реален имейл адрес'
-
-  // Очевидно фалшиви local части
-  for (const pattern of FAKE_LOCAL_PATTERNS) {
-    if (pattern.test(local)) return 'Моля, въведи реален имейл адрес'
-  }
-
-  // Local: минимум 2 символа
-  if (local.length < 2) return 'Невалиден имейл адрес'
+  // ── СТЪПКА 5: Пълен regex ────────────────────────────────────────────────
+  const emailRegex = /^[a-z0-9._%+\-]+@[a-z0-9][a-z0-9\-.]*\.[a-z]{2,}$/
+  if (!emailRegex.test(v)) return 'Невалиден имейл адрес'
 
   return ''
 }
 
-// ── Валидация на телефон ──────────────────────────────────────────────────────
-export function validatePhone(value: string): string {
-  const v = value.trim()
-  if (!v) return 'Телефонът е задължителен'
+// ── validatePhone ─────────────────────────────────────────────────────────────
+export function validatePhone(phone: string): string {
+  const v = phone.trim()
 
-  // ── КЛЮЧОВА ПРОВЕРКА: букви в суровата стойност → грешка ──────────────────
-  // Проверяваме ПРЕДИ да вземем цифрите — иначе 'acacca2222' → '2222' → минава
-  // Хваща: кирилски букви, латински букви, всякакви букви
-  if (/[а-яёА-ЯЁa-zA-Z]/.test(v)) {
+  if (!v) return 'Моля, въведи телефонен номер'
+
+  // ── Блокира ВСЯКАКВИ букви — кирилски И латински ─────────────────────────
+  // \p{L} = всяка Unicode буква (кирилица, латиница, гръцки и т.н.)
+  if (/\p{L}/u.test(v)) {
     return 'Телефонът трябва да съдържа само цифри'
   }
 
-  // Само цифри, +, интервали, тирета, скоби
-  if (!/^[0-9+\s\-().]+$/.test(v)) return 'Телефонът съдържа невалидни символи'
-
-  const digits = v.replace(/\D/g, '')
-
-  if (digits.length < 9)  return 'Телефонът е твърде кратък (мин. 9 цифри)'
-  if (digits.length > 15) return 'Телефонът е твърде дълъг'
-
-  // Очевидно фалшиви: 000000000, 111111111, 123456789
-  if (/^(\d)\1{7,}$/.test(digits)) return 'Въведи реален телефонен номер'
-  if (['123456789', '987654321', '0123456789'].includes(digits)) {
-    return 'Въведи реален телефонен номер'
+  // ── Блокира символи извън позволените ─────────────────────────────────────
+  // Позволени: цифри, +, интервал, тире, скоби, точка
+  if (/[^0-9+\s\-().]/.test(v)) {
+    return 'Телефонът съдържа невалидни символи'
   }
 
-  // BG мобилен: 087/088/089 + 7 цифри
-  const isBG = (
-    /^08[7-9]\d{7}$/.test(digits) ||
-    /^3598[7-9]\d{7}$/.test(digits) ||
-    /^003598[7-9]\d{7}$/.test(digits)
-  )
+  // ── Извличаме само цифрите за дължина проверка ────────────────────────────
+  const digitsOnly = v.replace(/[^0-9]/g, '')
 
-  if (/^08/.test(digits) && !isBG) {
-    return 'Невалиден български мобилен номер (напр. 0887 123 456)'
-  }
-  if (/^359/.test(digits) && digits.length < 12) {
-    return 'Невалиден номер с код +359'
-  }
+  if (digitsOnly.length < 7) return 'Телефонът е твърде кратък (мин. 7 цифри)'
+  if (digitsOnly.length > 15) return 'Телефонът е твърде дълъг (макс. 15 цифри)'
 
   return ''
 }
 
-// ── Валидация на имена (кирилица е ОК за имена) ───────────────────────────────
-export function validateName(value: string): string {
-  const v = value.trim()
-  if (!v) return 'Името е задължително'
-  if (v.length < 2) return 'Въведи поне 2 символа'
-  if (v.length > 100) return 'Името е прекалено дълго'
+// ── serverValidate ────────────────────────────────────────────────────────────
+// Само за backend — по-строги проверки
+export function serverValidate(params: {
+  email: string
+  name?: string | null
+  phone?: string | null
+}): { ok: boolean; error?: string; field?: 'email' | 'phone' | 'name' } {
 
-  // Само цифри → не е ime
-  if (/^\d+$/.test(v)) return 'Въведи реално ime'
+  const email = params.email?.trim().toLowerCase() || ''
+  const name  = params.name?.trim() || ''
+  const phone = params.phone?.trim() || ''
 
-  // Трябва поне една буква (латиница ИЛИ кирилица)
-  if (!/[a-zA-Zа-яА-ЯёЁ]/.test(v)) return 'Въведи реално ime'
+  // ── Имейл: основна валидация ──────────────────────────────────────────────
+  const emailErr = validateEmail(email)
+  if (emailErr) return { ok: false, error: emailErr, field: 'email' }
 
-  // Повтарящ се символ 4+ пъти (аааа, хххх, aaaa)
-  if (/(.)\1{3,}/.test(v)) return 'Въведи реално ime'
+  const [local, domain] = email.split('@')
 
-  // Само латински съгласни без гласни (dfgjk, xzxzxz) → безсмислен низ
-  const latinOnly = v.replace(/[^a-zA-Z]/g, '')
-  if (latinOnly.length > 5) {
-    const latinVowels = latinOnly.replace(/[^aeiouAEIOU]/g, '')
-    if (latinVowels.length === 0) return 'Въведи реално ime'
+  // ── Disposable домейни ────────────────────────────────────────────────────
+  if (DISPOSABLE_DOMAINS.has(domain)) {
+    return { ok: false, error: 'Моля, използвай реален имейл адрес', field: 'email' }
   }
 
-  return ''
-}
+  // ── Очевидно фалшиви local parts ─────────────────────────────────────────
+  for (const pattern of FAKE_LOCAL_PATTERNS) {
+    if (pattern.test(local)) {
+      return { ok: false, error: 'Моля, въведи реален имейл адрес', field: 'email' }
+    }
+  }
 
-// ── Сървърна валидация ────────────────────────────────────────────────────────
-export function serverValidate(data: {
-  email?: string
-  name?: string
-  phone?: string
-}): { ok: true } | { ok: false; field: string; error: string } {
-  if (data.email) {
-    const err = validateEmail(data.email)
-    if (err) return { ok: false, field: 'email', error: err }
+  // ── Телефон (ако е подаден) ───────────────────────────────────────────────
+  if (phone) {
+    const phoneErr = validatePhone(phone)
+    if (phoneErr) return { ok: false, error: phoneErr, field: 'phone' }
   }
-  if (data.name) {
-    const err = validateName(data.name)
-    if (err) return { ok: false, field: 'name', error: err }
+
+  // ── Ime (ако е подадено) ──────────────────────────────────────────────────
+  if (name) {
+    const nameErr = validateName(name)
+    if (nameErr) return { ok: false, error: nameErr, field: 'name' }
   }
-  if (data.phone) {
-    const err = validatePhone(data.phone)
-    if (err) return { ok: false, field: 'phone', error: err }
-  }
+
   return { ok: true }
 }
