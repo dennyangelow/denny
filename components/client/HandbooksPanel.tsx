@@ -15,8 +15,11 @@ function validateName(v: string) {
   return ''
 }
 function validateEmail(v: string) {
-  if (!v.trim()) return 'Имейлът е задължителен'
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())) return 'Невалиден имейл адрес'
+  const val = v.trim().toLowerCase()
+  if (!val) return 'Имейлът е задължителен'
+  // Блокира кирилица и unicode при въвеждане
+  for (let i = 0; i < val.length; i++) { if (val.charCodeAt(i) > 127) return 'Само латиница — без кирилица' }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val)) return 'Невалиден имейл адрес'
   return ''
 }
 function validatePhone(v: string) {
@@ -225,7 +228,11 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                 {touched.email && !emailErr && <span style={{ color: '#16a34a', fontSize: 11, fontWeight: 700 }}>✓ Добре</span>}
               </div>
               <input type="email" className="hb-input" placeholder="email@example.com"
-                value={hbEmail} onChange={e => setHbEmail(e.target.value)} onBlur={() => touch('email')}
+                value={hbEmail}
+                onChange={e => { let v=e.target.value,r=''; for(let i=0;i<v.length;i++){let cc=v.charCodeAt(i);if(cc>=33&&cc<=126)r+=v[i].toLowerCase()} setHbEmail(r); touch('email') }}
+                onPaste={e => { e.preventDefault(); let v=e.clipboardData.getData('text'),r=''; for(let i=0;i<v.length;i++){let cc=v.charCodeAt(i);if(cc>=33&&cc<=126)r+=v[i].toLowerCase()} setHbEmail(r); touch('email') }}
+                onBlur={() => touch('email')}
+                spellCheck={false} autoCapitalize="none" autoCorrect="off" inputMode="email"
                 style={fieldStyle(emailErr, touched.email)} />
               {touched.email && emailErr && <div style={{ color: '#dc2626', fontSize: 11, fontWeight: 600, marginTop: 5 }}>⚠ {emailErr}</div>}
             </div>
@@ -239,7 +246,12 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                 {touched.phone && !phoneErr && <span style={{ color: '#16a34a', fontSize: 11, fontWeight: 700 }}>✓ Добре</span>}
               </div>
               <input type="tel" className="hb-input" placeholder="08X XXX XXXX"
-                value={hbPhone} onChange={e => setHbPhone(e.target.value)} onBlur={() => touch('phone')}
+                value={hbPhone}
+                onChange={e => { let v=e.target.value,r=''; for(let i=0;i<v.length;i++){let cc=v.charCodeAt(i);if((cc>=48&&cc<=57)||cc===43||cc===32||cc===45||cc===40||cc===41||cc===46)r+=v[i]} setHbPhone(r); touch('phone') }}
+                onPaste={e => { e.preventDefault(); let v=e.clipboardData.getData('text'),r=''; for(let i=0;i<v.length;i++){let cc=v.charCodeAt(i);if((cc>=48&&cc<=57)||cc===43||cc===32||cc===45||cc===40||cc===41||cc===46)r+=v[i]} setHbPhone(r); touch('phone') }}
+                onKeyDown={e => { if (e.key.length===1 && ((e.key>='a'&&e.key<='z')||(e.key>='A'&&e.key<='Z')||(e.key.charCodeAt(0)>=0x400&&e.key.charCodeAt(0)<=0x4FF))) e.preventDefault() }}
+                onBlur={() => touch('phone')}
+                inputMode="tel"
                 style={fieldStyle(phoneErr, touched.phone)} />
               {touched.phone && phoneErr && <div style={{ color: '#dc2626', fontSize: 11, fontWeight: 600, marginTop: 5 }}>⚠ {phoneErr}</div>}
               <div style={{ color: '#9ca3af', fontSize: 10, marginTop: 5 }}>📞 За лична консултация при нужда</div>
