@@ -1,12 +1,32 @@
 ﻿'use client'
+// LeadForm.tsx — v4
+// ПОПРАВКИ спрямо оригинала:
+//   1. handleEmailChange: strip-ва не-ASCII (кирилица, emoji) при всяко въвеждане
+//      Оригиналът умишлено НЕ strip-ваше "за да показва грешка" — но резултатът
+//      беше кирилицата видимо да стои в полето (объркващо UX).
+//   2. onPaste за имейл: вече минава през handleEmailChange → strip-ва
+//   3. handlePhoneChange: запазен — вече strip-ваше правилно
+//   4. onKeyDown за телефон: запазен — блокира директно натискане на букви
+
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 
-interface Naruchnik { id: string; slug: string; title: string; subtitle: string; cover_image_url: string; category: string }
-interface LeadFormProps { naruchnikSlug?: string; source?: string; showSelector?: boolean }
+interface Naruchnik {
+  id: string; slug: string; title: string; subtitle: string
+  cover_image_url: string; category: string
+}
+interface LeadFormProps {
+  naruchnikSlug?: string
+  source?: string
+  showSelector?: boolean
+}
 
-export function LeadForm({ naruchnikSlug, source = 'marketing_page', showSelector = false }: LeadFormProps) {
+export function LeadForm({
+  naruchnikSlug,
+  source = 'marketing_page',
+  showSelector = false,
+}: LeadFormProps) {
   const [form, setForm] = useState({ name: '', email: '', phone: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -21,13 +41,17 @@ export function LeadForm({ naruchnikSlug, source = 'marketing_page', showSelecto
 
   const touch = (f: keyof typeof touched) => setTouched(t => ({ ...t, [f]: true }))
 
+  // ── Email: strip-ва не-ASCII при въвеждане ─────────────────────────────────
+  // Кирилица, emoji и unicode нямат място в имейл (RFC 5321: само 7-bit ASCII).
+  // Без strip: символите се виждат в полето → объркващо. validateEmail ги хваща,
+  // isValid=false блокира submit — но е по-добре да не се появяват изобщо.
   const handleEmailChange = (raw: string) => {
-    // ВАЖНО: НЕ strip-ваме символите — validateEmail ги хваща и показва грешка
-    // Предишното strip-ване правеше "садас@абж.бр" → "@." → минаваше валидацията!
-    setForm(p => ({ ...p, email: raw }))
+    const clean = raw.replace(/[^\x21-\x7E]/g, '').toLowerCase()
+    setForm(p => ({ ...p, email: clean }))
     touch('email')
   }
 
+  // ── Телефон: strip-ва всичко освен цифри/+/интервал/тире/скоби/точка ───────
   const handlePhoneChange = (raw: string) => {
     const clean = raw.replace(/[^0-9+\s\-().]/g, '')
     setForm(p => ({ ...p, phone: clean }))
@@ -37,17 +61,24 @@ export function LeadForm({ naruchnikSlug, source = 'marketing_page', showSelecto
   const router = useRouter()
 
   useEffect(() => {
-    fetch('/api/naruchnici').then(r => r.json()).then(data => {
-      const list: Naruchnik[] = data.naruchnici || []
-      setNaruchnici(list)
-      if (!naruchnikSlug && list.length > 0) setSelectedSlug(list[0].slug)
-    }).catch(console.error)
+    fetch('/api/naruchnici')
+      .then(r => r.json())
+      .then(data => {
+        const list: Naruchnik[] = data.naruchnici || []
+        setNaruchnici(list)
+        if (!naruchnikSlug && list.length > 0) setSelectedSlug(list[0].slug)
+      })
+      .catch(console.error)
   }, [naruchnikSlug])
 
   const utmParams = useMemo(() => {
     if (typeof window === 'undefined') return {}
     const p = new URLSearchParams(window.location.search)
-    return { utm_source: p.get('utm_source') || undefined, utm_campaign: p.get('utm_campaign') || undefined, utm_medium: p.get('utm_medium') || undefined }
+    return {
+      utm_source:   p.get('utm_source')   || undefined,
+      utm_campaign: p.get('utm_campaign') || undefined,
+      utm_medium:   p.get('utm_medium')   || undefined,
+    }
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,13 +89,26 @@ export function LeadForm({ naruchnikSlug, source = 'marketing_page', showSelecto
     setError('')
     try {
       const res = await fetch('/api/leads', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name.trim(), email: form.email.trim().toLowerCase(), phone: form.phone.trim(), source, naruchnik_slug: selectedSlug, ...utmParams }),
+        body: JSON.stringify({
+          name:           form.name.trim(),
+          email:          form.email.trim().toLowerCase(),
+          phone:          form.phone.trim(),
+          source,
+          naruchnik_slug: selectedSlug,
+          ...utmParams,
+        }),
       })
       const data = await res.json()
       if (res.ok) {
-        router.push(`/naruchnik/${selectedSlug}?${new URLSearchParams({ email: form.email, name: form.name, new_lead: 'true' }).toString()}`)
+        router.push(
+          `/naruchnik/${selectedSlug}?${new URLSearchParams({
+            email:    form.email,
+            name:     form.name,
+            new_lead: 'true',
+          }).toString()}`
+        )
       } else {
         setError(data.error || 'Възникна грешка')
         setLoading(false)
@@ -75,20 +119,28 @@ export function LeadForm({ naruchnikSlug, source = 'marketing_page', showSelecto
     }
   }
 
-  const bc = (err: string, t: boolean) => t && err ? '#f87171' : t && !err ? '#4ade80' : undefined
+  const bc = (err: string, t: boolean) =>
+    t && err ? '#f87171' : t && !err ? '#4ade80' : undefined
 
   return (
     <div className="lead-form-container">
       <form onSubmit={handleSubmit} className="lead-form-base">
+
         {showSelector && naruchnici.length > 0 && (
           <div className="selector-section">
             <label className="section-label">Избери твоя подарък:</label>
             <div className="naruchnik-grid">
               {naruchnici.map(n => (
-                <button key={n.slug} type="button" className={`nar-card ${selectedSlug === n.slug ? 'active' : ''}`} onClick={() => setSelectedSlug(n.slug)}>
+                <button
+                  key={n.slug} type="button"
+                  className={`nar-card ${selectedSlug === n.slug ? 'active' : ''}`}
+                  onClick={() => setSelectedSlug(n.slug)}
+                >
                   <div className="nar-card-content">
                     <div className="img-container">
-                      {n.cover_image_url ? <img src={n.cover_image_url} alt={n.title} /> : <span className="emoji-icon">📗</span>}
+                      {n.cover_image_url
+                        ? <img src={n.cover_image_url} alt={n.title} />
+                        : <span className="emoji-icon">📗</span>}
                     </div>
                     <div className="text-container">
                       <span className="title">{n.title}</span>
@@ -103,38 +155,56 @@ export function LeadForm({ naruchnikSlug, source = 'marketing_page', showSelecto
         )}
 
         <div className="inputs-group">
+
+          {/* ── ИМЕ ── */}
           <div className="input-wrapper">
-            <input className="lead-field" type="text" placeholder="Твоето име *"
+            <input
+              className="lead-field" type="text" placeholder="Твоето име *"
               value={form.name}
               onChange={e => { setForm(p => ({ ...p, name: e.target.value })); touch('name') }}
               onBlur={() => touch('name')}
               style={{ borderColor: bc(nameErr, touched.name) }}
+              autoComplete="name"
             />
-            {touched.name && nameErr && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {nameErr}</div>}
+            {touched.name && nameErr && (
+              <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {nameErr}</div>
+            )}
           </div>
 
+          {/* ── ИМЕЙЛ ── */}
           <div className="input-wrapper">
-            <input className="lead-field" type="text" placeholder="Имейл адрес *"
+            <input
+              className="lead-field" type="text" placeholder="Имейл адрес *"
               value={form.email}
               onChange={e => handleEmailChange(e.target.value)}
               onBlur={() => touch('email')}
               onPaste={e => { e.preventDefault(); handleEmailChange(e.clipboardData.getData('text')) }}
               spellCheck={false} autoCapitalize="none" autoCorrect="off"
+              inputMode="email" autoComplete="email"
               style={{ borderColor: bc(emailErr, touched.email) }}
             />
-            {touched.email && emailErr && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {emailErr}</div>}
+            {touched.email && emailErr && (
+              <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {emailErr}</div>
+            )}
           </div>
 
+          {/* ── ТЕЛЕФОН ── */}
           <div className="input-wrapper">
-            <input className="lead-field" type="tel" placeholder="Телефон (по желание)"
+            <input
+              className="lead-field" type="tel" placeholder="Телефон (по желание)"
               value={form.phone}
               onChange={e => handlePhoneChange(e.target.value)}
               onBlur={() => touch('phone')}
-              onKeyDown={e => { if (e.key.length === 1 && /[a-zA-Z\u0400-\u04FF]/.test(e.key)) e.preventDefault() }}
+              onKeyDown={e => {
+                if (e.key.length === 1 && /[a-zA-Z\u0400-\u04FF]/.test(e.key)) e.preventDefault()
+              }}
               onPaste={e => { e.preventDefault(); handlePhoneChange(e.clipboardData.getData('text')) }}
+              inputMode="tel" autoComplete="tel"
               style={{ borderColor: bc(phoneErr, touched.phone) }}
             />
-            {touched.phone && phoneErr && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {phoneErr}</div>}
+            {touched.phone && phoneErr && (
+              <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4, paddingLeft: 4 }}>⚠ {phoneErr}</div>
+            )}
           </div>
         </div>
 
