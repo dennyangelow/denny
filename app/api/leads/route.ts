@@ -36,6 +36,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Невалиден имейл', field: 'email' }, { status: 400 })
     }
 
+    // ── Директна защита — кирилски домейн (v18) ───────────────────────────────
+    // Хваща: садад@арбб.бр, test@тест.ком и всички кирилски домейни
+    // Работи независимо от validation.ts като втора линия на защита
+    const emailDomain = email.split('@')[1] || ''
+    if (/[а-яА-ЯёЁ]/.test(emailDomain)) {
+      return NextResponse.json({ error: 'Невалиден имейл адрес', field: 'email' }, { status: 400 })
+    }
+    // Домейнът трябва да е само латиница/цифри/тирета/точки
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9\-_.]*\.[a-zA-Z]{2,}$/.test(emailDomain)) {
+      return NextResponse.json({ error: 'Невалиден имейл адрес', field: 'email' }, { status: 400 })
+    }
+
+    // ── Директна защита — букви в телефон (v18) ───────────────────────────────
+    if (phone && /[а-яёА-ЯЁa-zA-Z]/.test(phone)) {
+      return NextResponse.json({ error: 'Телефонът трябва да съдържа само цифри', field: 'phone' }, { status: 400 })
+    }
+
     // ── Разширена сървърна валидация ──────────────────────────────────────────
     // Хваща disposable домейни, фалшиви patterns, невалидни телефони
     // Работи независимо от frontend — последна линия на защита

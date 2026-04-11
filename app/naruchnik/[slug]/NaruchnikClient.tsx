@@ -81,11 +81,11 @@ export default function NaruchnikClient({ nar, others }: Props) {
 
   const touch = (f: keyof typeof touched) => setTouched(t => ({ ...t, [f]: true }))
 
-  // ── Автоформатиране на телефон (08X XXX XXXX) ──────────────────────────────
+  // ── Телефонно поле ────────────────────────────────────────────────────────
+  // НЕ strip-ваме букви тук — оставяме validatePhone да ги хване и покаже грешка.
+  // Strip-ваме САМО очевидния junk (емоджи, специални символи) но не букви.
   const handlePhoneChange = (raw: string) => {
-    // Позволяваме: цифри, +, интервали, тирета, скоби
-    const clean = raw.replace(/[^0-9+\s\-().]/g, '')
-    setPhone(clean)
+    setPhone(raw)
   }
 
   const handleSubmit = async () => {
