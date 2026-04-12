@@ -33,14 +33,14 @@ export const NAV_ITEMS = [
   { id: 'analytics',    icon: '▲',  label: 'Аналитика'    },
   { id: 'orders',       icon: '◫',  label: 'Поръчки'      },
   { id: 'leads',        icon: '◉',  label: 'Email листа'  },
-  { id: 'content',      icon: '✦',  label: 'Продукти'   },
-  { id: 'marketing', label: 'Маркетинг', icon: '📣' },
+  { id: 'content',      icon: '✦',  label: 'Продукти'     },
+  { id: 'marketing',    icon: '📣', label: 'Маркетинг'    },
   { id: 'faq',          icon: '❓', label: 'FAQ'           },
   { id: 'testimonials', icon: '★',  label: 'Отзиви'       },
-  { id: 'naruchnik-seo', label: 'SEO Наръчници', icon: '🔍' },
-
   { id: 'settings',     icon: '◈',  label: 'Настройки'    },
 ] as const
+
+// ✅ naruchnik-seo е ПРЕМАХНАТ от sidebar — SEO е subtab вътре в ContentTab → Наръчници
 
 export type TabId = typeof NAV_ITEMS[number]['id']
 
