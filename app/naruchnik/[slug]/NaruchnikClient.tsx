@@ -176,7 +176,7 @@ export default function NaruchnikClient({
         .testi-wrap{position:relative;overflow:hidden;min-height:110px}
         .testi{animation:up .35s ease both}
         .testi-quote{font-family:'Lora',serif;font-size:14px;font-style:italic;color:#374151;line-height:1.75;margin-bottom:14px;position:relative;padding-left:18px}
-        .testi-quote::before{content:'\201C';position:absolute;left:0;top:-3px;font-size:32px;color:#d1fae5;font-family:'Lora',serif;line-height:1}
+        .testi-quote::before{content:'\\201C';position:absolute;left:0;top:-3px;font-size:32px;color:#d1fae5;font-family:'Lora',serif;line-height:1}
         .testi-author{display:flex;align-items:center;gap:10px}
         .testi-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#16a34a,#0d6b30);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff;flex-shrink:0}
         .testi-name{font-size:13px;font-weight:700;color:#111}
