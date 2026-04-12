@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Безплатна Giveaway Система — Тегли Победители от Facebook, TikTok, Instagram | dennyangelow.com</title>
+<meta name="description" content="Безплатна онлайн система за теглене на победители от коментари във Facebook, TikTok и Instagram. Автоматично събиране на участници и произволно теглене. Без регистрация."/>
+<meta name="keywords" content="giveaway система, теглене на победители, facebook коментари, tiktok giveaway, instagram giveaway, случайно теглене, конкурс онлайн, жребий"/>
+<meta name="author" content="Denny Angelow — dennyangelow.com"/>
+<meta property="og:title" content="Безплатна Giveaway Система — dennyangelow.com"/>
+<meta property="og:description" content="Тегли победители от Facebook, TikTok и Instagram за секунди. Безплатно, без регистрация."/>
+<meta property="og:type" content="website"/>
+<meta property="og:url" content="https://dennyangelow.com/giveaway"/>
+<meta property="og:image" content="https://dennyangelow.com/giveaway-og.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Безплатна Giveaway Система"/>
+<meta name="twitter:description" content="Тегли победители от Facebook, TikTok и Instagram за секунди."/>
+<link rel="canonical" href="https://dennyangelow.com/giveaway"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#08090a;--s1:#111214;--s2:#18191c;--s3:#202226;--s4:#28292e;
+  --b1:rgba(255,255,255,0.06);--b2:rgba(255,255,255,0.1);--b3:rgba(255,255,255,0.18);
+  --accent:#b8f04a;--accent2:#d4ff6e;
+  --ad:rgba(184,240,74,0.1);--ad2:rgba(184,240,74,0.05);--ad3:rgba(184,240,74,0.18);
+  --red:rgba(240,80,80,0.1);--redb:rgba(240,80,80,0.25);--redt:#e07070;
+  --text:#eeeef0;--t2:#9a9ba0;--t3:#55565a;
+  --r:14px;--rs:8px;
+  --hf:'Syne',sans-serif;--bf:'DM Sans',sans-serif;
+  --shadow:0 4px 24px rgba(0,0,0,0.4);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text);font-family:var(--bf);font-size:15px;line-height:1.65;min-height:100vh;overflow-x:hidden}
+
+/* NAV */
+nav{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:0 2rem;height:60px;background:rgba(8,9,10,0.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--b1)}
+.nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.nav-mark{width:32px;height:32px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--hf);font-size:13px;font-weight:800;color:#000;flex-shrink:0}
+.nav-txt{font-family:var(--hf);font-size:15px;font-weight:600;color:var(--text)}
+.nav-pill{font-size:11px;padding:3px 10px;border-radius:20px;background:var(--ad);color:var(--accent);border:1px solid rgba(184,240,74,0.2);font-weight:500;white-space:nowrap}
+@media(max-width:500px){.nav-txt{display:none}}
+
+/* HERO */
+.hero{padding:4.5rem 2rem 2.5rem;text-align:center;max-width:680px;margin:0 auto}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--accent);margin-bottom:1.5rem;padding:6px 14px;border-radius:20px;background:var(--ad);border:1px solid rgba(184,240,74,0.2)}
+.hero h1{font-family:var(--hf);font-size:clamp(1.9rem,5vw,3rem);font-weight:800;line-height:1.1;letter-spacing:-1px;margin-bottom:1.25rem}
+.hero h1 em{color:var(--accent);font-style:normal}
+.hero p{font-size:16px;color:var(--t2);max-width:460px;margin:0 auto 2rem;line-height:1.75}
+.hero-stats{display:flex;justify-content:center;gap:2.5rem;flex-wrap:wrap;padding-bottom:2.5rem;border-bottom:1px solid var(--b1);margin-bottom:0}
+.hs{text-align:center}
+.hs-num{font-family:var(--hf);font-size:26px;font-weight:800;color:var(--accent);display:block}
+.hs-lbl{font-size:12px;color:var(--t3);margin-top:2px}
+
+/* MAIN */
+.main{max-width:860px;margin:0 auto;padding:2rem 1.5rem 5rem}
+
+/* TABS */
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:1.75rem;background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:5px}
+.tab{padding:11px 8px;border-radius:calc(var(--r) - 4px);border:1px solid transparent;background:none;cursor:pointer;font-family:var(--bf);font-size:13px;color:var(--t2);text-align:center;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.active{background:var(--ad);color:var(--accent);font-weight:500;border-color:rgba(184,240,74,0.15)}
+.tab.done .tn{background:#22c55e;color:#fff}
+.tn{width:20px;height:20px;border-radius:50%;background:var(--s3);color:var(--t2);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:var(--hf);flex-shrink:0;transition:all 0.25s}
+.tab.active .tn{background:var(--accent);color:#000}
+@media(max-width:580px){.tab{flex-direction:column;gap:3px;padding:9px 4px;font-size:11px}}
+
+/* PANELS */
+.panel{display:none;animation:fadeIn 0.25s ease}.panel.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* CARD */
+.card{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:1.5rem;margin-bottom:1rem}
+.ctitle{font-family:var(--hf);font-size:16px;font-weight:600;color:var(--text);margin-bottom:1.25rem;display:flex;align-items:center;gap:8px}
+
+/* PLATFORM GRID */
+.pg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:1.25rem}
+@media(max-width:560px){.pg{grid-template-columns:repeat(2,1fr)}}
+.pb{padding:14px 8px;border-radius:10px;border:1px solid var(--b1);background:var(--s2);cursor:pointer;text-align:center;color:var(--t2);font-size:12px;font-family:var(--bf);transition:all 0.15s;position:relative}
+.pb:hover{border-color:var(--b2);color:var(--text);background:var(--s3)}
+.pb.active{border-color:rgba(184,240,74,0.4);background:var(--ad);color:var(--accent)}
+.pi{font-size:22px;display:block;margin-bottom:6px}
+
+/* INSTRUCTIONS */
+.instr{display:none}.instr.active{display:block}
+.sol{background:var(--s2);border-radius:var(--rs);padding:1rem 1.25rem;margin-bottom:1rem;list-style:none;counter-reset:s}
+.sol li{counter-increment:s;padding:9px 0 9px 2.5rem;position:relative;color:var(--t2);font-size:14px;border-bottom:1px solid var(--b1);line-height:1.5}
+.sol li:last-child{border:none}
+.sol li::before{content:counter(s);position:absolute;left:0;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;background:var(--ad);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:var(--hf)}
+.sol li b{color:var(--text);font-weight:500}
+.sol li kbd{background:var(--s3);border:1px solid var(--b2);border-radius:4px;padding:1px 6px;font-size:12px;font-family:monospace;color:var(--text)}
+
+/* CODE BLOCK */
+.cw{position:relative;margin-bottom:10px}
+.cb{background:#0b0e14;border:1px solid rgba(255,255,255,0.07);border-radius:var(--rs);padding:14px;padding-right:100px;font-family:'Courier New',monospace;font-size:12px;color:#a8ff78;line-height:1.7;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto}
+.cpb{position:absolute;top:8px;right:8px;padding:6px 12px;font-size:11px;font-family:var(--bf);border:1px solid var(--b2);border-radius:6px;background:var(--s2);color:var(--t2);cursor:pointer;transition:all 0.15s;white-space:nowrap;font-weight:500}
+.cpb:hover{color:var(--accent);border-color:rgba(184,240,74,0.3)}
+.cpb.ok{color:var(--accent);border-color:rgba(184,240,74,0.4);background:var(--ad)}
+.hint{font-size:12px;color:var(--t3);line-height:1.6;margin-top:8px;padding:8px 12px;background:var(--s2);border-radius:var(--rs);border-left:2px solid var(--b3)}
+.hint b{color:var(--t2)}
+
+/* LIVE PROGRESS (shown during scraping) */
+.prog-box{display:none;margin-top:10px;background:var(--s2);border:1px solid rgba(184,240,74,0.15);border-radius:var(--rs);padding:12px 14px}
+.prog-box.show{display:block}
+.prog-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.prog-label{font-size:13px;color:var(--t2)}
+.prog-count{font-family:var(--hf);font-size:16px;font-weight:700;color:var(--accent)}
+.prog-bar-bg{height:4px;border-radius:2px;background:var(--s3);overflow:hidden}
+.prog-bar-fill{height:100%;border-radius:2px;background:var(--accent);width:0%;transition:width 0.5s ease}
+
+/* VIDEO SOURCES */
+.sl{margin-bottom:10px}
+.vs{background:var(--s2);border:1px solid var(--b1);border-radius:10px;margin-bottom:8px;overflow:hidden;transition:border-color 0.2s}
+.vs:focus-within{border-color:var(--b2)}
+.vs.has-data{border-color:rgba(184,240,74,0.2)}
+.vsh{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--b1)}
+.vsn{width:26px;height:26px;border-radius:50%;background:var(--ad);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:var(--hf);flex-shrink:0}
+.vsl{flex:1;font-size:13px;font-weight:500;color:var(--text);font-family:var(--hf);background:none;border:none;outline:none}
+.vsl::placeholder{color:var(--t3)}
+.vsc{font-size:12px;color:var(--accent);background:var(--ad);padding:2px 10px;border-radius:20px;font-weight:600;white-space:nowrap;min-width:50px;text-align:center}
+.vsc.zero{color:var(--t3);background:var(--s3)}
+.vsd{background:none;border:none;color:var(--t3);cursor:pointer;font-size:20px;line-height:1;padding:0 2px;transition:color 0.15s}
+.vsd:hover{color:#e05555}
+.vsta{width:100%;min-height:85px;background:transparent;border:none;padding:12px 14px;font-family:var(--bf);font-size:13px;color:var(--text);resize:vertical;line-height:1.6}
+.vsta:focus{outline:none}
+.vsta::placeholder{color:var(--t3)}
+.addbtn{width:100%;padding:11px;border:1px dashed var(--b2);border-radius:var(--rs);background:none;color:var(--t2);cursor:pointer;font-family:var(--bf);font-size:13px;transition:all 0.15s}
+.addbtn:hover{border-color:rgba(184,240,74,0.3);color:var(--accent);background:var(--ad2)}
+
+/* TOTAL BAR */
+.tot{display:flex;align-items:center;justify-content:space-between;background:var(--ad2);border:1px solid rgba(184,240,74,0.12);border-radius:var(--rs);padding:13px 16px;margin:12px 0}
+.tot-left{font-size:13px;color:var(--t2)}
+.tot-left small{display:block;font-size:11px;color:var(--t3);margin-top:2px}
+.tot strong{font-family:var(--hf);font-size:26px;font-weight:800;color:var(--accent)}
+
+/* SETTINGS */
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:480px){.sg{grid-template-columns:1fr}}
+.si{background:var(--s2);border:1px solid var(--b1);border-radius:var(--rs);padding:14px;display:flex;align-items:center;gap:12px}
+.sl2{flex:1;font-size:13px;color:var(--t2);line-height:1.4}
+.sl2 strong{display:block;font-size:14px;color:var(--text);font-weight:500;margin-bottom:3px}
+input[type=number].ni{width:68px;background:var(--s1);border:1px solid var(--b2);border-radius:var(--rs);color:var(--text);font-family:var(--hf);font-size:20px;font-weight:700;text-align:center;padding:7px}
+input[type=number].ni:focus{outline:none;border-color:rgba(184,240,74,0.4)}
+input[type=text].ti{background:var(--s1);border:1px solid var(--b2);border-radius:var(--rs);color:var(--text);padding:8px 10px;font-family:var(--bf);font-size:13px;width:150px}
+input[type=text].ti:focus{outline:none;border-color:rgba(184,240,74,0.4)}
+input[type=text].ti::placeholder{color:var(--t3)}
+
+/* TOGGLE */
+.tog{position:relative;width:42px;height:24px;flex-shrink:0}
+.tog input{opacity:0;width:0;height:0}
+.togs{position:absolute;cursor:pointer;inset:0;background:var(--s3);border:1px solid var(--b2);border-radius:24px;transition:all 0.2s}
+.togs::before{content:'';position:absolute;width:18px;height:18px;left:2px;bottom:2px;background:var(--t3);border-radius:50%;transition:all 0.2s}
+.tog input:checked+.togs{background:var(--ad);border-color:rgba(184,240,74,0.4)}
+.tog input:checked+.togs::before{transform:translateX(18px);background:var(--accent)}
+
+/* RUN BUTTON */
+.rbtn{width:100%;padding:17px;font-family:var(--hf);font-size:16px;font-weight:700;background:var(--accent);color:#000;border:none;border-radius:var(--r);cursor:pointer;transition:all 0.15s;margin-top:6px;letter-spacing:0.3px;display:flex;align-items:center;justify-content:center;gap:10px}
+.rbtn:hover{background:var(--accent2);transform:translateY(-1px);box-shadow:0 8px 30px rgba(184,240,74,0.25)}
+.rbtn:active{transform:translateY(0)}
+.rbtn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+
+/* ERROR */
+.errb{background:var(--red);border:1px solid var(--redb);border-radius:var(--rs);padding:11px 14px;font-size:13px;color:var(--redt);margin-bottom:12px;display:none}
+
+/* DRAW ANIMATION OVERLAY */
+.draw-overlay{position:fixed;inset:0;background:rgba(8,9,10,0.92);z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+.draw-overlay.show{display:flex}
+.drum{font-family:var(--hf);font-size:clamp(1.4rem,4vw,2.2rem);font-weight:800;color:var(--accent);text-align:center;padding:2rem;max-width:600px;min-height:80px;display:flex;align-items:center;justify-content:center;letter-spacing:-0.5px}
+.drum-label{font-size:14px;color:var(--t2);margin-bottom:1rem;font-family:var(--hf);letter-spacing:1px;text-transform:uppercase}
+.draw-progress{width:300px;height:3px;background:var(--s3);border-radius:2px;overflow:hidden;margin-top:1.5rem}
+.draw-prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width 0.15s ease}
+.draw-sub{font-size:13px;color:var(--t3);margin-top:1rem}
+
+/* STATS */
+.sr{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.5rem}
+.sc{background:var(--s2);border:1px solid var(--b1);border-radius:var(--rs);padding:16px;text-align:center}
+.sn{font-family:var(--hf);font-size:30px;font-weight:800;color:var(--accent);display:block;line-height:1}
+.sl3{font-size:12px;color:var(--t3);margin-top:4px}
+
+/* WINNERS */
+.wl{}
+.wi{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--s1);border:1px solid var(--b1);border-radius:10px;margin-bottom:8px;opacity:0;transform:translateX(-18px);transition:all 0.35s cubic-bezier(0.34,1.2,0.64,1)}
+.wi.show{opacity:1;transform:translateX(0)}
+.wi:hover{border-color:var(--b2);background:var(--s2)}
+.wr{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--hf);font-size:14px;font-weight:700;flex-shrink:0}
+.r1{background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.3);color:#ffd700}
+.r2{background:rgba(200,200,200,0.1);border:1px solid rgba(200,200,200,0.25);color:#c0c0c0}
+.r3{background:rgba(205,127,50,0.1);border:1px solid rgba(205,127,50,0.25);color:#cd7f32}
+.rn{background:var(--ad);border:1px solid rgba(184,240,74,0.2);color:var(--accent)}
+.wi-inf{flex:1;min-width:0}
+.wname{font-family:var(--hf);font-size:15px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsub{font-size:12px;color:var(--t3);margin-top:2px}
+.wprz{font-size:12px;color:var(--accent);background:var(--ad);padding:3px 10px;border-radius:20px;white-space:nowrap;border:1px solid rgba(184,240,74,0.15)}
+
+/* HISTORY */
+.hist-section{margin-top:1.25rem}
+.hist-title{font-size:13px;color:var(--t3);margin-bottom:8px;font-family:var(--hf);letter-spacing:0.5px}
+.hist-list{display:flex;flex-direction:column;gap:6px}
+.hist-item{background:var(--s2);border:1px solid var(--b1);border-radius:var(--rs);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:all 0.15s}
+.hist-item:hover{border-color:var(--b2)}
+.hist-item-left{font-size:13px;color:var(--t2)}
+.hist-item-left b{color:var(--text);font-weight:500}
+.hist-restore{font-size:11px;color:var(--accent);background:var(--ad);padding:2px 8px;border-radius:20px}
+
+/* BOTTOM BUTTONS */
+.bts{display:flex;gap:8px;flex-wrap:wrap;margin-top:1rem}
+.ob{padding:10px 18px;font-family:var(--bf);font-size:13px;border:1px solid var(--b2);border-radius:var(--rs);background:none;color:var(--t2);cursor:pointer;transition:all 0.15s}
+.ob:hover{border-color:rgba(184,240,74,0.3);color:var(--accent)}
+.ob.pr{background:var(--ad);color:var(--accent);border-color:rgba(184,240,74,0.2)}
+
+/* NAV ROW */
+.nr{display:flex;justify-content:space-between;margin-top:1.25rem}
+.nb{padding:10px 20px;font-family:var(--bf);font-size:14px;border:1px solid var(--b2);border-radius:var(--rs);background:none;color:var(--t2);cursor:pointer;transition:all 0.15s}
+.nb:hover{color:var(--text)}
+.nb.p{background:var(--ad);color:var(--accent);border-color:rgba(184,240,74,0.2)}
+.nb.p:hover{background:var(--ad3)}
+
+/* CONFETTI */
+.cf{position:fixed;pointer-events:none;z-index:9999;border-radius:2px;animation:cff linear forwards}
+@keyframes cff{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(105vh) rotate(540deg);opacity:0}}
+
+/* SEO SECTION */
+.seo{max-width:860px;margin:0 auto;padding:4rem 1.5rem 2rem;border-top:1px solid var(--b1)}
+.seo h2{font-family:var(--hf);font-size:22px;font-weight:700;color:var(--text);margin-bottom:1rem}
+.seo h3{font-family:var(--hf);font-size:16px;font-weight:600;color:var(--text);margin:1.5rem 0 0.5rem}
+.seo p{font-size:14px;color:var(--t2);line-height:1.8;margin-bottom:0.75rem}
+.seog{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:1.5rem 0}
+.seoc{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:1.25rem}
+.seoc h3{margin:0 0 6px;font-size:14px}
+.seoc p{font-size:13px;margin:0}
+.faq{margin-top:2rem}
+.faq-item{border-bottom:1px solid var(--b1);padding:1rem 0}
+.faq-item:last-child{border:none}
+.faq-q{font-family:var(--hf);font-size:15px;font-weight:600;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none}
+.faq-q::after{content:'+';font-size:20px;color:var(--accent);font-weight:300;transition:transform 0.2s;flex-shrink:0;margin-left:1rem}
+.faq-item.open .faq-q::after{transform:rotate(45deg)}
+.faq-a{font-size:14px;color:var(--t2);line-height:1.8;max-height:0;overflow:hidden;transition:max-height 0.3s ease,padding 0.3s ease}
+.faq-item.open .faq-a{max-height:300px;padding-top:0.75rem}
+
+/* FOOTER */
+footer{text-align:center;padding:2rem;border-top:1px solid var(--b1);font-size:13px;color:var(--t3)}
+footer a{color:var(--t2);text-decoration:none}
+footer a:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<!-- DRAW OVERLAY — барабан анимация -->
+<div class="draw-overlay" id="overlay">
+  <div class="drum-label">Теглене на победители</div>
+  <div class="drum" id="drum">...</div>
+  <div class="draw-progress"><div class="draw-prog-fill" id="dpf"></div></div>
+  <div class="draw-sub" id="dsub">Разбъркване на участниците...</div>
+</div>
+
+<nav>
+  <a class="nav-logo" href="https://dennyangelow.com">
+    <div class="nav-mark">DA</div>
+    <span class="nav-txt">dennyangelow.com</span>
+  </a>
+  <span class="nav-pill">Безплатна Giveaway Система</span>
+</nav>
+
+<header class="hero">
+  <div class="eyebrow">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#b8f04a" stroke-width="1.5"/><path d="M4.5 7l2 2 3-3" stroke="#b8f04a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Безплатно &middot; Без регистрация &middot; Работи веднага
+  </div>
+  <h1>Тегли победители от <em>Social Media</em> за секунди</h1>
+  <p>Автоматично събира коментари от Facebook, TikTok и Instagram и тегли победителите честно и прозрачно.</p>
+  <div class="hero-stats">
+    <div class="hs"><span class="hs-num">3</span><div class="hs-lbl">Платформи</div></div>
+    <div class="hs"><span class="hs-num">100%</span><div class="hs-lbl">Безплатно</div></div>
+    <div class="hs"><span class="hs-num">&lt;2 мин</span><div class="hs-lbl">За теглене</div></div>
+    <div class="hs"><span class="hs-num">∞</span><div class="hs-lbl">Участници</div></div>
+  </div>
+</header>
+
+<main class="main">
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" id="t1" onclick="goTo(1)"><span class="tn">1</span><span>Извади коментарите</span></button>
+    <button class="tab" id="t2" onclick="goTo(2)"><span class="tn">2</span><span>Добави участници</span></button>
+    <button class="tab" id="t3" onclick="goTo(3)"><span class="tn">3</span><span>Победители</span></button>
+  </div>
+
+  <!-- ══════ PANEL 1 ══════ -->
+  <div class="panel active" id="p1">
+    <div class="card">
+      <div class="ctitle">Избери платформа</div>
+      <div class="pg">
+        <button class="pb active" id="pb-fb" onclick="sp('fb')"><span class="pi">📘</span>Facebook</button>
+        <button class="pb" id="pb-tt" onclick="sp('tt')"><span class="pi">🎵</span>TikTok</button>
+        <button class="pb" id="pb-ig" onclick="sp('ig')"><span class="pi">📷</span>Instagram</button>
+        <button class="pb" id="pb-yt" onclick="sp('yt')"><span class="pi">▶️</span>YouTube</button>
+      </div>
+
+      <!-- FACEBOOK -->
+      <div class="instr active" id="i-fb">
+        <ol class="sol">
+          <li>Отвори видеото в <b>Chrome</b> или <b>Edge</b> на компютър</li>
+          <li>Кликни <b>"All comments"</b> за да се заредят всички коментари</li>
+          <li>Натисни <kbd>F12</kbd> &rarr; кликни на таб <b>Console</b></li>
+          <li>Напиши <kbd>allow pasting</kbd> и натисни Enter (само веднъж)</li>
+          <li>Кликни <b>"Копирай кода"</b> по-долу, постави го (<kbd>Ctrl+V</kbd>) в конзолата и натисни Enter</li>
+          <li>Изчакай <b>"✅ Готово!"</b> &rarr; след това <kbd>Ctrl+V</kbd> в стъпка 2</li>
+        </ol>
+        <div class="cw">
+          <button class="cpb" onclick="cc('c-fb',this)">Копирай кода</button>
+          <div class="cb" id="c-fb">(async()=>{let a=new Set(),p=0,t=0;const g=()=>{['div[role="article"] a span[dir="auto"]','[data-testid="comment"] a span','[aria-label] span[dir="auto"]'].forEach(s=>document.querySelectorAll(s).forEach(e=>{let v=e.innerText.trim();if(v&&v.length>1&&v.length<80&&!v.includes('http')&&!v.match(/^\d+[smhd]$/))a.add(v)}))};while(t<22){g();window.scrollBy(0,1400);await new Promise(r=>setTimeout(r,1100));a.size===p?t++:(p=a.size,t=0);console.log('⏳ '+a.size)}g();let el=document.createElement('textarea');el.value=[...a].join('\n');document.body.appendChild(el);el.select();document.execCommand('copy');el.remove();console.log('%c✅ Готово! Копирани '+a.size+' участника — постави с Ctrl+V в системата!','color:#b8f04a;font-size:14px;font-weight:bold')})()</div>
+        </div>
+        <p class="hint"><b>Забележка:</b> Кодът скролва страницата автоматично и събира всички коментари (~20-40 сек). Не затваряй конзолата докато върви.</p>
+      </div>
+
+      <!-- TIKTOK -->
+      <div class="instr" id="i-tt">
+        <ol class="sol">
+          <li>Отвори видеото на <b>tiktok.com</b> в браузъра на компютър</li>
+          <li>Натисни <kbd>F12</kbd> &rarr; таб <b>Console</b></li>
+          <li>Ако видиш предупреждение — напиши <kbd>allow pasting</kbd> + Enter</li>
+          <li>Кликни <b>"Копирай кода"</b>, постави го и натисни Enter</li>
+          <li>Изчакай <b>"✅ Готово!"</b> &rarr; след това <kbd>Ctrl+V</kbd> в стъпка 2</li>
+        </ol>
+        <div class="cw">
+          <button class="cpb" onclick="cc('c-tt',this)">Копирай кода</button>
+          <div class="cb" id="c-tt">(async()=>{let a=new Set(),p=0,t=0;const g=()=>{['[data-e2e="comment-username-1"]','[class*="UserName"]','[class*="author-uniqueId"]'].forEach(s=>document.querySelectorAll(s).forEach(e=>{let v=e.innerText.trim();if(v&&v.length>1&&v.length<60)a.add(v)}));document.querySelectorAll('a[href*="/@"]').forEach(e=>{let m=(e.getAttribute('href')||'').match(/\/@([^/?#]+)/);if(m&&m[1]&&m[1].length>1)a.add(m[1])})};const box=document.querySelector('[class*="CommentListContainer"],[class*="comment-list"],[data-e2e="comment-list"]');while(t<28){g();box?box.scrollBy(0,2500):window.scrollBy(0,2500);await new Promise(r=>setTimeout(r,900));a.size===p?t++:(p=a.size,t=0);console.log('⏳ '+a.size)}g();let el=document.createElement('textarea');el.value=[...a].join('\n');document.body.appendChild(el);el.select();document.execCommand('copy');el.remove();console.log('%c✅ Готово! Копирани '+a.size+' участника — постави с Ctrl+V в системата!','color:#b8f04a;font-size:14px;font-weight:bold')})()</div>
+        </div>
+        <p class="hint"><b>Важно:</b> TikTok зарежда коментарите бавно. Кодът автоматично скролва панела с коментари и събира всички потребителски имена включително replies.</p>
+      </div>
+
+      <!-- INSTAGRAM -->
+      <div class="instr" id="i-ig">
+        <ol class="sol">
+          <li>Отвори Reel/пост на <b>instagram.com</b> в браузъра</li>
+          <li>Кликни <b>"Виж всички коментари"</b> ако има такъв бутон</li>
+          <li>Натисни <kbd>F12</kbd> &rarr; таб <b>Console</b></li>
+          <li>Напиши <kbd>allow pasting</kbd> + Enter ако поиска</li>
+          <li>Копирай кода, постави и натисни Enter &rarr; изчакай <b>"✅ Готово!"</b></li>
+        </ol>
+        <div class="cw">
+          <button class="cpb" onclick="cc('c-ig',this)">Копирай кода</button>
+          <div class="cb" id="c-ig">(async()=>{let a=new Set(),p=0,t=0;const g=()=>{['span._aacl._aaco._aacu._aacx._aad7._aade','._a9zc','h3._aacl','span[class*="x1lliihq"]','div._a9zr a > div > span'].forEach(s=>document.querySelectorAll(s).forEach(e=>{let v=e.innerText.trim();if(v&&v.length>1&&v.length<50&&!v.includes(' ')&&!/^\d+[wdhm]$/.test(v)&&!['Like','Reply','More','Отговор','Харесай','View'].includes(v))a.add(v)}))};const boxes=[...document.querySelectorAll('ul._a9z6,div._a9-z,div._ab8w,div[style*="overflow-y"]')];while(t<28){g();boxes.forEach(b=>b.scrollBy(0,3000));window.scrollBy(0,1500);await new Promise(r=>setTimeout(r,1400));a.size===p?t++:(p=a.size,t=0);console.log('⏳ '+a.size)}g();let el=document.createElement('textarea');el.value=[...a].join('\n');document.body.appendChild(el);el.select();document.execCommand('copy');el.remove();console.log('%c✅ Готово! Копирани '+a.size+' участника — постави с Ctrl+V в системата!','color:#b8f04a;font-size:14px;font-weight:bold')})()</div>
+        </div>
+        <p class="hint"><b>Забележка:</b> Instagram е най-рестриктивен. Ако резултатите са малко — опитай да отвориш поста директно (не в popup изглед), и изчакай да се заредят всички коментари преди да пуснеш кода.</p>
+      </div>
+
+      <!-- YOUTUBE -->
+      <div class="instr" id="i-yt">
+        <ol class="sol">
+          <li>Отвори видеото в <b>YouTube</b> в браузъра</li>
+          <li>Скролни надолу докато се появят коментарите</li>
+          <li>Натисни <kbd>F12</kbd> &rarr; таб <b>Console</b></li>
+          <li>Копирай кода, постави и натисни Enter</li>
+        </ol>
+        <div class="cw">
+          <button class="cpb" onclick="cc('c-yt',this)">Копирай кода</button>
+          <div class="cb" id="c-yt">(async()=>{let a=new Set(),p=0,t=0;const g=()=>document.querySelectorAll('#author-text span,#comment-header #author-text,ytd-comment-renderer #author-text').forEach(e=>{let v=e.innerText.trim();if(v)a.add(v)});while(t<20){g();window.scrollBy(0,2000);await new Promise(r=>setTimeout(r,1500));a.size===p?t++:(p=a.size,t=0);console.log('⏳ '+a.size)}g();let el=document.createElement('textarea');el.value=[...a].join('\n');document.body.appendChild(el);el.select();document.execCommand('copy');el.remove();console.log('%c✅ Готово! Копирани '+a.size+' участника!','color:#b8f04a;font-size:14px;font-weight:bold')})()</div>
+        </div>
+        <p class="hint">Кодът скролва и събира автоматично. За видеа с много коментари изчакай докато спре да добавя нови.</p>
+      </div>
+    </div>
+    <div class="nr"><span></span><button class="nb p" onclick="goTo(2)">Следваща стъпка &rarr;</button></div>
+  </div>
+
+  <!-- ══════ PANEL 2 ══════ -->
+  <div class="panel" id="p2">
+    <div class="card">
+      <div class="ctitle">Участници по видео / платформа</div>
+      <p style="font-size:13px;color:var(--t2);margin-bottom:1.25rem">Добави отделно поле за всяко видео. Системата обединява всички и премахва дублиранията автоматично.</p>
+      <div class="sl" id="srcs"></div>
+      <button class="addbtn" onclick="addS()">+ Добави видео / платформа</button>
+      <div class="tot">
+        <div class="tot-left">Общо уникални участника<small id="dup-note"></small></div>
+        <strong id="total">0</strong>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ctitle">Настройки на тегленето</div>
+      <div class="sg">
+        <div class="si"><div class="sl2"><strong>Брой победители</strong>Колко да бъдат изтеглени</div><input type="number" class="ni" id="nw" value="10" min="1" max="9999"/></div>
+        <div class="si"><div class="sl2"><strong>Без повторения</strong>1 шанс на участник</div><label class="tog"><input type="checkbox" id="nd" checked/><span class="togs"></span></label></div>
+        <div class="si" style="grid-column:1/-1"><div class="sl2"><strong>Награда</strong>Показва се до всеки победител</div><input type="text" class="ti" id="prize" placeholder="напр. 1 бутилка Atlas Terra NITRO"/></div>
+      </div>
+    </div>
+    <div class="errb" id="err"></div>
+    <button class="rbtn" onclick="startDraw()" id="drawbtn">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2l2.4 5.4L18 8.6l-4 3.9.94 5.5L10 15.4l-4.94 2.6.94-5.5-4-3.9 5.6-.8L10 2z" fill="currentColor"/></svg>
+      Тегли победителите
+    </button>
+    <div class="nr"><button class="nb" onclick="goTo(1)">&larr; Назад</button><span></span></div>
+  </div>
+
+  <!-- ══════ PANEL 3 ══════ -->
+  <div class="panel" id="p3">
+    <div class="sr">
+      <div class="sc"><span class="sn" id="s-t">0</span><div class="sl3">Участника</div></div>
+      <div class="sc"><span class="sn" id="s-w">0</span><div class="sl3">Победители</div></div>
+      <div class="sc"><span class="sn" id="s-p">0%</span><div class="sl3">Шанс за победа</div></div>
+    </div>
+    <div class="wl" id="wlist"></div>
+    <div class="bts">
+      <button class="ob pr" onclick="startDraw()">&#8635; Тегли отново</button>
+      <button class="ob" id="cpwbtn" onclick="cpW()">&#8663; Копирай победителите</button>
+      <button class="ob" onclick="shareW()">&#8679; Сподели</button>
+      <button class="ob" onclick="reset()">＋ Ново теглене</button>
+    </div>
+    <div class="hist-section" id="hist-section" style="display:none">
+      <div class="hist-title">ПРЕДИШНИ ТЕГЛАНИЯ</div>
+      <div class="hist-list" id="hist-list"></div>
+    </div>
+  </div>
+</main>
+
+<!-- SEO + FAQ -->
+<section class="seo">
+  <h2>Как работи безплатната Giveaway система?</h2>
+  <p>Тази безплатна онлайн система за теглене на победители е създадена от <a href="https://dennyangelow.com">Denny Angelow</a> за организаторите на конкурси в социалните мрежи. Без регистрация, без такси — просто отваряш видеото, пускаш кода в браузъра и системата събира всички участници автоматично.</p>
+  <div class="seog">
+    <div class="seoc"><h3>📘 Facebook Giveaway</h3><p>Събира всички коментари от Facebook видео или пост автоматично с авто-скролване.</p></div>
+    <div class="seoc"><h3>🎵 TikTok Giveaway</h3><p>Извлича потребителските имена и replies от TikTok видео коментари.</p></div>
+    <div class="seoc"><h3>📷 Instagram Giveaway</h3><p>Събира участниците от коментари на Instagram Reel или пост.</p></div>
+    <div class="seoc"><h3>🎲 Честно теглене</h3><p>Fisher-Yates алгоритъм — всеки участник има абсолютно равен шанс.</p></div>
+  </div>
+  <h3>Защо да използваш тази система за теглене на победители?</h3>
+  <p>Организирането на giveaway в социалните мрежи е лесно, но теглането на честни победители от стотици коментари е досадно. Тази система решава проблема — copy-paste на код в конзолата, изчакваш 30 секунди и имаш всички участници готови за теглене. Можеш да добавяш участници от няколко видеа едновременно.</p>
+
+  <div class="faq">
+    <h2 style="margin-bottom:1rem">Често задавани въпроси</h2>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">Безплатна ли е системата?</div>
+      <div class="faq-a">Да, напълно безплатна е. Без регистрация, без скрити такси. Просто отвори страницата и тегли.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">Безопасно ли е да пускам кода в конзолата?</div>
+      <div class="faq-a">Кодът само чете видимите имена от страницата и ги копира в клипборда. Не изпраща нищо никъде, не влиза в акаунта ти и не събира лични данни. Можеш да прегледаш кода преди да го пуснеш.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">Защо не се събират всички коментари?</div>
+      <div class="faq-a">Facebook, TikTok и Instagram зареждат коментарите постепенно при скролване. Кодът скролва автоматично, но понякога платформите блокират зареждането след определен брой. В такъв случай резултатите са максималния достъпен брой.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">Мога ли да тегля от няколко видеа едновременно?</div>
+      <div class="faq-a">Да! Добави отделно поле за всяко видео в Стъпка 2. Системата автоматично обединява всички участници и премахва дублиранията — ако един човек е коментирал на 3 видеа, влиза само веднъж.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">Как работи алгоритъмът за теглене?</div>
+      <div class="faq-a">Използваме Fisher-Yates алгоритъм с Math.random() за разбъркване. Всеки участник има математически равен шанс за победа. Теглото се случва локално в браузъра — никакви данни не се изпращат към сървър.</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Направено от <a href="https://dennyangelow.com">Denny Angelow</a> &middot; Atlas Agro Science &middot; <a href="https://dennyangelow.com">dennyangelow.com</a></p>
+  <p style="margin-top:6px;font-size:12px">Безплатна система за теглене на победители от Facebook, TikTok и Instagram</p>
+</footer>
+
+<!-- SCHEMA -->
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@graph":[
+    {
+      "@type":"WebApplication",
+      "name":"Giveaway система — dennyangelow.com",
+      "description":"Безплатна система за теглене на победители от коментари във Facebook, TikTok и Instagram",
+      "url":"https://dennyangelow.com/giveaway",
+      "applicationCategory":"UtilitiesApplication",
+      "operatingSystem":"Any",
+      "offers":{"@type":"Offer","price":"0","priceCurrency":"BGN"},
+      "author":{"@type":"Person","name":"Denny Angelow","url":"https://dennyangelow.com"}
+    },
+    {
+      "@type":"FAQPage",
+      "mainEntity":[
+        {"@type":"Question","name":"Безплатна ли е системата?","acceptedAnswer":{"@type":"Answer","text":"Да, напълно безплатна е. Без регистрация, без скрити такси."}},
+        {"@type":"Question","name":"Безопасно ли е да пускам кода в конзолата?","acceptedAnswer":{"@type":"Answer","text":"Кодът само чете видимите имена от страницата. Не изпраща нищо никъде и не събира лични данни."}},
+        {"@type":"Question","name":"Мога ли да тегля от няколко видеа едновременно?","acceptedAnswer":{"@type":"Answer","text":"Да. Добави отделно поле за всяко видео. Системата обединява всички и премахва дублиранията."}},
+        {"@type":"Question","name":"Как работи алгоритъмът за теглене?","acceptedAnswer":{"@type":"Answer","text":"Fisher-Yates алгоритъм с Math.random(). Всеки участник има равен шанс. Всичко се случва локално в браузъра."}}
+      ]
+    }
+  ]
+}
+</script>
+
+<script>
+// ── STATE ──
+let idx=0, lastW=[], history=[], pool=[];
+
+// ── INIT ──
+document.addEventListener('DOMContentLoaded',()=>{
+  addS('Facebook видео');addS('TikTok видео');addS('Instagram Reel');
+});
+
+// ── NAVIGATION ──
+function goTo(n){
+  [1,2,3].forEach(i=>{
+    document.getElementById('p'+i).classList.toggle('active',i===n);
+    document.getElementById('t'+i).classList.toggle('active',i===n);
+  });
+  if(n>1) document.getElementById('t'+(n-1)).classList.add('done');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// ── PLATFORM SELECT ──
+function sp(p){
+  ['fb','tt','ig','yt'].forEach(x=>{
+    document.getElementById('pb-'+x).classList.toggle('active',x===p);
+    document.getElementById('i-'+x).classList.toggle('active',x===p);
+  });
+}
+
+// ── COPY CODE ──
+function cc(id,btn){
+  const txt=document.getElementById(id).innerText;
+  const ok=()=>{btn.textContent='Копирано ✓';btn.classList.add('ok');setTimeout(()=>{btn.textContent='Копирай кода';btn.classList.remove('ok')},2500)};
+  if(navigator.clipboard){navigator.clipboard.writeText(txt).then(ok).catch(()=>{fb2();ok()})}else{fb2();ok()}
+  function fb2(){const t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}
+}
+
+// ── ADD SOURCE ──
+function addS(name){
+  idx++;
+  const id='s'+idx;const lbl=name||('Видео '+idx);
+  const el=document.createElement('div');el.className='vs';el.id=id;
+  el.innerHTML=`<div class="vsh">
+    <div class="vsn">${idx}</div>
+    <input class="vsl" type="text" value="${lbl}" placeholder="Название на видеото"/>
+    <span class="vsc zero" id="c-${id}">0</span>
+    <button class="vsd" onclick="delS('${id}')">×</button>
+  </div>
+  <textarea class="vsta" id="ta-${id}"
+    placeholder="Постави имената от ${lbl} тук — по един на ред.&#10;&#10;Иван Петров&#10;@tiktok_user&#10;maria_ig" oninput="updC()"></textarea>`;
+  document.getElementById('srcs').appendChild(el);
+  updC();
+}
+
+function delS(id){
+  const el=document.getElementById(id);
+  if(el){el.remove();updC();}
+}
+
+function gn(t){return t.split('\n').map(l=>l.trim()).filter(l=>l.length>0)}
+
+function updC(){
+  const all=[];
+  let totalRaw=0;
+  document.querySelectorAll('.vsta').forEach(ta=>{
+    const ns=gn(ta.value);
+    const id=ta.id.replace('ta-','');
+    const c=document.getElementById('c-'+id);
+    const vs=document.getElementById(id);
+    if(c){c.textContent=ns.length;c.className='vsc'+(ns.length===0?' zero':'');}
+    if(vs)vs.classList.toggle('has-data',ns.length>0);
+    totalRaw+=ns.length;
+    all.push(...ns);
+  });
+  const u=[...new Set(all)];
+  document.getElementById('total').textContent=u.length;
+  const dups=totalRaw-u.length;
+  const note=document.getElementById('dup-note');
+  if(note)note.textContent=dups>0?`${dups} дублирани ще се премахнат`:'';
+}
+
+// ── DRAW WITH DRUM ANIMATION ──
+function startDraw(){
+  const all=[];
+  document.querySelectorAll('.vsta').forEach(ta=>gn(ta.value).forEach(n=>all.push(n)));
+  const nd=document.getElementById('nd').checked;
+  pool=nd?[...new Set(all)]:all;
+  const n=parseInt(document.getElementById('nw').value)||10;
+  const err=document.getElementById('err');
+
+  if(!pool.length){err.textContent='Няма участници. Добави имена в стъпка 2.';err.style.display='block';return}
+  if(n>pool.length){err.textContent=`Искаш ${n} победители, но има само ${pool.length} участника.`;err.style.display='block';return}
+  err.style.display='none';
+
+  // Shuffle
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}
+
+  // Drum animation
+  const overlay=document.getElementById('overlay');
+  const drum=document.getElementById('drum');
+  const dpf=document.getElementById('dpf');
+  const dsub=document.getElementById('dsub');
+  overlay.classList.add('show');
+
+  let frame=0;
+  const totalFrames=40;
+  const interval=setInterval(()=>{
+    frame++;
+    const ri=Math.floor(Math.random()*pool.length);
+    drum.textContent=pool[ri];
+    dpf.style.width=((frame/totalFrames)*100)+'%';
+    if(frame>=totalFrames){
+      clearInterval(interval);
+      dsub.textContent='Избрани са победителите!';
+      setTimeout(()=>{
+        overlay.classList.remove('show');
+        showResults(pool.slice(0,n),n);
+      },600);
+    }
+  },60);
+}
+
+function showResults(winners,n){
+  lastW=winners;
+  const prize=document.getElementById('prize').value||'Победител';
+  const allCount=pool.length;
+
+  // Save to history
+  history.unshift({winners:[...winners],prize,date:new Date().toLocaleTimeString('bg-BG'),total:allCount});
+  if(history.length>5)history.pop();
+
+  document.getElementById('s-t').textContent=allCount;
+  document.getElementById('s-w').textContent=n;
+  document.getElementById('s-p').textContent=((n/allCount)*100).toFixed(1)+'%';
+
+  const list=document.getElementById('wlist');
+  list.innerHTML='';
+  goTo(3);
+
+  winners.forEach((name,i)=>setTimeout(()=>{
+    const el=document.createElement('div');el.className='wi';
+    const rc=i===0?'r1':i===1?'r2':i===2?'r3':'rn';
+    el.innerHTML=`<div class="wr ${rc}">${i+1}</div>
+      <div class="wi-inf"><div class="wname">${name}</div><div class="wsub">Победител #${i+1}</div></div>
+      <div class="wprz">${prize}</div>`;
+    list.appendChild(el);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add('show')));
+  },i*110));
+
+  // Update history UI
+  renderHistory();
+  setTimeout(confetti,500);
+}
+
+function renderHistory(){
+  if(history.length<2)return;
+  const sec=document.getElementById('hist-section');
+  const lst=document.getElementById('hist-list');
+  sec.style.display='block';
+  lst.innerHTML=history.slice(1).map((h,i)=>`
+    <div class="hist-item" onclick="restoreHistory(${i+1})">
+      <div class="hist-item-left">
+        <b>${h.winners.length} победители</b> &mdash; ${h.total} участника &mdash; ${h.date}
+        <div style="font-size:11px;color:var(--t3);margin-top:2px">${h.winners.slice(0,3).join(', ')}${h.winners.length>3?'...':''}</div>
+      </div>
+      <span class="hist-restore">Виж</span>
+    </div>`).join('');
+}
+
+function restoreHistory(i){
+  const h=history[i];
+  lastW=h.winners;
+  document.getElementById('s-t').textContent=h.total;
+  document.getElementById('s-w').textContent=h.winners.length;
+  document.getElementById('s-p').textContent=((h.winners.length/h.total)*100).toFixed(1)+'%';
+  const list=document.getElementById('wlist');
+  list.innerHTML='';
+  h.winners.forEach((name,j)=>{
+    const el=document.createElement('div');el.className='wi show';
+    const rc=j===0?'r1':j===1?'r2':j===2?'r3':'rn';
+    el.innerHTML=`<div class="wr ${rc}">${j+1}</div>
+      <div class="wi-inf"><div class="wname">${name}</div><div class="wsub">Победител #${j+1}</div></div>
+      <div class="wprz">${h.prize}</div>`;
+    list.appendChild(el);
+  });
+}
+
+// ── COPY WINNERS ──
+function cpW(){
+  if(!lastW.length)return;
+  const prize=document.getElementById('prize').value||'Победител';
+  const txt='🏆 ПОБЕДИТЕЛИ:\n\n'+lastW.map((n,i)=>`${i+1}. ${n} — ${prize}`).join('\n')+'\n\n— dennyangelow.com/giveaway';
+  const btn=document.getElementById('cpwbtn');
+  navigator.clipboard.writeText(txt).then(()=>{
+    btn.textContent='✓ Копирано!';
+    setTimeout(()=>btn.textContent='⎘ Копирай победителите',2500);
+  });
+}
+
+// ── SHARE ──
+function shareW(){
+  if(!lastW.length)return;
+  const prize=document.getElementById('prize').value||'Победител';
+  const txt='🏆 Победители в гивауея:\n\n'+lastW.map((n,i)=>`${i+1}. ${n}`).join('\n')+'\n\nТеглено честно на dennyangelow.com/giveaway';
+  if(navigator.share){
+    navigator.share({title:'Победители в Giveaway',text:txt}).catch(()=>{});
+  } else {
+    navigator.clipboard.writeText(txt).then(()=>{
+      const b=document.querySelector('.bts .ob:nth-child(3)');
+      b.textContent='✓ Копирано за споделяне!';
+      setTimeout(()=>b.textContent='⇧ Сподели',2000);
+    });
+  }
+}
+
+// ── RESET ──
+function reset(){
+  document.getElementById('srcs').innerHTML='';
+  idx=0;
+  addS('Facebook видео');addS('TikTok видео');addS('Instagram Reel');
+  document.getElementById('hist-section').style.display='none';
+  goTo(1);
+}
+
+// ── FAQ TOGGLE ──
+function toggleFaq(el){el.parentElement.classList.toggle('open')}
+
+// ── CONFETTI ──
+function confetti(){
+  const c=['#b8f04a','#ffd700','#ff6b6b','#4af0d4','#a78bfa','#ffb347','#fff'];
+  for(let i=0;i<80;i++)setTimeout(()=>{
+    const el=document.createElement('div');el.className='cf';
+    const s=4+Math.random()*8;
+    el.style.cssText=`left:${Math.random()*100}vw;top:0;width:${s}px;height:${s}px;background:${c[0|Math.random()*c.length]};animation-duration:${1.8+Math.random()*2.2}s;animation-delay:${Math.random()*.5}s;border-radius:${Math.random()>.5?'50%':'2px'}`;
+    document.body.appendChild(el);setTimeout(()=>el.remove(),5000);
+  },i*22);
+}
+</script>
+</body>
+</html>
