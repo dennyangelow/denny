@@ -16,6 +16,8 @@ import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
 import type { Order }         from '@/lib/supabase'
+import { NaruchnikSeoTab } from './components/NaruchnikSeoTab'
+
 
 const AUTO_REFRESH_MS = 30 * 60 * 1000 // 30 мин — не прекъсва sync
 
@@ -162,6 +164,8 @@ export default function AdminPage() {
           {tab === 'faq'          && <FaqTab />}
           {tab === 'testimonials' && <TestimonialsTab />}
           {tab === 'analytics'    && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}
+          {tab === 'naruchnik-seo' && <NaruchnikSeoTab />}
+
           {tab === 'settings'     && <SettingsTab ordersCount={orders.length} leadsCount={leads.length} />}
         </main>
       </div>

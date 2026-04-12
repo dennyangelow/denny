@@ -37,6 +37,8 @@ export const NAV_ITEMS = [
   { id: 'marketing', label: 'Маркетинг', icon: '📣' },
   { id: 'faq',          icon: '❓', label: 'FAQ'           },
   { id: 'testimonials', icon: '★',  label: 'Отзиви'       },
+  { id: 'naruchnik-seo', label: 'SEO Наръчници', icon: '🔍' },
+
   { id: 'settings',     icon: '◈',  label: 'Настройки'    },
 ] as const
 
