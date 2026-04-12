@@ -8,6 +8,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { toast } from '@/components/ui/Toast'
 
+export interface TestimonialItem {
+  name: string
+  location: string
+  text: string
+  stars?: number
+}
+
 interface NaruchnikSeo {
   id: string
   slug: string
@@ -24,6 +31,7 @@ interface NaruchnikSeo {
   reviews_count?: number
   avg_rating?: number
   downloads_count?: number
+  testimonials?: TestimonialItem[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -140,6 +148,7 @@ export function NaruchnikSeoTab() {
           reviews_count:    form.reviews_count    ? Number(form.reviews_count)  : null,
           avg_rating:       form.avg_rating       ? Number(form.avg_rating)     : null,
           downloads_count:  form.downloads_count  ? Number(form.downloads_count): null,
+          testimonials:     form.testimonials     || [],
         }),
       })
       if (!res.ok) {
@@ -412,6 +421,69 @@ export function NaruchnikSeoTab() {
                   <Hint>Schema.org reviewCount</Hint>
                 </FieldGroup>
               </div>
+            </div>
+
+            {/* Testimonials */}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 20 }}>
+              <SectionTitle>💬 Отзиви (Testimonials)</SectionTitle>
+              <Hint>Отзивите се показват на страницата в въртящ се карусел. Добави поне 2-3 за по-добро доверие.</Hint>
+
+              {(form.testimonials || []).map((t, i) => (
+                <div key={i} style={{ marginBottom: 12, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #f0f0f0' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', marginBottom: 10, letterSpacing: '.05em', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Отзив {i + 1}</span>
+                    <button
+                      onClick={() => {
+                        const arr = [...(form.testimonials || [])]
+                        arr.splice(i, 1)
+                        setForm(f => ({ ...f, testimonials: arr }))
+                        setDirty(true)
+                      }}
+                      style={{ background: '#fee2e2', border: 'none', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 12, color: '#991b1b', fontFamily: 'inherit' }}>
+                      ✕ Изтрий
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <FieldGroup>
+                      <Label>Ime</Label>
+                      <input style={inp} value={t.name || ''} placeholder="Мария К."
+                        onChange={e => {
+                          const arr = [...(form.testimonials || [])]
+                          arr[i] = { ...arr[i], name: e.target.value }
+                          setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
+                        }} onFocus={onFocus} onBlur={onBlur} />
+                    </FieldGroup>
+                    <FieldGroup>
+                      <Label>Град / Регион</Label>
+                      <input style={inp} value={t.location || ''} placeholder="Пловдив"
+                        onChange={e => {
+                          const arr = [...(form.testimonials || [])]
+                          arr[i] = { ...arr[i], location: e.target.value }
+                          setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
+                        }} onFocus={onFocus} onBlur={onBlur} />
+                    </FieldGroup>
+                  </div>
+                  <FieldGroup>
+                    <Label>Текст на отзива</Label>
+                    <textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={t.text || ''} placeholder="Невероятно полезен наръчник. Реколтата ми се удвои за един сезон!"
+                      onChange={e => {
+                        const arr = [...(form.testimonials || [])]
+                        arr[i] = { ...arr[i], text: e.target.value }
+                        setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
+                      }} onFocus={onFocus} onBlur={onBlur} />
+                  </FieldGroup>
+                </div>
+              ))}
+
+              <button
+                onClick={() => {
+                  const arr = [...(form.testimonials || []), { name: '', location: '', text: '', stars: 5 }]
+                  setForm(f => ({ ...f, testimonials: arr }))
+                  setDirty(true)
+                }}
+                style={{ marginTop: 4, padding: '8px 16px', background: '#f0fdf4', border: '1.5px dashed #86efac', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#16a34a', fontFamily: 'inherit', width: '100%' }}>
+                + Добави отзив
+              </button>
             </div>
 
             {/* SEO Checklist */}

@@ -1,5 +1,5 @@
 // app/api/admin/naruchnici/[id]/seo/route.ts
-// PATCH — обновява само SEO полетата на наръчник
+// PATCH — обновява SEO полетата + testimonials на наръчник
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -12,6 +12,7 @@ const SEO_FIELDS = [
   'faq_q3', 'faq_a3',
   'content_body', 'author_bio',
   'reviews_count', 'avg_rating', 'downloads_count',
+  'testimonials',
 ] as const
 
 export async function PATCH(
@@ -21,7 +22,6 @@ export async function PATCH(
   try {
     const body = await req.json()
 
-    // Само позволените SEO полета — нищо друго
     const updates: Record<string, unknown> = {}
     for (const field of SEO_FIELDS) {
       if (field in body) {
@@ -40,7 +40,6 @@ export async function PATCH(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!data)  return NextResponse.json({ error: 'Не е намерено' }, { status: 404 })
 
-    // Revalidate страницата на наръчника веднага
     revalidatePath(`/naruchnik/${data.slug}`)
     revalidatePath('/naruchnici')
 
