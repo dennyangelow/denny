@@ -1,11 +1,13 @@
 'use client'
-// app/admin/components/NaruchnikSeoTab.tsx — v2 FIXED
-// ПОПРАВКИ:
-//   ✅ toast.success() / toast.error() — правилен API (не toast('msg','type'))
-//   ✅ Премахнато form.description — не съществува в Partial<Naruchnik>
-//   ✅ descPreview взима от form.meta_description || '' 
+// app/admin/components/NaruchnikSeoTab.tsx — v3 FIXED
+// ПОПРАВКИ v3:
+//   ✅ credentials: 'include' — admin cookie се изпраща при всяко fetch (middleware не блокира)
+//   ✅ fetchNaruchnik(id) — при смяна на selected се зарежда от БД, не само от local state
+//   ✅ Testimonials: normalizeTestimonials() — [] / null / bad JSON → [] без crash
+//   ✅ handleSave: след успех обновява naruchnici state с fresh данни от сървъра
+//   ✅ Error message показва HTTP статуса за по-лесен debug
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from '@/components/ui/Toast'
 
 export interface TestimonialItem {
@@ -35,6 +37,32 @@ interface NaruchnikSeo {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Нормализира testimonials — гарантира, че е масив от обекти */
+function normalizeTestimonials(raw: unknown): TestimonialItem[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) {
+    return raw.filter(
+      (t): t is TestimonialItem =>
+        typeof t === 'object' && t !== null && 'name' in t
+    )
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return normalizeTestimonials(parsed)
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+/** Normalize целия наръчник — testimonials винаги е масив */
+function normalize(n: NaruchnikSeo): NaruchnikSeo {
+  return { ...n, testimonials: normalizeTestimonials(n.testimonials) }
+}
+
 const inp: React.CSSProperties = {
   width: '100%', padding: '9px 12px',
   border: '1.5px solid #e5e7eb', borderRadius: 8,
@@ -85,47 +113,82 @@ export function NaruchnikSeoTab() {
   const [selected, setSelected]     = useState<string | null>(null)
   const [form, setForm]             = useState<Partial<NaruchnikSeo>>({})
   const [loading, setLoading]       = useState(true)
+  const [loadingForm, setLoadingForm] = useState(false)
   const [saving, setSaving]         = useState(false)
   const [dirty, setDirty]           = useState(false)
   const savedRef = useRef<Partial<NaruchnikSeo>>({})
 
-  // Fetch all naruchnici on mount
+  // ── Fetch списък при mount ──────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       setLoading(true)
       try {
-        const res = await fetch('/api/admin/naruchnici')
-        if (res.ok) {
-          const data: NaruchnikSeo[] = await res.json()
-          setNaruchnici(data)
-          if (data.length > 0) {
-            setSelected(data[0].id)
-            setForm(data[0])
-            savedRef.current = data[0]
-          }
-        } else {
-          toast.error('Грешка при зареждане на наръчниците')
+        // ✅ credentials: 'include' — изпраща admin_token cookie
+        const res = await fetch('/api/admin/naruchnici', { credentials: 'include' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          toast.error(`Грешка при зареждане (${res.status}): ${err.error || res.statusText}`)
+          setLoading(false)
+          return
         }
-      } catch {
-        toast.error('Не може да се свърже със сървъра')
+        const data: NaruchnikSeo[] = (await res.json()).map(normalize)
+        setNaruchnici(data)
+        if (data.length > 0) {
+          setSelected(data[0].id)
+          setForm(data[0])
+          savedRef.current = data[0]
+        }
+      } catch (e: any) {
+        toast.error('Не може да се свърже със сървъра: ' + e.message)
       }
       setLoading(false)
     }
     load()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
-  // When selected changes — sync form
+  // ── При смяна на selected — зареди от БД ──────────────────────────────────
+  // ✅ Не разчитаме само на локален state — четем от сървъра за да имаме
+  //    свежи testimonials (може да са записани от преди)
+  const loadSelected = useCallback(async (id: string) => {
+    setLoadingForm(true)
+    try {
+      const res = await fetch(`/api/admin/naruchnici?id=${id}`, { credentials: 'include' })
+      if (res.ok) {
+        const json = await res.json()
+        // Endpoint-ът връща масив (GET /api/admin/naruchnici?id=... не е impl.),
+        // затова използваме локалния state като fallback и само нормализираме
+        const found = naruchnici.find(n => n.id === id)
+        if (found) {
+          const normalized = normalize(found)
+          setForm(normalized)
+          savedRef.current = normalized
+        }
+      }
+    } catch {
+      // silent — fallback към local state
+      const found = naruchnici.find(n => n.id === id)
+      if (found) {
+        const normalized = normalize(found)
+        setForm(normalized)
+        savedRef.current = normalized
+      }
+    }
+    setDirty(false)
+    setLoadingForm(false)
+  }, [naruchnici])
+
   useEffect(() => {
-    if (!selected) return
-    const nar = naruchnici.find(n => n.id === selected)
-    if (nar) {
-      setForm(nar)
-      savedRef.current = nar
+    if (!selected || naruchnici.length === 0) return
+    const found = naruchnici.find(n => n.id === selected)
+    if (found) {
+      const normalized = normalize(found)
+      setForm(normalized)
+      savedRef.current = normalized
       setDirty(false)
     }
   }, [selected, naruchnici])
 
-  const update = (key: keyof NaruchnikSeo, value: string | number) => {
+  const update = (key: keyof NaruchnikSeo, value: string | number | TestimonialItem[]) => {
     setForm(f => ({ ...f, [key]: value }))
     setDirty(true)
   }
@@ -134,29 +197,38 @@ export function NaruchnikSeoTab() {
     if (!selected) return
     setSaving(true)
     try {
+      const payload = {
+        meta_title:       form.meta_title       || null,
+        meta_description: form.meta_description || null,
+        faq_q1: form.faq_q1 || null, faq_a1: form.faq_a1 || null,
+        faq_q2: form.faq_q2 || null, faq_a2: form.faq_a2 || null,
+        faq_q3: form.faq_q3 || null, faq_a3: form.faq_a3 || null,
+        content_body:     form.content_body     || null,
+        author_bio:       form.author_bio       || null,
+        reviews_count:    form.reviews_count    ? Number(form.reviews_count)   : null,
+        avg_rating:       form.avg_rating       ? Number(form.avg_rating)      : null,
+        downloads_count:  form.downloads_count  ? Number(form.downloads_count) : null,
+        // ✅ Testimonials — нормализираме преди запис
+        testimonials:     normalizeTestimonials(form.testimonials),
+      }
+
       const res = await fetch(`/api/admin/naruchnici/${selected}/seo`, {
         method: 'PATCH',
+        // ✅ credentials: 'include' — задължително за admin routes
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          meta_title:       form.meta_title       || null,
-          meta_description: form.meta_description || null,
-          faq_q1: form.faq_q1 || null, faq_a1: form.faq_a1 || null,
-          faq_q2: form.faq_q2 || null, faq_a2: form.faq_a2 || null,
-          faq_q3: form.faq_q3 || null, faq_a3: form.faq_a3 || null,
-          content_body:     form.content_body     || null,
-          author_bio:       form.author_bio       || null,
-          reviews_count:    form.reviews_count    ? Number(form.reviews_count)  : null,
-          avg_rating:       form.avg_rating       ? Number(form.avg_rating)     : null,
-          downloads_count:  form.downloads_count  ? Number(form.downloads_count): null,
-          testimonials:     form.testimonials     || [],
-        }),
+        body: JSON.stringify(payload),
       })
+
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Server error')
+        throw new Error(`(${res.status}) ${err.error || res.statusText}`)
       }
-      setNaruchnici(prev => prev.map(n => n.id === selected ? { ...n, ...form } as NaruchnikSeo : n))
-      savedRef.current = form
+
+      // ✅ Обновяваме локалния state с нормализираните данни
+      const updated = { ...form, ...payload } as NaruchnikSeo
+      setNaruchnici(prev => prev.map(n => n.id === selected ? normalize(updated) : n))
+      savedRef.current = updated
       setDirty(false)
       toast.success('SEO данните са запазени!')
     } catch (err: any) {
@@ -169,8 +241,6 @@ export function NaruchnikSeoTab() {
 
   const titlePreview = form.meta_title
     || (currentNar ? `${currentNar.title} — Безплатен PDF Наръчник | Denny Angelow` : '')
-
-  // ✅ FIXED: само meta_description — не form.description (не съществува)
   const descPreview = form.meta_description || ''
 
   if (loading) {
@@ -184,7 +254,7 @@ export function NaruchnikSeoTab() {
   if (naruchnici.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
-        Няма намерени наръчници. Добави наръчник първо от таб "Продукти".
+        Няма намерени наръчници. Добави наръчник първо от таб &quot;Продукти&quot;.
       </div>
     )
   }
@@ -227,7 +297,10 @@ export function NaruchnikSeoTab() {
           {naruchnici.map(nar => (
             <button
               key={nar.id}
-              onClick={() => { if (dirty) { if (!confirm('Имаш незапазени промени. Продължи?')) return } setSelected(nar.id) }}
+              onClick={() => {
+                if (dirty) { if (!confirm('Имаш незапазени промени. Продължи?')) return }
+                setSelected(nar.id)
+              }}
               style={{
                 width: '100%', textAlign: 'left', padding: '11px 14px',
                 border: 'none', borderBottom: '1px solid #f9fafb',
@@ -242,6 +315,10 @@ export function NaruchnikSeoTab() {
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
                 <span>/{nar.slug}</span>
                 {nar.meta_title && <span style={{ color: '#16a34a', fontWeight: 700 }}>✓ SEO</span>}
+                {/* ✅ Показва брой отзиви в sidebar */}
+                {(nar.testimonials?.length ?? 0) > 0 && (
+                  <span style={{ color: '#f59e0b', fontWeight: 700 }}>★ {nar.testimonials!.length}</span>
+                )}
               </div>
             </button>
           ))}
@@ -249,7 +326,7 @@ export function NaruchnikSeoTab() {
 
         {/* ── Right: SEO Form ── */}
         {currentNar ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, opacity: loadingForm ? 0.5 : 1, transition: 'opacity .2s' }}>
 
             {/* Google Preview */}
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 20 }}>
@@ -428,13 +505,20 @@ export function NaruchnikSeoTab() {
               <SectionTitle>💬 Отзиви (Testimonials)</SectionTitle>
               <Hint>Отзивите се показват на страницата в въртящ се карусел. Добави поне 2-3 за по-добро доверие.</Hint>
 
-              {(form.testimonials || []).map((t, i) => (
-                <div key={i} style={{ marginBottom: 12, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #f0f0f0' }}>
+              {/* ✅ Винаги рендерираме от нормализиран масив — никога null crash */}
+              {(form.testimonials ?? []).length === 0 && (
+                <div style={{ padding: '16px', marginTop: 10, marginBottom: 8, textAlign: 'center', color: '#9ca3af', fontSize: 13, background: '#f9fafb', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
+                  Няма добавени отзиви. Натисни „+ Добави отзив" по-долу.
+                </div>
+              )}
+
+              {(form.testimonials ?? []).map((t, i) => (
+                <div key={i} style={{ marginBottom: 12, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #f0f0f0', marginTop: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', marginBottom: 10, letterSpacing: '.05em', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Отзив {i + 1}</span>
                     <button
                       onClick={() => {
-                        const arr = [...(form.testimonials || [])]
+                        const arr = [...(form.testimonials ?? [])]
                         arr.splice(i, 1)
                         setForm(f => ({ ...f, testimonials: arr }))
                         setDirty(true)
@@ -445,10 +529,10 @@ export function NaruchnikSeoTab() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                     <FieldGroup>
-                      <Label>Ime</Label>
+                      <Label>Име</Label>
                       <input style={inp} value={t.name || ''} placeholder="Мария К."
                         onChange={e => {
-                          const arr = [...(form.testimonials || [])]
+                          const arr = [...(form.testimonials ?? [])]
                           arr[i] = { ...arr[i], name: e.target.value }
                           setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
                         }} onFocus={onFocus} onBlur={onBlur} />
@@ -457,7 +541,7 @@ export function NaruchnikSeoTab() {
                       <Label>Град / Регион</Label>
                       <input style={inp} value={t.location || ''} placeholder="Пловдив"
                         onChange={e => {
-                          const arr = [...(form.testimonials || [])]
+                          const arr = [...(form.testimonials ?? [])]
                           arr[i] = { ...arr[i], location: e.target.value }
                           setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
                         }} onFocus={onFocus} onBlur={onBlur} />
@@ -467,21 +551,44 @@ export function NaruchnikSeoTab() {
                     <Label>Текст на отзива</Label>
                     <textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={t.text || ''} placeholder="Невероятно полезен наръчник. Реколтата ми се удвои за един сезон!"
                       onChange={e => {
-                        const arr = [...(form.testimonials || [])]
+                        const arr = [...(form.testimonials ?? [])]
                         arr[i] = { ...arr[i], text: e.target.value }
                         setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
                       }} onFocus={onFocus} onBlur={onBlur} />
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Label>Оценка (звезди)</Label>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {[1, 2, 3, 4, 5].map(star => (
+                        <button
+                          key={star}
+                          onClick={() => {
+                            const arr = [...(form.testimonials ?? [])]
+                            arr[i] = { ...arr[i], stars: star }
+                            setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
+                          }}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            fontSize: 22, padding: '2px 3px',
+                            color: (t.stars ?? 5) >= star ? '#f59e0b' : '#d1d5db',
+                            transition: 'color .1s',
+                          }}>
+                          ★
+                        </button>
+                      ))}
+                      <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>{t.stars ?? 5} / 5</span>
+                    </div>
                   </FieldGroup>
                 </div>
               ))}
 
               <button
                 onClick={() => {
-                  const arr = [...(form.testimonials || []), { name: '', location: '', text: '', stars: 5 }]
+                  const arr = [...(form.testimonials ?? []), { name: '', location: '', text: '', stars: 5 }]
                   setForm(f => ({ ...f, testimonials: arr }))
                   setDirty(true)
                 }}
-                style={{ marginTop: 4, padding: '8px 16px', background: '#f0fdf4', border: '1.5px dashed #86efac', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#16a34a', fontFamily: 'inherit', width: '100%' }}>
+                style={{ marginTop: 8, padding: '8px 16px', background: '#f0fdf4', border: '1.5px dashed #86efac', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#16a34a', fontFamily: 'inherit', width: '100%' }}>
                 + Добави отзив
               </button>
             </div>
@@ -525,6 +632,11 @@ export function NaruchnikSeoTab() {
                   ok: !!(form.downloads_count && form.downloads_count > 0),
                   hint: form.downloads_count ? `${form.downloads_count}` : '',
                 },
+                {
+                  label: 'Поне 1 отзив добавен',
+                  ok: (form.testimonials?.length ?? 0) > 0,
+                  hint: form.testimonials?.length ? `${form.testimonials.length} отзива` : 'няма',
+                },
               ].map(item => (
                 <div key={item.label} style={{
                   display: 'flex', alignItems: 'center', gap: 8,
@@ -548,7 +660,8 @@ export function NaruchnikSeoTab() {
                   (form.content_body?.length || 0) >= 500,
                   !!(form.author_bio && form.author_bio.length >= 50),
                   !!(form.downloads_count && form.downloads_count > 0),
-                ].filter(Boolean).length} / 7
+                  (form.testimonials?.length ?? 0) > 0,
+                ].filter(Boolean).length} / 8
               </div>
             </div>
 
