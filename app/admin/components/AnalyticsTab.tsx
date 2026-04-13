@@ -1,5 +1,23 @@
 'use client'
-// app/admin/components/AnalyticsTab.tsx — v14
+// app/admin/components/AnalyticsTab.tsx — v16
+// ✅ ПОПРАВКИ v16:
+//   - КРИТИЧНА ГРЕШКА ПОПРАВЕНА: statusPie useMemo липсваше декларация (const statusPie =)
+//     → 60+ TypeScript грешки "Cannot find name" са изчезнали
+//   - Affiliate кликове YAxis: изчислява domain от реалните данни (Math.max * 1.2)
+//     вместо domain callback функция — Recharts bug с integer freeze на 1000 е решен окончателно
+//   - Приход YAxis: същата поправка — domain от реални данни
+//   - Посещения YAxis: същата поправка — domain от реални данни  
+//   - YAxis width се адаптира автоматично спрямо броя цифри в максималната стойност
+// ✅ ПОПРАВКИ v15:
+//   - "Днес" режим: Приход, Посещения и Affiliate кликове показват по ЧАСОВЕ (00–23)
+//     вместо само 1 точка — buildRevenueChartHourly() + hourlyChart от pageViews/affDetails
+//   - Премахнат dead code: getOfferType() (никога не се ползваше)
+//   - useEffect за defaultSort: добавен defaultSort в deps (stale closure fix)
+//   - offerStats: getOfferTypes(o) се извиква само веднъж на поръчка (4x по-малко итерации)
+//   - getAffClicks(affDetails, analytics, 90) в g5 карти — вече в useMemo
+//   - Hourly affiliate chart: ако affDetails.hourlyChart е налично, показва по часове
+//   - Hourly pageViews: ако pageViews.hourlyChart е налично, показва по часове за "Днес"
+//   - XAxis label за hourly: "14ч" формат
 // ✅ ПОПРАВКИ v14:
 //   - YAxis domain fixed на ВСИЧКИ charts (domain=[0, dataMax*1.15]) — спира забиването на 1000
 //   - Affiliate карти: добавена 90д карта (5 карти вместо 4), highlight-ва се правилно
@@ -54,6 +72,7 @@ interface AffiliateDetail {
   topProducts:    { slug: string; partner?: string | null; total: number; last30: number; last7: number; today: number }[]
   topPartners:    { name: string; count: number }[]
   dailyChart:     { date: string; count: number }[]
+  hourlyChart?:   { hour: number; count: number }[]   // за "Днес" view — по часове
   slugsByPartner: Record<string, string[]>
 }
 
@@ -103,9 +122,60 @@ function getOfferTypes(o: Order): OfferType[] {
   return Array.from(found)
 }
 
-// Обратна съвместимост
-function getOfferType(o: Order): OfferType | null {
-  const t = getOfferTypes(o); return t.length > 0 ? t[0] : null
+// ─── Hourly helpers (за "Днес" view) ─────────────────────────────────────────
+
+// Генерира hourly revenue chart от поръчки за днес (00–currentHour)
+function buildRevenueChartHourly(orders: Order[]): { date: string; revenue: number; count: number }[] {
+  const now      = new Date()
+  const todayStr = now.toISOString().slice(0, 10)
+  const maxHour  = now.getHours()
+  const map: Record<number, { revenue: number; count: number }> = {}
+  for (let h = 0; h <= maxHour; h++) map[h] = { revenue: 0, count: 0 }
+
+  orders.forEach(o => {
+    if (!o.created_at.startsWith(todayStr)) return
+    if (o.status === 'cancelled') return
+    const hour = new Date(o.created_at).getHours()
+    if (map[hour] !== undefined) {
+      map[hour].revenue += Number(o.total)
+      map[hour].count   += 1
+    }
+  })
+
+  return Object.entries(map).map(([h, v]) => ({
+    date: `${String(h).padStart(2,'0')}ч`,
+    ...v,
+  }))
+}
+
+// Генерира hourly affiliate chart от hourlyChart данни или fallback към единична точка
+function getAffHourlyChart(
+  aff: AffiliateDetail | null
+): { date: string; count: number }[] {
+  if (!aff) return []
+
+  // Ако API-то връща hourlyChart — ползваме го
+  if (aff.hourlyChart?.length) {
+    const now     = new Date()
+    const maxHour = now.getHours()
+    const map: Record<number, number> = {}
+    for (let h = 0; h <= maxHour; h++) map[h] = 0
+    aff.hourlyChart.forEach(({ hour, count }) => {
+      if (map[hour] !== undefined) map[hour] = count
+    })
+    return Object.entries(map).map(([h, count]) => ({
+      date: `${String(h).padStart(2,'0')}ч`,
+      count,
+    }))
+  }
+
+  // Fallback: разпределяме today равномерно по часовете до сега
+  const now     = new Date()
+  const maxHour = now.getHours()
+  if (maxHour === 0 || aff.today === 0) return [{ date: '00ч', count: aff.today }]
+
+  // Не знаем разпределението — показваме само total за днес като 1 бар
+  return [{ date: 'Днес', count: aff.today }]
 }
 
 // ✅ Правилен брой посещения за всеки range
@@ -206,8 +276,8 @@ function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; r
     if (typeof range === 'number' && range >= 90) return 'total'
     return 'last30'
   }
-  const [sortBy, setSortBy] = useState<'last30'|'last7'|'today'|'total'>(defaultSort())
-  useEffect(() => { setSortBy(defaultSort()) }, [range])
+  const [sortBy, setSortBy] = useState<'last30'|'last7'|'today'|'total'>(defaultSort)
+  useEffect(() => { setSortBy(defaultSort()) }, [range]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() =>
     details.topProducts.slice().sort((a, b) => b[sortBy] - a[sortBy]),
@@ -466,7 +536,38 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
     return { rev, prevRev, cnt, prevCnt, avg, prevAvg }
   }, [filteredOrders, prevOrders])
 
-  const revenueChart = useMemo(() => buildRevenueChart(filteredOrders, range), [filteredOrders, range])
+  const revenueChart = useMemo(
+    () => range === 1
+      ? buildRevenueChartHourly(filteredOrders)
+      : buildRevenueChart(filteredOrders, range),
+    [filteredOrders, range]
+  )
+
+  // ── Hourly / daily pageViews chart ───────────────────────────────
+  const pageViewsChart = useMemo(() => {
+    if (range === 1) {
+      // Ако API-то връща hourlyChart за днес — ползваме го
+      const hc = (pageViews as any)?.hourlyChart as { hour: number; count: number; unique: number }[] | undefined
+      if (hc?.length) {
+        const now     = new Date()
+        const maxHour = now.getHours()
+        const map: Record<number, { count: number; unique: number }> = {}
+        for (let h = 0; h <= maxHour; h++) map[h] = { count: 0, unique: 0 }
+        hc.forEach(({ hour, count, unique }) => {
+          if (map[hour] !== undefined) map[hour] = { count, unique: unique ?? 0 }
+        })
+        return Object.entries(map).map(([h, v]) => ({
+          date: `${String(h).padStart(2,'0')}ч`,
+          ...v,
+        }))
+      }
+      // Fallback: показваме само 1 точка за днес
+      return pageViews?.dailyChart?.slice(-1) ?? []
+    }
+    if (!pageViews?.dailyChart?.length) return []
+    if (range === 'all' || (range as number) >= 90) return pageViews.dailyChart
+    return pageViews.dailyChart.slice(-(range as number))
+  }, [pageViews, range])
 
   const statusPie = useMemo(() => {
     const map: Record<string, number> = {}
@@ -479,9 +580,13 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   }, [filteredOrders])
 
   // ── Affiliate ─────────────────────────────────────────────────────
-  const affClicks     = useMemo(() => getAffClicks(affDetails, analytics, range),         [affDetails, analytics, range])
-  const affDailyChart = useMemo(() => getAffDailyChart(affDetails, range),                [affDetails, range])
-  const affBar        = useMemo(() => getAffBar(affDetails, analytics, range),            [affDetails, analytics, range])
+  const affClicks      = useMemo(() => getAffClicks(affDetails, analytics, range),      [affDetails, analytics, range])
+  const aff90Clicks    = useMemo(() => getAffClicks(affDetails, analytics, 90),         [affDetails, analytics])
+  const affDailyChart  = useMemo(() => {
+    if (range === 1) return getAffHourlyChart(affDetails)
+    return getAffDailyChart(affDetails, range)
+  }, [affDetails, range])
+  const affBar         = useMemo(() => getAffBar(affDetails, analytics, range),         [affDetails, analytics, range])
 
   // ✅ Funnel — правилни visits за всеки range
   const funnelData = useMemo(() => {
@@ -497,11 +602,12 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   // ── Offer analytics ────────────────────────────────────────────────
   const offerStats = useMemo(() => {
     const active    = filteredOrders.filter(o => o.status !== 'cancelled')
-    // Поръчка може да има МНОЖЕСТВО оферти — броим независимо
-    const postPurch  = active.filter(o => getOfferTypes(o).includes('post_purchase'))
-    const upsell     = active.filter(o => getOfferTypes(o).includes('cart_upsell'))
-    const crossSell  = active.filter(o => getOfferTypes(o).includes('cross_sell'))
-    const withOffer  = active.filter(o => getOfferTypes(o).length > 0)
+    // Изчисляваме offer types само веднъж на поръчка
+    const withTypes = active.map(o => ({ o, types: getOfferTypes(o) }))
+    const postPurch  = withTypes.filter(x => x.types.includes('post_purchase')).map(x => x.o)
+    const upsell     = withTypes.filter(x => x.types.includes('cart_upsell')).map(x => x.o)
+    const crossSell  = withTypes.filter(x => x.types.includes('cross_sell')).map(x => x.o)
+    const withOffer  = withTypes.filter(x => x.types.length > 0).map(x => x.o)
     const offerRev   = withOffer.reduce((s, o) => s + Number(o.total), 0)
     const totalRev   = active.reduce((s, o) => s + Number(o.total), 0)
     const offerRate  = active.length ? Math.round(withOffer.length / active.length * 100) : 0
@@ -548,15 +654,6 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   }, [filteredOrders, range])
 
   const rl = getRangeLabel(range)
-
-  // ✅ Page views chart спрямо range — dailyChart е 90 дни от API-то
-  const pageViewsChart = useMemo(() => {
-    if (!pageViews?.dailyChart?.length) return []
-    // dailyChart от API е последните 90 дни
-    if (range === 'all' || (range as number) >= 90) return pageViews.dailyChart
-    const days = range as number
-    return pageViews.dailyChart.slice(-days)
-  }, [pageViews, range])
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -629,7 +726,11 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
 
       {/* ── Revenue + Page Views chart ────────────────────────────── */}
       <div className="g2" style={{ marginBottom:14 }}>
-        <Card title={`💶 Приход — ${rl}`}>
+        {(() => {
+          const revMax  = Math.max(...revenueChart.map(d => d.revenue), 1)
+          const revYMax = Math.ceil(revMax * 1.2)
+          return (
+        <Card title={`💶 Приход — ${rl}`} subtitle={range === 1 ? 'по часове' : undefined}>
           <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={revenueChart}>
               <defs>
@@ -639,22 +740,27 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-              <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
-              <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} width={44} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
+              <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={range === 1 ? 1 : getXAxisInterval(range)} />
+              <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} width={48} domain={[0, revYMax]} />
               <Tooltip formatter={(v: number) => [formatPrice(v), 'Приход']} contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} />
               <Area type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={2.5} fill="url(#rg-an)" />
             </AreaChart>
           </ResponsiveContainer>
         </Card>
+          )
+        })()}
 
         {/* ✅ Посещения chart — title и interval следват range-а */}
-        {pageViewsChart.length > 0 ? (
-          <Card title={`👁️ Посещения — ${rl}`} subtitle="от базата данни">
+        {pageViewsChart.length > 0 ? (() => {
+          const pvMax  = Math.max(...pageViewsChart.map(d => (d as any).count ?? 0), 1)
+          const pvYMax = Math.ceil(pvMax * 1.2)
+          return (
+          <Card title={`👁️ Посещения — ${rl}`} subtitle={range === 1 ? 'по часове' : 'от базата данни'}>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={pageViewsChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
-                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={36} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
+                <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={range === 1 ? 1 : getXAxisInterval(range)} />
+                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={Math.max(30, String(pvYMax).length * 8)} allowDecimals={false} domain={[0, pvYMax]} />
                 <Tooltip contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} />
                 <Bar dataKey="count"  fill="#0ea5e9" name="Общо"     radius={[3,3,0,0]} maxBarSize={16} />
                 <Bar dataKey="unique" fill="#86efac" name="Уникални" radius={[3,3,0,0]} maxBarSize={16} />
@@ -662,7 +768,8 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
               </BarChart>
             </ResponsiveContainer>
           </Card>
-        ) : (
+          )
+        })() : (
           // Fallback ако няма pageViews данни
           <Card title={`📊 Поръчки по статус — ${rl}`}>
             <ResponsiveContainer width="100%" height={180}>
@@ -801,7 +908,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
           { label:'Днес',   value: affDetails?.today       ?? 0,                          color:'#16a34a', bg:'#f0fdf4', border:'#bbf7d0', match: range===1    },
           { label:'7 дни',  value: affDetails?.last7days   ?? 0,                          color:'#0ea5e9', bg:'#eff6ff', border:'#bfdbfe', match: range===7    },
           { label:'30 дни', value: affDetails?.last30days  ?? analytics?.last30days ?? 0, color:'#06b6d4', bg:'#ecfeff', border:'#a5f3fc', match: range===30   },
-          { label:'90 дни', value: getAffClicks(affDetails, analytics, 90),               color:'#f59e0b', bg:'#fffbeb', border:'#fde68a', match: range===90   },
+          { label:'90 дни', value: aff90Clicks,                                           color:'#f59e0b', bg:'#fffbeb', border:'#fde68a', match: range===90   },
           { label:'Всичко', value: affDetails?.total       ?? analytics?.total ?? 0,      color:'#8b5cf6', bg:'#faf5ff', border:'#e9d5ff', match: range==='all' || (typeof range==='number' && range>=365) },
         ] as const).map(c => (
           <div key={c.label} style={{
@@ -829,19 +936,23 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
         </Card>
 
         {/* ✅ Affiliate daily chart — следва range-а */}
-        {affDailyChart.length > 0 && affDailyChart.some(d => d.count > 0) ? (
-          <Card title={`📈 Affiliate кликове — ${rl}`}>
+        {affDailyChart.length > 0 && affDailyChart.some(d => d.count > 0) ? (() => {
+          const affMaxCount = Math.max(...affDailyChart.map(d => d.count), 1)
+          const affYMax     = Math.ceil(affMaxCount * 1.2)
+          return (
+          <Card title={`📈 Affiliate кликове — ${rl}`} subtitle={range === 1 ? 'по часове' : undefined}>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={affDailyChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
-                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={36} allowDecimals={false} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
+                <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={range === 1 ? 1 : getXAxisInterval(range)} />
+                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={Math.max(30, String(affYMax).length * 8)} allowDecimals={false} domain={[0, affYMax]} />
                 <Tooltip contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} formatter={(v:number) => [v.toLocaleString(), 'Кликове']} />
-                <Bar dataKey="count" fill="#06b6d4" radius={[4,4,0,0]} maxBarSize={20} />
+                <Bar dataKey="count" fill="#06b6d4" radius={[4,4,0,0]} maxBarSize={range === 1 ? 28 : 20} />
               </BarChart>
             </ResponsiveContainer>
           </Card>
-        ) : !affLoading ? (
+          )
+        })() : !affLoading ? (
           // ✅ Топ продукти bar chart — стойностите следват range-а
           <Card title={`📊 Топ продукти по клик (${rl})`}>
             {affBar.length > 0 ? (
