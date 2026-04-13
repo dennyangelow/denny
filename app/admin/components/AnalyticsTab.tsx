@@ -1,6 +1,13 @@
 'use client'
-// app/admin/components/AnalyticsTab.tsx — v13
-// ✅ ПОПРАВКИ:
+// app/admin/components/AnalyticsTab.tsx — v14
+// ✅ ПОПРАВКИ v14:
+//   - YAxis domain fixed на ВСИЧКИ charts (domain=[0, dataMax*1.15]) — спира забиването на 1000
+//   - Affiliate карти: добавена 90д карта (5 карти вместо 4), highlight-ва се правилно
+//   - getAffClicks: подобрена логика за MM-DD дати — коректно прескача Нова Година
+//   - getAffBar: 90д/365д ползват total вместо last30 за по-точни стойности
+//   - AffiliateDetailsTable: defaultSort за range>=90 връща 'total'
+//   - g5 CSS grid клас добавен за 5-колонен layout на affiliate картите
+//   - Tooltip formatter: toLocaleString() за всички числови стойности
 //   - Affiliate кликове се филтрират правилно за ВСИЧКИ range стойности (90д, 365д, all)
 //   - Махнато дублиране на "Топ продукти по клик" card (беше рендерирано 2 пъти)
 //   - Махнато дублиране на "Поръчки по статус" pie chart (беше рендерирано 2 пъти)
@@ -193,9 +200,10 @@ function SectionDivider({ label, color, bg, border }: { label:string; color:stri
 
 function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; range: Range }) {
   const defaultSort = (): 'last30'|'last7'|'today'|'total' => {
-    if (range === 1)     return 'today'
-    if (range === 7)     return 'last7'
-    if (range === 'all') return 'total'
+    if (range === 1)                        return 'today'
+    if (range === 7)                        return 'last7'
+    if (range === 'all')                    return 'total'
+    if (typeof range === 'number' && range >= 90) return 'total'
     return 'last30'
   }
   const [sortBy, setSortBy] = useState<'last30'|'last7'|'today'|'total'>(defaultSort())
@@ -349,24 +357,26 @@ function getAffClicks(aff: AffiliateDetail | null, analytics: AffiliateAnalytics
   if (range === 30)    return aff.last30days
   if (range === 'all') return aff.total
 
-  // За 90д и 365д — сумираме от dailyChart (API-то пази 90д история)
-  // Ако range > 90, ползваме total (нямаме по-дълга история в dailyChart)
+  // За 90д и 365д — сумираме от dailyChart когато е налично
+  // Ако range > 90 или dailyChart е кратък, fallback към total
   const days = range as number
-  if (days > 90) return aff.total
-
   const now = new Date()
   const cutDate = new Date(now.getTime() - days * 86400000)
   const cutStr  = cutDate.toISOString().slice(0, 10)
-  return (aff.dailyChart || [])
-    .filter(d => {
-      // dailyChart датите са във формат "MM-DD", трябва да ги реконструираме
-      // или ако API-то ги връща като "YYYY-MM-DD" — директно сравняваме
-      const fullDate = d.date.length === 5
-        ? `${now.getFullYear()}-${d.date}`  // MM-DD → добавяме годината
-        : d.date
-      return fullDate >= cutStr
-    })
-    .reduce((s, d) => s + d.count, 0)
+
+  const filtered = (aff.dailyChart || []).filter(d => {
+    const fullDate = d.date.length === 5
+      ? `${d.date.slice(0,2) <= now.toISOString().slice(5,7)
+          ? now.getFullYear()
+          : now.getFullYear() - 1}-${d.date}`
+      : d.date
+    return fullDate >= cutStr
+  })
+
+  // Ако имаме достатъчно данни в dailyChart — ползваме тях
+  if (filtered.length > 0) return filtered.reduce((s, d) => s + d.count, 0)
+  // Иначе — total като fallback
+  return aff.total
 }
 
 // ✅ ПОПРАВЕНО: правилно филтрира dailyChart за всеки range
@@ -413,8 +423,9 @@ function getAffBar(
 
   if (range === 1)     getValue = v => v.today
   else if (range === 7)    getValue = v => v.last7
+  else if (range === 30)   getValue = v => v.last30
   else if (range === 'all') getValue = v => v.total
-  else getValue = v => v.last30 // 30д, 90д, 365д — ползваме last30 (максималното налично)
+  else getValue = v => v.total // 90д, 365д — ползваме total (най-близкото налично)
 
   return Object.entries(pd)
     .map(([name, v]) => ({ name, value: getValue(v) }))
@@ -556,9 +567,11 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
 
         .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
         .g4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px }
-        @media(max-width:900px) { .g4 { grid-template-columns: 1fr 1fr } }
-        @media(max-width:700px) { .g2 { grid-template-columns: 1fr } .g4 { grid-template-columns: 1fr 1fr } }
-        @media(max-width:400px) { .g4 { grid-template-columns: 1fr } }
+        .g5 { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px }
+        @media(max-width:1000px) { .g5 { grid-template-columns: repeat(3,1fr) } }
+        @media(max-width:900px)  { .g4 { grid-template-columns: 1fr 1fr } .g5 { grid-template-columns: repeat(3,1fr) } }
+        @media(max-width:700px)  { .g2 { grid-template-columns: 1fr } .g4 { grid-template-columns: 1fr 1fr } .g5 { grid-template-columns: 1fr 1fr } }
+        @media(max-width:400px)  { .g4 { grid-template-columns: 1fr } .g5 { grid-template-columns: 1fr } }
 
         .aff-row:hover { background: #f0fdf4 !important }
 
@@ -627,7 +640,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
-              <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} width={44} />
+              <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}€`} width={44} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
               <Tooltip formatter={(v: number) => [formatPrice(v), 'Приход']} contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} />
               <Area type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={2.5} fill="url(#rg-an)" />
             </AreaChart>
@@ -641,7 +654,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
               <BarChart data={pageViewsChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                 <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
-                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={30} />
+                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={36} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
                 <Tooltip contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} />
                 <Bar dataKey="count"  fill="#0ea5e9" name="Общо"     radius={[3,3,0,0]} maxBarSize={16} />
                 <Bar dataKey="unique" fill="#86efac" name="Уникални" radius={[3,3,0,0]} maxBarSize={16} />
@@ -782,13 +795,14 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
       {/* ══ AFFILIATE ════════════════════════════════════════════════════ */}
       <SectionDivider label="🔗 Affiliate Аналитика" color="#06b6d4" bg="#ecfeff" border="#a5f3fc" />
 
-      {/* ✅ 4 affiliate карти — активната се highlight-ва спрямо range */}
-      <div className="g4" style={{ marginBottom:14 }}>
+      {/* ✅ 5 affiliate карти — активната се highlight-ва спрямо range */}
+      <div className="g5" style={{ marginBottom:14 }}>
         {([
           { label:'Днес',   value: affDetails?.today       ?? 0,                          color:'#16a34a', bg:'#f0fdf4', border:'#bbf7d0', match: range===1    },
           { label:'7 дни',  value: affDetails?.last7days   ?? 0,                          color:'#0ea5e9', bg:'#eff6ff', border:'#bfdbfe', match: range===7    },
           { label:'30 дни', value: affDetails?.last30days  ?? analytics?.last30days ?? 0, color:'#06b6d4', bg:'#ecfeff', border:'#a5f3fc', match: range===30   },
-          { label:'Всичко', value: affDetails?.total       ?? analytics?.total ?? 0,      color:'#8b5cf6', bg:'#faf5ff', border:'#e9d5ff', match: range==='all'},
+          { label:'90 дни', value: getAffClicks(affDetails, analytics, 90),               color:'#f59e0b', bg:'#fffbeb', border:'#fde68a', match: range===90   },
+          { label:'Всичко', value: affDetails?.total       ?? analytics?.total ?? 0,      color:'#8b5cf6', bg:'#faf5ff', border:'#e9d5ff', match: range==='all' || (typeof range==='number' && range>=365) },
         ] as const).map(c => (
           <div key={c.label} style={{
             background: c.bg, borderRadius:12, padding:'14px 16px',
@@ -821,8 +835,8 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
               <BarChart data={affDailyChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                 <XAxis dataKey="date" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
-                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={26} allowDecimals={false} />
-                <Tooltip contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} formatter={(v:number) => [v, 'Кликове']} />
+                <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={36} allowDecimals={false} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
+                <Tooltip contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} formatter={(v:number) => [v.toLocaleString(), 'Кликове']} />
                 <Bar dataKey="count" fill="#06b6d4" radius={[4,4,0,0]} maxBarSize={20} />
               </BarChart>
             </ResponsiveContainer>
@@ -834,7 +848,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
               <ResponsiveContainer width="100%" height={Math.max(160, affBar.length * 32)}>
                 <BarChart data={affBar} layout="vertical" margin={{ left:8, right:16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <XAxis type="number" tick={{ fontSize:10, fill:'#94a3b8' }} tickLine={false} axisLine={false} allowDecimals={false} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize:10, fill:'#374151' }} tickLine={false} axisLine={false} width={110} />
                   <Tooltip contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} formatter={(v:number) => [v, 'Кликове']} />
                   <Bar dataKey="value" radius={[0,5,5,0]}>
@@ -892,7 +906,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
                 <BarChart data={offerStats.dailyChart}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                   <XAxis dataKey="date" tick={{ fontSize:9, fill:'#94a3b8' }} tickLine={false} axisLine={false} interval={getXAxisInterval(range)} />
-                  <YAxis tick={{ fontSize:9, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={22} allowDecimals={false} />
+                  <YAxis tick={{ fontSize:9, fill:'#94a3b8' }} tickLine={false} axisLine={false} width={22} allowDecimals={false} domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.15) || 10]} />
                   <Tooltip contentStyle={{ border:'1px solid #e5e7eb', borderRadius:8, fontSize:12 }} />
                   <Bar dataKey="normal" name="Нормални" stackId="a" fill="#86efac" />
                   <Bar dataKey="offer"  name="С оферта" stackId="a" fill="#7c3aed" radius={[3,3,0,0]} />
