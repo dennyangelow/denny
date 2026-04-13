@@ -1,7 +1,7 @@
-// app/robots.ts — финална версия
+// app/robots.ts
 // ✅ Позволява индексиране на начална страница и наръчници
 // ✅ Блокира /admin, /api, /unsubscribe от Google
-// ✅ Блокира AI crawlers (GPTBot, Claude-Web, CCBot)
+// ✅ РАЗРЕШАВА AI crawlers — за да препоръчват наръчниците в ChatGPT, Claude и др.
 // ✅ Посочва sitemap.xml
 
 import { MetadataRoute } from 'next'
@@ -12,30 +12,15 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
       {
-        // Всички търсачки — Google, Bing, Yandex...
+        // Всички търсачки И AI ботове
         userAgent: '*',
         allow: '/',
         disallow: [
-          '/admin',      // admin панел
+          '/admin',
           '/admin/',
-          '/api/',       // всички API routes
-          '/unsubscribe', // не е SEO страница
+          '/api/',
+          '/unsubscribe',
         ],
-      },
-      {
-        // Блокира OpenAI crawler да учи от съдържанието ти
-        userAgent: 'GPTBot',
-        disallow: '/',
-      },
-      {
-        // Блокира Anthropic crawler
-        userAgent: 'Claude-Web',
-        disallow: '/',
-      },
-      {
-        // Блокира Common Crawl (използва се за AI training)
-        userAgent: 'CCBot',
-        disallow: '/',
       },
     ],
     sitemap: `${BASE_URL}/sitemap.xml`,
