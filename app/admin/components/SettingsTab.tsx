@@ -547,6 +547,36 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             </button>
           </div>
 
+          {/* Google Analytics */}
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>📊 Google Analytics</h2>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 14, lineHeight: 1.5 }}>
+              GA4 скриптът се зарежда автоматично ако <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11 }}>NEXT_PUBLIC_GA_ID</code> е зададен в Vercel.
+            </p>
+            <div style={{ background: '#f8fafc', borderRadius: 9, padding: '12px 14px', marginBottom: 12, fontSize: 12, lineHeight: 1.8 }}>
+              <strong style={{ display: 'block', marginBottom: 6, color: '#374151' }}>Как да настроиш:</strong>
+              <ol style={{ paddingLeft: 16, margin: 0, color: '#4b5563' }}>
+                <li>Отиди на <a href="https://analytics.google.com" target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', fontWeight: 600 }}>analytics.google.com</a></li>
+                <li>Създай Property → Web → въведи dennyangelow.com</li>
+                <li>Копирай Measurement ID (изглежда така: <code style={{ background: '#e5e7eb', padding: '1px 4px', borderRadius: 3 }}>G-XXXXXXXXXX</code>)</li>
+                <li>Vercel → Settings → Environment Variables → добави:<br />
+                  <code style={{ background: '#e5e7eb', padding: '2px 6px', borderRadius: 3, fontSize: 11 }}>NEXT_PUBLIC_GA_ID = G-XXXXXXXXXX</code>
+                </li>
+                <li>Redeploy → готово ✅</li>
+              </ol>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <a href="https://analytics.google.com" target="_blank" rel="noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 9, textDecoration: 'none', color: '#15803d', fontSize: 13, fontWeight: 600 }}>
+                <span>📊</span> Отвори GA4
+              </a>
+              <a href="https://vercel.com/dennyangelows-projects/denny/settings/environment-variables" target="_blank" rel="noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 9, textDecoration: 'none', color: '#374151', fontSize: 13, fontWeight: 600 }}>
+                <span>▲</span> Vercel Env Vars
+              </a>
+            </div>
+          </div>
+
           {/* Quick links */}
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>🔗 Бързи линкове</h2>

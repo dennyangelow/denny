@@ -16,6 +16,7 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { PageViewTracker } from '@/components/analytics/PageViewTracker'
+import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics'
 
 const BASE_URL = 'https://dennyangelow.com'
 
@@ -275,6 +276,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body style={{ margin: 0, padding: 0 }}>
+        <GoogleAnalytics />
         <Suspense fallback={null}>
           <PageViewTracker />
         </Suspense>
