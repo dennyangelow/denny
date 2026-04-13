@@ -1,8 +1,7 @@
-// app/api/analytics/page-view/route.ts — v8 FIXED
-// ✅ ПОПРАВКИ v8:
-//   - Добавени last90 / last90Unique / last365 / last365Unique COUNT заявки
-//   - dailyChart разширен до 90 дни (беше само 30)
-//   - detailRes лимит вдигнат до 10000 за по-точни referrers/pages при 90д
+// app/api/analytics/page-view/route.ts — v9
+// ✅ ПОПРАВКИ v9:
+//   - hourlyChart добавен: 24 bucket-а (hour + count + unique) за "Днес по часове" view
+//   - Всички останали поправки от v8 запазени
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -125,39 +124,47 @@ async function getFallbackStats() {
     const day90  = new Date(now.getTime() -  90 * 86400000).toISOString()
     const day365 = new Date(now.getTime() - 365 * 86400000).toISOString()
 
-    // ✅ COUNT заявки — точни числа без лимит на редовете
     const [
       totalCountRes,
       todayCountRes,
       last7CountRes,
       last30CountRes,
-      last90CountRes,   // ← НОВО
-      last365CountRes,  // ← НОВО
-      // Уникални visitor_hash — само нужната колона
+      last90CountRes,
+      last365CountRes,
       todayVisitorsRes,
       last7VisitorsRes,
       last30VisitorsRes,
-      last90VisitorsRes,   // ← НОВО
-      last365VisitorsRes,  // ← НОВО
+      last90VisitorsRes,
+      last365VisitorsRes,
       allVisitorsRes,
-      // Детайли за chart/pages/referrers — разширено до 90 дни
+      // ← НОВО: детайлни редове за днес (за hourlyChart) — малко данни, бърза заявка
+      todayDetailRes,
+      // Детайли за последните 90 дни (за dailyChart, pages, referrers)
       detailRes,
     ] = await Promise.all([
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }),
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', today),
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', day7),
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', day30),
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', day90),   // ← НОВО
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', day365), // ← НОВО
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', day90),
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', day365),
 
       supabaseAdmin.from('page_views').select('visitor_hash').gte('created_at', today).limit(10000),
       supabaseAdmin.from('page_views').select('visitor_hash').gte('created_at', day7).limit(10000),
       supabaseAdmin.from('page_views').select('visitor_hash').gte('created_at', day30).limit(10000),
-      supabaseAdmin.from('page_views').select('visitor_hash').gte('created_at', day90).limit(10000),   // ← НОВО
-      supabaseAdmin.from('page_views').select('visitor_hash').gte('created_at', day365).limit(10000), // ← НОВО
-      supabaseAdmin.from('page_views').select('visitor_hash').limit(10000), // all-time unique
+      supabaseAdmin.from('page_views').select('visitor_hash').gte('created_at', day90).limit(10000),
+      supabaseAdmin.from('page_views').select('visitor_hash').gte('created_at', day365).limit(10000),
+      supabaseAdmin.from('page_views').select('visitor_hash').limit(10000),
 
-      // ✅ Детайли за последните 90 дни (разширено от 30д) — за chart, pages, referrers
+      // ← НОВО: hourly данни за днес — само created_at + visitor_hash
+      supabaseAdmin
+        .from('page_views')
+        .select('visitor_hash, created_at')
+        .gte('created_at', today)
+        .order('created_at', { ascending: true })
+        .limit(20000),
+
+      // Детайли за последните 90 дни
       supabaseAdmin
         .from('page_views')
         .select('visitor_hash, page, referrer, user_agent, is_mobile, created_at, utm_source, utm_medium, utm_campaign')
@@ -166,36 +173,52 @@ async function getFallbackStats() {
         .limit(10000),
     ])
 
-    // Точни числа от COUNT
     const totalCount   = totalCountRes.count   ?? 0
     const todayCount   = todayCountRes.count   ?? 0
     const last7Count   = last7CountRes.count   ?? 0
     const last30Count  = last30CountRes.count  ?? 0
-    const last90Count  = last90CountRes.count  ?? 0  // ← НОВО
-    const last365Count = last365CountRes.count ?? 0  // ← НОВО
+    const last90Count  = last90CountRes.count  ?? 0
+    const last365Count = last365CountRes.count ?? 0
 
-    // Уникални посетители
     const uniq = (rows: any[] | null) => new Set((rows || []).map(r => r.visitor_hash)).size
 
     const todayUnique   = uniq(todayVisitorsRes.data)
     const last7Unique   = uniq(last7VisitorsRes.data)
     const last30Unique  = uniq(last30VisitorsRes.data)
-    const last90Unique  = uniq(last90VisitorsRes.data)   // ← НОВО
-    const last365Unique = uniq(last365VisitorsRes.data)  // ← НОВО
+    const last90Unique  = uniq(last90VisitorsRes.data)
+    const last365Unique = uniq(last365VisitorsRes.data)
     const totalUnique   = uniq(allVisitorsRes.data)
 
-    const detailRows = detailRes.data || []
+    // ── hourlyChart за днес ← НОВО ─────────────────────────────────────────
+    const hourlyCountMap:  Record<number, number>      = {}
+    const hourlyUniqueMap: Record<number, Set<string>> = {}
+    for (let h = 0; h < 24; h++) {
+      hourlyCountMap[h]  = 0
+      hourlyUniqueMap[h] = new Set()
+    }
+    for (const r of todayDetailRes.data || []) {
+      const hour = new Date(r.created_at).getHours()
+      hourlyCountMap[hour]++
+      if (r.visitor_hash) hourlyUniqueMap[hour].add(r.visitor_hash)
+    }
+    // Показваме само часове до сегашния (не показваме бъдещи 0-та)
+    const currentHour = now.getHours()
+    const hourlyChart = Array.from({ length: currentHour + 1 }, (_, h) => ({
+      hour:   h,
+      count:  hourlyCountMap[h],
+      unique: hourlyUniqueMap[h].size,
+    }))
 
-    // ── Обработка на детайлните данни ──────────────────────────────────────────
+    // ── Обработка на детайлните данни (90д) ───────────────────────────────
+    const detailRows = detailRes.data || []
     const pageMap:     Record<string, number> = {}
     const refMap:      Record<string, number> = {}
     const utmMap:      Record<string, number> = {}
     const campaignMap: Record<string, number> = {}
-    // ✅ dayMap вече за 90 дни
     const dayMap: Record<string, { count: number; unique: Set<string> }> = {}
 
     for (let i = 89; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000).toISOString().slice(5, 10) // MM-DD
+      const d = new Date(now.getTime() - i * 86400000).toISOString().slice(5, 10)
       dayMap[d] = { count: 0, unique: new Set() }
     }
 
@@ -235,7 +258,6 @@ async function getFallbackStats() {
     })
 
     return NextResponse.json({
-      // ✅ Точни числа от COUNT
       total:        totalCount,
       unique:       totalUnique,
       today:        todayCount,
@@ -244,16 +266,16 @@ async function getFallbackStats() {
       last7Unique,
       last30:       last30Count,
       last30Unique,
-      last90:       last90Count,   // ← НОВО
-      last90Unique,                // ← НОВО
-      last365:      last365Count,  // ← НОВО
-      last365Unique,               // ← НОВО
+      last90:       last90Count,
+      last90Unique,
+      last365:      last365Count,
+      last365Unique,
       mobilePercent: detailRows.length
         ? Math.round(mobileCount / detailRows.length * 100) : 0,
-      // ✅ dailyChart сега е 90 дни
       dailyChart: Object.entries(dayMap)
         .sort()
         .map(([date, v]) => ({ date, count: v.count, unique: v.unique.size })),
+      hourlyChart,  // ← НОВО
       topPages: Object.entries(pageMap)
         .sort(([, a], [, b]) => b - a).slice(0, 15)
         .map(([name, count]) => ({ name, count })),
@@ -279,7 +301,8 @@ async function getFallbackStats() {
       last90: 0, last90Unique: 0,
       last365: 0, last365Unique: 0,
       mobilePercent: 0,
-      dailyChart: [], topPages: [], topReferrers: [], topUtm: [], topCampaigns: [],
+      dailyChart: [], hourlyChart: [],
+      topPages: [], topReferrers: [], topUtm: [], topCampaigns: [],
     }, { headers: { 'Cache-Control': 'no-store' } })
   }
 }

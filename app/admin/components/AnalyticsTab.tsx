@@ -1,6 +1,14 @@
 'use client'
-// app/admin/components/AnalyticsTab.tsx — v16
-// ✅ ПОПРАВКИ v16:
+// app/admin/components/AnalyticsTab.tsx — v17
+// ✅ ПОПРАВКИ v17 (заедно с route v5/v9):
+//   - Афф кликове: total/last30/last7/today вече са от COUNT заявки в API (без limit cap)
+//     → край на "забиването на 1000" — точни числа при всякакъв обем
+//   - Hourly chart за посещения: API v9 вече връща hourlyChart[] → показва по часове за Днес
+//   - Hourly chart за афф кликове: API v5 вече връща hourlyChart[] → показва по часове за Днес
+//   - dailyChart за афф е разширен до 90 дни (беше 30) → range=90 брои правилно
+//   - getAffClicks опростен: директно ползва COUNT стойностите от API
+//   - getAffDailyChart опростен: API v5 винаги дава MM-DD формат за 90 дни
+//   - getAffHourlyChart опростен: директно map-ва API hourlyChart без преизчисления
 //   - КРИТИЧНА ГРЕШКА ПОПРАВЕНА: statusPie useMemo липсваше декларация (const statusPie =)
 //     → 60+ TypeScript грешки "Cannot find name" са изчезнали
 //   - Affiliate кликове YAxis: изчислява domain от реалните данни (Math.max * 1.2)
@@ -148,34 +156,22 @@ function buildRevenueChartHourly(orders: Order[]): { date: string; revenue: numb
   }))
 }
 
-// Генерира hourly affiliate chart от hourlyChart данни или fallback към единична точка
+// Генерира hourly affiliate chart — API вече връща hourlyChart директно
 function getAffHourlyChart(
   aff: AffiliateDetail | null
 ): { date: string; count: number }[] {
   if (!aff) return []
 
-  // Ако API-то връща hourlyChart — ползваме го
+  // ✅ API v5 връща hourlyChart: { hour, count }[] за текущия ден
   if (aff.hourlyChart?.length) {
-    const now     = new Date()
-    const maxHour = now.getHours()
-    const map: Record<number, number> = {}
-    for (let h = 0; h <= maxHour; h++) map[h] = 0
-    aff.hourlyChart.forEach(({ hour, count }) => {
-      if (map[hour] !== undefined) map[hour] = count
-    })
-    return Object.entries(map).map(([h, count]) => ({
-      date: `${String(h).padStart(2,'0')}ч`,
+    return aff.hourlyChart.map(({ hour, count }) => ({
+      date: `${String(hour).padStart(2, '0')}ч`,
       count,
     }))
   }
 
-  // Fallback: разпределяме today равномерно по часовете до сега
-  const now     = new Date()
-  const maxHour = now.getHours()
-  if (maxHour === 0 || aff.today === 0) return [{ date: '00ч', count: aff.today }]
-
-  // Не знаем разпределението — показваме само total за днес като 1 бар
-  return [{ date: 'Днес', count: aff.today }]
+  // Fallback ако API още не е обновено — единична точка
+  return aff.today > 0 ? [{ date: 'Днес', count: aff.today }] : []
 }
 
 // ✅ Правилен брой посещения за всеки range
@@ -419,7 +415,7 @@ function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; r
 
 // ─── Affiliate helpers ────────────────────────────────────────────────────────
 
-// ✅ ПОПРАВЕНО: правилно брои кликове за 90д и 365д от dailyChart
+// Брои кликове — директно от COUNT стойностите в API (точни, без limit cap)
 function getAffClicks(aff: AffiliateDetail | null, analytics: AffiliateAnalytics | null, range: Range): number {
   if (!aff) return analytics?.last30days ?? 0
   if (range === 1)     return aff.today
@@ -427,42 +423,25 @@ function getAffClicks(aff: AffiliateDetail | null, analytics: AffiliateAnalytics
   if (range === 30)    return aff.last30days
   if (range === 'all') return aff.total
 
-  // За 90д и 365д — сумираме от dailyChart когато е налично
-  // Ако range > 90 или dailyChart е кратък, fallback към total
-  const days = range as number
-  const now = new Date()
-  const cutDate = new Date(now.getTime() - days * 86400000)
-  const cutStr  = cutDate.toISOString().slice(0, 10)
+  // За 90д — сумираме от dailyChart (90 дни от API v5)
+  if (range === 90) {
+    const sum = (aff.dailyChart || []).reduce((s, d) => s + d.count, 0)
+    return sum > 0 ? sum : aff.total
+  }
 
-  const filtered = (aff.dailyChart || []).filter(d => {
-    const fullDate = d.date.length === 5
-      ? `${d.date.slice(0,2) <= now.toISOString().slice(5,7)
-          ? now.getFullYear()
-          : now.getFullYear() - 1}-${d.date}`
-      : d.date
-    return fullDate >= cutStr
-  })
-
-  // Ако имаме достатъчно данни в dailyChart — ползваме тях
-  if (filtered.length > 0) return filtered.reduce((s, d) => s + d.count, 0)
-  // Иначе — total като fallback
+  // За 365д — best estimate е total
   return aff.total
 }
 
-// ✅ ПОПРАВЕНО: правилно филтрира dailyChart за всеки range
+// Филтрира dailyChart за избрания range
+// API v5 връща 90-дневен dailyChart с дати в MM-DD формат
 function getAffDailyChart(aff: AffiliateDetail | null, range: Range): { date: string; count: number }[] {
   if (!aff?.dailyChart?.length) return []
-  if (range === 'all') return aff.dailyChart
+  if (range === 'all' || range === 90) return aff.dailyChart
 
-  const now = new Date()
+  const now  = new Date()
+  const days = range as number // 7 или 30
 
-  if (range === 1) {
-    const todayMD = now.toISOString().slice(5, 10) // MM-DD
-    return aff.dailyChart.filter(d => d.date === todayMD || d.date.endsWith(todayMD))
-  }
-
-  const days = range as number
-  // Генерираме списък с последните N дни като MM-DD стрингове
   const validDates = new Set(
     Array.from({ length: days }, (_, i) => {
       const d = new Date(now.getTime() - (days - 1 - i) * 86400000)
@@ -546,23 +525,18 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   // ── Hourly / daily pageViews chart ───────────────────────────────
   const pageViewsChart = useMemo(() => {
     if (range === 1) {
-      // Ако API-то връща hourlyChart за днес — ползваме го
       const hc = (pageViews as any)?.hourlyChart as { hour: number; count: number; unique: number }[] | undefined
       if (hc?.length) {
-        const now     = new Date()
-        const maxHour = now.getHours()
-        const map: Record<number, { count: number; unique: number }> = {}
-        for (let h = 0; h <= maxHour; h++) map[h] = { count: 0, unique: 0 }
-        hc.forEach(({ hour, count, unique }) => {
-          if (map[hour] !== undefined) map[hour] = { count, unique: unique ?? 0 }
-        })
-        return Object.entries(map).map(([h, v]) => ({
-          date: `${String(h).padStart(2,'0')}ч`,
-          ...v,
+        // API вече връща само часовете до текущия час (currentHour + 1 елемента)
+        return hc.map(({ hour, count, unique }) => ({
+          date:   `${String(hour).padStart(2, '0')}ч`,
+          count,
+          unique: unique ?? 0,
         }))
       }
-      // Fallback: показваме само 1 точка за днес
-      return pageViews?.dailyChart?.slice(-1) ?? []
+      // Fallback ако API не поддържа hourlyChart — 1 точка за деня
+      const todayEntry = pageViews?.dailyChart?.slice(-1) ?? []
+      return todayEntry.map(e => ({ ...e, date: 'Днес' }))
     }
     if (!pageViews?.dailyChart?.length) return []
     if (range === 'all' || (range as number) >= 90) return pageViews.dailyChart

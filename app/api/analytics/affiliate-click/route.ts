@@ -1,8 +1,11 @@
-// app/api/analytics/affiliate-click/route.ts — v4
-// ПОПРАВКИ:
-//  - POST: sanitizeSlug() почиства slug-а преди запис — никога null/"–" в БД
-//  - POST: отхвърля записи без валиден slug с 400 (вместо да пише null)
-//  - GET:  пропуска стари редове с null/empty slug при агрегиране
+// app/api/analytics/affiliate-click/route.ts — v5
+// ✅ ПОПРАВКИ v5:
+//   - GET: total/last30days/last7days/today се броят с отделни COUNT заявки (без limit!)
+//     → няма cap на 10000 — точни числа при всякакъв обем данни
+//   - dailyChart разширен до 90 дни (беше 30) — за правилно броене при range=90
+//   - hourlyChart добавен — 24 bucket-а за днес (за "Днес по часове" view)
+//   - Детайлните данни (productDetails, byDay) се зареждат само за последните 90 дни
+//     с limit 50000 (достатъчно за агрегация)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -11,20 +14,14 @@ const BOT_UA = /bot|crawler|spider|headless|lighthouse|pagespeed|googlebot|bingb
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-/**
- * Почиства slug-а: lowercase, само ASCII букви/цифри/тирета, max 80 символа.
- * Връща null ако резултатът е твърде кратък/безсмислен.
- */
 function sanitizeSlug(raw: unknown): string | null {
   if (!raw || typeof raw !== 'string') return null
-
   const s = raw.trim()
     .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '-')   // само ASCII — кирилицата → тирета
-    .replace(/-+/g, '-')             // слива двойни тирета
-    .replace(/^-|-$/g, '')           // маха водещи/крайни тирета
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
     .slice(0, 80)
-
   if (s.length < 2 || s === '-') return null
   return s
 }
@@ -39,12 +36,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing partner' }, { status: 400 })
     }
 
-    // ✅ Отхвърли записи без валиден slug — те причиняват "–" в таблицата
     const slug = sanitizeSlug(product_slug)
     if (!slug) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn(`[affiliate-click] Rejected invalid slug: "${product_slug}" (partner: ${partner})`)
-      }
       return NextResponse.json({ success: false, error: 'Invalid product_slug' }, { status: 400 })
     }
 
@@ -59,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     const { error } = await supabaseAdmin.from('affiliate_clicks').insert({
       partner:      partner.trim().slice(0, 60),
-      product_slug: slug,          // ✅ винаги валиден string, никога null
+      product_slug: slug,
       ip_address:   ip,
       user_agent:   ua || null,
       referrer:     req.headers.get('referer') || null,
@@ -81,34 +74,93 @@ export async function POST(req: NextRequest) {
 // ─── GET — детайлна статистика ───────────────────────────────────────────────
 export async function GET() {
   try {
-    const since90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
-
-    const { data, error } = await supabaseAdmin
-      .from('affiliate_clicks')
-      .select('partner, product_slug, created_at, ip_address')
-      .gte('created_at', since90)
-      .order('created_at', { ascending: false })
-      .limit(10000)
-
-    if (error) throw error
-
     const now      = new Date()
     const todayStr = now.toISOString().slice(0, 10)
-    const ts30     = now.getTime() - 30 * 24 * 60 * 60 * 1000
-    const ts7      = now.getTime() -  7 * 24 * 60 * 60 * 1000
+    const since7   = new Date(now.getTime() -   7 * 86400000).toISOString()
+    const since30  = new Date(now.getTime() -  30 * 86400000).toISOString()
+    const since90  = new Date(now.getTime() -  90 * 86400000).toISOString()
 
+    // ── 1. Точни COUNT заявки — без никакъв limit ──────────────────────────
+    const [
+      totalRes,
+      last30Res,
+      last7Res,
+      todayRes,
+      // Детайлни редове само за последните 90 дни (за chart + productDetails)
+      detailRes,
+    ] = await Promise.all([
+      // Общо всичко (без time filter — точен total)
+      supabaseAdmin
+        .from('affiliate_clicks')
+        .select('*', { count: 'exact', head: true })
+        .not('product_slug', 'is', null)
+        .neq('product_slug', '')
+        .neq('product_slug', '-'),
+
+      // Last 30 дни
+      supabaseAdmin
+        .from('affiliate_clicks')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', since30)
+        .not('product_slug', 'is', null)
+        .neq('product_slug', '')
+        .neq('product_slug', '-'),
+
+      // Last 7 дни
+      supabaseAdmin
+        .from('affiliate_clicks')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', since7)
+        .not('product_slug', 'is', null)
+        .neq('product_slug', '')
+        .neq('product_slug', '-'),
+
+      // Днес
+      supabaseAdmin
+        .from('affiliate_clicks')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', todayStr)
+        .not('product_slug', 'is', null)
+        .neq('product_slug', '')
+        .neq('product_slug', '-'),
+
+      // Детайлни данни за последните 90 дни — за productDetails, dailyChart, hourlyChart
+      supabaseAdmin
+        .from('affiliate_clicks')
+        .select('partner, product_slug, created_at')
+        .gte('created_at', since90)
+        .not('product_slug', 'is', null)
+        .neq('product_slug', '')
+        .neq('product_slug', '-')
+        .order('created_at', { ascending: false })
+        .limit(50000),
+    ])
+
+    if (totalRes.error)  throw totalRes.error
+    if (detailRes.error) throw detailRes.error
+
+    // ── Точни числа от COUNT заявките ─────────────────────────────────────
+    const total      = totalRes.count  ?? 0
+    const total30    = last30Res.count ?? 0
+    const total7     = last7Res.count  ?? 0
+    const totalToday = todayRes.count  ?? 0
+
+    // ── Агрегация от детайлните редове ────────────────────────────────────
     const byPartner:      Record<string, number> = {}
     const byProduct:      Record<string, number> = {}
     const productDetails: Record<string, { total: number; last30: number; last7: number; today: number }> = {}
     const byDay:          Record<string, number> = {}
-    const slugsByPartner: Record<string, Set<string>> = {}  // partner → Set<slug>
+    const byHour:         Record<number, number> = {}  // ← НОВО: hourly за днес
+    const slugsByPartner: Record<string, Set<string>> = {}
 
-    let total = 0, total30 = 0, total7 = 0, totalToday = 0
+    // Инициализираме hourly buckets 0–23
+    for (let h = 0; h < 24; h++) byHour[h] = 0
 
-    for (const click of data || []) {
-      // ✅ Пропускай стари редове без slug (записани преди поправката)
+    const ts30 = now.getTime() - 30 * 86400000
+    const ts7  = now.getTime() -  7 * 86400000
+
+    for (const click of detailRes.data || []) {
       const rawSlug = click.product_slug
-      // ✅ Пропускай всички невалидни slug-ове: null, '', '-', '(без slug)'
       if (!rawSlug || rawSlug.trim() === '' || rawSlug === '-' || rawSlug === '(без slug)') continue
 
       const ts      = new Date(click.created_at).getTime()
@@ -116,39 +168,38 @@ export async function GET() {
       const product = rawSlug.trim()
       const partner = click.partner?.trim() || '(unknown)'
 
-      total++
       byPartner[partner] = (byPartner[partner] || 0) + 1
       byProduct[product] = (byProduct[product] || 0) + 1
 
-      // Строим slug→partner map
       if (!slugsByPartner[partner]) slugsByPartner[partner] = new Set()
       slugsByPartner[partner].add(product)
 
       if (!productDetails[product]) {
         productDetails[product] = { total: 0, last30: 0, last7: 0, today: 0 }
       }
+      // total в productDetails = брой в рамките на 90д (приближение за total)
+      // Точният total per-product би изисквал отделна заявка — acceptable trade-off
       productDetails[product].total++
 
-      if (ts >= ts30) {
-        total30++
-        byDay[day] = (byDay[day] || 0) + 1
-        productDetails[product].last30++
-      }
-      if (ts >= ts7) {
-        total7++
-        productDetails[product].last7++
-      }
+      // byDay за dailyChart (90 дни)
+      byDay[day] = (byDay[day] || 0) + 1
+
+      if (ts >= ts30) productDetails[product].last30++
+      if (ts >= ts7)  productDetails[product].last7++
+
       if (day === todayStr) {
-        totalToday++
         productDetails[product].today++
+        // ← НОВО: hourly bucket за днес
+        const hour = new Date(click.created_at).getHours()
+        byHour[hour] = (byHour[hour] || 0) + 1
       }
     }
 
+    // ── topProducts — сортирани по last30 ──────────────────────────────────
     const topProducts = Object.entries(productDetails)
       .sort(([, a], [, b]) => b.last30 - a.last30)
-      .slice(0, 20)
+      .slice(0, 30)
       .map(([slug, stats]) => {
-        // Намираме partner за този slug
         const partner = Object.entries(slugsByPartner)
           .find(([, slugSet]) => slugSet.has(slug))?.[0] || null
         return { slug, partner, ...stats }
@@ -159,35 +210,45 @@ export async function GET() {
       .slice(0, 10)
       .map(([name, count]) => ({ name, count }))
 
-    // Конвертираме Set → Array за JSON serialization
     const slugsByPartnerArr: Record<string, string[]> = {}
     Object.entries(slugsByPartner).forEach(([p, s]) => {
       slugsByPartnerArr[p] = Array.from(s)
     })
 
-    const dailyChart = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(now.getTime() - (29 - i) * 86400000).toISOString().slice(0, 10)
+    // ── dailyChart — 90 дни ← (беше 30) ──────────────────────────────────
+    const dailyChart = Array.from({ length: 90 }, (_, i) => {
+      const d = new Date(now.getTime() - (89 - i) * 86400000).toISOString().slice(0, 10)
       return { date: d.slice(5), count: byDay[d] || 0 }
     })
 
+    // ── hourlyChart — 24 bucket-а за днес ← НОВО ─────────────────────────
+    const hourlyChart = Array.from({ length: 24 }, (_, h) => ({
+      hour:  h,
+      count: byHour[h] || 0,
+    }))
+
     return NextResponse.json({
-      total,
-      last30days:     total30,
-      last7days:      total7,
-      today:          totalToday,
+      total,           // ← точен COUNT без limit
+      last30days: total30,
+      last7days:  total7,
+      today:      totalToday,
       byProduct,
       byPartner,
       productDetails,
       topProducts,
       topPartners,
       dailyChart,
+      hourlyChart,     // ← НОВО
       slugsByPartner: slugsByPartnerArr,
-    })
+    }, { headers: { 'Cache-Control': 'no-store' } })
+
   } catch (err) {
     console.error('[affiliate-click GET]', err)
     return NextResponse.json({
       total: 0, last30days: 0, last7days: 0, today: 0,
-      byProduct: {}, byPartner: {}, productDetails: {}, topProducts: [], topPartners: [], dailyChart: [],
-    })
+      byProduct: {}, byPartner: {}, productDetails: {},
+      topProducts: [], topPartners: [], dailyChart: [], hourlyChart: [],
+      slugsByPartner: {},
+    }, { headers: { 'Cache-Control': 'no-store' } })
   }
 }
