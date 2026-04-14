@@ -1,6 +1,9 @@
-// app/naruchnik/[slug]/page.tsx — v11
-// ✅ Testimonials от naruchnici.testimonials (JSON колона) или от отделна таблица naruchnik_testimonials
+// app/naruchnik/[slug]/page.tsx — v12
+// ✅ Testimonials от naruchnici.testimonials (JSON колона)
 // ✅ Всичко от БД
+// ✅ revalidatePath при PATCH/DELETE от admin routes
+// ✅ keywords обогатени с категория + slug
+// ✅ interactionStatistic за downloads (DownloadAction schema)
 
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
@@ -31,7 +34,9 @@ export interface Naruchnik {
   testimonials?: Testimonial[] // JSON колона в Supabase
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const BASE_URL = 'https://dennyangelow.com'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 async function getAllNaruchnici(): Promise<Naruchnik[]> {
   try {
     const { data } = await supabaseAdmin
@@ -44,13 +49,13 @@ async function getAllNaruchnici(): Promise<Naruchnik[]> {
 }
 
 async function getNaruchnik(slug: string): Promise<{ nar: Naruchnik | null; others: Naruchnik[] }> {
-  const all = await getAllNaruchnici()
-  const nar = all.find(n => n.slug === slug) || null
+  const all    = await getAllNaruchnici()
+  const nar    = all.find(n => n.slug === slug) || null
   const others = all.filter(n => n.slug !== slug).slice(0, 3)
   return { nar, others }
 }
 
-// ─── SSG ─────────────────────────────────────────────────────────────────────
+// ─── SSG ──────────────────────────────────────────────────────────────────────
 export async function generateStaticParams() {
   const all = await getAllNaruchnici()
   return all.map(n => ({ slug: n.slug }))
@@ -63,28 +68,51 @@ export async function generateMetadata(
   const { nar } = await getNaruchnik(params.slug)
   if (!nar) return { title: 'Наръчник не е намерен' }
 
-  const title = nar.meta_title || `${nar.title} — Безплатен PDF Наръчник | Denny Angelow`
+  const title       = nar.meta_title || `${nar.title} — Безплатен PDF Наръчник | Denny Angelow`
   const description = nar.meta_description || nar.description
     || `Изтегли безплатно "${nar.title}" — практично ръководство за по-здрави растения и рекордна реколта. Над ${nar.downloads_count || 6000} фермери вече го изтеглиха.`
-  const canonicalUrl = `https://dennyangelow.com/naruchnik/${nar.slug}`
+  const canonicalUrl = `${BASE_URL}/naruchnik/${nar.slug}`
+
+  // Разширени keywords: включват категорията, slug-а и стандартни термини
+  const keywords = [
+    nar.title,
+    nar.category ? `наръчник за ${nar.category}` : '',
+    nar.category ? `отглеждане на ${nar.category}` : '',
+    nar.category ? `торене на ${nar.category}` : '',
+    nar.category ? `болести по ${nar.category}` : '',
+    nar.category || '',
+    'наръчник', 'безплатен PDF', 'безплатен наръчник',
+    'градина', 'земеделие', 'органично', 'реколта',
+    'Denny Angelow', 'агро консултант',
+  ].filter(Boolean)
 
   return {
-    title, description,
-    keywords: [nar.title, 'наръчник', 'безплатен PDF', 'градина', 'земеделие', 'органично', 'реколта', nar.category || '', 'Denny Angelow'].filter(Boolean),
+    title,
+    description,
+    keywords,
     alternates: { canonical: canonicalUrl },
     openGraph: {
-      title, description, url: canonicalUrl, siteName: 'Denny Angelow',
-      locale: 'bg_BG', type: 'article',
-      images: nar.cover_image_url ? [{ url: nar.cover_image_url, width: 1200, height: 630, alt: `${nar.title} — PDF наръчник` }] : [],
-      publishedTime: '2024-01-01T00:00:00Z', authors: ['https://dennyangelow.com'],
+      title, description,
+      url:           canonicalUrl,
+      siteName:     'Denny Angelow',
+      locale:       'bg_BG',
+      type:         'article',
+      images: nar.cover_image_url
+        ? [{ url: nar.cover_image_url, width: 1200, height: 630, alt: `${nar.title} — PDF наръчник` }]
+        : [],
+      publishedTime: '2024-01-01T00:00:00Z',
+      authors:       [`${BASE_URL}`],
     },
     twitter: {
-      card: 'summary_large_image', title, description,
-      images: nar.cover_image_url ? [nar.cover_image_url] : [],
-      creator: '@dennyangelow',
+      card:        'summary_large_image',
+      title,
+      description,
+      images:      nar.cover_image_url ? [nar.cover_image_url] : [],
+      creator:     '@dennyangelow',
     },
     robots: {
-      index: true, follow: true,
+      index:     true,
+      follow:    true,
       googleBot: { index: true, follow: true, 'max-snippet': -1, 'max-image-preview': 'large', 'max-video-preview': -1 },
     },
   }
@@ -95,12 +123,12 @@ export default async function NaruchnikPage({ params }: { params: { slug: string
   const { nar, others } = await getNaruchnik(params.slug)
   if (!nar) notFound()
 
-  const canonicalUrl   = `https://dennyangelow.com/naruchnik/${nar.slug}`
+  const canonicalUrl   = `${BASE_URL}/naruchnik/${nar.slug}`
   const downloadsCount = nar.downloads_count || 6000
   const avgRating      = nar.avg_rating      || 4.9
   const reviewsCount   = nar.reviews_count   || 847
 
-  // FAQ — от БД (без fallback хардкодиран текст)
+  // FAQ — от БД
   const faqEntries = [
     ...(nar.faq_q1 && nar.faq_a1 ? [{ q: nar.faq_q1, a: nar.faq_a1 }] : []),
     ...(nar.faq_q2 && nar.faq_a2 ? [{ q: nar.faq_q2, a: nar.faq_a2 }] : []),
@@ -112,33 +140,61 @@ export default async function NaruchnikPage({ params }: { params: { slug: string
 
   // ── Schema.org ────────────────────────────────────────────────────────────
   const bookSchema = {
-    '@context': 'https://schema.org', '@type': 'Book',
-    name: nar.title, description: nar.description || nar.subtitle,
+    '@context': 'https://schema.org',
+    '@type':    'Book',
+    name:        nar.title,
+    description: nar.description || nar.subtitle,
+    url:         canonicalUrl,
+    image:       nar.cover_image_url,
+    inLanguage:  'bg',
+    isAccessibleForFree: true,
+    genre:          'Agriculture / Gardening',
+    datePublished:  '2024-01-01',
     author: {
-      '@type': 'Person', name: 'Denny Angelow', url: 'https://dennyangelow.com',
-      jobTitle: 'Агро Консултант', description: nar.author_bio || 'Агро консултант с дългогодишен опит.',
+      '@type':    'Person',
+      name:       'Denny Angelow',
+      url:         BASE_URL,
+      jobTitle:   'Агро Консултант',
+      description: nar.author_bio || 'Агро консултант с дългогодишен опит в отглеждането на зеленчуци.',
     },
-    inLanguage: 'bg', isAccessibleForFree: true,
-    offers: { '@type': 'Offer', price: '0', priceCurrency: 'BGN', availability: 'https://schema.org/InStock' },
-    aggregateRating: { '@type': 'AggregateRating', ratingValue: avgRating, reviewCount: reviewsCount, bestRating: 5, worstRating: 1 },
-    url: canonicalUrl, image: nar.cover_image_url,
-    genre: 'Agriculture / Gardening', datePublished: '2024-01-01',
-    publisher: { '@type': 'Organization', name: 'Denny Angelow', url: 'https://dennyangelow.com' },
+    publisher: { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
+    offers: {
+      '@type':       'Offer',
+      price:          '0',
+      priceCurrency: 'BGN',
+      availability:  'https://schema.org/InStock',
+    },
+    aggregateRating: {
+      '@type':       'AggregateRating',
+      ratingValue:    avgRating,
+      reviewCount:    reviewsCount,
+      bestRating:     5,
+      worstRating:    1,
+    },
+    // DownloadAction — брой изтегляния за Google
+    interactionStatistic: {
+      '@type':              'InteractionCounter',
+      interactionType:      'https://schema.org/DownloadAction',
+      userInteractionCount: downloadsCount,
+    },
   }
 
   const faqSchema = faqEntries.length > 0 ? {
-    '@context': 'https://schema.org', '@type': 'FAQPage',
+    '@context': 'https://schema.org',
+    '@type':    'FAQPage',
     mainEntity: faqEntries.map(({ q, a }) => ({
-      '@type': 'Question', name: q,
+      '@type': 'Question',
+      name:     q,
       acceptedAnswer: { '@type': 'Answer', text: a },
     })),
   } : null
 
   const breadcrumbSchema = {
-    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    '@context': 'https://schema.org',
+    '@type':    'BreadcrumbList',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Начало',    item: 'https://dennyangelow.com' },
-      { '@type': 'ListItem', position: 2, name: 'Наръчници', item: 'https://dennyangelow.com/naruchnici' },
+      { '@type': 'ListItem', position: 1, name: 'Начало',    item: BASE_URL },
+      { '@type': 'ListItem', position: 2, name: 'Наръчници', item: `${BASE_URL}/naruchnici` },
       { '@type': 'ListItem', position: 3, name: nar.title,   item: canonicalUrl },
     ],
   }
@@ -146,7 +202,9 @@ export default async function NaruchnikPage({ params }: { params: { slug: string
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(bookSchema) }} />
-      {faqSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />}
+      {faqSchema && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      )}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
 
       <NaruchnikClient

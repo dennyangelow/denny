@@ -1,8 +1,8 @@
-// middleware.ts — v5
-// ПРОМЕНИ спрямо v4:
-//   - /api/leads (GET) добавен в PROTECTED (admin листа)
-//   - /api/leads/:id (PATCH/DELETE/GET) добавени в PROTECTED (admin операции)
-//     Изключение: POST /api/leads е публичен (форма за изтегляне на наръчник)
+// middleware.ts — v6
+// ПРОМЕНИ спрямо v5:
+//   - GET /api/affiliate-products добавен в публични routes
+//     (нужен за homepage Server Component — чете продуктите при build/revalidate)
+//     Всички мутации (POST, PATCH, DELETE) остават admin-protected
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -21,20 +21,22 @@ function securityHeaders(res: NextResponse): NextResponse {
 
 // ── API routes, достъпни публично (без auth) ──────────────────────────────────
 function isPublicApiRequest(pathname: string, method: string): boolean {
-  if (pathname === '/api/site-data')                                         return true
-  if (pathname === '/api/naruchnici' && method === 'GET')                    return true
-  if (pathname === '/api/naruchnici/track')                                  return true
-  if (pathname === '/api/orders' && method === 'POST')                       return true
-  if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST') return true
+  if (pathname === '/api/site-data')                                              return true
+  if (pathname === '/api/naruchnici' && method === 'GET')                         return true
+  if (pathname === '/api/naruchnici/track')                                        return true
+  // ✅ GET /api/affiliate-products е публичен — четем от началната страница
+  if (pathname === '/api/affiliate-products' && method === 'GET')                  return true
+  if (pathname === '/api/orders' && method === 'POST')                             return true
+  if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST')       return true
   // ✅ POST /api/leads е публичен (форма за изтегляне на наръчник)
   //    Всички останали операции (GET листа, PATCH, DELETE по id) са admin only
-  if (pathname === '/api/leads' && method === 'POST')                        return true
-  if (pathname === '/api/leads/unsubscribe')                                 return true
-  if (pathname === '/api/leads/sequence' && method === 'GET')                return true
-  // ✅ ВСИЧКИ analytics routes са публични (page-view POST от клиентите + GET за admin panel)
-  if (pathname.startsWith('/api/analytics/'))                                return true
-  if (pathname === '/api/admin/auth')                                        return true
-  if (pathname === '/api/marketing' && method === 'GET')                     return true
+  if (pathname === '/api/leads' && method === 'POST')                              return true
+  if (pathname === '/api/leads/unsubscribe')                                        return true
+  if (pathname === '/api/leads/sequence' && method === 'GET')                      return true
+  // ✅ ВСИЧКИ analytics routes са публични
+  if (pathname.startsWith('/api/analytics/'))                                       return true
+  if (pathname === '/api/admin/auth')                                               return true
+  if (pathname === '/api/marketing' && method === 'GET')                           return true
   return false
 }
 
@@ -42,7 +44,7 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
 const PROTECTED_API_PREFIXES = [
   '/api/settings',
   '/api/own-products',
-  '/api/affiliate-products',
+  '/api/affiliate-products',   // мутациите са защитени (GET е публичен — проверен по-горе)
   '/api/testimonials',
   '/api/naruchnici',
   '/api/faq',
@@ -50,8 +52,8 @@ const PROTECTED_API_PREFIXES = [
   '/api/ginegar',
   '/api/upload',
   '/api/leads/broadcast',
-  '/api/leads/sync',    // admin only: масов sync към Systeme.io
-  '/api/leads',         // ✅ admin only: GET листа + PATCH/DELETE по id
+  '/api/leads/sync',
+  '/api/leads',
   '/api/orders',
   '/api/marketing',
 ]
@@ -107,7 +109,7 @@ export function middleware(req: NextRequest) {
   }
 
   // 6. Останалите /admin/* — rate limiting + token проверка
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
+  const ip      = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
   const attempt = loginAttempts.get(ip)
 
   if (attempt && attempt.count >= 10 && attempt.until > Date.now()) {
@@ -121,9 +123,7 @@ export function middleware(req: NextRequest) {
 
   if (attempt) {
     attempt.count++
-    if (attempt.count >= 10) {
-      attempt.until = Date.now() + 15 * 60 * 1000
-    }
+    if (attempt.count >= 10) attempt.until = Date.now() + 15 * 60 * 1000
   } else {
     loginAttempts.set(ip, { count: 1, until: 0 })
   }

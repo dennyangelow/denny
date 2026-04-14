@@ -1,6 +1,8 @@
 // app/page.tsx  ←  SERVER COMPONENT (без 'use client')
 // Всички данни се зареждат тук на сървъра → нулева CLS, мигновено съдържание
+// ✅ Включва пълно SEO оптимизиране, Metadata и Schema.org (JSON-LD)
 
+import { Metadata } from 'next'
 import { CDN, AFF } from '@/lib/marketing-data'
 import { HeaderClient } from '@/components/client/HeaderClient'
 import { HandbooksPanel } from '@/components/client/HandbooksPanel'
@@ -12,9 +14,9 @@ import { AffiliateSection, CategoryLinksSection } from '@/components/client/Affi
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import './homepage.css'
 
-// revalidate = 0 → страницата винаги е свежа (ISR on-demand чрез revalidatePath)
-// Ако искаш леко кеширане сложи 30, но 0 гарантира мигновени промени от admin
 export const revalidate = 0
+
+const BASE_URL = 'https://dennyangelow.com'
 
 // ─── Типове ────────────────────────────────────────────────────────────────────
 interface SiteSettings {
@@ -41,6 +43,7 @@ interface SiteSettings {
 interface Handbook {
   slug: string; title: string; subtitle: string
   emoji: string; color: string; bg: string; badge: string; image_url?: string
+  description?: string; downloads_count?: number; avg_rating?: number; reviews_count?: number
 }
 
 interface ProductVariant {
@@ -62,6 +65,7 @@ interface AffiliateProduct {
   affiliate_url: string; partner: string; emoji: string
   badge_text: string; tag_text: string; color: string
   badge_color: string; category_label: string
+  seo_title?: string; seo_description?: string; seo_keywords?: string
 }
 
 interface CategoryLink {
@@ -198,15 +202,12 @@ async function getPageData() {
       supabase.from('category_links').select('*').eq('active', true).order('sort_order'),
       supabase.from('testimonials').select('*').order('sort_order').limit(9),
       supabase.from('promo_banners').select('*').eq('active', true).order('sort_order'),
-      // Зареждаме само активните FAQ въпроси за публичната страница
       supabase.from('faq').select('*').eq('active', true).order('sort_order'),
       supabase.from('naruchnici').select('*').eq('active', true).order('sort_order'),
       supabase.from('special_sections').select('*').eq('active', true).order('sort_order'),
-      // ✅ НОВО: зареждаме faq_categories
       supabase.from('faq_categories').select('*').order('sort_order'),
     ])
 
-    // Log грешки без да счупваме страницата
     ;[e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11].forEach((e, i) => {
       if (e) console.error(`[getPageData] query ${i + 1} error:`, e.message)
     })
@@ -238,7 +239,6 @@ async function getPageData() {
         ...(num('shipping_econt')      !== undefined && { shipping_econt:      num('shipping_econt')! }),
         ...(num('shipping_speedy')     !== undefined && { shipping_speedy:     num('shipping_speedy')! }),
         ...(num('free_shipping_above') !== undefined && { free_shipping_above: num('free_shipping_above')! }),
-        // shipping_price = min(econt, speedy) — за CartSystem
         ...((s.shipping_econt || s.shipping_speedy) && {
           shipping_price: Math.min(
             s.shipping_econt  ? parseFloat(s.shipping_econt)  : 999,
@@ -286,6 +286,9 @@ async function getPageData() {
       category_label: p.category_label || p.subtitle || '',
       tag_text:       p.tag_text       || '',
       color:          p.color          || '#16a34a',
+      seo_title:      p.seo_title      || null,
+      seo_description:p.seo_description|| null,
+      seo_keywords:   p.seo_keywords   || null,
     }))
 
     // ── Category links ────────────────────────────────────────────────────────
@@ -310,6 +313,10 @@ async function getPageData() {
             : 'linear-gradient(135deg,#16a34a,#166534)'),
           badge:     n.badge || n.category,
           image_url: n.cover_image_url || '',
+          description: n.description || '',
+          downloads_count: n.downloads_count || 0,
+          avg_rating: n.avg_rating || null,
+          reviews_count: n.reviews_count || null,
         }))
       : DEFAULT_HANDBOOKS
 
@@ -331,13 +338,8 @@ async function getPageData() {
       partner:     s.partner     || null,
     }))
 
-    // ── FAQ categories ────────────────────────────────────────────────────────
-    const faqCategories: FaqCategory[] =
-      faqCategoryRows?.length
-        ? (faqCategoryRows as FaqCategory[])
-        : DEFAULT_FAQ_CATEGORIES
-
-    // ── FAQ items (само активни) ──────────────────────────────────────────────
+    // ── FAQ ────────────────────────────────────────────────────────
+    const faqCategories: FaqCategory[] = faqCategoryRows?.length ? (faqCategoryRows as FaqCategory[]) : DEFAULT_FAQ_CATEGORIES
     const faq: FaqItem[] = (faqRows || []).map((f: any) => ({
       id:         f.id,
       question:   f.question,
@@ -356,8 +358,7 @@ async function getPageData() {
 
     return {
       settings, atlasProducts, affiliateProducts,
-      categoryLinks,
-      promoBanners,
+      categoryLinks, promoBanners,
       testimonials: (testimonialRows || []).map((t: any) => ({
         id:          t.id,
         name:        t.name        || '',
@@ -368,9 +369,7 @@ async function getPageData() {
         product:     t.product     || '',
         review_date: t.review_date || '',
       })),
-      faq,
-      faqCategories,
-      handbooks, specialSections,
+      faq, faqCategories, handbooks, specialSections,
     }
   } catch (err) {
     console.error('[getPageData] fatal:', err)
@@ -389,6 +388,68 @@ async function getPageData() {
   }
 }
 
+// ─── Metadata — динамична от БД ───────────────────────────────────────────────
+export async function generateMetadata(): Promise<Metadata> {
+  const { handbooks, affiliateProducts } = await getPageData()
+
+  const narKeywords     = handbooks.map(n => n.title)
+  const prodKeywords    = affiliateProducts.map(p => p.name)
+  const customKeywords  = affiliateProducts.flatMap(p =>
+    p.seo_keywords?.split(',').map(k => k.trim()).filter(Boolean) || []
+  )
+  const totalDownloads  = handbooks.reduce((s, n) => s + (n.downloads_count || 0), 0)
+  const displayCount    = totalDownloads > 0 ? totalDownloads.toLocaleString('bg') : '6 500'
+
+  return {
+    title: 'Denny Angelow — Домати, Краставици, Торове и Агро Наръчници',
+    description: `Безплатни PDF наръчници за домати и краставици. ${handbooks.length > 0 ? `${handbooks.length} наръчника` : 'Практични ръководства'}, биостимулатори Atlas Terra, Ginegar найлон. Над ${displayCount} фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.`,
+    keywords: [
+      'домати', 'отглеждане на домати', 'торене на домати', 'болести по домати',
+      'мана по домати', 'Tuta absoluta', 'върхово гниене на домати',
+      'домати в оранжерия', 'домати добив от декар', 'наръчник за домати',
+      'как да отгледам домати', 'домати без болести',
+      'краставици', 'отглеждане на краставици', 'торене на краставици',
+      'краставици в оранжерия', 'наръчник за краставици',
+      'краставици високи добиви', 'краставици болести',
+      'Atlas Terra', 'биостимулатори', 'органично торене', 'течни торове',
+      'хуминови киселини', 'аминокиселини за растения', 'NPK торове',
+      'Амалгерол', 'Калитех', 'Кристалон зелен', 'Турбо Рут',
+      'Ридомил Голд', 'Синейс 480', 'мана по растения', 'трипс по домати',
+      'фунгицид за домати', 'инсектицид биологичен',
+      'оранжерия', 'найлон за оранжерия', 'Ginegar', 'израелски найлон',
+      'полиетилен за оранжерия', 'поливни системи', 'капково напояване',
+      'земеделие България', 'агро консултант', 'Denny Angelow',
+      'безплатен агро наръчник', 'рекордна реколта', 'органично земеделие',
+      'биологично земеделие', 'защита от болести по растенията',
+      'фермери България', 'градина', 'зеленчуци',
+      ...narKeywords,
+      ...prodKeywords,
+      ...customKeywords,
+    ].filter(Boolean),
+    alternates: { canonical: BASE_URL },
+    openGraph: {
+      title:       'Denny Angelow — Безплатни Наръчници за Домати и Краставици',
+      description: `Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над ${displayCount} фермери вече го използват.`,
+      url:         BASE_URL,
+      siteName:    'Denny Angelow',
+      locale:      'bg_BG',
+      type:        'website',
+      images: [{ url: `${BASE_URL}/og-image.jpg`, width: 1200, height: 630, alt: 'Denny Angelow — Агро Наръчници' }],
+    },
+    twitter: {
+      card:        'summary_large_image',
+      title:       'Denny Angelow — Безплатни Агро Наръчници',
+      description: 'Домати, краставици, торене, болести, оранжерии. Изтегли безплатно.',
+      images:      [`${BASE_URL}/og-image.jpg`],
+      creator:     '@dennyangelow',
+    },
+    robots: {
+      index: true, follow: true,
+      googleBot: { index: true, follow: true, 'max-snippet': -1, 'max-image-preview': 'large', 'max-video-preview': -1 },
+    },
+  }
+}
+
 // ─── SERVER COMPONENT ──────────────────────────────────────────────────────────
 export default async function HomePage() {
   const {
@@ -398,9 +459,115 @@ export default async function HomePage() {
 
   const trustItems  = safeJson<{ icon: string; text: string; sub?: string }[]>(settings.trust_strip_items, [])
   const socialItems = safeJson<{ number: string; label: string }[]>(settings.social_proof_items, [])
+  const totalDownloads = handbooks.reduce((s, n) => s + (n.downloads_count || 0), 0)
+
+  // ── Schema: CollectionPage ────────────────────────────────────────────────
+  const collectionPageSchema = {
+    '@context': 'https://schema.org',
+    '@type':    'CollectionPage',
+    name:       'Безплатни Агро Наръчници — Denny Angelow',
+    description: 'Колекция от безплатни PDF наръчници за отглеждане на домати, краставици и зеленчуци в България.',
+    url:         BASE_URL,
+    inLanguage:  'bg',
+    author: { '@type': 'Person', name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
+    ...(totalDownloads > 0 ? {
+      interactionStatistic: {
+        '@type':              'InteractionCounter',
+        interactionType:      'https://schema.org/DownloadAction',
+        userInteractionCount: totalDownloads,
+      },
+    } : {}),
+  }
+
+  // ── Schema: ItemList — Наръчници с пълни Book данни ─────────────────────
+  const naruchnikListSchema = {
+    '@context':    'https://schema.org',
+    '@type':       'ItemList',
+    name:          'Безплатни PDF Наръчници от Denny Angelow',
+    description:   'Всички безплатни агро наръчници за домати, краставици и зеленчуци',
+    url:           BASE_URL,
+    numberOfItems: handbooks.length,
+    itemListElement: handbooks.map((n, i) => ({
+      '@type':    'ListItem',
+      position:    i + 1,
+      url:         `${BASE_URL}/naruchnik/${n.slug}`,
+      name:        n.title,
+      item: {
+        '@type':             'Book',
+        name:                 n.title,
+        description:          n.description || '',
+        url:                  `${BASE_URL}/naruchnik/${n.slug}`,
+        image:                n.image_url || '',
+        inLanguage:          'bg',
+        isAccessibleForFree:  true,
+        genre:               'Agriculture / Gardening',
+        datePublished:       '2024-01-01',
+        author:    { '@type': 'Person',       name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
+        publisher: { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'BGN', availability: 'https://schema.org/InStock' },
+        ...(n.avg_rating && n.reviews_count ? {
+          aggregateRating: {
+            '@type': 'AggregateRating',
+            ratingValue: n.avg_rating, reviewCount: n.reviews_count, bestRating: 5, worstRating: 1,
+          },
+        } : {}),
+        ...(n.downloads_count ? {
+          interactionStatistic: {
+            '@type':              'InteractionCounter',
+            interactionType:      'https://schema.org/DownloadAction',
+            userInteractionCount: n.downloads_count,
+          },
+        } : {}),
+      },
+    })),
+  }
+
+  // ── Schema: ItemList — Афилиейт продукти с Product schema ───────────────
+  const productListSchema = affiliateProducts.length > 0 ? {
+    '@context':    'https://schema.org',
+    '@type':       'ItemList',
+    name:          'Препоръчани Агро Продукти от Denny Angelow',
+    description:   'Торове, биостимулатори и препарати препоръчани от агро консултант Denny Angelow',
+    url:           BASE_URL,
+    numberOfItems: affiliateProducts.length,
+    itemListElement: affiliateProducts.map((p, i) => ({
+      '@type':    'ListItem',
+      position:    i + 1,
+      name:        p.name,
+      url:         p.affiliate_url || BASE_URL,
+      item: {
+        '@type':      'Product',
+        name:          p.name,
+        description:   p.seo_description || p.description || '',
+        image:         p.image_url || '',
+        url:           p.affiliate_url || BASE_URL,
+        ...(p.seo_keywords ? { keywords: p.seo_keywords } : {}),
+        brand: { '@type': 'Brand', name: 'Agroapteki' },
+        review: {
+          '@type': 'Review',
+          reviewRating: { '@type': 'Rating', ratingValue: 5, bestRating: 5 },
+          author: { '@type': 'Person', name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
+          reviewBody: `Препоръчан от Denny Angelow — агро консултант с 8+ години опит в отглеждането на зеленчуци.`,
+        },
+        offers: {
+          '@type':        'Offer',
+          availability:   'https://schema.org/InStock',
+          priceCurrency:  'BGN',
+          seller: { '@type': 'Organization', name: 'Agroapteki', url: 'https://agroapteki.com' },
+        },
+      },
+    })),
+  } : null
 
   return (
     <>
+      {/* ── SEO Schema Scripts ── */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionPageSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(naruchnikListSchema) }} />
+      {productListSchema && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productListSchema) }} />
+      )}
+
       <style suppressHydrationWarning>{`
         .hb-input::placeholder { color: rgba(255,255,255,.45) }
         .hb-input { color: #fff !important }
@@ -523,7 +690,6 @@ export default async function HomePage() {
       {trustItems.length > 0 && (
         <div className="trust-strip">
           <div className="trust-strip-inner">
-            {/* Оригинални items */}
             {trustItems.map(({ icon, text, sub }) => (
               <div key={text} className="trust-item">
                 <div className="trust-item-icon-bg">
@@ -535,7 +701,6 @@ export default async function HomePage() {
                 </div>
               </div>
             ))}
-            {/* Клонирани items — само за безшевен marquee на мобилен, скрити на десктоп */}
             {trustItems.map(({ icon, text, sub }) => (
               <div key={`clone-${text}`} className="trust-item trust-item-clone" aria-hidden="true">
                 <div className="trust-item-icon-bg">
@@ -567,17 +732,13 @@ export default async function HomePage() {
 
       <AffiliateSection products={affiliateProducts} />
 
-
-
       {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
       {atlasProducts.length > 0 && (
         <section id="atlas" style={{ padding: '72px 0 60px', background: 'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)', position: 'relative', overflow: 'hidden' }}>
-          {/* Subtle background pattern */}
           <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(22,163,74,.04) 1px, transparent 1px)', backgroundSize: '32px 32px', pointerEvents: 'none' }} />
 
           <div style={{ maxWidth: 1160, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
             <FadeIn>
-              {/* Section label */}
               <div style={{ textAlign: 'center', marginBottom: 48 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', border: '1.5px solid #d1fae5', color: '#065f46', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 100, marginBottom: 18, boxShadow: '0 2px 8px rgba(22,163,74,.10)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', display: 'inline-block', animation: 'pulse 2s infinite' }} />
@@ -590,7 +751,6 @@ export default async function HomePage() {
                   Три специализирани биостимулаторни формули, разработени от <strong>български учени</strong>. Сертифицирани за екологично земеделие — Екосхема 3.
                 </p>
 
-                {/* Trust indicators row */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
                   {[
                     { icon: '🏭', text: 'Произведено в България' },
@@ -607,7 +767,6 @@ export default async function HomePage() {
               </div>
             </FadeIn>
 
-            {/* ── BAR PROMO BANNERS — елегантни ленти под заглавието ── */}
             {promoBanners.filter(b => b.display_style !== 'featured').length > 0 && (
               <FadeIn>
                 <div style={{ marginBottom: 28, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -652,7 +811,6 @@ export default async function HomePage() {
               />
             </div>
 
-            {/* Featured promo banners — луксозни карти под продуктите */}
             {promoBanners.filter(b => b.display_style === 'featured').length > 0 && (
               <div style={{ marginTop: 32, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
                 {promoBanners.filter(b => b.display_style === 'featured').map(banner => {
@@ -676,19 +834,14 @@ export default async function HomePage() {
                         boxShadow: `0 12px 40px ${banner.color}55, 0 2px 8px rgba(0,0,0,0.08)`,
                         border: '1px solid rgba(255,255,255,0.18)',
                       }}>
-                        {/* Top gradient accent */}
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.5), rgba(255,255,255,0.1))', pointerEvents: 'none' }} />
-                        {/* Decorative circles */}
                         <div style={{ position: 'absolute', right: -50, top: -50, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
                         <div style={{ position: 'absolute', right: 40, bottom: -70, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
                         <div style={{ position: 'absolute', left: -20, bottom: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
-                        {/* Shimmer */}
                         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%, rgba(255,255,255,0.03) 100%)', pointerEvents: 'none' }} />
 
                         <div style={{ padding: '18px 22px 16px', position: 'relative' }}>
-                          {/* Header row */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: subText ? 8 : 0 }}>
-                            {/* Icon */}
                             <div style={{
                               width: 44, height: 44, borderRadius: 12, flexShrink: 0,
                               background: 'rgba(255,255,255,0.18)',
@@ -699,7 +852,6 @@ export default async function HomePage() {
                               boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
                             }}>{banner.icon}</div>
 
-                            {/* Main text */}
                             <div style={{ flex: 1 }}>
                               <div style={{ fontSize: 14, fontWeight: 700, color: banner.text_color, lineHeight: 1.4, letterSpacing: '-0.01em' }}>
                                 {parseBoldLocal(mainText)}
@@ -707,7 +859,6 @@ export default async function HomePage() {
                             </div>
                           </div>
 
-                          {/* Sub text */}
                           {subText && (
                             <div style={{
                               marginLeft: 58,
@@ -728,7 +879,6 @@ export default async function HomePage() {
               </div>
             )}
 
-            {/* Bottom trust strip — елегантна лента */}
             <FadeIn>
               <div style={{
                 marginTop: 20,
@@ -739,7 +889,6 @@ export default async function HomePage() {
                 overflow: 'hidden',
                 position: 'relative',
               }}>
-                {/* Top accent line */}
                 <div style={{ height: 3, background: 'linear-gradient(90deg, #d1fae5, #16a34a, #d1fae5)', position: 'absolute', top: 0, left: 0, right: 0 }} />
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0, padding: '14px 20px 12px' }}>
                   {[
@@ -763,7 +912,7 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* ══ СПЕЦИАЛНИ СЕКЦИИ (от special_sections таблица) ═══════════════════ */}
+      {/* ══ СПЕЦИАЛНИ СЕКЦИИ ═══════════════════ */}
       {specialSections.map(sec => (
         <section key={sec.slug} id={sec.slug} className="ginegar-section">
           <div className="ginegar-glow" />
@@ -812,10 +961,8 @@ export default async function HomePage() {
                 </div>
 
                 <div className="ginegar-img-wrap">
-                  {/* Decorative glow — always behind */}
                   <div style={{ position: 'absolute', inset: -24, background: 'radial-gradient(circle, rgba(22,163,74,0.18), transparent 70%)', borderRadius: '50%', zIndex: 0, pointerEvents: 'none' }} />
 
-                  {/* Главна снимка */}
                   {sec.image_url && sec.image_url.startsWith('http') && (
                     <img
                       src={sec.image_url}
@@ -824,7 +971,6 @@ export default async function HomePage() {
                     />
                   )}
 
-                  {/* Лого — бяла елегантна карта за четимост */}
                   {sec.logo_url && sec.logo_url.startsWith('http') && (
                     <div style={{
                       marginTop: 12,
@@ -864,7 +1010,6 @@ export default async function HomePage() {
                 <p className="s-desc" style={{ color: '#6b7280' }}>
                   Реални резултати от реални хора — без филтри
                 </p>
-                {/* Rating summary pill */}
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 100, padding: '9px 20px', marginTop: 20, boxShadow: '0 2px 10px rgba(0,0,0,.06)', flexWrap: 'wrap', justifyContent: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     {[1,2,3,4,5].map(n => <span key={n} style={{ color: '#f59e0b', fontSize: 15 }}>★</span>)}
@@ -878,9 +1023,8 @@ export default async function HomePage() {
             </FadeIn>
 
             <div className="testimonials-grid">
-              {testimonials.map((t, i) => {
-                // Colorful avatars based on first letter
-                const avatarPalette: Record<string, string> = {
+{testimonials.map((t: Testimonial, i: number) => {
+                  const avatarPalette: Record<string, string> = {
                   А:'#2563eb',Б:'#7c3aed',В:'#db2777',Г:'#ea580c',Д:'#16a34a',
                   Е:'#0891b2',Ж:'#dc2626',З:'#65a30d',И:'#4f46e5',К:'#b45309',
                   Л:'#0d9488',М:'#9333ea',Н:'#c2410c',О:'#1d4ed8',П:'#15803d',
@@ -896,7 +1040,6 @@ export default async function HomePage() {
                     <article className="testimonial-card">
                       <span className="testimonial-quote-mark" aria-hidden="true">"</span>
 
-                      {/* Stars + verified */}
                       <div className="testimonial-stars">
                         {Array.from({ length: t.rating || 5 }).map((_, j) => (
                           <span key={j} className="star" aria-hidden="true">★</span>
@@ -904,17 +1047,14 @@ export default async function HomePage() {
                         <span className="testimonial-verified">✓ Верифициран</span>
                       </div>
 
-                      {/* Review text */}
                       <blockquote style={{ margin: 0 }}>
                         <p className="testimonial-text">„{t.text}"</p>
                       </blockquote>
 
-                      {/* Product badge */}
                       {t.product && (
                         <span className="testimonial-product-badge">🌿 {t.product}</span>
                       )}
 
-                      {/* Author */}
                       <div className="testimonial-author">
                         {t.avatar_url ? (
                           <img src={t.avatar_url} alt={t.name} className="testimonial-avatar" loading="lazy" />
@@ -942,10 +1082,7 @@ export default async function HomePage() {
       )}
 
       {/* ══ FAQ ════════════════════════════════════════════════════════════════ */}
-      {/* ✅ Подаваме и faqCategories за да се показват табовете с категории */}
       {faq.length > 0 && <FaqSection faq={faq} categories={faqCategories} />}
-
-     
 
       {/* ══ FOOTER ═════════════════════════════════════════════════════════════ */}
       <footer className="site-footer">

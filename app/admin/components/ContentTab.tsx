@@ -1,8 +1,19 @@
 'use client'
-// app/admin/components/ContentTab.tsx — v5
-// ✅ ПРОМЕНИ v5:
-//   - Добавен subtab 'naruchnik-seo' вътре в ContentTab (под Наръчници)
-//   - SEO панелът се вижда като втори ред бутони само когато subTab === 'naruchnici'
+// app/admin/components/ContentTab.tsx — v6
+// ✅ ПРОМЕНИ v6 (спрямо v5):
+//   - Добавен FieldType 'seo_section' — визуален separator в edit панела
+//   - Добавени seo_title, seo_description, seo_keywords полета за афилиейт продукти
+//   - SEO badge (🔍) в листа за афилиейт продукти с попълнени SEO полета
+//   - SeoCharCounter компонент — брояч за meta title (50-70 chars) и description (120-160 chars)
+//   - API за affiliate е /api/affiliate-products (нов route с revalidatePath)
+//   - Чистене на '_'-полета (visual separators) преди POST/PATCH
+// ✅ ЗАПАЗЕНО от v5:
+//   - Всички subtab конфигурации (naruchnici, own, links, special, promos)
+//   - PdfUpload компонент с drag-and-drop
+//   - NaruchnikSeoTab subtab mode
+//   - Цялата save/delete/load логика
+//   - Slug auto-generation за links tab
+//   - Всички CSS стилове
 
 import { useState, useEffect, useCallback } from 'react'
 import { ImageUpload } from '@/components/ui/ImageUpload'
@@ -16,24 +27,25 @@ type NaruchnikMode = 'list' | 'seo'
 
 interface BaseItem { id: string; [key: string]: any }
 
-type FieldType = 'text' | 'textarea' | 'url' | 'number' | 'color' | 'checkbox' | 'bullets'
+// ✅ Добавен 'seo_section' тип — само визуален separator, не се изпраща към API
+type FieldType = 'text' | 'textarea' | 'url' | 'number' | 'color' | 'checkbox' | 'bullets' | 'seo_section'
 
 interface FieldDef {
-  key: string
-  label: string
-  type: FieldType
+  key:          string
+  label:        string
+  type:         FieldType
   placeholder?: string
 }
 
 interface TabConfig {
-  label: string
-  api: string
-  responseKey: string        // ключ в JSON отговора
-  imageField?: string
-  logoField?: string         // втора снимка (само за special)
-  pdfField?: string          // PDF upload поле
+  label:        string
+  api:          string
+  responseKey:  string
+  imageField?:  string
+  logoField?:   string        // втора снимка (само за special)
+  pdfField?:    string        // PDF upload поле
   imageFolder?: string
-  fields: FieldDef[]
+  fields:       FieldDef[]
 }
 
 const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
@@ -42,13 +54,13 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
     imageField: 'cover_image_url', imageFolder: 'naruchnici',
     pdfField: 'pdf_url',
     fields: [
-      { key: 'title',      label: 'Заглавие',    type: 'text',     placeholder: 'Тайните на едрите домати' },
-      { key: 'subtitle',   label: 'Подзаглавие', type: 'text',     placeholder: 'Пълен наръчник за...' },
-      { key: 'slug',       label: 'Slug (URL)',   type: 'text',     placeholder: 'super-domati' },
-      { key: 'description',label: 'Описание',    type: 'textarea', placeholder: 'Описание...' },
-      { key: 'category',   label: 'Категория',   type: 'text',     placeholder: 'domati' },
-      { key: 'sort_order', label: 'Ред',         type: 'number',   placeholder: '0' },
-      { key: 'active',     label: 'Активен',     type: 'checkbox' },
+      { key: 'title',       label: 'Заглавие',    type: 'text',     placeholder: 'Тайните на едрите домати' },
+      { key: 'subtitle',    label: 'Подзаглавие', type: 'text',     placeholder: 'Пълен наръчник за...' },
+      { key: 'slug',        label: 'Slug (URL)',   type: 'text',     placeholder: 'super-domati' },
+      { key: 'description', label: 'Описание',    type: 'textarea', placeholder: 'Описание...' },
+      { key: 'category',    label: 'Категория',   type: 'text',     placeholder: 'domati' },
+      { key: 'sort_order',  label: 'Ред',         type: 'number',   placeholder: '0' },
+      { key: 'active',      label: 'Активен',     type: 'checkbox' },
     ],
   },
 
@@ -56,10 +68,11 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
     label: 'Афилиейт продукти', api: '/api/affiliate-products', responseKey: 'products',
     imageField: 'image_url', imageFolder: 'affiliate',
     fields: [
-      { key: 'name',          label: 'Наименование',  type: 'text',     placeholder: 'Кристалон Зелен' },
+      // ── Основна информация ─────────────────────────────────────────────────
+      { key: 'name',          label: 'Наименование',  type: 'text',     placeholder: 'Кристалон Зелен 18-18-18' },
       { key: 'slug',          label: 'Slug',          type: 'text',     placeholder: 'kristalon' },
       { key: 'badge_text',    label: 'Бадж',          type: 'text',     placeholder: 'Най-използван' },
-      { key: 'subtitle',      label: 'Подзаглавие',   type: 'text',     placeholder: 'NPK тор' },
+      { key: 'subtitle',      label: 'Подзаглавие',   type: 'text',     placeholder: 'NPK тор с микроелементи' },
       { key: 'description',   label: 'Описание',      type: 'textarea', placeholder: 'Описание...' },
       { key: 'affiliate_url', label: 'Affiliate URL', type: 'url',      placeholder: 'https://...' },
       { key: 'partner',       label: 'Партньор',      type: 'text',     placeholder: 'agroapteki' },
@@ -67,6 +80,26 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'tag_text',      label: 'Таг',           type: 'text',     placeholder: '⭐ Фаворит' },
       { key: 'sort_order',    label: 'Ред',           type: 'number',   placeholder: '0' },
       { key: 'active',        label: 'Активен',       type: 'checkbox' },
+      // ── SEO секция (визуален separator) ───────────────────────────────────
+      { key: '_seo_divider',  label: '🔍 SEO Оптимизация', type: 'seo_section' },
+      {
+        key:         'seo_title',
+        label:       'SEO Заглавие (meta title, 50–70 символа)',
+        type:        'text',
+        placeholder: 'Кристалон Зелен 18-18-18 — NPK тор | Denny Angelow',
+      },
+      {
+        key:         'seo_description',
+        label:       'SEO Описание (meta description, 120–160 символа)',
+        type:        'textarea',
+        placeholder: 'Водоразтворим NPK тор с микроелементи — стимулира бърз растеж и по-голям добив. Препоръчан от агро консултант Denny Angelow.',
+      },
+      {
+        key:         'seo_keywords',
+        label:       'Keywords (чрез запетая)',
+        type:        'text',
+        placeholder: 'кристалон зелен, NPK тор, торене на домати, водоразтворим тор',
+      },
     ],
   },
 
@@ -94,13 +127,13 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
   links: {
     label: 'Категорийни линкове', api: '/api/category-links', responseKey: 'links',
     fields: [
-      { key: 'emoji',      label: 'Иконка (emoji)', type: 'text',   placeholder: '🌱' },
-      { key: 'label',      label: 'Надпис',         type: 'text',   placeholder: 'Торове и Стимулатори' },
-      { key: 'slug',       label: 'Slug (за аналитика)', type: 'text', placeholder: 'torove-bio-stimulatori' },
-      { key: 'link',       label: 'URL',            type: 'url',    placeholder: 'https://...' },
-      { key: 'color',      label: 'Цвят (HEX)',     type: 'color' },
-      { key: 'sort_order', label: 'Ред',            type: 'number', placeholder: '0' },
-      { key: 'active',     label: 'Активен',        type: 'checkbox' },
+      { key: 'emoji',      label: 'Иконка (emoji)',       type: 'text',   placeholder: '🌱' },
+      { key: 'label',      label: 'Надпис',               type: 'text',   placeholder: 'Торове и Стимулатори' },
+      { key: 'slug',       label: 'Slug (за аналитика)',  type: 'text',   placeholder: 'torove-bio-stimulatori' },
+      { key: 'link',       label: 'URL',                  type: 'url',    placeholder: 'https://...' },
+      { key: 'color',      label: 'Цвят (HEX)',           type: 'color' },
+      { key: 'sort_order', label: 'Ред',                  type: 'number', placeholder: '0' },
+      { key: 'active',     label: 'Активен',              type: 'checkbox' },
     ],
   },
 
@@ -141,6 +174,20 @@ const inp: React.CSSProperties = {
 }
 const focusGreen = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement).style.borderColor = '#2d6a4f')
 const blurGray   = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement).style.borderColor = '#e5e7eb')
+
+// ─── SEO char counter ──────────────────────────────────────────────────────────
+function SeoCharCounter({ value, ideal, max }: { value: string; ideal: number; max: number }) {
+  const len   = (value || '').length
+  const color = len === 0 ? '#9ca3af'
+              : len > max ? '#dc2626'
+              : len >= ideal ? '#16a34a'
+              : '#d97706'
+  const msg   = len === 0       ? `0 / ${ideal}–${max} символа`
+              : len > max       ? `${len} ⚠️ прекалено дълго (>${max})`
+              : len >= ideal    ? `${len} ✓ идеално`
+              : `${len} — добави още ${ideal - len} символа`
+  return <span style={{ fontSize: 11, color, marginTop: 3, display: 'block' }}>{msg}</span>
+}
 
 // ─── PdfUpload component ───────────────────────────────────────────────────────
 function PdfUpload({ value, onChange }: { value: string; onChange: (url: string) => void }) {
@@ -293,6 +340,7 @@ export function ContentTab() {
   const startNew = () => {
     const defaults: BaseItem = { id: '' }
     cfg.fields.forEach(f => {
+      if (f.type === 'seo_section') return  // visual only, не добавяме в state
       if (f.type === 'checkbox') defaults[f.key] = true
       else if (f.type === 'number')  defaults[f.key] = 0
       else if (f.type === 'color')   defaults[f.key] = '#16a34a'
@@ -310,11 +358,11 @@ export function ContentTab() {
     if (!editing) return
     setSaving(true)
     try {
-      // Auto-generate slug for links if left empty
       let payload = { ...editing }
+
+      // Auto-generate slug for links if left empty
       if (subTab === 'links' && (!payload.slug || payload.slug.trim() === '' || payload.slug.trim() === '-')) {
         const label = (payload.label || '') as string
-        // Cyrillic → Latin transliteration map
         const cyrMap: Record<string, string> = {
           а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ж:'zh',з:'z',и:'i',й:'y',
           к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',
@@ -332,12 +380,18 @@ export function ContentTab() {
           .replace(/-+/g, '-')
           .slice(0, 60) || `link-${payload.id?.slice(0, 6) || Date.now()}`
       }
-      const isNew = !payload.id
-      const url   = isNew ? cfg.api : `${cfg.api}/${payload.id}`
+
+      // ✅ Премахваме visual-only separator полетата преди изпращане към API
+      const cleanPayload = Object.fromEntries(
+        Object.entries(payload).filter(([k]) => !k.startsWith('_'))
+      )
+
+      const isNew = !cleanPayload.id
+      const url   = isNew ? cfg.api : `${cfg.api}/${cleanPayload.id}`
       const res   = await fetch(url, {
         method:  isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
+        body:    JSON.stringify(cleanPayload),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -378,6 +432,10 @@ export function ContentTab() {
     if (subTab === 'links') return item.link || item.href || '—'
     return item.affiliate_url || item.button_url || item.slug || '—'
   }
+
+  // ── Checks ────────────────────────────────────────────────────────────────
+  const hasAffiliateSeo = (item: BaseItem) =>
+    subTab === 'affiliate' && !!(item.seo_title || item.seo_description || item.seo_keywords)
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -429,6 +487,15 @@ export function ContentTab() {
               }}>
               🔍 SEO Оптимизация
             </button>
+          </div>
+        )}
+
+        {/* ── Афилиейт SEO инфо бар ── */}
+        {subTab === 'affiliate' && (
+          <div style={{ marginTop: 10, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 14px', fontSize: 12, color: '#1e40af', lineHeight: 1.6 }}>
+            🔍 <strong>SEO за афилиейт продукти</strong> — попълни <em>SEO Заглавие</em>, <em>SEO Описание</em> и <em>Keywords</em> при редактиране.
+            Продуктите с попълнен SEO се маркират с <strong>🔍 SEO</strong> бадж в листа.
+            При запазване, началната страница се обновява автоматично (Product schema).
           </div>
         )}
       </div>
@@ -510,9 +577,17 @@ export function ContentTab() {
                     <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{itemSub(item)}</span>
                       {item.active === false && <span style={{ color: '#ef4444', fontSize: 11, flexShrink: 0 }}>● Неактивен</span>}
+
+                      {/* ✅ SEO badge за наръчници */}
                       {subTab === 'naruchnici' && item.meta_title && (
                         <span style={{ color: '#16a34a', fontSize: 11, flexShrink: 0, background: '#ecfdf5', padding: '1px 6px', borderRadius: 99 }}>✓ SEO</span>
                       )}
+
+                      {/* ✅ SEO badge за афилиейт продукти */}
+                      {hasAffiliateSeo(item) && (
+                        <span style={{ color: '#1d4ed8', fontSize: 11, flexShrink: 0, background: '#eff6ff', padding: '1px 6px', borderRadius: 99 }}>🔍 SEO</span>
+                      )}
+
                       {subTab === 'links' && item.slug && item.slug !== '-' && (
                         <span style={{ color: '#2d6a4f', fontSize: 11, flexShrink: 0, background: '#ecfdf5', padding: '1px 6px', borderRadius: 99, fontFamily: 'monospace' }}>🏷 {item.slug}</span>
                       )}
@@ -602,115 +677,151 @@ export function ContentTab() {
                 )}
 
                 {/* Form fields */}
-                {cfg.fields.map(f => (
-                  <div key={f.key}>
+                {cfg.fields.map(f => {
 
-                    {f.type !== 'checkbox' && (
-                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>
-                        {f.label}
-                      </label>
-                    )}
-
-                    {f.type === 'textarea' ? (
-                      <textarea
-                        rows={3}
-                        value={editing[f.key] || ''}
-                        onChange={e => set(f.key, e.target.value)}
-                        placeholder={f.placeholder}
-                        style={{ ...inp, resize: 'vertical' }}
-                        onFocus={focusGreen} onBlur={blurGray}
-                      />
-
-                    ) : f.type === 'bullets' ? (
-                      <div>
-                        <textarea
-                          rows={5}
-                          value={Array.isArray(editing[f.key]) ? editing[f.key].join('\n') : ''}
-                          onChange={e => set(f.key, e.target.value.split('\n').map((s: string) => s.trim()).filter(Boolean))}
-                          placeholder={f.placeholder}
-                          style={{ ...inp, resize: 'vertical' }}
-                          onFocus={focusGreen} onBlur={blurGray}
-                        />
-                        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                          По едно предимство на всеки ред. Празните редове се игнорират.
-                          {Array.isArray(editing[f.key]) && editing[f.key].length > 0 && (
-                            <span style={{ color: '#16a34a', marginLeft: 6 }}>✓ {editing[f.key].length} предимства</span>
-                          )}
+                  // ── SEO section visual separator ──────────────────────────
+                  if (f.type === 'seo_section') {
+                    return (
+                      <div key={f.key} style={{ marginTop: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <div style={{ height: 1, flex: 1, background: '#e5e7eb' }} />
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, color: '#1d4ed8',
+                            background: '#eff6ff', border: '1px solid #bfdbfe',
+                            borderRadius: 99, padding: '3px 10px', whiteSpace: 'nowrap',
+                          }}>
+                            {f.label}
+                          </span>
+                          <div style={{ height: 1, flex: 1, background: '#e5e7eb' }} />
                         </div>
+                        <p style={{ fontSize: 11, color: '#6b7280', margin: '4px 0 0', lineHeight: 1.5 }}>
+                          Попълни полетата долу за да може Google да намери и индексира правилно този продукт.
+                          Промените ще се отразят автоматично на началната страница.
+                        </p>
                       </div>
+                    )
+                  }
 
-                    ) : f.type === 'checkbox' ? (
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600 }}>
-                        <input
-                          type="checkbox"
-                          checked={!!editing[f.key]}
-                          onChange={e => set(f.key, e.target.checked)}
-                          style={{ width: 16, height: 16, accentColor: '#2d6a4f' }}
-                        />
-                        {f.label}
-                      </label>
+                  return (
+                    <div key={f.key}>
 
-                    ) : f.type === 'color' ? (
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <input
-                          type="color"
-                          value={editing[f.key] || '#16a34a'}
-                          onChange={e => set(f.key, e.target.value)}
-                          style={{ width: 40, height: 36, border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', padding: 2, flexShrink: 0 }}
-                        />
-                        <input
-                          type="text"
-                          value={editing[f.key] || ''}
-                          onChange={e => set(f.key, e.target.value)}
-                          placeholder="#16a34a"
-                          style={{ ...inp, fontFamily: 'monospace' }}
-                          onFocus={focusGreen} onBlur={blurGray}
-                        />
-                      </div>
+                      {f.type !== 'checkbox' && (
+                        <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>
+                          {f.label}
+                        </label>
+                      )}
 
-                    ) : (
-                      <>
-                        <input
-                          type={f.type}
-                          value={editing[f.key] ?? ''}
-                          onChange={e => set(f.key, f.type === 'number' ? Number(e.target.value) : e.target.value)}
-                          placeholder={f.placeholder}
-                          step={f.type === 'number' ? '0.01' : undefined}
-                          min={f.type  === 'number' ? '0'    : undefined}
-                          style={{ ...inp, ...(f.key === 'slug' ? { fontFamily: 'monospace', letterSpacing: '0.02em' } : {}) }}
-                          onFocus={focusGreen} onBlur={blurGray}
-                        />
-                        {/* Slug preview hint — only for links tab */}
-                        {f.key === 'slug' && subTab === 'links' && (
-                          <div style={{ marginTop: 5, fontSize: 11, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {editing['slug'] && editing['slug'].trim() !== '' ? (
-                              <>
-                                <span style={{ color: '#16a34a', fontWeight: 700 }}>✓</span>
-                                <span>Tracking slug: <code style={{ background: '#ecfdf5', color: '#166534', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>{editing['slug']}</code></span>
-                              </>
-                            ) : (
-                              <>
-                                <span style={{ color: '#f59e0b' }}>⚡</span>
-                                <span>Автоматично от надписа: <code style={{ background: '#fefce8', color: '#854d0e', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>
-                                  {(() => {
-                                    const cyrMap: Record<string, string> = {
-                                      а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ж:'zh',з:'z',и:'i',й:'y',
-                                      к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',
-                                      ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sht',ъ:'a',ь:'',ю:'yu',я:'ya',
-                                    }
-                                    return (editing['label'] || 'link')
-                                      .toLowerCase().split('').map((ch: string) => cyrMap[ch] ?? ch).join('')
-                                      .replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'link'
-                                  })()}
-                                </code></span>
-                              </>
+                      {f.type === 'textarea' ? (
+                        <>
+                          <textarea
+                            rows={3}
+                            value={editing[f.key] || ''}
+                            onChange={e => set(f.key, e.target.value)}
+                            placeholder={f.placeholder}
+                            style={{ ...inp, resize: 'vertical' }}
+                            onFocus={focusGreen} onBlur={blurGray}
+                          />
+                          {/* Брояч само за seo_description */}
+                          {f.key === 'seo_description' && (
+                            <SeoCharCounter value={editing[f.key] || ''} ideal={120} max={160} />
+                          )}
+                        </>
+
+                      ) : f.type === 'bullets' ? (
+                        <div>
+                          <textarea
+                            rows={5}
+                            value={Array.isArray(editing[f.key]) ? editing[f.key].join('\n') : ''}
+                            onChange={e => set(f.key, e.target.value.split('\n').map((s: string) => s.trim()).filter(Boolean))}
+                            placeholder={f.placeholder}
+                            style={{ ...inp, resize: 'vertical' }}
+                            onFocus={focusGreen} onBlur={blurGray}
+                          />
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                            По едно предимство на всеки ред. Празните редове се игнорират.
+                            {Array.isArray(editing[f.key]) && editing[f.key].length > 0 && (
+                              <span style={{ color: '#16a34a', marginLeft: 6 }}>✓ {editing[f.key].length} предимства</span>
                             )}
                           </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ))}
+                        </div>
+
+                      ) : f.type === 'checkbox' ? (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600 }}>
+                          <input
+                            type="checkbox"
+                            checked={!!editing[f.key]}
+                            onChange={e => set(f.key, e.target.checked)}
+                            style={{ width: 16, height: 16, accentColor: '#2d6a4f' }}
+                          />
+                          {f.label}
+                        </label>
+
+                      ) : f.type === 'color' ? (
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input
+                            type="color"
+                            value={editing[f.key] || '#16a34a'}
+                            onChange={e => set(f.key, e.target.value)}
+                            style={{ width: 40, height: 36, border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', padding: 2, flexShrink: 0 }}
+                          />
+                          <input
+                            type="text"
+                            value={editing[f.key] || ''}
+                            onChange={e => set(f.key, e.target.value)}
+                            placeholder="#16a34a"
+                            style={{ ...inp, fontFamily: 'monospace' }}
+                            onFocus={focusGreen} onBlur={blurGray}
+                          />
+                        </div>
+
+                      ) : (
+                        <>
+                          <input
+                            type={f.type}
+                            value={editing[f.key] ?? ''}
+                            onChange={e => set(f.key, f.type === 'number' ? Number(e.target.value) : e.target.value)}
+                            placeholder={f.placeholder}
+                            step={f.type === 'number' ? '0.01' : undefined}
+                            min={f.type  === 'number' ? '0'    : undefined}
+                            style={{ ...inp, ...(f.key === 'slug' ? { fontFamily: 'monospace', letterSpacing: '0.02em' } : {}) }}
+                            onFocus={focusGreen} onBlur={blurGray}
+                          />
+                          {/* Брояч само за seo_title */}
+                          {f.key === 'seo_title' && (
+                            <SeoCharCounter value={editing[f.key] || ''} ideal={50} max={70} />
+                          )}
+                          {/* Slug preview hint — only for links tab */}
+                          {f.key === 'slug' && subTab === 'links' && (
+                            <div style={{ marginTop: 5, fontSize: 11, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {editing['slug'] && editing['slug'].trim() !== '' ? (
+                                <>
+                                  <span style={{ color: '#16a34a', fontWeight: 700 }}>✓</span>
+                                  <span>Tracking slug: <code style={{ background: '#ecfdf5', color: '#166534', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>{editing['slug']}</code></span>
+                                </>
+                              ) : (
+                                <>
+                                  <span style={{ color: '#f59e0b' }}>⚡</span>
+                                  <span>Автоматично от надписа: <code style={{ background: '#fefce8', color: '#854d0e', padding: '1px 5px', borderRadius: 4, fontFamily: 'monospace' }}>
+                                    {(() => {
+                                      const cyrMap: Record<string, string> = {
+                                        а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ж:'zh',з:'z',и:'i',й:'y',
+                                        к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',
+                                        ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sht',ъ:'a',ь:'',ю:'yu',я:'ya',
+                                      }
+                                      return (editing['label'] || 'link')
+                                        .toLowerCase().split('').map((ch: string) => cyrMap[ch] ?? ch).join('')
+                                        .replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'link'
+                                    })()}
+                                  </code></span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
 
               {/* Actions */}
