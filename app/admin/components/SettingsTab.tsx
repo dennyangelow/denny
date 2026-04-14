@@ -58,6 +58,88 @@ const SECTIONS = [
       { key: 'email_reply_to',  label: 'Reply-To',   type: 'email', placeholder: 'support@dennyangelow.com' },
     ],
   },
+  {
+    id: 'seo', label: '🔍 SEO — Начална страница',
+    keys: [
+      {
+        key: 'seo_title',
+        label: 'Meta Title (50–70 символа)',
+        type: 'text',
+        placeholder: 'Denny Angelow — Домати, Краставици, Торове и Агро Наръчници',
+        hint: 'Показва се в Google като заглавие на резултата. Оптимално: 55–60 символа.',
+      },
+      {
+        key: 'seo_description',
+        label: 'Meta Description (120–160 символа)',
+        type: 'textarea',
+        placeholder: 'Безплатни PDF наръчници за домати и краставици. Над {count} фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.',
+        hint: 'Пиши {count} за да се замени автоматично с брой изтегляния. Оптимално: 145–155 символа.',
+      },
+      {
+        key: 'seo_keywords',
+        label: 'Keywords (чрез запетая)',
+        type: 'textarea',
+        placeholder: 'домати, отглеждане на домати, Прев-Голд, Амалгерол, агро консултант, Denny Angelow...',
+        hint: 'Базови keywords. Автоматично се добавят и имената + keywords на всички афилиейт продукти.',
+      },
+      {
+        key: 'og_title',
+        label: 'OG Title (Facebook / Viber / WhatsApp)',
+        type: 'text',
+        placeholder: 'Denny Angelow — Безплатни Наръчници за Домати и Краставици',
+        hint: 'Заглавие при споделяне в социалните мрежи.',
+      },
+      {
+        key: 'og_description',
+        label: 'OG Description',
+        type: 'textarea',
+        placeholder: 'Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над {count} фермери вече го използват.',
+        hint: 'Описание при споделяне. Пиши {count} за автоматичен брой изтегляния.',
+      },
+      {
+        key: 'og_image',
+        label: 'OG Image URL (1200×630px)',
+        type: 'text',
+        placeholder: '/og-image.jpg',
+        hint: 'Снимка при споделяне. Може да е /og-image.jpg (от public/) или пълен https:// линк.',
+      },
+      {
+        key: 'og_image_alt',
+        label: 'OG Image Alt текст',
+        type: 'text',
+        placeholder: 'Denny Angelow — Агро Наръчници за Домати и Краставици',
+        hint: 'Описание на снимката за достъпност и SEO.',
+      },
+      {
+        key: 'twitter_title',
+        label: 'Twitter / X Title',
+        type: 'text',
+        placeholder: 'Denny Angelow — Безплатни Агро Наръчници',
+        hint: 'Заглавие при споделяне в Twitter/X.',
+      },
+      {
+        key: 'twitter_description',
+        label: 'Twitter / X Description',
+        type: 'textarea',
+        placeholder: 'Домати, краставици, торене, болести, оранжерии. Изтегли безплатно.',
+        hint: 'Описание при споделяне в Twitter/X.',
+      },
+      {
+        key: 'twitter_creator',
+        label: 'Twitter / X Handle',
+        type: 'text',
+        placeholder: '@dennyangelow',
+        hint: 'Твоят Twitter handle с @.',
+      },
+      {
+        key: 'google_site_verification',
+        label: 'Google Search Console Verification',
+        type: 'text',
+        placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        hint: 'Кода от Google Search Console → Settings → Ownership verification → HTML tag. Само стойността на content="...".',
+      },
+    ],
+  },
 ] as const
 
 function validate(vals: Record<string, string>): string[] {

@@ -388,64 +388,92 @@ async function getPageData() {
   }
 }
 
-// ─── Metadata — динамична от БД ───────────────────────────────────────────────
-export async function generateMetadata(): Promise<Metadata> {
-  const { handbooks, affiliateProducts } = await getPageData()
+// ─── SEO Defaults (fallback ако БД е празна) ──────────────────────────────────
+const SEO_DEFAULTS = {
+  title:             'Denny Angelow — Домати, Краставици, Торове и Агро Наръчници',
+  description:       'Безплатни PDF наръчници за домати и краставици. Биостимулатори Atlas Terra, Ginegar найлон. Над 6 500 фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.',
+  keywords:          'домати, отглеждане на домати, торене на домати, болести по домати, мана по домати, Tuta absoluta, върхово гниене на домати, домати в оранжерия, наръчник за домати, краставици, отглеждане на краставици, торене на краставици, наръчник за краставици, Atlas Terra, биостимулатори, органично торене, течни торове, хуминови киселини, аминокиселини за растения, NPK торове, Амалгерол, Калитех, Кристалон зелен, Прев-Голд, Ридомил Голд, Синейс 480, мана по растения, трипс по домати, белокрилки, акари, фунгицид за домати, инсектицид биологичен, без карантина, оранжерия, найлон за оранжерия, Ginegar, израелски найлон, полиетилен за оранжерия, поливни системи, капково напояване, земеделие България, агро консултант, Denny Angelow, безплатен агро наръчник, рекордна реколта, органично земеделие, биологично земеделие, фермери България',
+  og_title:          'Denny Angelow — Безплатни Наръчници за Домати и Краставици',
+  og_description:    'Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над 6 500 фермери вече го използват.',
+  og_image:          '/og-image.jpg',
+  og_image_alt:      'Denny Angelow — Агро Наръчници за Домати и Краставици',
+  twitter_title:     'Denny Angelow — Безплатни Агро Наръчници',
+  twitter_description: 'Домати, краставици, торене, болести, оранжерии. Изтегли безплатно.',
+  twitter_creator:   '@dennyangelow',
+  author_name:       'Denny Angelow',
+  author_job:        'Агро Консултант',
+  site_name:         'Denny Angelow',
+  locale:            'bg_BG',
+}
 
-  const narKeywords     = handbooks.map(n => n.title)
-  const prodKeywords    = affiliateProducts.map(p => p.name)
-  const customKeywords  = affiliateProducts.flatMap(p =>
+// ─── Metadata — 100% динамична от БД ──────────────────────────────────────────
+export async function generateMetadata(): Promise<Metadata> {
+  const { handbooks, affiliateProducts, settings } = await getPageData()
+
+  const s = settings as any
+
+  // Динамични keywords от БД — наименования + seo_keywords на всеки продукт
+  const narKeywords  = handbooks.map(n => n.title)
+  const prodKeywords = affiliateProducts.map(p => p.name)
+  const prodSeoKw    = affiliateProducts.flatMap(p =>
     p.seo_keywords?.split(',').map(k => k.trim()).filter(Boolean) || []
   )
-  const totalDownloads  = handbooks.reduce((s, n) => s + (n.downloads_count || 0), 0)
-  const displayCount    = totalDownloads > 0 ? totalDownloads.toLocaleString('bg') : '6 500'
+  // Base keywords — от settings или fallback
+  const baseKeywords = (s.seo_keywords || SEO_DEFAULTS.keywords)
+    .split(',').map((k: string) => k.trim()).filter(Boolean)
+
+  const totalDownloads = handbooks.reduce((sum, n) => sum + (n.downloads_count || 0), 0)
+  const displayCount   = totalDownloads > 0 ? totalDownloads.toLocaleString('bg') : '6 500'
+
+  const title       = s.seo_title       || SEO_DEFAULTS.title
+  const description = (s.seo_description || SEO_DEFAULTS.description)
+    .replace('{count}', displayCount)
+  const ogTitle       = s.og_title         || SEO_DEFAULTS.og_title
+  const ogDescription = (s.og_description  || SEO_DEFAULTS.og_description)
+    .replace('{count}', displayCount)
+  const ogImage       = s.og_image
+    ? (s.og_image.startsWith('http') ? s.og_image : `${BASE_URL}${s.og_image}`)
+    : `${BASE_URL}${SEO_DEFAULTS.og_image}`
+  const ogImageAlt    = s.og_image_alt     || SEO_DEFAULTS.og_image_alt
+  const twTitle       = s.twitter_title    || SEO_DEFAULTS.twitter_title
+  const twDescription = s.twitter_description || SEO_DEFAULTS.twitter_description
+  const twCreator     = s.twitter_creator  || SEO_DEFAULTS.twitter_creator
+  const siteName      = s.site_name        || SEO_DEFAULTS.site_name
+  const locale        = s.locale           || SEO_DEFAULTS.locale
 
   return {
-    title: 'Denny Angelow — Домати, Краставици, Торове и Агро Наръчници',
-    description: `Безплатни PDF наръчници за домати и краставици. ${handbooks.length > 0 ? `${handbooks.length} наръчника` : 'Практични ръководства'}, биостимулатори Atlas Terra, Ginegar найлон. Над ${displayCount} фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.`,
-    keywords: [
-      'домати', 'отглеждане на домати', 'торене на домати', 'болести по домати',
-      'мана по домати', 'Tuta absoluta', 'върхово гниене на домати',
-      'домати в оранжерия', 'домати добив от декар', 'наръчник за домати',
-      'как да отгледам домати', 'домати без болести',
-      'краставици', 'отглеждане на краставици', 'торене на краставици',
-      'краставици в оранжерия', 'наръчник за краставици',
-      'краставици високи добиви', 'краставици болести',
-      'Atlas Terra', 'биостимулатори', 'органично торене', 'течни торове',
-      'хуминови киселини', 'аминокиселини за растения', 'NPK торове',
-      'Амалгерол', 'Калитех', 'Кристалон зелен', 'Турбо Рут',
-      'Ридомил Голд', 'Синейс 480', 'мана по растения', 'трипс по домати',
-      'фунгицид за домати', 'инсектицид биологичен',
-      'оранжерия', 'найлон за оранжерия', 'Ginegar', 'израелски найлон',
-      'полиетилен за оранжерия', 'поливни системи', 'капково напояване',
-      'земеделие България', 'агро консултант', 'Denny Angelow',
-      'безплатен агро наръчник', 'рекордна реколта', 'органично земеделие',
-      'биологично земеделие', 'защита от болести по растенията',
-      'фермери България', 'градина', 'зеленчуци',
-      ...narKeywords,
-      ...prodKeywords,
-      ...customKeywords,
-    ].filter(Boolean),
+    title,
+    description,
+    keywords: [...new Set([...baseKeywords, ...narKeywords, ...prodKeywords, ...prodSeoKw])].filter(Boolean),
+    authors:  [{ name: s.author_name || SEO_DEFAULTS.author_name, url: BASE_URL }],
+    creator:   s.author_name || SEO_DEFAULTS.author_name,
+    publisher: s.site_name   || SEO_DEFAULTS.site_name,
     alternates: { canonical: BASE_URL },
     openGraph: {
-      title:       'Denny Angelow — Безплатни Наръчници за Домати и Краставици',
-      description: `Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над ${displayCount} фермери вече го използват.`,
+      title:       ogTitle,
+      description: ogDescription,
       url:         BASE_URL,
-      siteName:    'Denny Angelow',
-      locale:      'bg_BG',
+      siteName,
+      locale,
       type:        'website',
-      images: [{ url: `${BASE_URL}/og-image.jpg`, width: 1200, height: 630, alt: 'Denny Angelow — Агро Наръчници' }],
+      images: [{ url: ogImage, width: 1200, height: 630, alt: ogImageAlt }],
     },
     twitter: {
       card:        'summary_large_image',
-      title:       'Denny Angelow — Безплатни Агро Наръчници',
-      description: 'Домати, краставици, торене, болести, оранжерии. Изтегли безплатно.',
-      images:      [`${BASE_URL}/og-image.jpg`],
-      creator:     '@dennyangelow',
+      title:       twTitle,
+      description: twDescription,
+      images:      [ogImage],
+      creator:     twCreator,
     },
     robots: {
       index: true, follow: true,
-      googleBot: { index: true, follow: true, 'max-snippet': -1, 'max-image-preview': 'large', 'max-video-preview': -1 },
+      googleBot: {
+        index: true, follow: true,
+        'max-snippet': -1, 'max-image-preview': 'large', 'max-video-preview': -1,
+      },
+    },
+    verification: {
+      ...(s.google_site_verification ? { google: s.google_site_verification } : {}),
     },
   }
 }
