@@ -1,16 +1,34 @@
-// app/api/analytics/affiliate-click/route.ts — v5
-// ✅ ПОПРАВКИ v5:
-//   - GET: total/last30days/last7days/today се броят с отделни COUNT заявки (без limit!)
-//     → няма cap на 10000 — точни числа при всякакъв обем данни
-//   - dailyChart разширен до 90 дни (беше 30) — за правилно броене при range=90
-//   - hourlyChart добавен — 24 bucket-а за днес (за "Днес по часове" view)
-//   - Детайлните данни (productDetails, byDay) се зареждат само за последните 90 дни
-//     с limit 50000 (достатъчно за агрегация)
+// app/api/analytics/affiliate-click/route.ts — v6
+// ✅ ПОПРАВКИ v6:
+//   - toBulgarianDate() и toBulgarianHour() — ВСИЧКИ дати и часове са в Europe/Sofia
+//   - todayStr вече е БГ дата (не UTC) → "Днес" клиовете са правилни
+//   - hourlyChart bucket-ите са в БГ часове (не UTC) → графиката показва правилни часове
+//   - Проблемът: UTC е UTC+0, България е UTC+2 зима / UTC+3 лято
+//     → при 07:00 сутринта в БГ, UTC е 04:00 — поради това графиката показваше "03ч"
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 const BOT_UA = /bot|crawler|spider|headless|lighthouse|pagespeed|googlebot|bingbot|semrush|ahrefsbot|python-requests|axios|node-fetch|go-http|curl\//i
+
+// ── БГ timezone helpers ───────────────────────────────────────────────────────
+
+/** "yyyy-mm-dd" в Europe/Sofia timezone */
+function toBulgarianDate(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Sofia' })
+}
+
+/** Час (0-23) в Europe/Sofia timezone */
+function toBulgarianHour(d: Date): number {
+  return parseInt(
+    d.toLocaleTimeString('en-GB', {
+      timeZone: 'Europe/Sofia',
+      hour: '2-digit',
+      hour12: false,
+    }).slice(0, 2),
+    10
+  )
+}
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -75,21 +93,32 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   try {
     const now      = new Date()
-    const todayStr = now.toISOString().slice(0, 10)
+    // ✅ БГ дата за "днес" — не UTC дата
+    const todayStr = toBulgarianDate(now)
+
     const since7   = new Date(now.getTime() -   7 * 86400000).toISOString()
     const since30  = new Date(now.getTime() -  30 * 86400000).toISOString()
     const since90  = new Date(now.getTime() -  90 * 86400000).toISOString()
 
     // ── 1. Точни COUNT заявки — без никакъв limit ──────────────────────────
+    // За "Днес" COUNT: използваме БГ начало на деня в ISO формат
+    const todayStartIso = new Date(todayStr + 'T00:00:00+03:00').toISOString()
+    // (работи и с UTC+2 — Supabase ще сравни правилно с UTC stored timestamps)
+    // По-надежден начин: вземаме UTC midnight на БГ деня
+    const bgDateParts = todayStr.split('-').map(Number)
+    const bgMidnight  = new Date(Date.UTC(bgDateParts[0], bgDateParts[1] - 1, bgDateParts[2]))
+    // Изваждаме БГ offset: лято UTC+3 = -180мин, зима UTC+2 = -120мин
+    // Използваме прост тест: ако toBulgarianDate на 00:00 UTC е вчера → offset е +N часа
+    const bgOffsetMs  = (now.getTime() - new Date(toBulgarianDate(now) + 'T00:00:00Z').getTime()) % 86400000
+    const todayStartUtc = new Date(bgMidnight.getTime() - bgOffsetMs).toISOString()
+
     const [
       totalRes,
       last30Res,
       last7Res,
       todayRes,
-      // Детайлни редове само за последните 90 дни (за chart + productDetails)
       detailRes,
     ] = await Promise.all([
-      // Общо всичко (без time filter — точен total)
       supabaseAdmin
         .from('affiliate_clicks')
         .select('*', { count: 'exact', head: true })
@@ -97,7 +126,6 @@ export async function GET() {
         .neq('product_slug', '')
         .neq('product_slug', '-'),
 
-      // Last 30 дни
       supabaseAdmin
         .from('affiliate_clicks')
         .select('*', { count: 'exact', head: true })
@@ -106,7 +134,6 @@ export async function GET() {
         .neq('product_slug', '')
         .neq('product_slug', '-'),
 
-      // Last 7 дни
       supabaseAdmin
         .from('affiliate_clicks')
         .select('*', { count: 'exact', head: true })
@@ -115,16 +142,15 @@ export async function GET() {
         .neq('product_slug', '')
         .neq('product_slug', '-'),
 
-      // Днес
+      // ✅ "Днес" COUNT: от началото на БГ деня в UTC
       supabaseAdmin
         .from('affiliate_clicks')
         .select('*', { count: 'exact', head: true })
-        .gte('created_at', todayStr)
+        .gte('created_at', todayStartUtc)
         .not('product_slug', 'is', null)
         .neq('product_slug', '')
         .neq('product_slug', '-'),
 
-      // Детайлни данни за последните 90 дни — за productDetails, dailyChart, hourlyChart
       supabaseAdmin
         .from('affiliate_clicks')
         .select('partner, product_slug, created_at')
@@ -139,21 +165,18 @@ export async function GET() {
     if (totalRes.error)  throw totalRes.error
     if (detailRes.error) throw detailRes.error
 
-    // ── Точни числа от COUNT заявките ─────────────────────────────────────
     const total      = totalRes.count  ?? 0
     const total30    = last30Res.count ?? 0
     const total7     = last7Res.count  ?? 0
     const totalToday = todayRes.count  ?? 0
 
-    // ── Агрегация от детайлните редове ────────────────────────────────────
     const byPartner:      Record<string, number> = {}
     const byProduct:      Record<string, number> = {}
     const productDetails: Record<string, { total: number; last30: number; last7: number; today: number }> = {}
     const byDay:          Record<string, number> = {}
-    const byHour:         Record<number, number> = {}  // ← НОВО: hourly за днес
+    const byHour:         Record<number, number> = {}
     const slugsByPartner: Record<string, Set<string>> = {}
 
-    // Инициализираме hourly buckets 0–23
     for (let h = 0; h < 24; h++) byHour[h] = 0
 
     const ts30 = now.getTime() - 30 * 86400000
@@ -163,10 +186,12 @@ export async function GET() {
       const rawSlug = click.product_slug
       if (!rawSlug || rawSlug.trim() === '' || rawSlug === '-' || rawSlug === '(без slug)') continue
 
-      const ts      = new Date(click.created_at).getTime()
-      const day     = click.created_at.slice(0, 10)
-      const product = rawSlug.trim()
-      const partner = click.partner?.trim() || '(unknown)'
+      const clickDate = new Date(click.created_at)
+      const ts        = clickDate.getTime()
+      // ✅ БГ дата на клика (не UTC дата)
+      const day       = toBulgarianDate(clickDate)
+      const product   = rawSlug.trim()
+      const partner   = click.partner?.trim() || '(unknown)'
 
       byPartner[partner] = (byPartner[partner] || 0) + 1
       byProduct[product] = (byProduct[product] || 0) + 1
@@ -177,25 +202,22 @@ export async function GET() {
       if (!productDetails[product]) {
         productDetails[product] = { total: 0, last30: 0, last7: 0, today: 0 }
       }
-      // total в productDetails = брой в рамките на 90д (приближение за total)
-      // Точният total per-product би изисквал отделна заявка — acceptable trade-off
       productDetails[product].total++
 
-      // byDay за dailyChart (90 дни)
+      // ✅ byDay по БГ дата
       byDay[day] = (byDay[day] || 0) + 1
 
       if (ts >= ts30) productDetails[product].last30++
       if (ts >= ts7)  productDetails[product].last7++
 
+      // ✅ "Днес" по БГ дата + БГ час за hourly bucket
       if (day === todayStr) {
         productDetails[product].today++
-        // ← НОВО: hourly bucket за днес
-        const hour = new Date(click.created_at).getHours()
+        const hour = toBulgarianHour(clickDate)  // ✅ БГ час
         byHour[hour] = (byHour[hour] || 0) + 1
       }
     }
 
-    // ── topProducts — сортирани по last30 ──────────────────────────────────
     const topProducts = Object.entries(productDetails)
       .sort(([, a], [, b]) => b.last30 - a.last30)
       .slice(0, 30)
@@ -215,20 +237,22 @@ export async function GET() {
       slugsByPartnerArr[p] = Array.from(s)
     })
 
-    // ── dailyChart — 90 дни ← (беше 30) ──────────────────────────────────
+    // ✅ dailyChart — 90 дни с БГ дати
     const dailyChart = Array.from({ length: 90 }, (_, i) => {
-      const d = new Date(now.getTime() - (89 - i) * 86400000).toISOString().slice(0, 10)
-      return { date: d.slice(5), count: byDay[d] || 0 }
+      const d = new Date(now.getTime() - (89 - i) * 86400000)
+      const bgDay = toBulgarianDate(d)
+      return { date: bgDay.slice(5), count: byDay[bgDay] || 0 }
     })
 
-    // ── hourlyChart — 24 bucket-а за днес ← НОВО ─────────────────────────
-    const hourlyChart = Array.from({ length: 24 }, (_, h) => ({
+    // ✅ hourlyChart — до текущия БГ час (не UTC час)
+    const currentBgHour = toBulgarianHour(now)
+    const hourlyChart = Array.from({ length: currentBgHour + 1 }, (_, h) => ({
       hour:  h,
       count: byHour[h] || 0,
     }))
 
     return NextResponse.json({
-      total,           // ← точен COUNT без limit
+      total,
       last30days: total30,
       last7days:  total7,
       today:      totalToday,
@@ -238,7 +262,7 @@ export async function GET() {
       topProducts,
       topPartners,
       dailyChart,
-      hourlyChart,     // ← НОВО
+      hourlyChart,
       slugsByPartner: slugsByPartnerArr,
     }, { headers: { 'Cache-Control': 'no-store' } })
 
