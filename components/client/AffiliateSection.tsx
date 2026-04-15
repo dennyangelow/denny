@@ -1,9 +1,11 @@
 'use client'
 // components/client/AffiliateSection.tsx
 // ПОПРАВКИ:
+//  - rel="nofollow sponsored noopener" — правилен SEO атрибут за affiliate линкове
+//  - Премахнато noreferrer (пречи на affiliate tracking-а)
+//  - subtitle се показва под името на продукта
+//  - Добавен transition на CTA бутона
 //  - getCategorySlug() извлича slug от href (надежден) вместо от label (ненадежден)
-//  - Всеки category линк получава уникален, четим slug
-//  - trackAffiliateClick получава валиден slug — никога UUID или кирилица
 
 import { trackAffiliateClick } from '@/lib/trackAffiliateClick'
 import { SafeImg } from '@/components/client/SafeImg'
@@ -59,8 +61,17 @@ export function AffiliateSection({ products }: Props) {
             <FadeIn key={p.id} delay={i * 60}>
               <div
                 className="product-card"
-                style={{ '--card-color': cardColor } as React.CSSProperties}
+                style={{
+                  '--card-color': cardColor,
+                  boxShadow: '0 2px 16px rgba(0,0,0,0.07)',
+                  borderRadius: 16,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  background: '#fff',
+                } as React.CSSProperties}
               >
+                {/* ── Изображение ── */}
                 <div style={{
                   position: 'relative', background: '#f8f9fa',
                   minHeight: 220, display: 'flex', alignItems: 'center',
@@ -97,6 +108,7 @@ export function AffiliateSection({ products }: Props) {
                   />
                 </div>
 
+                {/* ── Съдържание ── */}
                 <div style={{ padding: '18px 22px 22px', flex: 1, display: 'flex', flexDirection: 'column' }}>
                   {p.category_label && (
                     <div style={{
@@ -112,10 +124,20 @@ export function AffiliateSection({ products }: Props) {
                   <h3 style={{
                     fontFamily: "'Cormorant Garamond', serif",
                     fontSize: 22, fontWeight: 800, color: '#111',
-                    margin: '0 0 10px', lineHeight: 1.2,
+                    margin: '0 0 4px', lineHeight: 1.2,
                   }}>
                     {p.name}
                   </h3>
+
+                  {/* subtitle — беше в интерфейса, но не се рендираше */}
+                  {p.subtitle && (
+                    <p style={{
+                      fontSize: 13, color: '#9ca3af', fontWeight: 600,
+                      margin: '0 0 10px', lineHeight: 1.4,
+                    }}>
+                      {p.subtitle}
+                    </p>
+                  )}
 
                   <p style={{
                     fontSize: 13.5, color: '#6b7280', lineHeight: 1.65,
@@ -145,10 +167,17 @@ export function AffiliateSection({ products }: Props) {
                     </ul>
                   )}
 
+                  {/*
+                    ✅ ПОПРАВКА: rel="nofollow sponsored noopener"
+                    - nofollow    → казва на Google да не предава PageRank
+                    - sponsored   → обозначава платен/affiliate линк (изисква се от Google)
+                    - noopener    → сигурност при target="_blank"
+                    - БЕЗ noreferrer → партньорите виждат referrer за правилен tracking
+                  */}
                   <a
                     href={p.affiliate_url}
                     target="_blank"
-                    rel="noopener noreferrer sponsored"
+                    rel="nofollow sponsored noopener"
                     onClick={() => trackAffiliateClick(p.partner, p.slug)}
                     style={{
                       display: 'block', textAlign: 'center',
@@ -156,6 +185,15 @@ export function AffiliateSection({ products }: Props) {
                       padding: '13px 20px', borderRadius: 12,
                       textDecoration: 'none', fontWeight: 800,
                       fontSize: 14.5, marginTop: 'auto',
+                      transition: 'opacity 0.18s ease, transform 0.18s ease',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLAnchorElement).style.opacity = '0.88'
+                      ;(e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-1px)'
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLAnchorElement).style.opacity = '1'
+                      ;(e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(0)'
                     }}
                     aria-label={`${p.name} — партньорски линк`}
                   >
@@ -201,7 +239,6 @@ function getCategorySlug(c: CategoryLink): string {
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(c.slug || '')
 
   if (c.slug && !isUuid && c.slug.trim().length >= 2) {
-    // Slug зададен от администратора — използваме го директно
     return c.slug
       .toLowerCase()
       .replace(/[^a-z0-9-_]/g, '-')
@@ -210,7 +247,6 @@ function getCategorySlug(c: CategoryLink): string {
       .slice(0, 60)
   }
 
-  // Fallback: извличаме от href
   if (c.href) {
     try {
       const url = new URL(c.href)

@@ -1,7 +1,11 @@
-// app/sitemap.ts — v2
+// app/sitemap.ts — v3 SEO
 // ✅ Начална страница
 // ✅ Наръчници от Supabase (active=true, наредени по sort_order)
-// ✅ Афилиейт продукти — закоментирано, разкоментирай когато добавиш /produkt/[slug] страница
+// ✅ Собствени продукти (products) — само ако имаш /produkt/[slug] страница
+//    → ако нямаш, те сочат към #atlas на началната страница (без отделен URL)
+//    → разкоментирай САМО ако имаш /produkt/[slug] route
+// ✅ Affiliate продукти — НЕ се включват в sitemap (external URLs, не са твои)
+//    → включваме само ако имаш собствена /produkt/[slug] страница за тях
 
 import { MetadataRoute } from 'next'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -13,6 +17,7 @@ interface NaruchnikRow {
   updated_at: string | null
 }
 
+// Разкоментирай ако имаш /produkt/[slug] страница за собствените продукти
 // interface ProductRow {
 //   slug:       string
 //   updated_at: string | null
@@ -52,10 +57,38 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error('[sitemap] Грешка при зареждане на наръчници:', err)
   }
 
-  // ── 3. Афилиейт продукти ─────────────────────────────────────────────────
-  // Разкоментирай когато добавиш /produkt/[slug] страница за всеки продукт.
+  // ── 3. Собствени продукти (Atlas Terra) ──────────────────────────────────
+  // ВАЖНО: Разкоментирай САМО ако имаш /produkt/[slug] страница в Next.js!
+  // Ако продуктите се показват само на началната страница (без собствен URL),
+  // НЕ ги включвай в sitemap — Google не може да индексира URL без страница.
   //
-  // let productPages: MetadataRoute.Sitemap = []
+  // let atlasProductPages: MetadataRoute.Sitemap = []
+  // try {
+  //   const { data, error } = await supabaseAdmin
+  //     .from('products')
+  //     .select('slug, updated_at')
+  //     .eq('active', true)
+  //     .order('sort_order')
+  //
+  //   if (!error && data && data.length > 0) {
+  //     atlasProductPages = (data as ProductRow[]).map(p => ({
+  //       url:             `${BASE_URL}/produkt/${p.slug}`,
+  //       lastModified:    p.updated_at ? new Date(p.updated_at) : new Date(),
+  //       changeFrequency: 'weekly' as const,
+  //       priority:         0.85,
+  //     }))
+  //   }
+  // } catch (err) {
+  //   console.error('[sitemap] Грешка при зареждане на продукти:', err)
+  // }
+
+  // ── 4. Affiliate продукти ─────────────────────────────────────────────────
+  // Affiliate продуктите (agroapteki.com, oranjeriata.com) НЕ се включват в
+  // sitemap защото:
+  //   a) URL-ите са външни (не са на dennyangelow.com)
+  //   b) Ако имаш /produkt/[slug] страница за тях — разкоментирай долу
+  //
+  // let affiliateProductPages: MetadataRoute.Sitemap = []
   // try {
   //   const { data, error } = await supabaseAdmin
   //     .from('affiliate_products')
@@ -64,7 +97,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   //     .order('sort_order')
   //
   //   if (!error && data && data.length > 0) {
-  //     productPages = (data as ProductRow[]).map(p => ({
+  //     affiliateProductPages = (data as ProductRow[]).map(p => ({
   //       url:             `${BASE_URL}/produkt/${p.slug}`,
   //       lastModified:    p.updated_at ? new Date(p.updated_at) : new Date(),
   //       changeFrequency: 'monthly' as const,
@@ -72,12 +105,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   //     }))
   //   }
   // } catch (err) {
-  //   console.error('[sitemap] Грешка при зареждане на продукти:', err)
+  //   console.error('[sitemap] Грешка при зареждане на affiliate продукти:', err)
   // }
 
   return [
     ...homePage,
     ...naruchnikPages,
-    // ...productPages,
+    // ...atlasProductPages,
+    // ...affiliateProductPages,
   ]
 }
