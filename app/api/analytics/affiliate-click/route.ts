@@ -1,10 +1,8 @@
-// app/api/analytics/affiliate-click/route.ts — v6
-// ✅ ПОПРАВКИ v6:
-//   - toBulgarianDate() и toBulgarianHour() — ВСИЧКИ дати и часове са в Europe/Sofia
-//   - todayStr вече е БГ дата (не UTC) → "Днес" клиовете са правилни
-//   - hourlyChart bucket-ите са в БГ часове (не UTC) → графиката показва правилни часове
-//   - Проблемът: UTC е UTC+0, България е UTC+2 зима / UTC+3 лято
-//     → при 07:00 сутринта в БГ, UTC е 04:00 — поради това графиката показваше "03ч"
+// app/api/analytics/affiliate-click/route.ts — v7
+// ✅ ПОПРАВКИ v7:
+//   - bulgarianDayStartUtc() заменя ръчната (грешна) bgOffsetMs логика
+//   - Унифицирано с page-view/route.ts — двата файла ползват идентична помощна функция
+//   - todayStartUtc е 100% коректен при UTC+2 (зима) и UTC+3 (лято)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -28,6 +26,22 @@ function toBulgarianHour(d: Date): number {
     }).slice(0, 2),
     10
   )
+}
+
+/**
+ * Връща ISO string на началото на БГ деня в UTC.
+ * Пример: БГ дата "2026-04-15" (UTC+3 лято) → "2026-04-14T21:00:00.000Z"
+ * ✅ Идентично с page-view/route.ts — пробва UTC+3 и UTC+2, взима правилния.
+ */
+function bulgarianDayStartUtc(bgDateStr: string): string {
+  for (const offset of ['+03:00', '+02:00']) {
+    const candidate = new Date(bgDateStr + 'T00:00:00' + offset)
+    if (toBulgarianDate(candidate) === bgDateStr) {
+      return candidate.toISOString()
+    }
+  }
+  // Fallback (не трябва да се стига тук)
+  return new Date(bgDateStr + 'T00:00:00+02:00').toISOString()
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -93,24 +107,15 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   try {
     const now      = new Date()
-    // ✅ БГ дата за "днес" — не UTC дата
+    // ✅ БГ дата за "днес"
     const todayStr = toBulgarianDate(now)
 
     const since7   = new Date(now.getTime() -   7 * 86400000).toISOString()
     const since30  = new Date(now.getTime() -  30 * 86400000).toISOString()
     const since90  = new Date(now.getTime() -  90 * 86400000).toISOString()
 
-    // ── 1. Точни COUNT заявки — без никакъв limit ──────────────────────────
-    // За "Днес" COUNT: използваме БГ начало на деня в ISO формат
-    const todayStartIso = new Date(todayStr + 'T00:00:00+03:00').toISOString()
-    // (работи и с UTC+2 — Supabase ще сравни правилно с UTC stored timestamps)
-    // По-надежден начин: вземаме UTC midnight на БГ деня
-    const bgDateParts = todayStr.split('-').map(Number)
-    const bgMidnight  = new Date(Date.UTC(bgDateParts[0], bgDateParts[1] - 1, bgDateParts[2]))
-    // Изваждаме БГ offset: лято UTC+3 = -180мин, зима UTC+2 = -120мин
-    // Използваме прост тест: ако toBulgarianDate на 00:00 UTC е вчера → offset е +N часа
-    const bgOffsetMs  = (now.getTime() - new Date(toBulgarianDate(now) + 'T00:00:00Z').getTime()) % 86400000
-    const todayStartUtc = new Date(bgMidnight.getTime() - bgOffsetMs).toISOString()
+    // ✅ ПОПРАВЕНО: ползваме bulgarianDayStartUtc() вместо ръчната bgOffsetMs логика
+    const todayStartUtc = bulgarianDayStartUtc(todayStr)
 
     const [
       totalRes,
@@ -142,7 +147,7 @@ export async function GET() {
         .neq('product_slug', '')
         .neq('product_slug', '-'),
 
-      // ✅ "Днес" COUNT: от началото на БГ деня в UTC
+      // ✅ "Днес" COUNT: от правилното БГ полунощ в UTC
       supabaseAdmin
         .from('affiliate_clicks')
         .select('*', { count: 'exact', head: true })
@@ -188,7 +193,7 @@ export async function GET() {
 
       const clickDate = new Date(click.created_at)
       const ts        = clickDate.getTime()
-      // ✅ БГ дата на клика (не UTC дата)
+      // ✅ БГ дата на клика
       const day       = toBulgarianDate(clickDate)
       const product   = rawSlug.trim()
       const partner   = click.partner?.trim() || '(unknown)'
@@ -213,7 +218,7 @@ export async function GET() {
       // ✅ "Днес" по БГ дата + БГ час за hourly bucket
       if (day === todayStr) {
         productDetails[product].today++
-        const hour = toBulgarianHour(clickDate)  // ✅ БГ час
+        const hour = toBulgarianHour(clickDate)
         byHour[hour] = (byHour[hour] || 0) + 1
       }
     }
@@ -244,7 +249,7 @@ export async function GET() {
       return { date: bgDay.slice(5), count: byDay[bgDay] || 0 }
     })
 
-    // ✅ hourlyChart — до текущия БГ час (не UTC час)
+    // ✅ hourlyChart — до текущия БГ час
     const currentBgHour = toBulgarianHour(now)
     const hourlyChart = Array.from({ length: currentBgHour + 1 }, (_, h) => ({
       hour:  h,

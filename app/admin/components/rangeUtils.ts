@@ -1,4 +1,4 @@
-// app/admin/components/rangeUtils.ts — v2 (timezone fix)
+// app/admin/components/rangeUtils.ts — v3
 // ✅ ПОПРАВКИ v2:
 //   - toBulgarianDateStr() — всички дати се изчисляват в БГ часова зона (UTC+2/+3)
 //   - getCutoff() вече връща правилна БГ дата (не UTC)
@@ -64,23 +64,29 @@ export function getCutoff(range: Range): string | null {
   if (range === 'all') return null
   const now = new Date()
   if (range === 1) return toBulgarianDateStr(now)
-  // Изваждаме N дни: правим нова дата без timezone drift
-  const d = new Date(now)
-  d.setDate(d.getDate() - (range as number))
+  // ✅ Нова Date за всяко изчисление — без мутация
+  const d = new Date(now.getTime() - (range as number) * 86400000)
   return toBulgarianDateStr(d)
 }
 
 /**
  * Предходен период за trend сравнение.
- * Например за 30д → от -60д до -30д в БГ timezone.
+ * range=1  → вчера в БГ timezone
+ * range=N  → от -2N до -N дни
+ * range=all → null
  */
 export function getPrevCutoff(range: Range): { start: string; end: string } | null {
-  if (range === 'all' || range === 1) return null
+  if (range === 'all') return null
   const now = new Date()
-  const end = new Date(now)
-  end.setDate(end.getDate() - (range as number))
-  const start = new Date(end)
-  start.setDate(start.getDate() - (range as number))
+  if (range === 1) {
+    // "Вчера" в БГ timezone
+    const yesterday = new Date(now.getTime() - 86400000)
+    const yStr = toBulgarianDateStr(yesterday)
+    return { start: yStr, end: toBulgarianDateStr(now) }
+  }
+  const days = range as number
+  const end   = new Date(now.getTime() - days * 86400000)
+  const start = new Date(now.getTime() - days * 2 * 86400000)
   return {
     start: toBulgarianDateStr(start),
     end:   toBulgarianDateStr(end),
@@ -148,11 +154,10 @@ export function buildRevenueChart(
 
   const days = range as number
   return Array.from({ length: days }, (_, i) => {
-    // Генерираме дати в БГ timezone
-    const d = new Date(now)
-    d.setDate(d.getDate() - (days - 1 - i))
+    // ✅ Нова Date инстанция за всяка итерация — без мутация между итерациите
+    const d = new Date(now.getTime() - (days - 1 - i) * 86400000)
     const dateStr = toBulgarianDateStr(d)
-    return { date: dateStr.slice(5), revenue: map[dateStr] || 0 } // показваме MM-DD
+    return { date: dateStr.slice(5), revenue: map[dateStr] || 0 }
   })
 }
 
