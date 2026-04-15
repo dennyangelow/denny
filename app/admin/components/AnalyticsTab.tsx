@@ -56,6 +56,7 @@ import { useCurrency } from './CurrencyContext'
 import {
   type Range, RANGE_OPTIONS, getRangeLabel, calcTrend,
   filterByRange, filterPrevPeriod, buildRevenueChart, getXAxisInterval,
+  toBulgarianDateStr, toBulgarianHour, getCurrentBulgarianHour,
 } from './rangeUtils'
 
 export type { Range }
@@ -133,17 +134,20 @@ function getOfferTypes(o: Order): OfferType[] {
 // ─── Hourly helpers (за "Днес" view) ─────────────────────────────────────────
 
 // Генерира hourly revenue chart от поръчки за днес (00–currentHour)
+// ✅ v2: ползва БГ timezone (Europe/Sofia) — не UTC
 function buildRevenueChartHourly(orders: Order[]): { date: string; revenue: number; count: number }[] {
   const now      = new Date()
-  const todayStr = now.toISOString().slice(0, 10)
-  const maxHour  = now.getHours()
+  const todayStr = toBulgarianDateStr(now)                    // ✅ БГ дата
+  const maxHour  = getCurrentBulgarianHour()                  // ✅ БГ час
   const map: Record<number, { revenue: number; count: number }> = {}
   for (let h = 0; h <= maxHour; h++) map[h] = { revenue: 0, count: 0 }
 
   orders.forEach(o => {
-    if (!o.created_at.startsWith(todayStr)) return
+    // Сравняваме БГ дата на поръчката с БГ "днес"
+    const orderBgDate = toBulgarianDateStr(new Date(o.created_at))
+    if (orderBgDate !== todayStr) return
     if (o.status === 'cancelled') return
-    const hour = new Date(o.created_at).getHours()
+    const hour = toBulgarianHour(new Date(o.created_at))     // ✅ БГ час
     if (map[hour] !== undefined) {
       map[hour].revenue += Number(o.total)
       map[hour].count   += 1
@@ -600,11 +604,14 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
     const now  = new Date()
     const dailyMap: Record<string, {offer:number; normal:number}> = {}
     for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000).toISOString().slice(0, 10)
+      // ✅ v2: БГ дата за генериране на масива
+      const d2 = new Date(now); d2.setDate(d2.getDate() - i)
+      const d = toBulgarianDateStr(d2)
       dailyMap[d] = { offer: 0, normal: 0 }
     }
     active.forEach(o => {
-      const d = o.created_at.slice(0, 10)
+      // ✅ v2: БГ дата за поръчката
+      const d = toBulgarianDateStr(new Date(o.created_at))
       if (!dailyMap[d]) return
       if (getOfferTypes(o).length > 0) dailyMap[d].offer++
       else dailyMap[d].normal++

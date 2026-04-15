@@ -21,6 +21,7 @@ import { RangePicker } from './AnalyticsTab'
 import {
   type Range, getRangeLabel, calcTrend,
   filterByRange, filterPrevPeriod, buildRevenueChart, getXAxisInterval,
+  toBulgarianDateStr, toBulgarianHour, getCurrentBulgarianHour,
 } from './rangeUtils'
 
 interface Props {
@@ -76,13 +77,15 @@ const STATUS_ICON: Record<string, string> = {
 
 function buildSparkline(orders: Order[], days: number) {
   const now   = new Date()
-  const dates = Array.from({ length:days }, (_, i) =>
-    new Date(now.getTime() - (days-1-i) * 86400000).toISOString().slice(0, 10)
-  )
+  // ✅ v2: БГ дати за sparkline (не UTC)
+  const dates = Array.from({ length:days }, (_, i) => {
+    const d = new Date(now); d.setDate(d.getDate() - (days-1-i))
+    return toBulgarianDateStr(d)
+  })
   const revMap: Record<string, number> = {}
   const ordMap: Record<string, number> = {}
   orders.filter(o => o.status !== 'cancelled').forEach(o => {
-    const d = o.created_at.slice(0, 10)
+    const d = toBulgarianDateStr(new Date(o.created_at)) // ✅ БГ дата
     revMap[d] = (revMap[d] || 0) + Number(o.total)
     ordMap[d] = (ordMap[d] || 0) + 1
   })
@@ -164,13 +167,14 @@ export function DashboardTab({
     },
     {
       id: 'week',
-      label:  'Тази седмица',
+      label:  'Тази седмица (текущ)',
       value:  formatPrice(stats.weekRevenue),
       icon:   '📆', color: '#8b5cf6', bg: '#faf5ff', border: '#e9d5ff',
       spark:  sparklines.revenue,
       trend:  null as null,
       tab:    'analytics',
-      sub:    `Ср. поръчка: ${formatPrice(stats.avgOrderValue)}`,
+      // ⚠️ weekRevenue е фиксирано от useAdminData (последните 7 дни), не следва range-а
+      sub:    `Ср. ${rl}: ${formatPrice(stats.avgOrderValue)}`,
     },
     {
       id: 'orders',

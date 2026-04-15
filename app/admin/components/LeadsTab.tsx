@@ -163,8 +163,11 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     const counts = Array(30).fill(0)
     const now = Date.now()
     leads.forEach(l => {
-      const ts = (l as any).downloaded_at || l.created_at
-      const d = Math.floor((now - new Date(ts).getTime()) / 86400000)
+      // ✅ v2: защита срещу невалидни дати (NaN guard)
+      const rawTs = (l as any).downloaded_at || l.created_at
+      const ts = new Date(rawTs).getTime()
+      if (isNaN(ts)) return // пропускаме невалидни записи
+      const d = Math.floor((now - ts) / 86400000)
       if (d >= 0 && d < 30) {
         const arr = (l as any).naruchnici as string[]|null
         counts[29-d] += (arr?.length || 1)
@@ -1040,7 +1043,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', display:'flex',
             alignItems:'center', justifyContent:'center', padding:16, zIndex:300 }}
             onClick={e=>{ if (e.target===e.currentTarget) setShowInvalidModal(false) }}>
-            <div style={{ background:'#fff', borderRadius:20, padding:0, width:'100%', maxWidth:660,
+            <div style={{ background:'#fff', borderRadius:20, padding:0, width:'calc(100% - 32px)', maxWidth:660,
               maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 60px rgba(0,0,0,.35)' }}>
 
               {/* Header */}
