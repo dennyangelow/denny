@@ -161,13 +161,17 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
 
   const growthData = useMemo(() => {
     const counts = Array(30).fill(0)
-    const now = Date.now()
+    // ✅ Ползваме БГ "днес" за сравнение — не UTC
+    const todayBg = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Sofia' }) // "yyyy-mm-dd"
+    const todayUtcMidnight = new Date(todayBg + 'T00:00:00Z').getTime() // UTC ms на БГ "днес"
+
     leads.forEach(l => {
-      // ✅ v2: защита срещу невалидни дати (NaN guard)
       const rawTs = (l as any).downloaded_at || l.created_at
       const ts = new Date(rawTs).getTime()
-      if (isNaN(ts)) return // пропускаме невалидни записи
-      const d = Math.floor((now - ts) / 86400000)
+      if (isNaN(ts)) return
+      // ✅ Брой дни назад спрямо БГ полунощ (не UTC полунощ)
+      const d = Math.floor((todayUtcMidnight - ts + 86400000 - 1) / 86400000)
+      // d=0 → днес, d=1 → вчера, d=29 → 30 дни назад
       if (d >= 0 && d < 30) {
         const arr = (l as any).naruchnici as string[]|null
         counts[29-d] += (arr?.length || 1)

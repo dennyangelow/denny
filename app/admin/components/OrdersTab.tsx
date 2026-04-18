@@ -23,29 +23,41 @@ export type OfferType = 'post_purchase' | 'cart_upsell' | 'cross_sell'
 // Връща ВСИЧКИ активни оферти за поръчката (масив)
 export function getOfferTypes(o: Order & { offer_type?: string | null; has_post_purchase_upsell?: boolean }): OfferType[] {
   const notes = o.customer_notes || ''
+  const items = o.order_items || []
   const found = new Set<OfferType>()
 
-  // Post-purchase
+  // Post-purchase — [POST-PURCHASE] префикс в order_items или notes маркер
   if (
     (o as any).has_post_purchase_upsell ||
     o.offer_type === 'post_purchase' ||
-    notes.includes('[POST-PURCHASE')
+    notes.includes('[POST-PURCHASE') ||
+    items.some(i => (i.product_name || '').startsWith('[POST-PURCHASE]') ||
+                    (i.product_name || '').toLowerCase().includes('(post-purchase'))
   ) found.add('post_purchase')
 
-  // Cart upsell
+  // Cart upsell — [UPSELL] префикс (нов) или notes маркер (стар)
   if (
     o.offer_type === 'cart_upsell' ||
     notes.includes('[CART-UPSELL]') ||
     notes.includes('[HAS-OFFER]') ||
-    (o.order_items || []).some(i => (i.product_name || '').toLowerCase().includes('upsell'))
+    items.some(i => (i.product_name || '').startsWith('[UPSELL]')) ||
+    items.some(i => !(i.product_name || '').startsWith('[POST-PURCHASE]') &&
+                    !(i.product_name || '').startsWith('[CROSS]') &&
+                    (i.product_name || '').toLowerCase().includes('upsell'))
   ) found.add('cart_upsell')
 
-  // Cross-sell
+  // Cross-sell — [CROSS] префикс (нов) или notes маркер (стар)
   if (
     o.offer_type === 'cross_sell' ||
     notes.includes('[CROSS-SELL]') ||
-    (o.order_items || []).some(i => /\(-\d+%\)/.test(i.product_name || '')) ||
-    (o.order_items || []).some(i => (i.product_name || '').toLowerCase().includes('cross'))
+    items.some(i => (i.product_name || '').startsWith('[CROSS]')) ||
+    items.some(i =>
+      !(i.product_name || '').startsWith('[POST-PURCHASE]') &&
+      !(i.product_name || '').startsWith('[UPSELL]') && (
+        /\(-\d+%\)/.test(i.product_name || '') ||
+        (i.product_name || '').toLowerCase().includes('cross-sell')
+      )
+    )
   ) found.add('cross_sell')
 
   return Array.from(found)
@@ -288,10 +300,11 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   // ── Offer stats ────────────────────────────────────────────────────────────
   const offerStats = useMemo(() => {
     const active     = orders.filter(o => o.status !== 'cancelled')
-    const postPurch  = active.filter(o => getOfferType(o) === 'post_purchase')
-    const cartUpsell = active.filter(o => getOfferType(o) === 'cart_upsell')
-    const crossSell  = active.filter(o => getOfferType(o) === 'cross_sell')
-    const withOffer  = active.filter(o => getOfferType(o) !== null)
+    // ✅ Ползваме getOfferTypes() (масив) — поръчка с multiple оферти се брои правилно в ВСЕКИ тип
+    const postPurch  = active.filter(o => getOfferTypes(o).includes('post_purchase'))
+    const cartUpsell = active.filter(o => getOfferTypes(o).includes('cart_upsell'))
+    const crossSell  = active.filter(o => getOfferTypes(o).includes('cross_sell'))
+    const withOffer  = active.filter(o => getOfferTypes(o).length > 0)
     const offerRevenue = withOffer.reduce((s, o) => s + Number(o.total), 0)
     const totalRevenue = active.reduce((s, o) => s + Number(o.total), 0)
     return {
@@ -309,10 +322,11 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
     let result = orders
       .filter(o => filter === 'all' || o.status === filter)
       .filter(o => {
-        if (offerFilter === 'has_offer')     return getOfferType(o) !== null
-        if (offerFilter === 'post_purchase') return getOfferType(o) === 'post_purchase'
-        if (offerFilter === 'cart_upsell')   return getOfferType(o) === 'cart_upsell'
-        if (offerFilter === 'cross_sell')    return getOfferType(o) === 'cross_sell'
+        // ✅ Ползваме getOfferTypes() (масив) — поръчка с multiple оферти се match-ва правилно
+        if (offerFilter === 'has_offer')     return getOfferTypes(o).length > 0
+        if (offerFilter === 'post_purchase') return getOfferTypes(o).includes('post_purchase')
+        if (offerFilter === 'cart_upsell')   return getOfferTypes(o).includes('cart_upsell')
+        if (offerFilter === 'cross_sell')    return getOfferTypes(o).includes('cross_sell')
         return true
       })
       .filter(o => {
@@ -788,16 +802,25 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
             ← Назад
           </button>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const p = i + 1
-              return (
-                <button key={p} onClick={() => setPage(p)}
+            {(() => {
+              // ✅ Smart pagination: показва всички ако <= 7, иначе current ± 2 + first/last
+              if (totalPages <= 7) {
+                return Array.from({ length: totalPages }, (_, i) => i + 1)
+              }
+              const pages = new Set([1, totalPages, page, page-1, page-2, page+1, page+2].filter(p => p >= 1 && p <= totalPages))
+              return Array.from(pages).sort((a,b) => a-b).reduce<(number|'...')[]>((acc, p, i, arr) => {
+                if (i > 0 && p - (arr[i-1] as number) > 1) acc.push('...')
+                acc.push(p)
+                return acc
+              }, [])
+            })().map((p, i) => p === '...'
+              ? <span key={`e${i}`} style={{ width:32, textAlign:'center', color:'#9ca3af', fontSize:13, lineHeight:'32px' }}>…</span>
+              : <button key={p} onClick={() => setPage(p as number)}
                   style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)', fontFamily: 'inherit', fontSize: 13, cursor: 'pointer',
                     background: page === p ? '#1b4332' : '#fff', color: page === p ? '#fff' : 'var(--text)', fontWeight: page === p ? 700 : 400 }}>
                   {p}
                 </button>
-              )
-            })}
+            )}
           </div>
           <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}
             style={{ padding: '7px 16px', border: '1px solid var(--border)', borderRadius: 8, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, opacity: page === totalPages ? .4 : 1 }}>

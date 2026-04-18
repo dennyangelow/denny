@@ -21,7 +21,7 @@ import { RangePicker } from './AnalyticsTab'
 import {
   type Range, getRangeLabel, calcTrend,
   filterByRange, filterPrevPeriod, buildRevenueChart, getXAxisInterval,
-  toBulgarianDateStr, toBulgarianHour, getCurrentBulgarianHour,
+  toBulgarianDateStr, toBulgarianHour, getCurrentBulgarianHour, getCutoff,
 } from './rangeUtils'
 
 interface Props {
@@ -105,12 +105,16 @@ function getVisitsForRange(pageViews: PageViewStats | null, range: Range): numbe
 }
 
 // ✅ Affiliate кликове спрямо range
-function getAffClicksForRange(analytics: AffiliateAnalytics | null, range: Range): number {
-  if (!analytics) return 0
-  if (range === 1)     return (analytics as any).today     ?? 0
-  if (range === 7)     return (analytics as any).last7days ?? 0
-  if (range === 'all') return analytics.total              ?? 0
-  return analytics.last30days ?? 0  // 30д, 90д, 365д → last30days (максималното налично)
+// DashboardTab получава analytics prop (от useAdminData) — стар тип без last90days.
+// За 90д/365д ползваме last30days като "minimum known" и маркираме като приближение.
+function getAffClicksForRange(analytics: AffiliateAnalytics | null, range: Range): { value: number; approx: boolean } {
+  if (!analytics) return { value: 0, approx: false }
+  if (range === 1)     return { value: (analytics as any).today     ?? 0, approx: false }
+  if (range === 7)     return { value: (analytics as any).last7days ?? 0, approx: false }
+  if (range === 30)    return { value: analytics.last30days         ?? 0, approx: false }
+  if (range === 90)    return { value: (analytics as any).last90days ?? analytics.last30days ?? 0, approx: !(analytics as any).last90days }
+  if (range === 'all') return { value: analytics.total              ?? 0, approx: false }
+  return { value: analytics.total ?? 0, approx: false }
 }
 
 // ─── Главен компонент ─────────────────────────────────────────────────────────
@@ -147,7 +151,18 @@ export function DashboardTab({
   }, [pageViews, filteredOrders, range])
 
   const visitsForRange = useMemo(() => getVisitsForRange(pageViews, range),         [pageViews, range])
-  const affClicks      = useMemo(() => getAffClicksForRange(analytics, range),      [analytics, range])
+  const affResult      = useMemo(() => getAffClicksForRange(analytics, range),      [analytics, range])
+  const affClicks      = affResult.value
+  const affApprox      = affResult.approx
+
+  // ✅ Нови абонати за периода (филтрирани по range)
+  const newLeadsCount  = useMemo(() => {
+    if (!leads?.length) return 0
+    const cutoff = getCutoff(range)
+    if (!cutoff) return leads.length
+    if (range === 1) return leads.filter(l => l.created_at?.slice(0, 10) === cutoff).length
+    return leads.filter(l => l.created_at?.slice(0, 10) >= cutoff).length
+  }, [leads, range])
 
   const revenueChart = useMemo(() => buildRevenueChart(filteredOrders, range), [filteredOrders, range])
   const sparklines   = useMemo(() => buildSparkline(orders, 7), [orders])
@@ -198,24 +213,24 @@ export function DashboardTab({
     },
     {
       id: 'leads',
-      label:  'Email абонати',
-      value:  stats.leads,
+      label:  range === 'all' ? 'Email абонати' : `Нови абонати (${rl})`,
+      value:  range === 'all' ? stats.leads : newLeadsCount,
       icon:   '✉️', color: '#06b6d4', bg: '#ecfeff', border: '#a5f3fc',
       spark:  sparklines.orders,
       trend:  null as null,
       tab:    'leads',
-      sub:    'Общо записани',
+      sub:    range === 'all' ? `Общо: ${stats.leads}` : `Общо записани: ${stats.leads}`,
     },
     {
-      // ✅ Affiliate card — следва range-а, не е hardcoded "30д"
+      // ✅ Affiliate card — следва range-а, показва приближение за 90д/365д ако API е стар
       id: 'affiliate',
       label:  `Affiliate (${rl})`,
-      value:  affClicks.toLocaleString(),
+      value:  affClicks.toLocaleString() + (affApprox ? ' ~' : ''),
       icon:   '🔗', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0',
       spark:  sparklines.orders,
       trend:  null as null,
       tab:    'analytics',
-      sub:    'Кликове',
+      sub:    affApprox ? '≈ прибл. (виж Аналитика)' : 'Кликове',
     },
   ]
 
@@ -223,16 +238,19 @@ export function DashboardTab({
     <div className="dash-root">
       <style>{`
         .dash-root { padding: 20px 24px; max-width: 1200px }
-        @media(max-width:640px) { .dash-root { padding: 14px 12px } }
+        @media(max-width:640px) { .dash-root { padding: 12px 10px } }
 
         @keyframes fadeUp { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
         @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 
-        .skel-card { background:#f9fafb; border:1px solid #f0f0f0; border-radius:14px; padding:16px 18px; flex:1; min-width:140px }
+        .skel-card { background:#f9fafb; border:1px solid #f0f0f0; border-radius:14px; padding:16px 18px; flex:1; min-width:130px }
         .skel-line { border-radius:6px; background:linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%); background-size:400px 100%; animation:shimmer 1.4s infinite }
 
-        .stat-card { flex:1; min-width:140px; border-radius:14px; padding:16px 18px; cursor:pointer; transition:transform .18s, box-shadow .18s; animation:fadeUp .3s ease both }
+        /* Stat cards — 3 на ред на мобилен */
+        .stat-card { flex:1; min-width:130px; border-radius:14px; padding:16px 18px; cursor:pointer; transition:transform .18s, box-shadow .18s; animation:fadeUp .3s ease both }
         .stat-card:hover { transform:translateY(-2px) }
+        @media(max-width:600px) { .stat-card { flex: 1 1 calc(50% - 5px); min-width:0 } }
+        @media(max-width:360px) { .stat-card { flex: 1 1 100% } }
 
         .trend-badge { font-size:11px; font-weight:700; padding:2px 7px; border-radius:99px }
         .trend-badge.up   { background:#dcfce7; color:#15803d }
@@ -248,29 +266,43 @@ export function DashboardTab({
         .d-card-body { padding:16px 18px }
 
         .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px }
-        /* ✅ 4 колони за посещения grid */
         .grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:9px }
-        @media(max-width:700px) { .grid-2 { grid-template-columns:1fr } .grid-4 { grid-template-columns:1fr 1fr } }
-        @media(max-width:440px) { .grid-4 { grid-template-columns:1fr 1fr } }
+        @media(max-width:700px) { .grid-2 { grid-template-columns:1fr } }
+        @media(max-width:640px) { .grid-4 { grid-template-columns:1fr 1fr } }
+        @media(max-width:360px) { .grid-4 { grid-template-columns:1fr 1fr } }
 
-        .refresh-btn { background:#fff; border:1px solid #e5e7eb; border-radius:9px; padding:7px 14px; cursor:pointer; font-family:inherit; font-size:13px; color:#374151; font-weight:600; transition:all .15s }
+        .refresh-btn { background:#fff; border:1px solid #e5e7eb; border-radius:9px; padding:7px 14px; cursor:pointer; font-family:inherit; font-size:13px; color:#374151; font-weight:600; transition:all .15s; white-space:nowrap }
         .refresh-btn:hover { border-color:#16a34a; color:#16a34a }
         .link-btn { font-size:12px; color:#16a34a; background:none; border:none; cursor:pointer; font-family:inherit; font-weight:600 }
 
         .ref-bar-wrap { height:4px; background:#f3f4f6; border-radius:99px; margin-top:3px }
 
-        @media(max-width:540px) { .range-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px } }
+        .range-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px }
+        .range-scroll::-webkit-scrollbar { display:none }
+
+        /* Header responsive */
+        .dash-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; flex-wrap:wrap; gap:10px }
+        @media(max-width:480px) { .dash-header { flex-direction:column } .dash-header .dash-controls { width:100%; display:flex; gap:8px } }
+
+        /* Stat cards row */
+        .stat-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px }
+
+        /* Order name truncate on mobile */
+        @media(max-width:400px) {
+          .ord-row { padding:9px 12px }
+          .ord-name { max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+        }
       `}</style>
 
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20, flexWrap:'wrap', gap:10 }}>
+      <div className="dash-header">
         <div>
           <h1 style={{ fontSize:20, fontWeight:900, color:'#111', letterSpacing:'-.02em', margin:0 }}>Дашборд</h1>
           <p style={{ fontSize:12, color:'#94a3b8', margin:'2px 0 0' }}>
             {new Date().toLocaleDateString('bg-BG', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
           </p>
         </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+        <div className="dash-controls" style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
           <div className="range-scroll">
             <RangePicker range={range} onChange={setRange} />
           </div>

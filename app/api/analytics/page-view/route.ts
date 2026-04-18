@@ -1,11 +1,8 @@
-// app/api/analytics/page-view/route.ts — v10
-// ✅ ПОПРАВКИ v10:
-//   - toBulgarianDate() и toBulgarianHour() — Europe/Sofia timezone навсякъде
-//   - today = БГ дата (не UTC дата) → "Днес" посещенията са правилни
-//   - hourlyChart: hour bucket-ите са БГ часове (не UTC)
-//   - currentHour = БГ текущ час (не UTC) → графиката не се съкращава преждевременно
-//   - dailyChart: dayMap се строи с БГ дати
-//   - Проблемът: при 07:00 БГ, UTC е 04:00 → .getHours() = 4, getBulgarianHour() = 7 ✅
+// app/api/analytics/page-view/route.ts — v12
+// ✅ ПОПРАВКИ v12 (спрямо v11):
+//   - bgDateNDaysAgo(): премахнат hardcoded '+03:00' offset (грешен зимата при UTC+2)
+//     → Ново: парсира като UTC полунощ на БГ датата + setUTCDate() → toBulgarianDate()
+//     → Работи правилно и лято (UTC+3) и зима (UTC+2) без DST проблеми
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -46,18 +43,29 @@ function toBulgarianHour(d: Date): number {
 
 /**
  * Връща ISO string на началото на БГ деня в UTC.
- * Пример: БГ дата "2026-04-15" (UTC+3 лято) → "2026-04-14T21:00:00.000Z"
+ * ✅ Пробва UTC+3 (лято) и UTC+2 (зима) — взима правилния.
+ * Пример: "2026-04-17" (UTC+3) → "2026-04-16T21:00:00.000Z"
  */
 function bulgarianDayStartUtc(bgDateStr: string): string {
-  // Пробваме и двата offset-а (UTC+2 и UTC+3) и взимаме правилния
   for (const offset of ['+03:00', '+02:00']) {
     const candidate = new Date(bgDateStr + 'T00:00:00' + offset)
     if (toBulgarianDate(candidate) === bgDateStr) {
       return candidate.toISOString()
     }
   }
-  // Fallback
   return new Date(bgDateStr + 'T00:00:00+02:00').toISOString()
+}
+
+/**
+ * Връща "yyyy-mm-dd" за N дни назад в БГ timezone.
+ * ✅ Изчислява се в Europe/Sofia — не прост UTC offset.
+ */
+function bgDateNDaysAgo(now: Date, days: number): string {
+  const todayBg = toBulgarianDate(now)
+  // ✅ UTC полунощ на БГ датата — без hardcoded +03:00 (грешно зимата при UTC+2)
+  const utcMidnight = new Date(todayBg + 'T00:00:00Z')
+  utcMidnight.setUTCDate(utcMidnight.getUTCDate() - days)
+  return toBulgarianDate(utcMidnight)
 }
 
 // ─── POST — записва нов page view ───────────────────────────────────────────
@@ -158,14 +166,19 @@ async function getFallbackStats() {
   try {
     const now = new Date()
 
-    // ✅ "Днес" = началото на БГ деня в UTC — не UTC midnight
-    const todayBg       = toBulgarianDate(now)
-    const todayStartUtc = bulgarianDayStartUtc(todayBg)
+    // ✅ БГ дати за всеки период — всички се нулират в 00:00 БГ
+    const todayBg   = toBulgarianDate(now)
+    const bgDate7   = bgDateNDaysAgo(now, 7)
+    const bgDate30  = bgDateNDaysAgo(now, 30)
+    const bgDate90  = bgDateNDaysAgo(now, 90)
+    const bgDate365 = bgDateNDaysAgo(now, 365)
 
-    const day7   = new Date(now.getTime() -   7 * 86400000).toISOString()
-    const day30  = new Date(now.getTime() -  30 * 86400000).toISOString()
-    const day90  = new Date(now.getTime() -  90 * 86400000).toISOString()
-    const day365 = new Date(now.getTime() - 365 * 86400000).toISOString()
+    // ✅ UTC ISO strings за Supabase .gte() — от БГ полунощ, не UTC полунощ
+    const todayStartUtc  = bulgarianDayStartUtc(todayBg)
+    const since7Utc      = bulgarianDayStartUtc(bgDate7)
+    const since30Utc     = bulgarianDayStartUtc(bgDate30)
+    const since90Utc     = bulgarianDayStartUtc(bgDate90)
+    const since365Utc    = bulgarianDayStartUtc(bgDate365)
 
     const [
       totalCountRes,
@@ -185,30 +198,37 @@ async function getFallbackStats() {
     ] = await Promise.all([
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }),
 
-      // ✅ "Днес" COUNT от БГ полунощ (не UTC полунощ)
+      // ✅ Днес от 00:00 БГ
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
         .gte('created_at', todayStartUtc),
 
+      // ✅ 7 дни от 00:00 БГ на bgDate7
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', day7),
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', day30),
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', day90),
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', day365),
+        .gte('created_at', since7Utc),
 
-      // ✅ Unique visitors за "Днес" от БГ полунощ
+      // ✅ 30 дни от 00:00 БГ на bgDate30
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
+        .gte('created_at', since30Utc),
+
+      // ✅ 90 дни от 00:00 БГ на bgDate90
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
+        .gte('created_at', since90Utc),
+
+      // ✅ 365 дни от 00:00 БГ на bgDate365
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
+        .gte('created_at', since365Utc),
+
+      // Unique visitors — от БГ полунощ
       supabaseAdmin.from('page_views').select('visitor_hash')
         .gte('created_at', todayStartUtc).limit(10000),
       supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', day7).limit(10000),
+        .gte('created_at', since7Utc).limit(10000),
       supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', day30).limit(10000),
+        .gte('created_at', since30Utc).limit(10000),
       supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', day90).limit(10000),
+        .gte('created_at', since90Utc).limit(10000),
       supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', day365).limit(10000),
+        .gte('created_at', since365Utc).limit(10000),
       supabaseAdmin.from('page_views').select('visitor_hash').limit(10000),
 
       // ✅ Hourly данни за днес — от БГ полунощ
@@ -219,10 +239,11 @@ async function getFallbackStats() {
         .order('created_at', { ascending: true })
         .limit(20000),
 
+      // Детайли за 90 дни (топ страници, референри, daily chart)
       supabaseAdmin
         .from('page_views')
         .select('visitor_hash, page, referrer, user_agent, is_mobile, created_at, utm_source, utm_medium, utm_campaign')
-        .gte('created_at', day90)
+        .gte('created_at', since90Utc)
         .order('created_at', { ascending: false })
         .limit(10000),
     ])
@@ -251,12 +272,11 @@ async function getFallbackStats() {
       hourlyUniqueMap[h] = new Set()
     }
     for (const r of todayDetailRes.data || []) {
-      // ✅ БГ час — не UTC час
-      const hour = toBulgarianHour(new Date(r.created_at))
+      const hour = toBulgarianHour(new Date(r.created_at))  // ✅ БГ час
       hourlyCountMap[hour]++
       if (r.visitor_hash) hourlyUniqueMap[hour].add(r.visitor_hash)
     }
-    // ✅ Показваме до текущия БГ час — не UTC час
+    // ✅ До текущия БГ час
     const currentBgHour = toBulgarianHour(now)
     const hourlyChart = Array.from({ length: currentBgHour + 1 }, (_, h) => ({
       hour:   h,
@@ -264,7 +284,7 @@ async function getFallbackStats() {
       unique: hourlyUniqueMap[h].size,
     }))
 
-    // ── dailyChart (90 дни) — с БГ дати ──────────────────────────────────
+    // ── dailyChart (90 дни) с БГ дати ────────────────────────────────────
     const detailRows = detailRes.data || []
     const pageMap:     Record<string, number> = {}
     const refMap:      Record<string, number> = {}
@@ -274,7 +294,8 @@ async function getFallbackStats() {
     // ✅ dayMap ключовете са "MM-DD" в БГ timezone
     const dayMap: Record<string, { count: number; unique: Set<string> }> = {}
     for (let i = 89; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000)
+      // ✅ Строим масива с правилните БГ дати (не UTC дати)
+      const d     = new Date(now.getTime() - i * 86400000)
       const bgDay = toBulgarianDate(d).slice(5) // MM-DD
       dayMap[bgDay] = { count: 0, unique: new Set() }
     }

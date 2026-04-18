@@ -1,8 +1,8 @@
-// app/api/orders/[id]/route.ts — v4 MERGED
-// ✅ PATCH поддържа 2 режима:
-//    1. Status/tracking update (status, payment_status, tracking_number, courier)
-//    2. Post-purchase upsell (add_items, add_to_total, offer_type, add_to_notes)
-// ✅ Tracking имейл при shipped
+// app/api/orders/[id]/route.ts — v5 FINAL
+// ✅ PATCH режим 1: Post-purchase upsell — добавя артикули, обновява total + notes + offer_type
+//    Записва [POST-PURCHASE] префикс в product_name за лесна детекция
+//    Запазва съществуващия offer_type (cart_upsell/cross_sell) — не го презаписва
+// ✅ PATCH режим 2: Status/tracking update
 // ✅ GET с order_items
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -18,19 +18,13 @@ export async function PATCH(
     const body    = await req.json()
 
     // ── 1. POST-PURCHASE UPSELL режим ────────────────────────────────────────
-    // Разпознаваме по наличието на add_items или add_to_total
     if (body.add_items || body.add_to_total !== undefined) {
-      const {
-        add_items,
-        offer_type,
-        add_to_notes,
-        add_to_total,
-      } = body
+      const { add_items, offer_type, add_to_notes, add_to_total } = body
 
-      // Взимаме оригиналната поръчка
+      // Вземаме оригиналната поръчка
       const { data: order, error: fetchError } = await supabaseAdmin
         .from('orders')
-        .select('*, order_items(*)')
+        .select('id, total, customer_notes, offer_type, has_post_purchase_upsell')
         .eq('id', orderId)
         .single()
 
@@ -38,14 +32,17 @@ export async function PATCH(
         return NextResponse.json({ error: 'Order not found' }, { status: 404 })
       }
 
-      // Добавяме новите items
+      // Добавяме новите items с [POST-PURCHASE] префикс
       if (add_items && Array.isArray(add_items) && add_items.length > 0) {
         const newItems = add_items.map((item: any) => ({
           order_id:     orderId,
-          product_name: item.product_name,
-          quantity:     item.quantity,
-          unit_price:   item.unit_price,
-          total_price:  item.total_price,
+          // Гарантираме [POST-PURCHASE] префикс за лесна детекция в admin
+          product_name: item.product_name.startsWith('[POST-PURCHASE]')
+            ? item.product_name
+            : `[POST-PURCHASE] ${item.product_name}`,
+          quantity:     item.quantity    ?? 1,
+          unit_price:   item.unit_price  ?? 0,
+          total_price:  item.total_price ?? item.unit_price ?? 0,
         }))
 
         const { error: itemsError } = await supabaseAdmin
@@ -58,18 +55,23 @@ export async function PATCH(
         }
       }
 
-      // Update-ваме поръчката: total, offer_type, notes
-      const newTotal = (order.total || 0) + (add_to_total || 0)
-      const newNotes = [
-        order.customer_notes || '',
-        add_to_notes || '',
-      ].filter(Boolean).join(' ').trim()
+      // Обновяваме поръчката
+      const newTotal = (Number(order.total) || 0) + (Number(add_to_total) || 0)
+
+      const newNotes = [order.customer_notes || '', add_to_notes || '']
+        .filter(Boolean).join(' ').trim()
+
+      // offer_type: запазваме съществуващия ако има cart_upsell/cross_sell
+      // и добавяме post_purchase чрез has_post_purchase_upsell флага
+      // Не презаписваме cart_upsell → post_purchase, защото е различна информация
+      const existingOfferType = order.offer_type
+      const finalOfferType = existingOfferType || offer_type || null
 
       const { error: updateError } = await supabaseAdmin
         .from('orders')
         .update({
           total:                    +newTotal.toFixed(2),
-          offer_type:               offer_type || order.offer_type || null,
+          offer_type:               finalOfferType,
           customer_notes:           newNotes || null,
           has_post_purchase_upsell: true,
           updated_at:               new Date().toISOString(),
@@ -81,27 +83,22 @@ export async function PATCH(
         return NextResponse.json({ error: updateError.message }, { status: 500 })
       }
 
-      return NextResponse.json({
-        success:   true,
-        order_id:  orderId,
-        new_total: newTotal,
-      })
+      return NextResponse.json({ success: true, order_id: orderId, new_total: +newTotal.toFixed(2) })
     }
 
     // ── 2. STATUS / TRACKING UPDATE режим ────────────────────────────────────
     const updates: Record<string, any> = {}
 
-    if (body.status !== undefined)           updates.status           = body.status
-    if (body.payment_status !== undefined)   updates.payment_status   = body.payment_status
-    if (body.tracking_number !== undefined)  updates.tracking_number  = body.tracking_number || null
-    if (body.courier !== undefined)          updates.courier          = body.courier
+    if (body.status !== undefined)          updates.status          = body.status
+    if (body.payment_status !== undefined)  updates.payment_status  = body.payment_status
+    if (body.tracking_number !== undefined) updates.tracking_number = body.tracking_number || null
+    if (body.courier !== undefined)         updates.courier         = body.courier
 
-    if (body.status === 'shipped')    updates.shipped_at   = new Date().toISOString()
-    if (body.status === 'delivered')  updates.delivered_at = new Date().toISOString()
+    if (body.status === 'shipped')   updates.shipped_at   = new Date().toISOString()
+    if (body.status === 'delivered') updates.delivered_at = new Date().toISOString()
 
     updates.updated_at = new Date().toISOString()
 
-    // Ако няма реални промени (само updated_at), връщаме success без DB call
     if (Object.keys(updates).length === 1) {
       return NextResponse.json({ success: true })
     }
@@ -115,7 +112,7 @@ export async function PATCH(
 
     if (error) throw error
 
-    // Изпращаме tracking имейл при shipped
+    // Tracking имейл при shipped
     if (body.status === 'shipped' && data.customer_email && body.tracking_number) {
       const apiKey = process.env.RESEND_API_KEY
       if (apiKey) {

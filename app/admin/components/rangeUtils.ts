@@ -1,11 +1,16 @@
-// app/admin/components/rangeUtils.ts — v3
-// ✅ ПОПРАВКИ v2:
+// app/admin/components/rangeUtils.ts — v4
+// ✅ ПОПРАВКИ v4 (спрямо v3):
+//   - Добавена bgDateNDaysAgo() — правилна БГ дата преди N дни (без UTC rolling window)
+//     → Ползва UTC полунощ + setUTCDate() — работи лято и зима без DST проблеми
+//   - getCutoff() поправен: ползва bgDateNDaysAgo() вместо UTC timestamp - N*86400000
+//     → Поръчките вече се нулират точно в 00:00 БГ за всеки период
+//   - getPrevCutoff() поправен: ползва bgDateNDaysAgo() за консистентност
+//   - buildRevenueChart(): ползва bgDateNDaysAgo() за правилни БГ дати в chart-а
+// ✅ ПОПРАВКИ v3/v2:
 //   - toBulgarianDateStr() — всички дати се изчисляват в БГ часова зона (UTC+2/+3)
 //   - getCutoff() вече връща правилна БГ дата (не UTC)
 //   - filterByRange range=1 сравнява БГ дати, не UTC дати
 //   - buildRevenueChart ползва БГ дати за генериране на масива с дни
-//   - buildRevenueChartHourly (в AnalyticsTab) трябва да ползва getBulgarianHour()
-//   - getXAxisInterval, calcTrend — непроменени
 
 export type Range = 1 | 7 | 30 | 90 | 365 | 'all'
 
@@ -55,41 +60,50 @@ export function getCurrentBulgarianHour(): number {
 // ─── Cutoff логика ────────────────────────────────────────────────────────────
 
 /**
+ * "yyyy-mm-dd" за N дни назад в БГ timezone.
+ * ✅ Изваждаме N дни от БГ "днес" — не прост UTC offset.
+ *    Работи правилно и лято (UTC+3) и зима (UTC+2).
+ */
+export function bgDateNDaysAgo(now: Date, days: number): string {
+  const todayBg = toBulgarianDateStr(now)  // "2026-04-17"
+  // Парсираме като local полунощ в Европа/София — за DST-правилно изваждане
+  // Ползваме ISO дата без час → Date.UTC midnight, после коригираме с toBulgarianDateStr
+  const utcMidnight = new Date(todayBg + 'T00:00:00Z') // UTC полунощ на БГ датата
+  utcMidnight.setUTCDate(utcMidnight.getUTCDate() - days)
+  return toBulgarianDateStr(utcMidnight)   // връщаме БГ представяне
+}
+
+/**
  * ISO date string на началото на периода в БГ timezone.
  * range=1   → днес в БГ (yyyy-mm-dd)
- * range=N   → преди N дни в БГ
+ * range=N   → преди N дни в БГ (от 00:00 БГ, не UTC rolling)
  * range=all → null (без cutoff)
  */
 export function getCutoff(range: Range): string | null {
   if (range === 'all') return null
   const now = new Date()
   if (range === 1) return toBulgarianDateStr(now)
-  // ✅ Нова Date за всяко изчисление — без мутация
-  const d = new Date(now.getTime() - (range as number) * 86400000)
-  return toBulgarianDateStr(d)
+  // ✅ Изваждаме от БГ "днес" — правилно нулиране в 00:00 БГ
+  return bgDateNDaysAgo(now, range as number)
 }
 
 /**
  * Предходен период за trend сравнение.
  * range=1  → вчера в БГ timezone
- * range=N  → от -2N до -N дни
+ * range=N  → от -2N до -N дни (от БГ полунощ)
  * range=all → null
  */
 export function getPrevCutoff(range: Range): { start: string; end: string } | null {
   if (range === 'all') return null
   const now = new Date()
   if (range === 1) {
-    // "Вчера" в БГ timezone
-    const yesterday = new Date(now.getTime() - 86400000)
-    const yStr = toBulgarianDateStr(yesterday)
-    return { start: yStr, end: toBulgarianDateStr(now) }
+    const yesterday = bgDateNDaysAgo(now, 1)
+    return { start: yesterday, end: toBulgarianDateStr(now) }
   }
   const days = range as number
-  const end   = new Date(now.getTime() - days * 86400000)
-  const start = new Date(now.getTime() - days * 2 * 86400000)
   return {
-    start: toBulgarianDateStr(start),
-    end:   toBulgarianDateStr(end),
+    start: bgDateNDaysAgo(now, days * 2),
+    end:   bgDateNDaysAgo(now, days),
   }
 }
 
@@ -154,9 +168,8 @@ export function buildRevenueChart(
 
   const days = range as number
   return Array.from({ length: days }, (_, i) => {
-    // ✅ Нова Date инстанция за всяка итерация — без мутация между итерациите
-    const d = new Date(now.getTime() - (days - 1 - i) * 86400000)
-    const dateStr = toBulgarianDateStr(d)
+    // ✅ Ползваме bgDateNDaysAgo за всеки ден — правилни БГ дати
+    const dateStr = bgDateNDaysAgo(now, days - 1 - i)
     return { date: dateStr.slice(5), revenue: map[dateStr] || 0 }
   })
 }

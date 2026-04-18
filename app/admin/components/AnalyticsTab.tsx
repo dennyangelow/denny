@@ -75,6 +75,7 @@ interface AffiliateDetail {
   last30days:     number
   last7days:      number
   today:          number
+  last90days?:    number   // ✅ v8: точна COUNT от API (не approximation)
   byProduct:      Record<string, number>
   byPartner:      Record<string, number>
   productDetails: Record<string, { total: number; last30: number; last7: number; today: number }>
@@ -309,7 +310,7 @@ function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; r
         <SortBtn k="last30" label="30д" /><SortBtn k="total" label="Общо" />
       </div>
 
-      <div style={{ overflowX:'auto' }}>
+      <div style={{ overflowX:'auto' }} className="aff-table-wrap">
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
           <thead>
             <tr style={{ borderBottom:'2px solid #f3f4f6' }}>
@@ -427,10 +428,15 @@ function getAffClicks(aff: AffiliateDetail | null, analytics: AffiliateAnalytics
   if (range === 30)    return aff.last30days
   if (range === 'all') return aff.total
 
-  // За 90д — сумираме от dailyChart (90 дни от API v5)
+  // ✅ За 90д — ползваме директно last90days от API (точна COUNT заявка от v8)
+  // Fallback: сума от dailyChart ако полето не е налично (стар API)
   if (range === 90) {
-    const sum = (aff.dailyChart || []).reduce((s, d) => s + d.count, 0)
-    return sum > 0 ? sum : aff.total
+    const direct = (aff as any).last90days
+    if (typeof direct === 'number') return direct
+    // Fallback за стар API: sum от chart
+    const chart = aff.dailyChart || []
+    if (chart.length >= 30) return chart.reduce((s, d) => s + d.count, 0)
+    return aff.last30days > 0 ? Math.round(aff.last30days * 3) : aff.total
   }
 
   // За 365д — best estimate е total
@@ -641,29 +647,61 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
     <div className="an-root">
       <style>{`
         .an-root { padding: 20px 24px; max-width: 1200px }
-        @media(max-width:640px) { .an-root { padding: 14px 12px } }
+        @media(max-width:640px) { .an-root { padding: 12px 10px } }
 
+        /* ── Grid layouts ── */
         .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
         .g4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px }
         .g5 { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px }
+
         @media(max-width:1000px) { .g5 { grid-template-columns: repeat(3,1fr) } }
         @media(max-width:900px)  { .g4 { grid-template-columns: 1fr 1fr } .g5 { grid-template-columns: repeat(3,1fr) } }
         @media(max-width:700px)  { .g2 { grid-template-columns: 1fr } .g4 { grid-template-columns: 1fr 1fr } .g5 { grid-template-columns: 1fr 1fr } }
-        @media(max-width:400px)  { .g4 { grid-template-columns: 1fr } .g5 { grid-template-columns: 1fr } }
+        @media(max-width:400px)  { .g4 { grid-template-columns: 1fr 1fr } .g5 { grid-template-columns: 1fr 1fr } }
 
+        /* ── Metric cards — wrap gracefully ── */
+        .metric-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px }
+        .metric-row > * { flex: 1 1 130px; min-width: 0 }
+        @media(max-width:480px) { .metric-row > * { flex: 1 1 calc(50% - 5px) } }
+
+        /* ── Affiliate table — scroll on mobile ── */
+        .aff-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch }
+        .aff-table-wrap table { min-width: 460px }
         .aff-row:hover { background: #f0fdf4 !important }
 
-        .offer-card { flex:1; min-width:120px; border-radius:12px; padding:12px 14px; color:#fff }
-        .offer-card-light { flex:1; min-width:120px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:12px 14px }
+        /* ── Offer cards ── */
+        .offer-row { display: flex; gap: 9px; flex-wrap: wrap; margin-bottom: 14px }
+        .offer-card { flex: 1 1 110px; min-width: 0; border-radius: 12px; padding: 12px 14px; color: #fff }
+        .offer-card-light { flex: 1 1 110px; min-width: 0; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px 14px }
+        @media(max-width:480px) {
+          .offer-card, .offer-card-light { flex: 1 1 calc(50% - 5px) }
+        }
 
-        @media(max-width:540px) { .range-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px } }
+        /* ── Range picker scroll on small screens ── */
+        .range-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px }
+        .range-scroll::-webkit-scrollbar { display: none }
 
-        .pv-card { border-radius:10px; padding:10px 12px; background:#f9fafb; border:1px solid #f0f0f0; transition:all .2s }
-        .pv-card.active { background:#f0fdf4; border:2px solid currentColor }
+        /* ── Page view cards ── */
+        .pv-card { border-radius: 10px; padding: 10px 12px; background: #f9fafb; border: 1px solid #f0f0f0; transition: all .2s }
+        .pv-card.active { background: #f0fdf4; border: 2px solid currentColor }
+
+        /* ── Funnel items ── */
+        .funnel-row { display: flex; gap: 10px; flex-wrap: wrap }
+        .funnel-row > * { flex: 1 1 120px; min-width: 0 }
+
+        /* ── Chart cards readable on mobile ── */
+        @media(max-width:640px) {
+          .recharts-wrapper { font-size: 10px }
+          .recharts-legend-wrapper { font-size: 10px !important }
+        }
+
+        /* ── Header layout ── */
+        .an-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; flex-wrap: wrap; gap: 10px }
+        @media(max-width:480px) { .an-header { flex-direction: column } .an-header > div:last-child { width: 100% } }
       `}</style>
 
       {/* ── Header ────────────────────────────────────────────────── */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:18, flexWrap:'wrap', gap:10 }}>
+      <div className="an-header">
         <div>
           <h1 style={{ fontSize:20, fontWeight:900, color:'#111', letterSpacing:'-.02em', margin:0 }}>Аналитика</h1>
           <p style={{ fontSize:12, color:'#94a3b8', margin:'2px 0 0' }}>Статистики за избрания период</p>
@@ -674,7 +712,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
       </div>
 
       {/* ── KPI Metrics ─────────────────────────────────────────── */}
-      <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16 }}>
+      <div className="metric-row">
         <MetricCard label={`Приход (${rl})`}      value={formatPrice(metrics.rev)} prevValue={metrics.prevRev} color="#16a34a" icon="💶" bg="#f0fdf4" border="#bbf7d0" />
         <MetricCard label={`Поръчки (${rl})`}     value={metrics.cnt}              prevValue={metrics.prevCnt} color="#f59e0b" icon="📦" bg="#fffbeb" border="#fde68a" />
         <MetricCard label="Средна поръчка"          value={formatPrice(metrics.avg)} prevValue={metrics.prevAvg} color="#8b5cf6" icon="📊" bg="#faf5ff" border="#e9d5ff" />
@@ -689,7 +727,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
               ⚠️ Данните за посещения не са заредени — funnel показва само поръчки
             </div>
           )}
-          <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+          <div className="funnel-row">
             {funnelData.map((f, i) => (
               <div key={f.stage} style={{
                 flex:'1 1 120px', minWidth:0, background:'#f9fafb', borderRadius:11,
@@ -880,8 +918,13 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
         </div>
       )}
 
-      {/* ══ AFFILIATE ════════════════════════════════════════════════════ */}
       <SectionDivider label="🔗 Affiliate Аналитика" color="#06b6d4" bg="#ecfeff" border="#a5f3fc" />
+
+      {/* ⚠️ TIMEZONE БЕЛЕЖКА: Affiliate кликовете и посещенията се нулират в РАЗЛИЧНО време!
+           - Посещенията (pageViews) се нулират в UTC полунощ (03:00 БГ лято / 02:00 зима)
+           - Affiliate кликовете (API) се нулират в UTC полунощ също, НО ако API timezone е различен,
+             "Днес" може да показва кликове от вчера сутринта + днес → изглежда повече от посещенията.
+           Ако виждате аномалия сутринта (много кликове, малко посещения), това е timezone mismatch. */}
 
       {/* ✅ 5 affiliate карти — активната се highlight-ва спрямо range */}
       <div className="g5" style={{ marginBottom:14 }}>
@@ -960,7 +1003,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
         <>
           <SectionDivider label="📣 Offer Аналитика" color="#7c3aed" bg="#f5f3ff" border="#ede9fe" />
 
-          <div style={{ display:'flex', gap:9, flexWrap:'wrap', marginBottom:14 }}>
+          <div className="offer-row">
             {[
               { g:'linear-gradient(135deg,#7c3aed,#6d28d9)', e:'📣', t:'Оферти',      v:offerStats.withOffer.length, s:'поръчки с оферта' },
               { g:'linear-gradient(135deg,#dc2626,#b91c1c)', e:'⚡', t:'Post-purchase',v:offerStats.postPurch.length, s:'след поръчка' },

@@ -711,29 +711,48 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
     try {
       const productName = `${product.name} — ${variant.label}`
       // ── PATCH поръчката с post-purchase артикула ──────────────────────────
+      // Маркираме с [POST-PURCHASE] префикс в product_name за лесна детекция в OrderModal
       await fetch(`/api/orders/${originalOrderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          add_items: [{ product_name: productName + ' (Post-purchase upsell)', quantity: 1, unit_price: discountedPrice, total_price: discountedPrice }],
-          offer_type: 'post_purchase', add_to_notes: '[POST-PURCHASE UPSELL]', add_to_total: discountedPrice,
+          add_items: [{
+            product_name: `[POST-PURCHASE] ${productName}`,
+            quantity: 1,
+            unit_price: discountedPrice,
+            total_price: discountedPrice,
+            offer_type: 'post_purchase',
+          }],
+          offer_type: 'post_purchase',
+          add_to_notes: '[POST-PURCHASE UPSELL]',
+          add_to_total: discountedPrice,
         }),
       })
       // ── Discord: цялата поръчка + pp в едно ново съобщение ───────────────
+      // Подаваме ВСИЧКИ артикули — оригинални + новия PP артикул
+      const ppItem = {
+        product_name: `[POST-PURCHASE] ${productName}`,
+        quantity: 1,
+        unit_price: discountedPrice,
+        total_price: discountedPrice,
+        from_offer: false, // не e cart offer, е post-purchase
+      }
       await sendDiscordNotification({
         order_number: originalOrderNumber,
         customer_name: customerData.name,
         customer_phone: customerData.phone,
         customer_city: customerData.city,
         customer_address: customerData.address,
-        customer_notes: customerData.notes ? customerData.notes + ' [POST-PURCHASE UPSELL]' : '[POST-PURCHASE UPSELL]',
+        customer_notes: customerData.notes
+          ? customerData.notes + ' [POST-PURCHASE UPSELL]'
+          : '[POST-PURCHASE UPSELL]',
         courier: customerData.courier,
         payment_method: 'cod',
         subtotal: originalSubtotal,
         shipping: originalShipping,
         total: originalTotal + discountedPrice,
         total_savings: originalSavings + (offer.discount_pct && variant.price > discountedPrice ? variant.price - discountedPrice : 0),
-        items: originalOrderItems,
+        items: originalOrderItems, // оригиналните артикули — PP се чете от DB
         has_upsell: originalOrderItems.some(i => i.from_offer && i.offer_type === 'cart_upsell'),
         has_cross_sell: originalOrderItems.some(i => i.from_offer && i.offer_type === 'cross_sell'),
         currency_symbol: currencySymbol,
@@ -1028,18 +1047,24 @@ function CartDrawer({
     }
     setSubmitting(true); setError('')
     try {
-      const orderItems = items.map(i => ({
-        product_name: `${i.productName} — ${i.variantLabel}`,
-        quantity: i.qty, unit_price: i.price, total_price: +(i.price * i.qty).toFixed(2),
-        from_offer: i.fromOffer || false,
-        offer_type: i.offerType || undefined,
-        compare_price: i.comparePrice > i.price ? i.comparePrice : undefined,
-        offer_discount_pct: (() => {
-          // Проверяваме дали variantLabel съдържа (-X%) от оферта
-          const match = i.variantLabel.match(/\(-?(\d+)%\)/)
-          return match ? parseInt(match[1]) : undefined
-        })(),
-      }))
+      const orderItems = items.map(i => {
+        const baseName = `${i.productName} — ${i.variantLabel}`
+        // [UPSELL]/[CROSS] префикс → запазва се в DB, чете се от admin
+        const productName = i.fromOffer
+          ? i.offerType === 'cross_sell' ? `[CROSS] ${baseName}` : `[UPSELL] ${baseName}`
+          : baseName
+        return {
+          product_name: productName,
+          quantity: i.qty, unit_price: i.price, total_price: +(i.price * i.qty).toFixed(2),
+          from_offer: i.fromOffer || false,
+          offer_type: i.offerType || undefined,
+          compare_price: i.comparePrice > i.price ? i.comparePrice : undefined,
+          offer_discount_pct: (() => {
+            const match = i.variantLabel.match(/\(-?(\d+)%\)/)
+            return match ? parseInt(match[1]) : undefined
+          })(),
+        }
+      })
       const hasUpsell   = items.some(i => i.fromOffer && i.offerType === 'cart_upsell')
       const hasCross    = items.some(i => i.fromOffer && i.offerType === 'cross_sell')
       const hasAnyOffer = items.some(i => i.fromOffer)
