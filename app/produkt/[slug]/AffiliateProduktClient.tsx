@@ -143,12 +143,13 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   )
 
   return (
-    <>
+    <div className="af-page-root">
       <style suppressHydrationWarning>{`
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap');
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-        html{scroll-behavior:smooth;overflow-x:hidden}
-        body{font-family:'DM Sans',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;background:#fafaf8;color:#1a1a1a;overflow-x:hidden;width:100%}
+        html{scroll-behavior:smooth;overflow-x:hidden;max-width:100vw}
+        body{font-family:'DM Sans',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;background:#fafaf8;color:#1a1a1a;overflow-x:hidden;max-width:100vw;width:100%}
+        .af-page-root{width:100%;max-width:100vw;overflow-x:hidden;position:relative}
         @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
         @keyframes tabIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
         @keyframes slideRight{from{opacity:0;transform:translateX(-100%)}to{opacity:1;transform:translateX(0)}}
@@ -166,16 +167,16 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .mob-nav{position:sticky;top:60px;z-index:100;background:#fff;border-bottom:1px solid #e5e7eb;padding:10px 22px;display:flex;flex-direction:column;gap:3px;box-shadow:0 8px 24px rgba(0,0,0,.08);animation:slideRight .25s ease}
         .mob-nav-link{color:#374151;text-decoration:none;font-size:15px;font-weight:700;padding:9px 13px;border-radius:9px;display:block}
         .mob-nav-link:hover{background:#f0fdf4;color:#16a34a}
-        .af-hero-band{background:linear-gradient(160deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf8 100%);border-bottom:1px solid #bbf7d0;padding:20px 0 0;position:relative;overflow:hidden;width:100%}
+        .af-hero-band{background:linear-gradient(160deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf8 100%);border-bottom:1px solid #bbf7d0;padding:20px 0 0;position:relative;width:100%;max-width:100vw}
         .af-hero-band::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent 5%,#86efac 40%,#16a34a 50%,#86efac 60%,transparent 95%)}
-        .af-hero-inner{max-width:1080px;margin:0 auto;padding:0 20px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:nowrap;overflow:hidden}
-        .af-bc{display:flex;align-items:center;gap:5px;font-size:12px;color:#6b7280;flex-wrap:nowrap;overflow:hidden;min-width:0;flex:1}
-        .af-bc a{color:#6b7280;text-decoration:none;transition:color .15s;white-space:nowrap}.af-bc a:hover{color:#16a34a}
-        .af-bc strong{color:#14532d;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}.af-bc-sep{opacity:.4;flex-shrink:0}
-        .af-cat-badge{font-size:9.5px;font-weight:800;padding:4px 11px;border-radius:20px;letter-spacing:.1em;text-transform:uppercase;flex-shrink:0;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis}
-        .af-grid{display:grid;grid-template-columns:340px 1fr;gap:24px;max-width:1080px;margin:0 auto;padding:20px 20px 80px;align-items:start;width:100%}
-        .af-left{position:sticky;top:76px;display:flex;flex-direction:column;gap:12px;animation:fadeUp .45s ease both}
-        .af-right{display:flex;flex-direction:column;gap:0;animation:fadeUp .45s .08s ease both}
+        .af-hero-inner{max-width:1080px;margin:0 auto;padding:0 20px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+        .af-bc{display:flex;align-items:center;gap:5px;font-size:12px;color:#6b7280;min-width:0;flex:1;overflow:hidden}
+        .af-bc a{color:#6b7280;text-decoration:none;transition:color .15s;white-space:nowrap;flex-shrink:0}.af-bc a:hover{color:#16a34a}
+        .af-bc strong{color:#14532d;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.af-bc-sep{opacity:.4;flex-shrink:0}
+        .af-cat-badge{font-size:9.5px;font-weight:800;padding:4px 11px;border-radius:20px;letter-spacing:.1em;text-transform:uppercase;flex-shrink:0;white-space:nowrap}
+        .af-grid{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:24px;max-width:1080px;margin:0 auto;padding:20px 20px 80px;align-items:start;width:100%}
+        .af-left{position:sticky;top:76px;display:flex;flex-direction:column;gap:12px;animation:fadeUp .45s ease both;min-width:0;width:100%}
+        .af-right{display:flex;flex-direction:column;gap:0;animation:fadeUp .45s .08s ease both;min-width:0;width:100%}
         .af-card{background:#fff;border-radius:18px;border:1px solid rgba(0,0,0,.07);box-shadow:0 1px 3px rgba(0,0,0,.04),0 6px 24px rgba(0,0,0,.05);overflow:hidden}
         .af-card-p{padding:20px 22px}.af-card-sm{padding:14px 18px}
         .af-sec{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin-bottom:12px}
@@ -227,10 +228,12 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         /* Stat pills — pill-season-full се active само на мобилно чрез медиа query */
         .af-pill-season-full{}
         @media(max-width:820px){
-          /* ═══ LAYOUT ═══ */
-          .af-grid{grid-template-columns:1fr!important;gap:10px;padding:10px 12px 100px;max-width:100vw;overflow-x:hidden}
-          .af-left{position:static;gap:10px}
-          .af-right{gap:10px}
+          /* ═══ ROOT & LAYOUT ═══ */
+          .af-page-root{overflow-x:hidden!important;max-width:100vw!important;width:100%!important}
+          .af-grid{grid-template-columns:minmax(0,1fr)!important;gap:10px!important;padding:10px 12px 100px!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important}
+          .af-left{position:static!important;gap:10px;width:100%;min-width:0;box-sizing:border-box}
+          .af-right{gap:10px;width:100%;min-width:0;box-sizing:border-box}
+          .af-card{width:100%!important;min-width:0!important;box-sizing:border-box!important}
 
           /* ═══ HEADER ═══ */
           .site-header{padding:0 12px;height:52px}
@@ -358,7 +361,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
       </div>
 
       {/* Main grid */}
-      <div className="af-grid" style={{ boxSizing:'border-box' }}>
+      <div className="af-grid" style={{ boxSizing:'border-box', width:'100%' }}>
 
         {/* LEFT */}
         <div className="af-left">
@@ -765,6 +768,6 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           🛒 Виж в AgroApteki →
         </button>
       </div>
-    </>
+    </div>
   )
 }
