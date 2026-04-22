@@ -864,17 +864,38 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
         </Card>
       </div>
 
-      {/* ✅ Топ страници + Топ източници — следват range-а, без изрязване */}
-      {pageViews && (
-        <div className="g2" style={{ marginBottom:14 }}>
-          <Card title={`📄 Топ страници (${rl})`} noPad>
-            <div style={{ padding:'4px 0' }}>
-              {(pageViews.topPages || [])
-                .filter(p => !p.name.startsWith('/tr/') && !p.name.includes('/tr/2/'))
-                .slice(0, 10)
-                .map((p, i) => {
+      {/* ✅ Топ страници + Топ източници — следват range-а точно */}
+      {pageViews && (() => {
+        // ✅ ПОПРАВКА: избираме правилния набор данни спрямо range-а
+        const pv = pageViews as any
+        const activePages = range === 1
+          ? (pv.topPagesToday    || pv.topPages || [])
+          : range === 7
+          ? (pv.topPages7        || pv.topPages || [])
+          : range === 30
+          ? (pv.topPages30       || pv.topPages || [])
+          : (pv.topPages || [])
+
+        const activeRefs = range === 1
+          ? (pv.topReferrersToday || pv.topReferrers || [])
+          : range === 7
+          ? (pv.topReferrers7     || pv.topReferrers || [])
+          : range === 30
+          ? (pv.topReferrers30    || pv.topReferrers || [])
+          : (pv.topReferrers || [])
+
+        const filteredPages = (activePages as {name:string;count:number}[])
+          .filter(p => !p.name.startsWith('/tr/') && !p.name.includes('/tr/2/'))
+          .slice(0, 10)
+        const maxPageCount = filteredPages[0]?.count || 1
+        const maxRefCount  = (activeRefs as {name:string;count:number}[])[0]?.count || 1
+
+        return (
+          <div className="g2" style={{ marginBottom:14 }}>
+            <Card title={`📄 Топ страници (${rl})`} noPad>
+              <div style={{ padding:'4px 0' }}>
+                {filteredPages.map((p, i) => {
                   const dn = p.name.length > 40 ? p.name.slice(0, 37) + '…' : p.name
-                  const mx = (pageViews.topPages || []).filter(x => !x.name.startsWith('/tr/'))[0]?.count || 1
                   return (
                     <div key={p.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 16px', borderBottom:'1px solid #f5f5f5', fontSize:12 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:7, minWidth:0, flex:1 }}>
@@ -883,40 +904,43 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
                       </div>
                       <div style={{ display:'flex', alignItems:'center', gap:7, flexShrink:0, marginLeft:8 }}>
                         <div style={{ width:52, height:4, background:'#f3f4f6', borderRadius:99 }}>
-                          <div style={{ height:'100%', width:`${(p.count/mx)*100}%`, background:'#16a34a', borderRadius:99 }} />
+                          <div style={{ height:'100%', width:`${(p.count/maxPageCount)*100}%`, background:'#16a34a', borderRadius:99 }} />
                         </div>
                         <span style={{ fontWeight:700, color:'#111', minWidth:26, textAlign:'right' }}>{p.count}</span>
                       </div>
                     </div>
                   )
                 })}
-            </div>
-          </Card>
+                {filteredPages.length === 0 && (
+                  <div style={{ padding:'24px 0', textAlign:'center', color:'#94a3b8', fontSize:13 }}>Няма данни за периода</div>
+                )}
+              </div>
+            </Card>
 
-          {/* ✅ Топ източници — показва ВСИЧКИ (без изрязване), title следва range-а */}
-          <Card title={`🌐 Топ източници (${rl})`} noPad>
-            <div style={{ padding:'4px 0' }}>
-              {(pageViews.topReferrers || []).map((r, i) => (
-                <div key={r.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 16px', borderBottom:'1px solid #f5f5f5', fontSize:12 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                    <span style={{ width:18, height:18, background:'#f3f4f6', borderRadius:5, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:800, color:'#6b7280', flexShrink:0 }}>{i+1}</span>
-                    <span style={{ color:'#374151' }}>{r.name}</span>
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                    <div style={{ width:52, height:4, background:'#f3f4f6', borderRadius:99 }}>
-                      <div style={{ height:'100%', width:`${(r.count/(pageViews.topReferrers![0]?.count||1))*100}%`, background:'#0ea5e9', borderRadius:99 }} />
+            <Card title={`🌐 Топ източници (${rl})`} noPad>
+              <div style={{ padding:'4px 0' }}>
+                {(activeRefs as {name:string;count:number}[]).map((r, i) => (
+                  <div key={r.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 16px', borderBottom:'1px solid #f5f5f5', fontSize:12 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                      <span style={{ width:18, height:18, background:'#f3f4f6', borderRadius:5, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:800, color:'#6b7280', flexShrink:0 }}>{i+1}</span>
+                      <span style={{ color:'#374151' }}>{r.name}</span>
                     </div>
-                    <span style={{ fontWeight:700, minWidth:26, textAlign:'right' }}>{r.count}</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                      <div style={{ width:52, height:4, background:'#f3f4f6', borderRadius:99 }}>
+                        <div style={{ height:'100%', width:`${(r.count/maxRefCount)*100}%`, background:'#0ea5e9', borderRadius:99 }} />
+                      </div>
+                      <span style={{ fontWeight:700, minWidth:26, textAlign:'right' }}>{r.count}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {(!pageViews.topReferrers || pageViews.topReferrers.length === 0) && (
-                <div style={{ padding:'24px 0', textAlign:'center', color:'#94a3b8', fontSize:13 }}>Няма данни за периода</div>
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
+                ))}
+                {(activeRefs as any[]).length === 0 && (
+                  <div style={{ padding:'24px 0', textAlign:'center', color:'#94a3b8', fontSize:13 }}>Няма данни за периода</div>
+                )}
+              </div>
+            </Card>
+          </div>
+        )
+      })()}
 
       <SectionDivider label="🔗 Affiliate Аналитика" color="#06b6d4" bg="#ecfeff" border="#a5f3fc" />
 

@@ -1,4 +1,4 @@
-// app/layout.tsx — SEO максимум — базиран на реалното съдържание на сайта
+// app/layout.tsx — SEO максимум + Affiliate Preloader
 // ПРОМЕНИ спрямо оригинала:
 //   ✅ metadataBase — ЗАДЪЛЖИТЕЛНО за og:image да работи (липсваше изцяло)
 //   ✅ title template — автоматично добавя "| Denny Angelow" към всяка страница
@@ -12,11 +12,14 @@
 //   ✅ WebSite Schema — с about темите на сайта
 //   ✅ Geo мета тагове — локално SEO за България
 //   ✅ theme-color — зелен бранд цвят
+//   ✅ AffiliatePreloader — закача AgroApteki tracking cookie при всяко посещение
 
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { PageViewTracker } from '@/components/analytics/PageViewTracker'
 import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics'
+import { AffiliatePreloader } from '@/components/AffiliatePreloader'
+
 
 const BASE_URL = 'https://dennyangelow.com'
 
@@ -280,6 +283,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Suspense fallback={null}>
           <PageViewTracker />
         </Suspense>
+        {/* ✅ Закача AgroApteki affiliate cookie при всяко посещение на сайта.
+            Зарежда се 2 сек след страницата — не влияе на LCP/Core Web Vitals.
+            Повтаря се на 28 дни (TTL на cookie-то им). */}
+        <AffiliatePreloader />
         {children}
       </body>
     </html>

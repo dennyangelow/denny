@@ -1,12 +1,25 @@
 'use client'
-// hooks/useAdminData.ts — v11
-// ✅ ПОПРАВКИ v11:
-//   - topUtm + topCampaigns добавени в PageViewStats
-//   - По-добра error обработка
-//   - Конверсията използва last30 orders (не всички)
+// hooks/useAdminData.ts — v12
+// ✅ ПОПРАВКИ v12 (спрямо v11):
+//   - toBgDateStr() добавена — всички дати в hook-а вече са БГ timezone, не UTC
+//   - todayRevenue: сравнява БГ дати (не UTC .toISOString().slice(0,10))
+//   - weekRevenue: сравнява БГ дати (не UTC timestamp - 7*86400000)
+//   - last30Orders: сравнява БГ дати
+//   - Автоматичен рефреш на всеки 2 минути (без unmount на табовете)
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
+
+// ── БГ timezone helper (дублиран от rangeUtils за независимост на hook-а) ─────
+function toBgDateStr(d?: Date): string {
+  return (d ?? new Date()).toLocaleDateString('en-CA', { timeZone: 'Europe/Sofia' })
+}
+function bgDateNDaysAgo(now: Date, days: number): string {
+  const todayBg    = toBgDateStr(now)
+  const utcMidnight = new Date(todayBg + 'T00:00:00Z')
+  utcMidnight.setUTCDate(utcMidnight.getUTCDate() - days)
+  return toBgDateStr(utcMidnight)
+}
 
 export interface AdminStats {
   totalOrders:     number
@@ -29,8 +42,11 @@ export interface PageViewStats {
   last7Unique:   number
   last30:        number
   last30Unique:  number
+  last90?:       number
+  last90Unique?: number
   mobilePercent: number
   dailyChart:    { date: string; count: number; unique?: number }[]
+  hourlyChart?:  { hour: number; count: number; unique: number }[]
   topReferrers:  { name: string; count: number }[]
   topUtm:        { name: string; count: number }[]
   topCampaigns:  { name: string; count: number }[]
@@ -52,8 +68,6 @@ export function useAdminData() {
   const initialFetchDone      = useRef(false)
 
   const fetchAll = useCallback(async () => {
-    // При първо зареждане → loading screen.
-    // При авто-рефреш → НЕ setLoading(true), за да не unmount-ва табовете и да не спира sync!
     if (!initialFetchDone.current) setLoading(true)
     setError(null)
     try {
@@ -81,15 +95,9 @@ export function useAdminData() {
       const affData            = affRes.status  === 'fulfilled' ? affRes.value  : null
       const pvData             = pvRes.status   === 'fulfilled' ? pvRes.value   : null
 
-      if (ordRes.status === 'rejected') {
-        console.error('[useAdminData] orders error:', ordRes.reason)
-      }
-      if (leadRes.status === 'rejected') {
-        console.error('[useAdminData] leads error:', leadRes.reason)
-      }
-      if (pvRes.status === 'rejected') {
-        console.error('[useAdminData] page-view error:', pvRes.reason)
-      }
+      if (ordRes.status  === 'rejected') console.error('[useAdminData] orders error:',    ordRes.reason)
+      if (leadRes.status === 'rejected') console.error('[useAdminData] leads error:',     leadRes.reason)
+      if (pvRes.status   === 'rejected') console.error('[useAdminData] page-view error:', pvRes.reason)
 
       if (ordRes.status === 'rejected' && leadRes.status === 'rejected') {
         setError('Грешка при зареждане. Провери Supabase env vars в Vercel.')
@@ -100,23 +108,41 @@ export function useAdminData() {
       setAnalytics(affData)
       setPageViews(pvData)
 
-      const today   = new Date().toISOString().slice(0, 10)
-      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
-      const day30   = new Date(Date.now() - 30 * 86400000).toISOString()
+      // ✅ v12: ВСИЧКИ дати са в БГ timezone — нулиране в 00:00 БГ, не UTC!
+      const now       = new Date()
+      const todayBg   = toBgDateStr(now)                      // "2026-04-19"
+      const weekAgoBg = bgDateNDaysAgo(now, 7)                // "2026-04-12"
+      const day30Bg   = bgDateNDaysAgo(now, 30)               // "2026-03-20"
+
       const active  = orderList.filter(o => o.status !== 'cancelled')
       const revenue = active.reduce((s, o) => s + Number(o.total), 0)
 
-      const last30Orders = orderList.filter(o => o.created_at >= day30)
+      // ✅ Конвертираме created_at на всяка поръчка в БГ дата за сравнение
+      const activeWithBgDate = active.map(o => ({
+        ...o,
+        bgDate: toBgDateStr(new Date(o.created_at)),
+      }))
+
+      const todayRevenue = activeWithBgDate
+        .filter(o => o.bgDate === todayBg)
+        .reduce((s, o) => s + Number(o.total), 0)
+
+      const weekRevenue = activeWithBgDate
+        .filter(o => o.bgDate >= weekAgoBg)
+        .reduce((s, o) => s + Number(o.total), 0)
+
+      // ✅ last30Orders с БГ дата за конверсия
+      const last30Orders = orderList.filter(o =>
+        toBgDateStr(new Date(o.created_at)) >= day30Bg
+      )
 
       setStats({
         totalOrders:     orderList.length,
         revenue,
         leads:           leadList.length,
         newOrders:       orderList.filter(o => o.status === 'new').length,
-        todayRevenue:    active.filter(o => o.created_at.slice(0, 10) === today)
-                               .reduce((s, o) => s + Number(o.total), 0),
-        weekRevenue:     active.filter(o => o.created_at.slice(0, 10) >= weekAgo)
-                               .reduce((s, o) => s + Number(o.total), 0),
+        todayRevenue,   // ✅ БГ дата
+        weekRevenue,    // ✅ БГ дата
         pendingPayments: orderList.filter(o => o.payment_status === 'pending' && o.status !== 'cancelled').length,
         avgOrderValue:   active.length ? revenue / active.length : 0,
         conversionRate:  pvData?.last30 && last30Orders.length
@@ -133,6 +159,14 @@ export function useAdminData() {
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // ✅ v12: Автоматичен рефреш на всеки 2 минути — без setLoading(true), без unmount
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (initialFetchDone.current) fetchAll()
+    }, 2 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [fetchAll])
 
   const updateOrderStatus = useCallback(async (orderId: string, status: string) => {
     const res = await fetch(`/api/orders/${orderId}`, {

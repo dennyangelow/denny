@@ -1,35 +1,24 @@
-// app/api/analytics/page-view/route.ts — v12
-// ✅ ПОПРАВКИ v12 (спрямо v11):
-//   - bgDateNDaysAgo(): премахнат hardcoded '+03:00' offset (грешен зимата при UTC+2)
-//     → Ново: парсира като UTC полунощ на БГ датата + setUTCDate() → toBulgarianDate()
-//     → Работи правилно и лято (UTC+3) и зима (UTC+2) без DST проблеми
+// app/api/analytics/page-view/route.ts — v9
+// ✅ ПОПРАВКИ v7 (спрямо v6):
+//   БЪГОВЕ ПОПРАВЕНИ:
+//   1. topReferrers + topPages — сега се изчисляват за ВСЕКИ range поотделно
+//      (преди се показваха само за 90д независимо от избрания период)
+//   2. unique total — отделна COUNT заявка (без limit cap)
+//      (преди се броеше само от 100K реда → занижен брой при повече данни)
+//   3. getAffDailyChart — БГ дати за филтриране (не UTC)
+//   4. Добавени topReferrers/topPages полета за 7д, 30д, днес в отговора
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { rateLimit, getIP } from '@/lib/rate-limit'
-import crypto from 'crypto'
 
-const IGNORE_PATHS = [
-  '/admin', '/api', '/_next', '/favicon', '/robots', '/sitemap',
-  '.js', '.css', '.png', '.jpg', '.webp', '.ico', '.woff', '.svg',
-]
-
-function shouldIgnore(path: string): boolean {
-  return IGNORE_PATHS.some(p => path.startsWith(p) || path.includes(p))
-}
-
-function isMobile(ua: string): boolean {
-  return /mobile|android|iphone|ipad|ipod|blackberry|windows phone/i.test(ua)
-}
+const BOT_UA = /bot|crawler|spider|headless|lighthouse|pagespeed|googlebot|bingbot|semrush|ahrefsbot|python-requests|axios|node-fetch|go-http|curl\//i
 
 // ── БГ timezone helpers ───────────────────────────────────────────────────────
 
-/** "yyyy-mm-dd" в Europe/Sofia timezone */
 function toBulgarianDate(d: Date): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Sofia' })
 }
 
-/** Час (0-23) в Europe/Sofia timezone */
 function toBulgarianHour(d: Date): number {
   return parseInt(
     d.toLocaleTimeString('en-GB', {
@@ -41,11 +30,6 @@ function toBulgarianHour(d: Date): number {
   )
 }
 
-/**
- * Връща ISO string на началото на БГ деня в UTC.
- * ✅ Пробва UTC+3 (лято) и UTC+2 (зима) — взима правилния.
- * Пример: "2026-04-17" (UTC+3) → "2026-04-16T21:00:00.000Z"
- */
 function bulgarianDayStartUtc(bgDateStr: string): string {
   for (const offset of ['+03:00', '+02:00']) {
     const candidate = new Date(bgDateStr + 'T00:00:00' + offset)
@@ -56,332 +40,295 @@ function bulgarianDayStartUtc(bgDateStr: string): string {
   return new Date(bgDateStr + 'T00:00:00+02:00').toISOString()
 }
 
-/**
- * Връща "yyyy-mm-dd" за N дни назад в БГ timezone.
- * ✅ Изчислява се в Europe/Sofia — не прост UTC offset.
- */
 function bgDateNDaysAgo(now: Date, days: number): string {
-  const todayBg = toBulgarianDate(now)
-  // ✅ UTC полунощ на БГ датата — без hardcoded +03:00 (грешно зимата при UTC+2)
+  const todayBg     = toBulgarianDate(now)
   const utcMidnight = new Date(todayBg + 'T00:00:00Z')
   utcMidnight.setUTCDate(utcMidnight.getUTCDate() - days)
   return toBulgarianDate(utcMidnight)
 }
 
-// ─── POST — записва нов page view ───────────────────────────────────────────
+// ── Helper: изгражда topPages и topReferrers от масив от редове ───────────────
+function buildTopStats(rows: { path: string; referrer: string | null }[]) {
+  const byPage:     Record<string, number> = {}
+  const byReferrer: Record<string, number> = {}
+
+  for (const pv of rows) {
+    if (pv.path) {
+      byPage[pv.path] = (byPage[pv.path] || 0) + 1
+    }
+    if (pv.referrer) {
+      let ref = pv.referrer
+      try {
+        const url = new URL(pv.referrer)
+        ref = url.hostname.replace(/^www\./, '')
+      } catch {}
+      if (ref && ref !== '' && !ref.includes('localhost')) {
+        byReferrer[ref] = (byReferrer[ref] || 0) + 1
+      }
+    }
+  }
+
+  const topPages = Object.entries(byPage)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 20)
+    .map(([name, count]) => ({ name, count }))
+
+  const topReferrers = Object.entries(byReferrer)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 15)
+    .map(([name, count]) => ({ name, count }))
+
+  return { topPages, topReferrers }
+}
+
+// ─── POST — записва page view ────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
-    const { path, session_id, visitor_id, referrer, utm_source, utm_medium, utm_campaign } = body
+    const { path, visitor_id, session_id, referrer, utm_source, utm_medium, utm_campaign } = body
 
     if (!path || typeof path !== 'string') {
-      return NextResponse.json({ ok: false }, { status: 400 })
+      return NextResponse.json({ success: false, error: 'Missing path' }, { status: 400 })
     }
-
-    if (shouldIgnore(path)) {
-      return NextResponse.json({ ok: true, skipped: true })
-    }
-
-    const ip = getIP(req)
-    const rlKey = `pv:${session_id || ip}:${path}`
-    const rl = rateLimit(rlKey, { limit: 1, window: 300 })
-
-    if (!rl.success) {
-      return NextResponse.json({ ok: true, skipped: true, reason: 'rate_limited' })
-    }
-
-    const ipHash = crypto
-      .createHash('sha256')
-      .update(ip + (process.env.IP_HASH_SALT || 'salt'))
-      .digest('hex')
-      .slice(0, 16)
 
     const ua = req.headers.get('user-agent') || ''
+    if (BOT_UA.test(ua)) {
+      return NextResponse.json({ success: true, skipped: 'bot' })
+    }
 
-    const { error } = await supabaseAdmin
-      .from('page_views')
-      .insert({
-        page:         path.slice(0, 500),
-        referrer:     referrer ? String(referrer).slice(0, 500) : null,
-        utm_source:   utm_source   || null,
-        utm_medium:   utm_medium   || null,
-        utm_campaign: utm_campaign || null,
-        ip_address:   ip.slice(0, 100),
-        user_agent:   ua.slice(0, 300),
-        is_mobile:    isMobile(ua),
-        visitor_hash: visitor_id || ipHash,
-        path:         path.slice(0, 500),
-        session_id:   session_id || `anon-${ipHash}`,
-        visitor_id:   visitor_id || ipHash,
-        ip_hash:      ipHash,
-      })
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim()
+      || req.headers.get('x-real-ip')
+      || 'unknown'
+
+    const isMobile = /mobile|android|iphone|ipad|tablet/i.test(ua)
+
+    const { error } = await supabaseAdmin.from('page_views').insert({
+      path:         path.slice(0, 500),
+      visitor_id:   visitor_id || null,
+      session_id:   session_id || null,
+      ip_address:   ip,
+      user_agent:   ua || null,
+      referrer:     referrer || null,
+      utm_source:   utm_source || null,
+      utm_medium:   utm_medium || null,
+      utm_campaign: utm_campaign || null,
+      is_mobile:    isMobile,
+      created_at:   new Date().toISOString(),
+    })
 
     if (error) {
-      if (error.message?.includes('column') || error.code === '42703') {
-        const { error: err2 } = await supabaseAdmin
-          .from('page_views')
-          .insert({
-            page:         path.slice(0, 500),
-            referrer:     referrer ? String(referrer).slice(0, 500) : null,
-            utm_source:   utm_source   || null,
-            utm_medium:   utm_medium   || null,
-            utm_campaign: utm_campaign || null,
-            ip_address:   ip.slice(0, 100),
-            user_agent:   ua.slice(0, 300),
-            is_mobile:    isMobile(ua),
-            visitor_hash: visitor_id || ipHash,
-          })
-        if (err2) {
-          console.error('[page-view] insert fallback error:', err2.message)
-          return NextResponse.json({ ok: false }, { status: 500 })
-        }
-      } else {
-        console.error('[page-view] insert error:', error.message)
-        return NextResponse.json({ ok: false }, { status: 500 })
-      }
+      console.error('[page-view POST]', error.message)
+      return NextResponse.json({ success: false })
     }
 
-    return NextResponse.json({ ok: true })
-  } catch (e) {
-    console.error('[page-view] POST error:', e)
-    return NextResponse.json({ ok: false }, { status: 500 })
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[page-view POST] catch:', err)
+    return NextResponse.json({ success: false })
   }
 }
 
-// ─── GET — агрегирани статистики за admin панела ────────────────────────────
+// ─── GET — статистика за посещенията ────────────────────────────────────────
 export async function GET() {
-  try {
-    const { data, error } = await supabaseAdmin.rpc('get_page_view_stats')
-    if (!error && data) {
-      return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
-    }
-    console.warn('[page-view] rpc not available, using fallback:', error?.message)
-    return getFallbackStats()
-  } catch (e) {
-    return getFallbackStats()
-  }
-}
-
-async function getFallbackStats() {
   try {
     const now = new Date()
 
-    // ✅ БГ дати за всеки период — всички се нулират в 00:00 БГ
-    const todayBg   = toBulgarianDate(now)
-    const bgDate7   = bgDateNDaysAgo(now, 7)
-    const bgDate30  = bgDateNDaysAgo(now, 30)
-    const bgDate90  = bgDateNDaysAgo(now, 90)
-    const bgDate365 = bgDateNDaysAgo(now, 365)
+    const todayStr = toBulgarianDate(now)
+    const bgDate7  = bgDateNDaysAgo(now, 7)
+    const bgDate30 = bgDateNDaysAgo(now, 30)
+    const bgDate90 = bgDateNDaysAgo(now, 90)
 
-    // ✅ UTC ISO strings за Supabase .gte() — от БГ полунощ, не UTC полунощ
-    const todayStartUtc  = bulgarianDayStartUtc(todayBg)
-    const since7Utc      = bulgarianDayStartUtc(bgDate7)
-    const since30Utc     = bulgarianDayStartUtc(bgDate30)
-    const since90Utc     = bulgarianDayStartUtc(bgDate90)
-    const since365Utc    = bulgarianDayStartUtc(bgDate365)
+    const todayStartUtc = bulgarianDayStartUtc(todayStr)
+    const since7Utc     = bulgarianDayStartUtc(bgDate7)
+    const since30Utc    = bulgarianDayStartUtc(bgDate30)
+    const since90Utc    = bulgarianDayStartUtc(bgDate90)
 
     const [
-      totalCountRes,
-      todayCountRes,
-      last7CountRes,
-      last30CountRes,
-      last90CountRes,
-      last365CountRes,
-      todayVisitorsRes,
-      last7VisitorsRes,
-      last30VisitorsRes,
-      last90VisitorsRes,
-      last365VisitorsRes,
-      allVisitorsRes,
-      todayDetailRes,
+      totalRes,
+      last30Res,
+      last7Res,
+      todayRes,
+      last90Res,
+      // ✅ ПОПРАВКА 2: отделни заявки за уникални по период — без limit cap
+      uniqueTotalRes,
+      unique90Res,
+      unique30Res,
+      unique7Res,
+      uniqueTodayRes,
+      // Детайли за 90д — за chart + hourly + UTM
       detailRes,
+      // ✅ ПОПРАВКА 1: отделни заявки за topPages/topReferrers по range
+      detail30Res,
+      detail7Res,
+      detailTodayRes,
     ] = await Promise.all([
+      // COUNT заявки
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', since30Utc),
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', since7Utc),
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', todayStartUtc),
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', since90Utc),
 
-      // ✅ Днес от 00:00 БГ
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', todayStartUtc),
+      // ✅ v9: COUNT DISTINCT чрез RPC — без лимит от PostgREST (поправя ~700 вместо ~6000)
+      supabaseAdmin.rpc('count_unique_visitors'),
+      supabaseAdmin.rpc('count_unique_visitors', { since_ts: since90Utc }),
+      supabaseAdmin.rpc('count_unique_visitors', { since_ts: since30Utc }),
+      supabaseAdmin.rpc('count_unique_visitors', { since_ts: since7Utc }),
+      supabaseAdmin.rpc('count_unique_visitors', { since_ts: todayStartUtc }),
 
-      // ✅ 7 дни от 00:00 БГ на bgDate7
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', since7Utc),
-
-      // ✅ 30 дни от 00:00 БГ на bgDate30
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', since30Utc),
-
-      // ✅ 90 дни от 00:00 БГ на bgDate90
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', since90Utc),
-
-      // ✅ 365 дни от 00:00 БГ на bgDate365
-      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true })
-        .gte('created_at', since365Utc),
-
-      // Unique visitors — от БГ полунощ
-      supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', todayStartUtc).limit(10000),
-      supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', since7Utc).limit(10000),
-      supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', since30Utc).limit(10000),
-      supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', since90Utc).limit(10000),
-      supabaseAdmin.from('page_views').select('visitor_hash')
-        .gte('created_at', since365Utc).limit(10000),
-      supabaseAdmin.from('page_views').select('visitor_hash').limit(10000),
-
-      // ✅ Hourly данни за днес — от БГ полунощ
+      // Детайли за 90д (chart + hourly + UTM)
       supabaseAdmin
         .from('page_views')
-        .select('visitor_hash, created_at')
-        .gte('created_at', todayStartUtc)
-        .order('created_at', { ascending: true })
-        .limit(20000),
-
-      // Детайли за 90 дни (топ страници, референри, daily chart)
-      supabaseAdmin
-        .from('page_views')
-        .select('visitor_hash, page, referrer, user_agent, is_mobile, created_at, utm_source, utm_medium, utm_campaign')
+        .select('visitor_id, session_id, ip_address, path, referrer, utm_source, utm_campaign, is_mobile, created_at')
         .gte('created_at', since90Utc)
         .order('created_at', { ascending: false })
-        .limit(10000),
+        .limit(100000),
+
+      // ✅ ПОПРАВКА 1: path+referrer за топ статистики по range
+      supabaseAdmin.from('page_views').select('path, referrer').gte('created_at', since30Utc).limit(50000),
+      supabaseAdmin.from('page_views').select('path, referrer').gte('created_at', since7Utc).limit(20000),
+      supabaseAdmin.from('page_views').select('path, referrer').gte('created_at', todayStartUtc).limit(5000),
     ])
 
-    const totalCount   = totalCountRes.count   ?? 0
-    const todayCount   = todayCountRes.count   ?? 0
-    const last7Count   = last7CountRes.count   ?? 0
-    const last30Count  = last30CountRes.count  ?? 0
-    const last90Count  = last90CountRes.count  ?? 0
-    const last365Count = last365CountRes.count ?? 0
+    if (totalRes.error)  throw totalRes.error
+    if (detailRes.error) throw detailRes.error
 
-    const uniq = (rows: any[] | null) => new Set((rows || []).map(r => r.visitor_hash)).size
+    const total      = totalRes.count  ?? 0
+    const total30    = last30Res.count ?? 0
+    const total7     = last7Res.count  ?? 0
+    const totalToday = todayRes.count  ?? 0
+    const total90    = last90Res.count ?? 0
 
-    const todayUnique   = uniq(todayVisitorsRes.data)
-    const last7Unique   = uniq(last7VisitorsRes.data)
-    const last30Unique  = uniq(last30VisitorsRes.data)
-    const last90Unique  = uniq(last90VisitorsRes.data)
-    const last365Unique = uniq(last365VisitorsRes.data)
-    const totalUnique   = uniq(allVisitorsRes.data)
-
-    // ── hourlyChart за днес с БГ часове ───────────────────────────────────
-    const hourlyCountMap:  Record<number, number>      = {}
-    const hourlyUniqueMap: Record<number, Set<string>> = {}
-    for (let h = 0; h < 24; h++) {
-      hourlyCountMap[h]  = 0
-      hourlyUniqueMap[h] = new Set()
+    // ✅ ПОПРАВКА 2: unique visitors — броим Set от всички редове (без limit)
+    function countUnique(rows: { visitor_id: string | null; ip_address: string | null }[] | null): number {
+      if (!rows) return 0
+      const s = new Set<string>()
+      for (const r of rows) {
+        s.add(r.visitor_id || r.ip_address || 'anon')
+      }
+      return s.size
     }
-    for (const r of todayDetailRes.data || []) {
-      const hour = toBulgarianHour(new Date(r.created_at))  // ✅ БГ час
-      hourlyCountMap[hour]++
-      if (r.visitor_hash) hourlyUniqueMap[hour].add(r.visitor_hash)
-    }
-    // ✅ До текущия БГ час
-    const currentBgHour = toBulgarianHour(now)
-    const hourlyChart = Array.from({ length: currentBgHour + 1 }, (_, h) => ({
-      hour:   h,
-      count:  hourlyCountMap[h],
-      unique: hourlyUniqueMap[h].size,
-    }))
 
-    // ── dailyChart (90 дни) с БГ дати ────────────────────────────────────
-    const detailRows = detailRes.data || []
-    const pageMap:     Record<string, number> = {}
-    const refMap:      Record<string, number> = {}
-    const utmMap:      Record<string, number> = {}
-    const campaignMap: Record<string, number> = {}
+    // ✅ v9: RPC връща директно числото в .data (не масив от редове)
+    const uniqueTotal = (uniqueTotalRes.data as unknown as number) ?? 0
+    const unique90    = (unique90Res.data    as unknown as number) ?? 0
+    const unique30    = (unique30Res.data    as unknown as number) ?? 0
+    const unique7     = (unique7Res.data     as unknown as number) ?? 0
+    const uniqueToday = (uniqueTodayRes.data as unknown as number) ?? 0
 
-    // ✅ dayMap ключовете са "MM-DD" в БГ timezone
-    const dayMap: Record<string, { count: number; unique: Set<string> }> = {}
-    for (let i = 89; i >= 0; i--) {
-      // ✅ Строим масива с правилните БГ дати (не UTC дати)
-      const d     = new Date(now.getTime() - i * 86400000)
-      const bgDay = toBulgarianDate(d).slice(5) // MM-DD
-      dayMap[bgDay] = { count: 0, unique: new Set() }
-    }
+    // ── Обработка на детайлите за chart ──────────────────────────────────────
+    const byDay:      Record<string, { count: number; visitors: Set<string> }> = {}
+    const byHour:     Record<number, { count: number; unique: number }> = {}
+    const byUtm:      Record<string, number> = {}
+    const byCampaign: Record<string, number> = {}
 
     let mobileCount = 0
 
-    detailRows.forEach((r: any) => {
-      const pg = r.page || '/'
-      pageMap[pg] = (pageMap[pg] || 0) + 1
+    for (let h = 0; h < 24; h++) byHour[h] = { count: 0, unique: 0 }
+    const hourVisitors: Record<number, Set<string>> = {}
+    for (let h = 0; h < 24; h++) hourVisitors[h] = new Set()
 
-      let ref = 'Direct'
-      if (r.referrer) {
-        try {
-          const hostname = new URL(r.referrer).hostname.replace('www.', '')
-          if      (hostname.includes('facebook') || hostname.includes('fb.com')) ref = 'Facebook'
-          else if (hostname.includes('google'))                                  ref = 'Google'
-          else if (hostname.includes('instagram'))                               ref = 'Instagram'
-          else if (hostname.includes('tiktok'))                                  ref = 'TikTok'
-          else if (hostname.includes('youtube'))                                 ref = 'YouTube'
-          else if (hostname.includes('t.co') || hostname.includes('twitter'))   ref = 'Twitter/X'
-          else                                                                   ref = hostname
-        } catch { ref = 'Direct' }
+    for (const pv of detailRes.data || []) {
+      const pvDate = new Date(pv.created_at)
+      const bgDay  = toBulgarianDate(pvDate)
+      const vid    = pv.visitor_id || pv.ip_address || pv.session_id || 'anon'
+
+      if (!byDay[bgDay]) byDay[bgDay] = { count: 0, visitors: new Set() }
+      byDay[bgDay].count++
+      byDay[bgDay].visitors.add(vid)
+
+      if (bgDay === todayStr) {
+        const hour = toBulgarianHour(pvDate)
+        byHour[hour].count++
+        hourVisitors[hour].add(vid)
       }
-      refMap[ref] = (refMap[ref] || 0) + 1
 
-      if (r.utm_source)   utmMap[r.utm_source]       = (utmMap[r.utm_source]       || 0) + 1
-      if (r.utm_campaign) campaignMap[r.utm_campaign] = (campaignMap[r.utm_campaign] || 0) + 1
+      if (pv.is_mobile) mobileCount++
 
-      // ✅ dayMap ключ = "MM-DD" в БГ timezone
-      const bgDay = toBulgarianDate(new Date(r.created_at)).slice(5)
-      if (!dayMap[bgDay]) dayMap[bgDay] = { count: 0, unique: new Set() }
-      dayMap[bgDay].count++
-      if (r.visitor_hash) dayMap[bgDay].unique.add(r.visitor_hash)
+      if (pv.utm_source)   byUtm[pv.utm_source]       = (byUtm[pv.utm_source]       || 0) + 1
+      if (pv.utm_campaign) byCampaign[pv.utm_campaign] = (byCampaign[pv.utm_campaign] || 0) + 1
+    }
 
-      if (
-        r.is_mobile === true ||
-        (r.is_mobile === null && /mobile|android|iphone|ipad/i.test(r.user_agent || ''))
-      ) mobileCount++
+    for (let h = 0; h < 24; h++) {
+      byHour[h].unique = hourVisitors[h].size
+    }
+
+    const totalDetailRows = detailRes.data?.length ?? 0
+    const mobilePercent   = totalDetailRows > 0
+      ? Math.round((mobileCount / totalDetailRows) * 100)
+      : 0
+
+    const dailyChart = Array.from({ length: 90 }, (_, i) => {
+      const bgDay = bgDateNDaysAgo(now, 89 - i)
+      const entry = byDay[bgDay]
+      return {
+        date:   bgDay.slice(5),
+        count:  entry?.count         ?? 0,
+        unique: entry?.visitors.size ?? 0,
+      }
     })
 
+    const currentBgHour = toBulgarianHour(now)
+    const hourlyChart   = Array.from({ length: currentBgHour + 1 }, (_, h) => ({
+      hour:   h,
+      count:  byHour[h].count,
+      unique: byHour[h].unique,
+    }))
+
+    // ✅ ПОПРАВКА 1: topPages/topReferrers по range
+    const stats90    = buildTopStats(detailRes.data || [])
+    const stats30    = buildTopStats(detail30Res.data || [])
+    const stats7     = buildTopStats(detail7Res.data || [])
+    const statsToday = buildTopStats(detailTodayRes.data || [])
+
+    const topUtm = Object.entries(byUtm)
+      .sort(([, a], [, b]) => b - a).slice(0, 10)
+      .map(([name, count]) => ({ name, count }))
+
+    const topCampaigns = Object.entries(byCampaign)
+      .sort(([, a], [, b]) => b - a).slice(0, 10)
+      .map(([name, count]) => ({ name, count }))
+
     return NextResponse.json({
-      total:        totalCount,
-      unique:       totalUnique,
-      today:        todayCount,
-      todayUnique,
-      last7:        last7Count,
-      last7Unique,
-      last30:       last30Count,
-      last30Unique,
-      last90:       last90Count,
-      last90Unique,
-      last365:      last365Count,
-      last365Unique,
-      mobilePercent: detailRows.length
-        ? Math.round(mobileCount / detailRows.length * 100) : 0,
-      dailyChart: Object.entries(dayMap)
-        .sort()
-        .map(([date, v]) => ({ date, count: v.count, unique: v.unique.size })),
+      total, last30: total30, last7: total7, today: totalToday, last90: total90,
+
+      // ✅ Поправени unique — точни числа без limit cap
+      unique:       uniqueTotal,
+      todayUnique:  uniqueToday,
+      last7Unique:  unique7,
+      last30Unique: unique30,
+      last90Unique: unique90,
+
+      mobilePercent,
+      dailyChart,
       hourlyChart,
-      topPages: Object.entries(pageMap)
-        .sort(([, a], [, b]) => b - a).slice(0, 15)
-        .map(([name, count]) => ({ name, count })),
-      topReferrers: Object.entries(refMap)
-        .sort(([, a], [, b]) => b - a).slice(0, 10)
-        .map(([name, count]) => ({ name, count })),
-      topUtm: Object.entries(utmMap)
-        .sort(([, a], [, b]) => b - a).slice(0, 10)
-        .map(([name, count]) => ({ name, count })),
-      topCampaigns: Object.entries(campaignMap)
-        .sort(([, a], [, b]) => b - a).slice(0, 10)
-        .map(([name, count]) => ({ name, count })),
-    }, {
-      headers: { 'Cache-Control': 'no-store' },
-    })
+
+      // ✅ ПОПРАВКА 1: топ статистики по всеки range поотделно
+      topPages:      stats90.topPages,      // default (90д) — за "all" view
+      topReferrers:  stats90.topReferrers,
+      topPages30:    stats30.topPages,
+      topReferrers30: stats30.topReferrers,
+      topPages7:     stats7.topPages,
+      topReferrers7: stats7.topReferrers,
+      topPagesToday:    statsToday.topPages,
+      topReferrersToday: statsToday.topReferrers,
+
+      topUtm,
+      topCampaigns,
+    }, { headers: { 'Cache-Control': 'no-store' } })
+
   } catch (err) {
-    console.error('[page-view] fallback error:', err)
+    console.error('[page-view GET]', err)
     return NextResponse.json({
-      total: 0, unique: 0,
-      today: 0, todayUnique: 0,
-      last7: 0, last7Unique: 0,
-      last30: 0, last30Unique: 0,
-      last90: 0, last90Unique: 0,
-      last365: 0, last365Unique: 0,
+      total: 0, last30: 0, last7: 0, today: 0, last90: 0,
+      unique: 0, todayUnique: 0, last7Unique: 0, last30Unique: 0, last90Unique: 0,
       mobilePercent: 0,
       dailyChart: [], hourlyChart: [],
-      topPages: [], topReferrers: [], topUtm: [], topCampaigns: [],
+      topPages: [], topReferrers: [],
+      topPages30: [], topReferrers30: [],
+      topPages7: [], topReferrers7: [],
+      topPagesToday: [], topReferrersToday: [],
+      topUtm: [], topCampaigns: [],
     }, { headers: { 'Cache-Control': 'no-store' } })
   }
 }

@@ -1,12 +1,12 @@
 'use client'
-// app/admin/components/DashboardTab.tsx — v11
-// ✅ ПОПРАВКИ:
-//   - Affiliate card в stat-cards следва range-а (не е hardcoded 30д)
-//   - Посещения grid показва 4 периода (Днес/7д/30д/Всичко) вместо 3
-//   - "Всичко" ред е вграден в grid-а — не е отделен блок
-//   - Активният период в посещения grid съответства на избрания range
-//   - Топ източници показва всички резултати (не е slice(0,5) с изрязване)
-//   - Конверсията следва range-а
+// app/admin/components/DashboardTab.tsx — v12
+// ✅ ПОПРАВКИ v12 (спрямо v11):
+//   - getVisitsForRange: добавена поддръжка за range=90 (last90) и range=365
+//   - newLeadsCount: изчислява се с БГ дата (не UTC cutoff)
+//   - Мобилен дизайн: overflow-x:hidden навсякъде, stat cards 2 на ред на мобилен
+//   - Таблицата с поръчки: truncate на дълги имена на мобилен
+//   - Range picker: scrollable на мобилен без хоризонтален overflow
+//   - Header: flex-wrap + column на <480px
 
 import { useMemo, useState } from 'react'
 import {
@@ -21,7 +21,7 @@ import { RangePicker } from './AnalyticsTab'
 import {
   type Range, getRangeLabel, calcTrend,
   filterByRange, filterPrevPeriod, buildRevenueChart, getXAxisInterval,
-  toBulgarianDateStr, toBulgarianHour, getCurrentBulgarianHour, getCutoff,
+  toBulgarianDateStr, bgDateNDaysAgo, getCutoff,
 } from './rangeUtils'
 
 interface Props {
@@ -77,15 +77,16 @@ const STATUS_ICON: Record<string, string> = {
 
 function buildSparkline(orders: Order[], days: number) {
   const now   = new Date()
-  // ✅ v2: БГ дати за sparkline (не UTC)
+  // ✅ БГ дати за sparkline
   const dates = Array.from({ length:days }, (_, i) => {
-    const d = new Date(now); d.setDate(d.getDate() - (days-1-i))
+    const d = new Date(now)
+    d.setDate(d.getDate() - (days-1-i))
     return toBulgarianDateStr(d)
   })
   const revMap: Record<string, number> = {}
   const ordMap: Record<string, number> = {}
   orders.filter(o => o.status !== 'cancelled').forEach(o => {
-    const d = toBulgarianDateStr(new Date(o.created_at)) // ✅ БГ дата
+    const d = toBulgarianDateStr(new Date(o.created_at))
     revMap[d] = (revMap[d] || 0) + Number(o.total)
     ordMap[d] = (ordMap[d] || 0) + 1
   })
@@ -95,25 +96,25 @@ function buildSparkline(orders: Order[], days: number) {
   }
 }
 
-// ✅ Правилен брой посещения спрямо range
+// ✅ v12: правилен брой посещения за ВСЕКИ range включително 90 и 365
 function getVisitsForRange(pageViews: PageViewStats | null, range: Range): number {
   if (!pageViews) return 0
-  if (range === 1)   return pageViews.today  ?? 0
-  if (range === 7)   return pageViews.last7  ?? 0
-  if (range === 30)  return pageViews.last30 ?? 0
-  return pageViews.total ?? pageViews.last30 ?? 0
+  if (range === 1)   return pageViews.today    ?? 0
+  if (range === 7)   return pageViews.last7    ?? 0
+  if (range === 30)  return pageViews.last30   ?? 0
+  if (range === 90)  return pageViews.last90   ?? pageViews.total ?? 0
+  if (range === 365) return (pageViews as any).last365 ?? pageViews.total ?? 0
+  return pageViews.total ?? pageViews.last30   ?? 0
 }
 
 // ✅ Affiliate кликове спрямо range
-// DashboardTab получава analytics prop (от useAdminData) — стар тип без last90days.
-// За 90д/365д ползваме last30days като "minimum known" и маркираме като приближение.
 function getAffClicksForRange(analytics: AffiliateAnalytics | null, range: Range): { value: number; approx: boolean } {
   if (!analytics) return { value: 0, approx: false }
-  if (range === 1)     return { value: (analytics as any).today     ?? 0, approx: false }
-  if (range === 7)     return { value: (analytics as any).last7days ?? 0, approx: false }
-  if (range === 30)    return { value: analytics.last30days         ?? 0, approx: false }
+  if (range === 1)     return { value: (analytics as any).today      ?? 0, approx: false }
+  if (range === 7)     return { value: (analytics as any).last7days  ?? 0, approx: false }
+  if (range === 30)    return { value: analytics.last30days          ?? 0, approx: false }
   if (range === 90)    return { value: (analytics as any).last90days ?? analytics.last30days ?? 0, approx: !(analytics as any).last90days }
-  if (range === 'all') return { value: analytics.total              ?? 0, approx: false }
+  if (range === 'all') return { value: analytics.total               ?? 0, approx: false }
   return { value: analytics.total ?? 0, approx: false }
 }
 
@@ -150,18 +151,28 @@ export function DashboardTab({
     return Math.min(99, (filteredOrders.length / visits) * 100)
   }, [pageViews, filteredOrders, range])
 
-  const visitsForRange = useMemo(() => getVisitsForRange(pageViews, range),         [pageViews, range])
-  const affResult      = useMemo(() => getAffClicksForRange(analytics, range),      [analytics, range])
+  const visitsForRange = useMemo(() => getVisitsForRange(pageViews, range), [pageViews, range])
+  const affResult      = useMemo(() => getAffClicksForRange(analytics, range), [analytics, range])
   const affClicks      = affResult.value
   const affApprox      = affResult.approx
 
-  // ✅ Нови абонати за периода (филтрирани по range)
-  const newLeadsCount  = useMemo(() => {
+  // ✅ v12: Нови абонати за периода — с БГ дата
+  const newLeadsCount = useMemo(() => {
     if (!leads?.length) return 0
-    const cutoff = getCutoff(range)
-    if (!cutoff) return leads.length
-    if (range === 1) return leads.filter(l => l.created_at?.slice(0, 10) === cutoff).length
-    return leads.filter(l => l.created_at?.slice(0, 10) >= cutoff).length
+    const now = new Date()
+    if (range === 'all') return leads.length
+    if (range === 1) {
+      const todayBg = toBulgarianDateStr(now)
+      return leads.filter(l => {
+        const d = l.created_at ? toBulgarianDateStr(new Date(l.created_at)) : ''
+        return d === todayBg
+      }).length
+    }
+    const cutoffBg = bgDateNDaysAgo(now, range as number)
+    return leads.filter(l => {
+      const d = l.created_at ? toBulgarianDateStr(new Date(l.created_at)) : ''
+      return d >= cutoffBg
+    }).length
   }, [leads, range])
 
   const revenueChart = useMemo(() => buildRevenueChart(filteredOrders, range), [filteredOrders, range])
@@ -182,14 +193,13 @@ export function DashboardTab({
     },
     {
       id: 'week',
-      label:  'Тази седмица (текущ)',
+      label:  'Тази седмица',
       value:  formatPrice(stats.weekRevenue),
       icon:   '📆', color: '#8b5cf6', bg: '#faf5ff', border: '#e9d5ff',
       spark:  sparklines.revenue,
       trend:  null as null,
       tab:    'analytics',
-      // ⚠️ weekRevenue е фиксирано от useAdminData (последните 7 дни), не следва range-а
-      sub:    `Ср. ${rl}: ${formatPrice(stats.avgOrderValue)}`,
+      sub:    `Ср. поръчка: ${formatPrice(stats.avgOrderValue)}`,
     },
     {
       id: 'orders',
@@ -199,7 +209,7 @@ export function DashboardTab({
       spark:  sparklines.orders,
       trend:  { current: rangeMetrics.cnt, prev: rangeMetrics.prevCnt },
       tab:    'orders',
-      sub:    `Нови: ${stats.newOrders}`,
+      sub:    `Нови: ${stats.newOrders} · Чакат плащане: ${stats.pendingPayments}`,
     },
     {
       id: 'conversion',
@@ -222,7 +232,6 @@ export function DashboardTab({
       sub:    range === 'all' ? `Общо: ${stats.leads}` : `Общо записани: ${stats.leads}`,
     },
     {
-      // ✅ Affiliate card — следва range-а, показва приближение за 90д/365д ако API е стар
       id: 'affiliate',
       label:  `Affiliate (${rl})`,
       value:  affClicks.toLocaleString() + (affApprox ? ' ~' : ''),
@@ -237,60 +246,139 @@ export function DashboardTab({
   return (
     <div className="dash-root">
       <style>{`
-        .dash-root { padding: 20px 24px; max-width: 1200px }
-        @media(max-width:640px) { .dash-root { padding: 12px 10px } }
+        .dash-root {
+          padding: 20px 24px;
+          max-width: 1200px;
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @media(max-width:640px) {
+          .dash-root { padding: 12px 10px }
+        }
 
         @keyframes fadeUp { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
         @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 
-        .skel-card { background:#f9fafb; border:1px solid #f0f0f0; border-radius:14px; padding:16px 18px; flex:1; min-width:130px }
-        .skel-line { border-radius:6px; background:linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%); background-size:400px 100%; animation:shimmer 1.4s infinite }
+        .skel-card {
+          background:#f9fafb; border:1px solid #f0f0f0; border-radius:14px;
+          padding:16px 18px; flex:1 1 calc(50% - 5px); min-width:0; max-width:100%;
+        }
+        .skel-line {
+          border-radius:6px;
+          background:linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%);
+          background-size:400px 100%; animation:shimmer 1.4s infinite
+        }
 
-        /* Stat cards — 3 на ред на мобилен */
-        .stat-card { flex:1; min-width:130px; border-radius:14px; padding:16px 18px; cursor:pointer; transition:transform .18s, box-shadow .18s; animation:fadeUp .3s ease both }
+        /* ── Stat cards — 2 на ред на мобилен ── */
+        .stat-card {
+          flex: 1 1 calc(33% - 8px);
+          min-width: 0; max-width: 100%;
+          border-radius:14px; padding:16px 18px; cursor:pointer;
+          transition:transform .18s, box-shadow .18s;
+          animation:fadeUp .3s ease both;
+          box-sizing: border-box;
+        }
         .stat-card:hover { transform:translateY(-2px) }
-        @media(max-width:600px) { .stat-card { flex: 1 1 calc(50% - 5px); min-width:0 } }
-        @media(max-width:360px) { .stat-card { flex: 1 1 100% } }
+        @media(max-width:700px) {
+          .stat-card { flex: 1 1 calc(50% - 5px) }
+        }
+        @media(max-width:360px) {
+          .stat-card { flex: 1 1 100% }
+        }
 
         .trend-badge { font-size:11px; font-weight:700; padding:2px 7px; border-radius:99px }
         .trend-badge.up   { background:#dcfce7; color:#15803d }
         .trend-badge.down { background:#fee2e2; color:#dc2626 }
 
-        .ord-row { display:flex; align-items:center; justify-content:space-between; padding:10px 18px; border-bottom:1px solid #f5f5f5; cursor:pointer; transition:background .12s }
+        .ord-row {
+          display:flex; align-items:center; justify-content:space-between;
+          padding:10px 18px; border-bottom:1px solid #f5f5f5;
+          cursor:pointer; transition:background .12s;
+          min-width:0;
+        }
         .ord-row:hover { background:#f9fafb }
         .ord-row:last-child { border-bottom:none }
 
-        .d-card { background:#fff; border:1px solid #e8eaed; border-radius:14px; overflow:hidden }
-        .d-card-head { padding:14px 18px; border-bottom:1px solid #f3f4f6; display:flex; justify-content:space-between; align-items:center }
+        .d-card {
+          background:#fff; border:1px solid #e8eaed;
+          border-radius:14px; overflow:hidden; min-width:0;
+        }
+        .d-card-head {
+          padding:14px 18px; border-bottom:1px solid #f3f4f6;
+          display:flex; justify-content:space-between; align-items:center;
+        }
         .d-card-head h3 { font-size:13px; font-weight:700; margin:0; color:#111 }
         .d-card-body { padding:16px 18px }
 
-        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px }
-        .grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:9px }
-        @media(max-width:700px) { .grid-2 { grid-template-columns:1fr } }
-        @media(max-width:640px) { .grid-4 { grid-template-columns:1fr 1fr } }
-        @media(max-width:360px) { .grid-4 { grid-template-columns:1fr 1fr } }
+        .grid-2 {
+          display:grid; grid-template-columns:1fr 1fr; gap:16px;
+          min-width:0;
+        }
+        .grid-4 {
+          display:grid; grid-template-columns:repeat(4,1fr); gap:9px;
+        }
+        @media(max-width:700px) {
+          .grid-2 { grid-template-columns:1fr }
+        }
+        @media(max-width:640px) {
+          .grid-4 { grid-template-columns:1fr 1fr }
+        }
 
-        .refresh-btn { background:#fff; border:1px solid #e5e7eb; border-radius:9px; padding:7px 14px; cursor:pointer; font-family:inherit; font-size:13px; color:#374151; font-weight:600; transition:all .15s; white-space:nowrap }
+        .refresh-btn {
+          background:#fff; border:1px solid #e5e7eb; border-radius:9px;
+          padding:7px 14px; cursor:pointer; font-family:inherit; font-size:13px;
+          color:#374151; font-weight:600; transition:all .15s; white-space:nowrap;
+          flex-shrink:0;
+        }
         .refresh-btn:hover { border-color:#16a34a; color:#16a34a }
-        .link-btn { font-size:12px; color:#16a34a; background:none; border:none; cursor:pointer; font-family:inherit; font-weight:600 }
+        .link-btn {
+          font-size:12px; color:#16a34a; background:none; border:none;
+          cursor:pointer; font-family:inherit; font-weight:600; white-space:nowrap;
+        }
 
         .ref-bar-wrap { height:4px; background:#f3f4f6; border-radius:99px; margin-top:3px }
 
-        .range-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px }
+        .range-scroll {
+          overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px;
+        }
         .range-scroll::-webkit-scrollbar { display:none }
 
-        /* Header responsive */
-        .dash-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; flex-wrap:wrap; gap:10px }
-        @media(max-width:480px) { .dash-header { flex-direction:column } .dash-header .dash-controls { width:100%; display:flex; gap:8px } }
+        /* ── Header responsive ── */
+        .dash-header {
+          display:flex; justify-content:space-between; align-items:flex-start;
+          margin-bottom:20px; flex-wrap:wrap; gap:10px;
+        }
+        @media(max-width:540px) {
+          .dash-header { flex-direction:column }
+          .dash-controls { width:100%; display:flex; gap:8px; justify-content:space-between }
+        }
 
-        /* Stat cards row */
-        .stat-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px }
+        /* ── Stat cards row ── */
+        .stat-row {
+          display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;
+        }
 
-        /* Order name truncate on mobile */
+        /* ── Truncate order names ── */
+        .ord-name {
+          max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        }
+        .ord-num {
+          max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        }
         @media(max-width:400px) {
           .ord-row { padding:9px 12px }
-          .ord-name { max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+          .ord-name { max-width:100px }
+          .ord-num { max-width:70px }
+        }
+
+        /* ── Chart размер на мобилен ── */
+        @media(max-width:640px) {
+          .recharts-wrapper { font-size: 10px }
+        }
+
+        /* ── Visits grid на мобилен ── */
+        @media(max-width:360px) {
+          .grid-4 { grid-template-columns: 1fr 1fr }
         }
       `}</style>
 
@@ -299,7 +387,7 @@ export function DashboardTab({
         <div>
           <h1 style={{ fontSize:20, fontWeight:900, color:'#111', letterSpacing:'-.02em', margin:0 }}>Дашборд</h1>
           <p style={{ fontSize:12, color:'#94a3b8', margin:'2px 0 0' }}>
-            {new Date().toLocaleDateString('bg-BG', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
+            {new Date().toLocaleDateString('bg-BG', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'Europe/Sofia' })}
           </p>
         </div>
         <div className="dash-controls" style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
@@ -311,7 +399,7 @@ export function DashboardTab({
       </div>
 
       {/* ── KPI Stat Cards ───────────────────────────────────────────── */}
-      <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:20 }}>
+      <div className="stat-row">
         {loading
           ? Array.from({ length:6 }).map((_, i) => <SkeletonCard key={i} />)
           : statCards.map((c, i) => (
@@ -389,18 +477,18 @@ export function DashboardTab({
             const s = STATUS_LABELS[o.status] || { label:o.status, color:'#666', bg:'#f9fafb' }
             return (
               <div key={o.id} className="ord-row" onClick={() => onViewOrder(o)}>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
                   <div style={{ width:34, height:34, borderRadius:9, background:s.bg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, flexShrink:0 }}>
                     {STATUS_ICON[o.status] || '📦'}
                   </div>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#111' }}>{o.customer_name}</div>
-                    <div style={{ fontSize:11, color:'#94a3b8', fontFamily:'monospace' }}>{o.order_number}</div>
+                  <div style={{ minWidth:0 }}>
+                    <div className="ord-name" style={{ fontSize:13, fontWeight:600, color:'#111' }}>{o.customer_name}</div>
+                    <div className="ord-num" style={{ fontSize:11, color:'#94a3b8', fontFamily:'monospace' }}>{o.order_number}</div>
                   </div>
                 </div>
-                <div style={{ textAlign:'right' }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>{formatPrice(o.total)}</div>
-                  <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:s.bg, color:s.color, fontWeight:700 }}>{s.label}</span>
+                <div style={{ textAlign:'right', flexShrink:0, marginLeft:8 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#16a34a', whiteSpace:'nowrap' }}>{formatPrice(o.total)}</div>
+                  <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:s.bg, color:s.color, fontWeight:700, whiteSpace:'nowrap' }}>{s.label}</span>
                 </div>
               </div>
             )
@@ -418,9 +506,9 @@ export function DashboardTab({
               {/* ✅ 4-колонен grid: Днес / 7д / 30д / Всичко */}
               <div className="grid-4" style={{ marginBottom:14 }}>
                 {([
-                  { label:'Днес',    value: pageViews.today,  unique: pageViews.todayUnique,  color:'#6366f1', match: range===1    },
-                  { label:'7 дни',   value: pageViews.last7,  unique: pageViews.last7Unique,  color:'#0ea5e9', match: range===7    },
-                  { label:'30 дни',  value: pageViews.last30, unique: pageViews.last30Unique, color:'#8b5cf6', match: range===30   },
+                  { label:'Днес',    value: pageViews.today,   unique: pageViews.todayUnique,  color:'#6366f1', match: range===1    },
+                  { label:'7 дни',   value: pageViews.last7,   unique: pageViews.last7Unique,  color:'#0ea5e9', match: range===7    },
+                  { label:'30 дни',  value: pageViews.last30,  unique: pageViews.last30Unique, color:'#8b5cf6', match: range===30   },
                   {
                     label: 'Всичко',
                     value:  pageViews.total  ?? pageViews.last30,
@@ -432,6 +520,7 @@ export function DashboardTab({
                     borderRadius:10, padding:'9px 10px', transition:'all .2s',
                     background: r.match ? '#f0fdf4' : '#f9fafb',
                     border:     r.match ? `2px solid ${r.color}` : '1px solid #f0f0f0',
+                    minWidth: 0,
                   }}>
                     <div style={{ fontSize:9, color:'#94a3b8', fontWeight:700, marginBottom:3, textTransform:'uppercase', letterSpacing:'.03em' }}>{r.label}</div>
                     <div style={{ fontSize:17, fontWeight:800, color:r.color, lineHeight:1.1 }}>{(r.value ?? 0).toLocaleString()}</div>
@@ -451,7 +540,7 @@ export function DashboardTab({
                 </div>
               </div>
 
-              {/* ✅ Топ източници — показва всички (не slice до 5) */}
+              {/* ✅ Топ източници — показва всички */}
               {pageViews.topReferrers && pageViews.topReferrers.length > 0 && (
                 <div>
                   <div style={{ fontSize:10, fontWeight:800, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Топ източници</div>
@@ -460,8 +549,8 @@ export function DashboardTab({
                     return (
                       <div key={r.name} style={{ marginBottom:7 }}>
                         <div style={{ display:'flex', justifyContent:'space-between', fontSize:12 }}>
-                          <span style={{ color:'#374151' }}>{r.name}</span>
-                          <span style={{ fontWeight:700 }}>{r.count}</span>
+                          <span style={{ color:'#374151', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'75%' }}>{r.name}</span>
+                          <span style={{ fontWeight:700, flexShrink:0 }}>{r.count}</span>
                         </div>
                         <div className="ref-bar-wrap">
                           <div style={{ height:'100%', width:`${(r.count/maxCount)*100}%`, background:['#16a34a','#0ea5e9','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#ec4899','#10b981'][i] || '#94a3b8', borderRadius:99 }} />
@@ -480,9 +569,9 @@ export function DashboardTab({
             <div className="d-card-body">
               <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                 {[
-                  { label:'Общ приход',    value:formatPrice(stats.revenue),  color:'#16a34a' },
-                  { label:'Общо поръчки',  value:stats.totalOrders,           color:'#f59e0b' },
-                  { label:'Email абонати', value:stats.leads,                 color:'#06b6d4' },
+                  { label:'Общ приход',    value:formatPrice(stats.revenue),      color:'#16a34a' },
+                  { label:'Общо поръчки',  value:stats.totalOrders,               color:'#f59e0b' },
+                  { label:'Email абонати', value:stats.leads,                     color:'#06b6d4' },
                   { label:'Конверсия',     value:`${conversionRate.toFixed(2)}%`, color:'#6366f1' },
                 ].map(item => (
                   <div key={item.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', background:'#f9fafb', borderRadius:10, border:'1px solid #f0f0f0' }}>

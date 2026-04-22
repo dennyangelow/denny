@@ -1,16 +1,13 @@
-// middleware.ts — v6
-// ПРОМЕНИ спрямо v5:
-//   - GET /api/affiliate-products добавен в публични routes
-//     (нужен за homepage Server Component — чете продуктите при build/revalidate)
-//     Всички мутации (POST, PATCH, DELETE) остават admin-protected
+// middleware.ts — v7
+// ПРОМЕНИ спрямо v6:
+//   ✅ /api/affiliate-clicks POST добавен като публичен route
+//      (извиква се от клиента при клик върху affiliate бутон — без auth)
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-// ── In-edge rate limiter за login опити ──────────────────────────────────────
 const loginAttempts = new Map<string, { count: number; until: number }>()
 
-// ── Security headers ─────────────────────────────────────────────────────────
 function securityHeaders(res: NextResponse): NextResponse {
   res.headers.set('X-Frame-Options', 'DENY')
   res.headers.set('X-Content-Type-Options', 'nosniff')
@@ -19,32 +16,29 @@ function securityHeaders(res: NextResponse): NextResponse {
   return res
 }
 
-// ── API routes, достъпни публично (без auth) ──────────────────────────────────
 function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/site-data')                                              return true
   if (pathname === '/api/naruchnici' && method === 'GET')                         return true
   if (pathname === '/api/naruchnici/track')                                        return true
-  // ✅ GET /api/affiliate-products е публичен — четем от началната страница
   if (pathname === '/api/affiliate-products' && method === 'GET')                  return true
+  // ✅ Логване на affiliate кликове — публично (без auth)
+  if (pathname === '/api/affiliate-clicks' && method === 'POST')                   return true
   if (pathname === '/api/orders' && method === 'POST')                             return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST')       return true
-  // ✅ POST /api/leads е публичен (форма за изтегляне на наръчник)
-  //    Всички останали операции (GET листа, PATCH, DELETE по id) са admin only
   if (pathname === '/api/leads' && method === 'POST')                              return true
   if (pathname === '/api/leads/unsubscribe')                                        return true
   if (pathname === '/api/leads/sequence' && method === 'GET')                      return true
-  // ✅ ВСИЧКИ analytics routes са публични
   if (pathname.startsWith('/api/analytics/'))                                       return true
   if (pathname === '/api/admin/auth')                                               return true
   if (pathname === '/api/marketing' && method === 'GET')                           return true
   return false
 }
 
-// ── API routes, които изискват admin auth ────────────────────────────────────
 const PROTECTED_API_PREFIXES = [
   '/api/settings',
   '/api/own-products',
-  '/api/affiliate-products',   // мутациите са защитени (GET е публичен — проверен по-горе)
+  '/api/affiliate-products',
+  '/api/affiliate-clicks',   // GET (admin статистики) е защитен; POST е публичен (горе)
   '/api/testimonials',
   '/api/naruchnici',
   '/api/faq',
@@ -59,35 +53,29 @@ const PROTECTED_API_PREFIXES = [
 ]
 
 function isProtectedApi(pathname: string, method: string): boolean {
-  // Публичните routes винаги имат приоритет
   if (isPublicApiRequest(pathname, method)) return false
   return PROTECTED_API_PREFIXES.some(p => pathname.startsWith(p))
 }
 
-// ── Проверка на admin token ──────────────────────────────────────────────────
 function isValidToken(req: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET
-  if (!secret) return true // dev режим без secret
+  if (!secret) return true
   const token = req.cookies.get('admin_token')?.value
   return token === secret
 }
 
-// ── Middleware ───────────────────────────────────────────────────────────────
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const method = req.method
 
-  // 1. Всичко извън /admin и /api → само security headers
   if (!pathname.startsWith('/admin') && !pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 2. Публични API routes — само headers (проверяваме ПРЕДИ protected!)
   if (isPublicApiRequest(pathname, method)) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 3. Защита на мутиращи API routes
   if (isProtectedApi(pathname, method)) {
     if (!isValidToken(req)) {
       return NextResponse.json(
@@ -98,17 +86,14 @@ export function middleware(req: NextRequest) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 4. Останалите /api routes — само headers
   if (pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 5. /admin/login — публична страница
   if (pathname.startsWith('/admin/login')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // 6. Останалите /admin/* — rate limiting + token проверка
   const ip      = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
   const attempt = loginAttempts.get(ip)
 
@@ -134,8 +119,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/admin/:path*',
-    '/api/:path*',
-  ],
+  matcher: ['/admin/:path*', '/api/:path*'],
 }

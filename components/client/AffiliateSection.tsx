@@ -1,11 +1,8 @@
 'use client'
 // components/client/AffiliateSection.tsx
-// ПОПРАВКИ:
-//  - rel="nofollow sponsored noopener" — правилен SEO атрибут за affiliate линкове
-//  - Премахнато noreferrer (пречи на affiliate tracking-а)
-//  - subtitle се показва под името на продукта
-//  - Добавен transition на CTA бутона
-//  - getCategorySlug() извлича slug от href (надежден) вместо от label (ненадежден)
+// ✅ ПРОМЯНА: Бутонът "Прочети повече" вече сочи към /produkt/[slug]
+//    вместо директно към affiliate URL.
+//    Affiliate линкът се запазва само в продуктовата страница.
 
 import { trackAffiliateClick } from '@/lib/trackAffiliateClick'
 import { SafeImg } from '@/components/client/SafeImg'
@@ -57,6 +54,9 @@ export function AffiliateSection({ products }: Props) {
           const cardColor  = p.color       || CAT_COLORS[p.partner] || '#16a34a'
           const badgeColor = p.badge_color || cardColor
 
+          // ✅ Линкът сочи към продуктовата страница на dennyangelow.com
+          const productPageUrl = `/produkt/${p.slug}`
+
           return (
             <FadeIn key={p.id} delay={i * 60}>
               <div
@@ -100,12 +100,16 @@ export function AffiliateSection({ products }: Props) {
                       {p.tag_text}
                     </div>
                   )}
-                  <SafeImg
-                    src={p.image_url}
-                    alt={p.name}
-                    fallbackEmoji={p.emoji || '🌿'}
-                    style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block' }}
-                  />
+
+                  {/* ✅ Снимката е кликваема — води към продуктовата страница */}
+                  <a href={productPageUrl} style={{ display: 'block', width: '100%' }}>
+                    <SafeImg
+                      src={p.image_url}
+                      alt={p.name}
+                      fallbackEmoji={p.emoji || '🌿'}
+                      style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block' }}
+                    />
+                  </a>
                 </div>
 
                 {/* ── Съдържание ── */}
@@ -121,15 +125,17 @@ export function AffiliateSection({ products }: Props) {
                     </div>
                   )}
 
-                  <h3 style={{
-                    fontFamily: "'Cormorant Garamond', serif",
-                    fontSize: 22, fontWeight: 800, color: '#111',
-                    margin: '0 0 4px', lineHeight: 1.2,
-                  }}>
-                    {p.name}
-                  </h3>
+                  {/* ✅ Заглавието е кликваемо — води към продуктовата страница */}
+                  <a href={productPageUrl} style={{ textDecoration: 'none' }}>
+                    <h3 style={{
+                      fontFamily: "'Cormorant Garamond', serif",
+                      fontSize: 22, fontWeight: 800, color: '#111',
+                      margin: '0 0 4px', lineHeight: 1.2,
+                    }}>
+                      {p.name}
+                    </h3>
+                  </a>
 
-                  {/* subtitle — беше в интерфейса, но не се рендираше */}
                   {p.subtitle && (
                     <p style={{
                       fontSize: 13, color: '#9ca3af', fontWeight: 600,
@@ -167,17 +173,9 @@ export function AffiliateSection({ products }: Props) {
                     </ul>
                   )}
 
-                  {/*
-                    ✅ ПОПРАВКА: rel="nofollow sponsored noopener"
-                    - nofollow    → казва на Google да не предава PageRank
-                    - sponsored   → обозначава платен/affiliate линк (изисква се от Google)
-                    - noopener    → сигурност при target="_blank"
-                    - БЕЗ noreferrer → партньорите виждат referrer за правилен tracking
-                  */}
+                  {/* ✅ БУТОНЪТ сочи към продуктовата страница — НЕ към agroapteki директно */}
                   <a
-                    href={p.affiliate_url}
-                    target="_blank"
-                    rel="nofollow sponsored noopener"
+                    href={productPageUrl}
                     onClick={() => trackAffiliateClick(p.partner, p.slug)}
                     style={{
                       display: 'block', textAlign: 'center',
@@ -195,7 +193,7 @@ export function AffiliateSection({ products }: Props) {
                       (e.currentTarget as HTMLAnchorElement).style.opacity = '1'
                       ;(e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(0)'
                     }}
-                    aria-label={`${p.name} — партньорски линк`}
+                    aria-label={`${p.name} — виж повече`}
                   >
                     Прочети повече →
                   </a>
@@ -210,78 +208,41 @@ export function AffiliateSection({ products }: Props) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CategoryLinksSection
+// CategoryLinksSection — НЕ е променен
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface CategoryLink {
-  id: string
-  slug: string
-  label: string
-  href: string
-  emoji: string
-  partner: string | null
-  color?: string
+  id: string; slug: string; label: string
+  href: string; emoji: string; partner: string | null; color?: string
 }
 
-interface CatProps {
-  links: CategoryLink[]
-}
+interface CatProps { links: CategoryLink[] }
 
-/**
- * Извлича tracking slug за category линк.
- *
- * Приоритет:
- *  1. c.slug от БД — ако е зададен (не UUID, не празен)
- *  2. Path segments от href — ако slug не е зададен
- *  3. Последен fallback: съкратен id
- */
 function getCategorySlug(c: CategoryLink): string {
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(c.slug || '')
-
   if (c.slug && !isUuid && c.slug.trim().length >= 2) {
-    return c.slug
-      .toLowerCase()
-      .replace(/[^a-z0-9-_]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 60)
+    return c.slug.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
   }
-
   if (c.href) {
     try {
-      const url = new URL(c.href)
-      const segments = url.pathname
-        .split('/')
-        .map(s => s.trim())
-        .filter(s => s.length > 1)
-
+      const url      = new URL(c.href)
+      const segments = url.pathname.split('/').map(s => s.trim()).filter(s => s.length > 1)
       if (segments.length > 0) {
-        const relevant = segments.slice(-2).join('-')
-        const clean = relevant
-          .toLowerCase()
-          .replace(/[^a-z0-9-]/g, '-')
-          .replace(/-+/g, '-')
-          .replace(/^-|-$/g, '')
-          .slice(0, 60)
+        const clean = segments.slice(-2).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
         if (clean.length >= 2) return clean
       }
-    } catch {
-      // невалиден URL — продължи
-    }
+    } catch {}
   }
-
   return `cat-${c.id.slice(0, 8)}`
 }
 
 export function CategoryLinksSection({ links }: CatProps) {
   if (links.length === 0) return null
-
   return (
     <div className="categories-grid">
       {links.map((c, i) => {
         const color     = c.color || CAT_COLORS[c.partner || 'default'] || CAT_COLORS.default
         const trackSlug = getCategorySlug(c)
-
         return (
           <FadeIn key={c.id || c.slug} delay={i * 55}>
             <a
@@ -292,14 +253,7 @@ export function CategoryLinksSection({ links }: CatProps) {
               style={{ '--cat-color': color } as React.CSSProperties}
               onClick={() => trackAffiliateClick(c.partner || 'category', trackSlug)}
             >
-              <span style={{
-                fontSize: 20,
-                background: color + '18',
-                width: 44, height: 44,
-                borderRadius: 12,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-              }}>
+              <span style={{ fontSize: 20, background: color + '18', width: 44, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {c.emoji}
               </span>
               <span style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>{c.label}</span>
