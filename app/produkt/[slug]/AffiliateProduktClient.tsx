@@ -147,8 +147,8 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
       <style suppressHydrationWarning>{`
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap');
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-        html{scroll-behavior:smooth}
-        body{font-family:'DM Sans',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;background:#fafaf8;color:#1a1a1a}
+        html{scroll-behavior:smooth;overflow-x:hidden}
+        body{font-family:'DM Sans',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;background:#fafaf8;color:#1a1a1a;overflow-x:hidden;width:100%}
         @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
         @keyframes tabIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
         @keyframes slideRight{from{opacity:0;transform:translateX(-100%)}to{opacity:1;transform:translateX(0)}}
@@ -166,13 +166,13 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .mob-nav{position:sticky;top:60px;z-index:100;background:#fff;border-bottom:1px solid #e5e7eb;padding:10px 22px;display:flex;flex-direction:column;gap:3px;box-shadow:0 8px 24px rgba(0,0,0,.08);animation:slideRight .25s ease}
         .mob-nav-link{color:#374151;text-decoration:none;font-size:15px;font-weight:700;padding:9px 13px;border-radius:9px;display:block}
         .mob-nav-link:hover{background:#f0fdf4;color:#16a34a}
-        .af-hero-band{background:linear-gradient(160deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf8 100%);border-bottom:1px solid #bbf7d0;padding:20px 0 0;position:relative;overflow:hidden}
+        .af-hero-band{background:linear-gradient(160deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf8 100%);border-bottom:1px solid #bbf7d0;padding:20px 0 0;position:relative;overflow:hidden;width:100%}
         .af-hero-band::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent 5%,#86efac 40%,#16a34a 50%,#86efac 60%,transparent 95%)}
         .af-hero-inner{max-width:1080px;margin:0 auto;padding:0 20px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-        .af-bc{display:flex;align-items:center;gap:6px;font-size:12px;color:#6b7280}
+        .af-bc{display:flex;align-items:center;gap:6px;font-size:12px;color:#6b7280;flex-wrap:wrap}
         .af-bc a{color:#6b7280;text-decoration:none;transition:color .15s}.af-bc a:hover{color:#16a34a}
-        .af-bc strong{color:#14532d;font-weight:600}.af-bc-sep{opacity:.4}
-        .af-grid{display:grid;grid-template-columns:340px 1fr;gap:24px;max-width:1080px;margin:0 auto;padding:20px 20px 80px;align-items:start}
+        .af-bc strong{color:#14532d;font-weight:600;word-break:break-word}.af-bc-sep{opacity:.4}
+        .af-grid{display:grid;grid-template-columns:340px 1fr;gap:24px;max-width:1080px;margin:0 auto;padding:20px 20px 80px;align-items:start;width:100%}
         .af-left{position:sticky;top:76px;display:flex;flex-direction:column;gap:12px;animation:fadeUp .45s ease both}
         .af-right{display:flex;flex-direction:column;gap:0;animation:fadeUp .45s .08s ease both}
         .af-card{background:#fff;border-radius:18px;border:1px solid rgba(0,0,0,.07);box-shadow:0 1px 3px rgba(0,0,0,.04),0 6px 24px rgba(0,0,0,.05);overflow:hidden}
@@ -224,24 +224,102 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .af-beginner-title{font-size:10px;font-weight:800;color:#065f46;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px}
         .af-beginner-text{font-size:13.5px;color:#374151;line-height:1.75}
         @media(max-width:820px){
-          .af-grid{grid-template-columns:1fr;gap:12px;padding:12px 14px 100px}
-          .af-left{position:static}
-          .af-mob-sticky{display:block}
-          #af-buy-card{display:none}
+          /* Layout */
+          .af-grid{grid-template-columns:1fr;gap:10px;padding:10px 12px 100px;max-width:100%;overflow-x:hidden}
+          .af-left{position:static;gap:10px}
+          .af-right{gap:10px}
+
+          /* Header */
+          .site-header{padding:0 14px;height:54px}
+          .logo-name{font-size:15px}
           .header-nav{display:none}
           .mob-btn{display:flex}
-          .af-tab{padding:10px 5px;font-size:11px}
-          .af-tab-icon{font-size:12px}
+          .cart-btn{font-size:12px;padding:6px 11px;border-radius:9px}
+
+          /* Hero band */
+          .af-hero-inner{padding:0 12px 12px;gap:8px}
+          .af-bc{font-size:11px}
+
+          /* Cards */
+          .af-card-p{padding:14px 16px}
+          .af-card-sm{padding:12px 14px}
+          .af-title-card{padding:14px 16px;border-radius:14px}
+          .af-tab-panel{padding:14px 16px;border-radius:0 0 14px 14px}
+
+          /* Tabs — scrollable row instead of cramped flex */
+          .af-tabs-bar{border-radius:12px 12px 0 0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;gap:0}
+          .af-tabs-bar::-webkit-scrollbar{display:none}
+          .af-tab{flex:0 0 auto;min-width:80px;padding:11px 10px;font-size:11.5px;gap:4px}
+          .af-tab-icon{font-size:13px}
+
+          /* Tech rows — prevent overflow */
+          .af-tech-row{flex-direction:column}
+          .af-tech-label{min-width:unset;width:100%;border-radius:0;padding:7px 12px 3px;font-size:8.5px}
+          .af-tech-val{border-left:none;border-top:1px solid #f0ede8;padding:7px 12px 9px;font-size:13px;word-break:break-word}
+
+          /* Steps */
+          .af-step{gap:11px;padding:11px 0}
+          .af-step-num{width:26px;height:26px;font-size:11px;flex-shrink:0}
+
+          /* Bullets */
+          .af-bullet{padding:9px 11px;font-size:13px}
+
+          /* FAQ */
+          .af-faq-btn{font-size:13px}
+          .af-faq-ans{font-size:13px}
+
+          /* Related */
+          .af-rel{padding:9px 10px}
+
+          /* Sticky */
+          .af-mob-sticky{display:block}
+          #af-buy-card{display:none}
+
+          /* Final CTA */
+          .af-final-cta{padding:20px 16px;border-radius:14px}
+
+          /* VS table */
+          .af-vs-table th,.af-vs-table td{padding:8px 10px;font-size:11.5px}
+
+          /* Title h1 */
+          .af-title-card h1{font-size:clamp(22px,5.5vw,32px) !important}
         }
         @media(max-width:480px){
-          .af-grid{padding:10px 12px 100px;gap:12px}
-          .af-card-p{padding:16px 18px}
-          .af-tab-panel{padding:16px}
-          .af-title-card{padding:16px 18px}
+          .af-grid{padding:8px 10px 100px;gap:8px}
+          .af-card{border-radius:14px}
+          .af-card-p{padding:14px}
+          .af-tab-panel{padding:14px}
+          .af-title-card{padding:14px}
+          .af-tab{min-width:72px;padding:10px 8px;font-size:10.5px}
+          
+          /* Stat pills — 2 per row max */
+          .af-stat-pills{grid-template-columns:repeat(2,1fr) !important}
+
+          /* Dose table — stacked */
           .af-dose-table thead{display:none}
           .af-dose-table tr{display:block;border:1px solid #f1f5f9;border-radius:10px;margin-bottom:8px;padding:10px}
           .af-dose-table td{display:block;border:none;padding:3px 0;font-size:12.5px}
           .af-dose-table td:before{content:attr(data-label);font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:2px}
+
+          /* VS table — scrollable */
+          .af-vs-table{font-size:11px}
+          .af-vs-table th,.af-vs-table td{padding:7px 8px}
+
+          /* Trust badges — smaller */
+          .af-trust-b{font-size:9.5px;padding:3px 7px}
+          .af-trust-row{gap:4px}
+
+          /* Author card */
+          .af-author-name{font-size:14px !important}
+
+          /* Buy button */
+          .af-btn-buy{font-size:14.5px;padding:14px 18px;border-radius:12px}
+
+          /* Header */
+          .site-header{padding:0 12px;height:50px}
+          .logo-name{font-size:14px}
+          .logo-sub{font-size:8px}
+          .cart-btn{font-size:11px;padding:5px 9px}
         }
         @media print{.af-mob-sticky{display:none!important}.af-grid{grid-template-columns:1fr}.af-left{position:static}}
       `}</style>
@@ -318,7 +396,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
 
             {/* Stat pills */}
             {(product.volume||product.quarantine_days!==undefined||product.season) && (
-              <div style={{ display:'grid',gridTemplateColumns:`repeat(${[product.volume,product.quarantine_days!==undefined,product.season].filter(Boolean).length},1fr)`,gap:7,marginTop:12 }}>
+              <div className="af-stat-pills" style={{ display:'grid',gridTemplateColumns:`repeat(${[product.volume,product.quarantine_days!==undefined,product.season].filter(Boolean).length},1fr)`,gap:7,marginTop:12 }}>
                 {product.volume && (
                   <div style={{ background:'#f8f7f4',border:'1px solid #ede9e1',borderRadius:9,padding:'8px',textAlign:'center' }}>
                     <div style={{ fontSize:8,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:3 }}>ОБЕМ</div>
