@@ -1,12 +1,5 @@
-// app/sitemap.ts — v6
-// ПОПРАВКИ спрямо v5:
-//   ✅ Affiliate продукти: priority 0.75 запазен — вече са index:true в page.tsx metadata
-//      (беше: metadata казваше noindex, sitemap казваше index — противоречие)
-//   ✅ lastModified — винаги валиден Date (беше: може да throw при невалиден string)
-// ПОДОБРЕНИЯ:
-//   ✅ Паралелни заявки към Supabase (беше: последователни при грешка)
-//   ✅ changeFrequency — 'weekly' за нови продукти (по-добър crawl budget)
-//   ✅ Статична /produkt/ listing страница добавена ако съществува
+// app/sitemap.ts — v7
+// ✅ ПРОМЯНА: Добавена /produkti (каталог страница) — priority 0.85, weekly
 
 import { MetadataRoute } from 'next'
 import { supabaseAdmin }  from '@/lib/supabase'
@@ -33,6 +26,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    new Date(),
       changeFrequency: 'weekly',
       priority:         1.0,
+    },
+    // ✅ НОВО: Каталог страница с всички продукти
+    {
+      url:             `${BASE_URL}/produkti`,
+      lastModified:    new Date(),
+      changeFrequency: 'weekly',   // Обновява се при добавяне на нов продукт
+      priority:         0.85,
     },
   ]
 
@@ -65,7 +65,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // ── 4. Affiliate продукти — priority 0.75 ────────────────────────────────
-  // ✅ index:true в metadata (page.tsx) — вече съответства на sitemap-а
   let affiliatePages: MetadataRoute.Sitemap = []
   if (affiliateResult.status === 'fulfilled' && affiliateResult.value.data) {
     affiliatePages = affiliateResult.value.data.map((p: SlugRow) => ({
@@ -78,10 +77,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error('[sitemap] Грешка affiliate продукти:',
       affiliateResult.status === 'rejected' ? affiliateResult.reason : affiliateResult.value.error)
   }
-
-  // ── 5. Atlas Terra собствени продукти ────────────────────────────────────
-  // ⚠️ Засега НЕ се включват — нямат отделен /atlas/[slug] route
-  //    При активиране: priority 0.85, changeFrequency: 'weekly'
 
   return [
     ...staticPages,

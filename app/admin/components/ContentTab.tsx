@@ -1,5 +1,10 @@
 'use client'
-// app/admin/components/ContentTab.tsx — v7
+// app/admin/components/ContentTab.tsx — v8
+// ✅ ПОПРАВКИ v8 (спрямо v7):
+//   - Дублиращ 'how_to_use' (bullets тип) премахнат — остава само howto_editor
+//   - Добавени 'price' + 'price_currency' полета в affiliate CONFIGS
+//   - Click count бадж в листа на афилиейт продуктите (от affiliate_clicks таблицата)
+//   - ContentTab версия обновена
 // ✅ ПРОМЕНИ v7 (спрямо v6):
 //   - Добавен FieldType 'faq_editor' — визуален FAQ editor (въпрос + отговор)
 //   - FaqEditor компонент — добавяй/трий/редактирай FAQ въпроси
@@ -82,6 +87,8 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'tag_text',       label: 'Таг (горе вдясно)',         type: 'text',     placeholder: '⭐ Фаворит' },
       { key: 'affiliate_url',  label: 'Affiliate URL (купи бутон)', type: 'url',    placeholder: 'https://agroapteki.com/...' },
       { key: 'partner',        label: 'Партньор',                 type: 'text',     placeholder: 'agroapteki' },
+      { key: 'price',          label: 'Цена (EUR)',               type: 'number',   placeholder: '14.90' },
+      { key: 'price_currency', label: 'Валута',                   type: 'text',     placeholder: 'EUR' },
       { key: 'sort_order',     label: 'Ред (sort)',               type: 'number',   placeholder: '0' },
       { key: 'active',         label: 'Активен',                  type: 'checkbox' },
 
@@ -101,7 +108,6 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: '_page_divider',  label: '📄 Продуктова страница (/produkt/slug)', type: 'seo_section' },
       { key: 'bullets',        label: 'Предимства (по едно на ред)',  type: 'bullets',  placeholder: '0 дни карантина\n3 в 1\nБез резистентност' },
       { key: 'full_content',   label: 'Пълно описание (Markdown — ## H2, **bold**, - списък)', type: 'textarea', placeholder: '## Какво е?\n\n...\n\n## Защо работи?\n\n...' },
-      { key: 'how_to_use',     label: 'Как се използва (по едно на ред — ще се номерират)', type: 'bullets', placeholder: 'Разреди 1:100 с вода\nПръскай рано сутрин\nПовтаряй на 14-21 дни' },
       { key: 'combine_with',   label: 'Комбинирай с (slugs, разделени със запетая)', type: 'text', placeholder: 'kaliteh,ridomil,kristalon' },
 
       // ── FAQ ─────────────────────────────────────────────────────────────────
@@ -832,6 +838,10 @@ export function ContentTab() {
                       {/* FAQ badge за афилиейт */}
                       {hasAffiliateFaq(item) && (
                         <span style={{ color: '#7c3aed', fontSize: 11, flexShrink: 0, background: '#f5f3ff', padding: '1px 6px', borderRadius: 99 }}>❓ {item.faq.length} FAQ</span>
+                      )}
+                      {/* Click count badge — показва колко пъти е кликнат от началната страница */}
+                      {subTab === 'affiliate' && item.click_count !== undefined && item.click_count > 0 && (
+                        <span style={{ color: '#0369a1', fontSize: 11, flexShrink: 0, background: '#eff6ff', padding: '1px 6px', borderRadius: 99 }}>👁 {item.click_count} кликa</span>
                       )}
                       {/* Rating badge */}
                       {subTab === 'affiliate' && item.rating && (

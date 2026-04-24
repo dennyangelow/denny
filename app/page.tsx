@@ -207,6 +207,7 @@ async function getPageData() {
       { data: handbookRows,        error: e8 },
       { data: specialSectionsRows, error: e9 },
       { data: faqCategoryRows,     error: e10 },
+      { data: clicksRows,          error: e12 },
     ] = await Promise.all([
       supabase.from('settings').select('key,value'),
       supabase.from('products').select('*').eq('active', true).order('sort_order'),
@@ -219,9 +220,10 @@ async function getPageData() {
       supabase.from('naruchnici').select('*').eq('active', true).order('sort_order'),
       supabase.from('special_sections').select('*').eq('active', true).order('sort_order'),
       supabase.from('faq_categories').select('*').order('sort_order'),
+      supabase.from('affiliate_clicks').select('product_slug').limit(5000),
     ])
 
-    ;[e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11].forEach((e, i) => {
+    ;[e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11,e12].forEach((e, i) => {
       if (e) console.error(`[getPageData] query ${i + 1} error:`, e.message)
     })
 
@@ -315,6 +317,24 @@ async function getPageData() {
       seo_keywords:   p.seo_keywords   || null,
     }))
 
+    // ── Top 6 affiliate products by click count ──────────────────────────────
+    // Брои кликовете по slug и сортира низходящо → взима топ 6
+    const clickCountMap: Record<string, number> = {}
+    ;(clicksRows || []).forEach((row: any) => {
+      if (row.product_slug) {
+        clickCountMap[row.product_slug] = (clickCountMap[row.product_slug] || 0) + 1
+      }
+    })
+
+    // Сортира всички активни продукти по брой кликове (най-много → най-малко)
+    const affiliateProductsSortedByClicks = [...affiliateProducts].sort((a, b) => {
+      const ca = clickCountMap[a.slug] || 0
+      const cb = clickCountMap[b.slug] || 0
+      return cb - ca
+    })
+    // Топ 6 за началната страница — ако няма кликове, взима първите 6 по sort_order
+    const top6AffiliateProducts = affiliateProductsSortedByClicks.slice(0, 6)
+
     // ── Category links ────────────────────────────────────────────────────────
     const categoryLinks: CategoryLink[] = (categoryRows || []).map((c: any) => ({
       ...c,
@@ -386,7 +406,7 @@ async function getPageData() {
     })
 
     return {
-      settings, atlasProducts, affiliateProducts,
+      settings, atlasProducts, affiliateProducts, top6AffiliateProducts,
       categoryLinks, promoBanners,
       testimonials: (testimonialRows || []).map((t: any) => ({
         id:          t.id,
@@ -406,6 +426,7 @@ async function getPageData() {
       settings:          DEFAULT_SETTINGS,
       atlasProducts:     [],
       affiliateProducts: [],
+      top6AffiliateProducts: [],
       categoryLinks:     [],
       promoBanners:      [],
       testimonials:      [],
@@ -506,7 +527,7 @@ export async function generateMetadata(): Promise<Metadata> {
 // ─── SERVER COMPONENT ──────────────────────────────────────────────────────────
 export default async function HomePage() {
   const {
-    settings, atlasProducts, affiliateProducts,
+    settings, atlasProducts, affiliateProducts, top6AffiliateProducts,
     categoryLinks, promoBanners, testimonials, faq, faqCategories, handbooks, specialSections,
   } = await getPageData()
 
@@ -896,7 +917,7 @@ export default async function HomePage() {
           Ако AffiliateSection рендерира <a href={affiliate_url}>, увери се, че има:
           rel="nofollow sponsored noopener" target="_blank"
           Виж бележките в края на файла. */}
-      <AffiliateSection products={affiliateProducts} />
+      <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
 
       {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
       {atlasProducts.length > 0 && (

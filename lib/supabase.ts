@@ -49,6 +49,9 @@ export interface Order {
   shipped_at?: string
   delivered_at?: string
   order_items?: OrderItem[]
+  // Offer fields (опционални — добавени от offer система)
+  has_post_purchase_upsell?: boolean
+  offer_type?: string
 }
 
 export interface OrderItem {
@@ -101,9 +104,42 @@ export interface EmailLog {
   clicked_at?: string
 }
 
+// ── Пълен тип за affiliate аналитика — съвпада с API v5/v9 отговора ──────────
 export interface AffiliateAnalytics {
-  total: number
-  last30days: number
-  byPartner: Record<string, number>
-  byProduct: Record<string, number>
+  // Обобщени броячи (точни COUNT от API)
+  total:       number
+  last30days:  number
+  last7days:   number
+  today:       number
+  last90days:  number
+
+  // Разбивки по продукт и партньор
+  byProduct:      Record<string, number>
+  byPartner:      Record<string, number>
+
+  // Детайли на ниво продукт
+  productDetails: Record<string, {
+    total:  number
+    last30: number
+    last7:  number
+    today:  number
+  }>
+
+  // Топ списъци
+  topProducts: {
+    slug:    string
+    partner: string | null
+    total:   number
+    last30:  number
+    last7:   number
+    today:   number
+  }[]
+  topPartners: { name: string; count: number }[]
+
+  // Chart данни
+  dailyChart:   { date: string; count: number }[]
+  hourlyChart?: { hour: number; count: number }[]
+
+  // Slugs по партньор
+  slugsByPartner: Record<string, string[]>
 }

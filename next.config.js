@@ -4,6 +4,10 @@ const nextConfig = {
     remotePatterns: [
       { protocol: 'https', hostname: 'd1yei2z3i6k35z.cloudfront.net' },
       { protocol: 'https', hostname: '*.supabase.co' },
+      // ✅ Cloudflare R2 публичен домейн — задължително за next/image
+      { protocol: 'https', hostname: '*.r2.dev' },
+      // Ако имаш custom domain пред R2, добави и него:
+      // { protocol: 'https', hostname: 'cdn.dennyangelow.com' },
     ],
   },
   env: {

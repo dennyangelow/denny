@@ -1,11 +1,11 @@
 'use client'
-// hooks/useAdminData.ts — v12
-// ✅ ПОПРАВКИ v12 (спрямо v11):
-//   - toBgDateStr() добавена — всички дати в hook-а вече са БГ timezone, не UTC
-//   - todayRevenue: сравнява БГ дати (не UTC .toISOString().slice(0,10))
-//   - weekRevenue: сравнява БГ дати (не UTC timestamp - 7*86400000)
-//   - last30Orders: сравнява БГ дати
-//   - Автоматичен рефреш на всеки 2 минути (без unmount на табовете)
+// hooks/useAdminData.ts — v13
+// ✅ ПОПРАВКИ v13 (спрямо v12):
+//   - PageViewStats: добавени всички полета от API v9
+//     → last90, last90Unique, topPages30/7/Today, topReferrers30/7/Today
+//     → hourlyChart с unique поле
+//   - AffiliateAnalytics вече се импортва от @/lib/supabase (пълен тип)
+//   - pageViews се записва директно от API без load в непълен тип
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
@@ -15,7 +15,7 @@ function toBgDateStr(d?: Date): string {
   return (d ?? new Date()).toLocaleDateString('en-CA', { timeZone: 'Europe/Sofia' })
 }
 function bgDateNDaysAgo(now: Date, days: number): string {
-  const todayBg    = toBgDateStr(now)
+  const todayBg     = toBgDateStr(now)
   const utcMidnight = new Date(todayBg + 'T00:00:00Z')
   utcMidnight.setUTCDate(utcMidnight.getUTCDate() - days)
   return toBgDateStr(utcMidnight)
@@ -33,24 +33,44 @@ export interface AdminStats {
   conversionRate:  number
 }
 
+// ── Пълен PageViewStats тип — съвпада точно с API v9 отговора ────────────────
 export interface PageViewStats {
-  total:         number
-  unique:        number
-  today:         number
-  todayUnique:   number
-  last7:         number
-  last7Unique:   number
-  last30:        number
-  last30Unique:  number
-  last90?:       number
-  last90Unique?: number
-  mobilePercent: number
-  dailyChart:    { date: string; count: number; unique?: number }[]
-  hourlyChart?:  { hour: number; count: number; unique: number }[]
-  topReferrers:  { name: string; count: number }[]
-  topUtm:        { name: string; count: number }[]
-  topCampaigns:  { name: string; count: number }[]
-  topPages:      { name: string; count: number }[]
+  // Броячи
+  total:          number
+  last30:         number
+  last7:          number
+  today:          number
+  last90:         number
+
+  // Уникални посетители
+  unique:         number
+  todayUnique:    number
+  last7Unique:    number
+  last30Unique:   number
+  last90Unique:   number
+
+  // Мобилни
+  mobilePercent:  number
+
+  // Chart данни
+  dailyChart:  { date: string; count: number; unique?: number }[]
+  hourlyChart?: { hour: number; count: number; unique: number }[]
+
+  // Топ статистики — default (90д / всичко)
+  topPages:     { name: string; count: number }[]
+  topReferrers: { name: string; count: number }[]
+
+  // Топ статистики по период — от API v7+
+  topPages30?:         { name: string; count: number }[]
+  topReferrers30?:     { name: string; count: number }[]
+  topPages7?:          { name: string; count: number }[]
+  topReferrers7?:      { name: string; count: number }[]
+  topPagesToday?:      { name: string; count: number }[]
+  topReferrersToday?:  { name: string; count: number }[]
+
+  // UTM данни
+  topUtm?:       { name: string; count: number }[]
+  topCampaigns?: { name: string; count: number }[]
 }
 
 export function useAdminData() {
@@ -108,16 +128,15 @@ export function useAdminData() {
       setAnalytics(affData)
       setPageViews(pvData)
 
-      // ✅ v12: ВСИЧКИ дати са в БГ timezone — нулиране в 00:00 БГ, не UTC!
+      // ✅ v13: ВСИЧКИ дати са в БГ timezone — нулиране в 00:00 БГ, не UTC
       const now       = new Date()
-      const todayBg   = toBgDateStr(now)                      // "2026-04-19"
-      const weekAgoBg = bgDateNDaysAgo(now, 7)                // "2026-04-12"
-      const day30Bg   = bgDateNDaysAgo(now, 30)               // "2026-03-20"
+      const todayBg   = toBgDateStr(now)
+      const weekAgoBg = bgDateNDaysAgo(now, 7)
+      const day30Bg   = bgDateNDaysAgo(now, 30)
 
       const active  = orderList.filter(o => o.status !== 'cancelled')
       const revenue = active.reduce((s, o) => s + Number(o.total), 0)
 
-      // ✅ Конвертираме created_at на всяка поръчка в БГ дата за сравнение
       const activeWithBgDate = active.map(o => ({
         ...o,
         bgDate: toBgDateStr(new Date(o.created_at)),
@@ -131,7 +150,6 @@ export function useAdminData() {
         .filter(o => o.bgDate >= weekAgoBg)
         .reduce((s, o) => s + Number(o.total), 0)
 
-      // ✅ last30Orders с БГ дата за конверсия
       const last30Orders = orderList.filter(o =>
         toBgDateStr(new Date(o.created_at)) >= day30Bg
       )
@@ -141,8 +159,8 @@ export function useAdminData() {
         revenue,
         leads:           leadList.length,
         newOrders:       orderList.filter(o => o.status === 'new').length,
-        todayRevenue,   // ✅ БГ дата
-        weekRevenue,    // ✅ БГ дата
+        todayRevenue,
+        weekRevenue,
         pendingPayments: orderList.filter(o => o.payment_status === 'pending' && o.status !== 'cancelled').length,
         avgOrderValue:   active.length ? revenue / active.length : 0,
         conversionRate:  pvData?.last30 && last30Orders.length
@@ -160,7 +178,7 @@ export function useAdminData() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // ✅ v12: Автоматичен рефреш на всеки 2 минути — без setLoading(true), без unmount
+  // Автоматичен рефреш на всеки 2 минути — без setLoading(true), без unmount
   useEffect(() => {
     const interval = setInterval(() => {
       if (initialFetchDone.current) fetchAll()
