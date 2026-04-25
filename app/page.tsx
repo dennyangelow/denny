@@ -913,12 +913,6 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* [SEO] AffiliateSection — rel="nofollow sponsored" се прилага в компонента.
-          Ако AffiliateSection рендерира <a href={affiliate_url}>, увери се, че има:
-          rel="nofollow sponsored noopener" target="_blank"
-          Виж бележките в края на файла. */}
-      <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
-
       {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
       {atlasProducts.length > 0 && (
         <section id="atlas" style={{ padding: '72px 0 60px', background: 'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)', position: 'relative', overflow: 'hidden' }}>
@@ -1096,6 +1090,12 @@ export default async function HomePage() {
           </div>
         </section>
       )}
+
+      {/* [SEO] AffiliateSection — rel="nofollow sponsored" се прилага в компонента.
+          Ако AffiliateSection рендерира <a href={affiliate_url}>, увери се, че има:
+          rel="nofollow sponsored noopener" target="_blank"
+          Виж бележките в края на файла. */}
+      <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
 
       {/* ══ СПЕЦИАЛНИ СЕКЦИИ ═══════════════════════════════════════════════════ */}
       {specialSections.map(sec => (
