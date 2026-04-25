@@ -1071,7 +1071,7 @@ export default async function HomePage() {
                 <div style={{ height: 3, background: 'linear-gradient(90deg, #d1fae5, #16a34a, #d1fae5)', position: 'absolute', top: 0, left: 0, right: 0 }} />
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0, padding: '14px 20px 12px' }}>
                   {[
-                    { icon: '🚚', text: `Безплатна доставка над ${settings.free_shipping_above} ${settings.currency_symbol} (за Atlas Terra)`, color: '#16a34a' },
+                    { icon: '🚚', text: `Безплатна доставка над ${settings.free_shipping_above} ${settings.currency_symbol}`, color: '#16a34a' },
                     { icon: '💵', text: 'Плащане при доставка', color: '#2563eb' },
                     { icon: '⚡', text: 'Експресна пратка 1–2 дни', color: '#d97706' },
                     { icon: '📞', text: 'Лична консултация безплатно', color: '#7c3aed' },
@@ -1095,9 +1095,7 @@ export default async function HomePage() {
           Ако AffiliateSection рендерира <a href={affiliate_url}>, увери се, че има:
           rel="nofollow sponsored noopener" target="_blank"
           Виж бележките в края на файла. */}
-      <div className="affiliate-section-wrap">
-        <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
-      </div>
+      <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
 
       {/* ══ СПЕЦИАЛНИ СЕКЦИИ ═══════════════════════════════════════════════════ */}
       {specialSections.map(sec => (
