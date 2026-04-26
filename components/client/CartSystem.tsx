@@ -21,16 +21,19 @@ function useIsMobile() {
   return isMobile
 }
 
-// ── Динамично измерване на долния ръб на sticky header (+ urgency bar ако е видим) ──
+// ── Динамично измерване на долния ръб на sticky header ──────────────────────
 function useHeaderBottom() {
   const [bottom, setBottom] = useState(60)
   useEffect(() => {
     function measure() {
-      // Measurваме header-а (sticky)
       const header = document.querySelector('.site-header') as HTMLElement | null
       if (header) {
         const rect = header.getBoundingClientRect()
-        setBottom(Math.round(rect.bottom))
+        // ✅ FIX: rect.bottom може да е 0 или негативно при бърз scroll.
+        // Използваме offsetHeight като по-стабилна fallback стойност.
+        const measured = Math.round(rect.bottom)
+        const fallback = header.offsetHeight || 60
+        setBottom(Math.max(fallback, measured > 0 ? measured : fallback))
       }
     }
     measure()
@@ -1175,6 +1178,8 @@ function CartDrawer({
           animation: cartSlideIn .28s cubic-bezier(.4,0,.2,1);
           font-family: 'Outfit', 'DM Sans', sans-serif;
           overflow: hidden; border-radius: 0 0 0 14px;
+          /* ✅ FIX: Гарантираме drawer да не излиза от viewport */
+          max-height: calc(100vh - 60px);
         }
 
         /* ══ МОБИЛНИ ≤ 640px: ЦЯЛ ЕКРАН ══════════════════════════
@@ -1333,11 +1338,11 @@ function CartDrawer({
 
       {/* Overlay покрива от top:0 на мобилни, от headerBottom на десктоп */}
       <div className="cart-overlay" onClick={onClose}
-        style={isMobile ? undefined : { top: headerBottom } as React.CSSProperties} />
+        style={isMobile ? undefined : { top: Math.max(48, headerBottom) } as React.CSSProperties} />
 
       {/* Drawer: на мобилни и десктоп стартира от headerBottom (под sticky header) */}
       <div className="cart-drawer" role="dialog" aria-modal="true" aria-label="Количка"
-        style={{ top: headerBottom } as React.CSSProperties}>
+        style={{ top: Math.max(48, headerBottom), maxHeight: `calc(100vh - ${Math.max(48, headerBottom)}px)` } as React.CSSProperties}>
 
         {/* ── HEADER ── */}
         <div className="cart-header">
