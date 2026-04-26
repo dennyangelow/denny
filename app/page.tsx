@@ -77,6 +77,8 @@ interface AffiliateProduct {
   badge_text: string; tag_text: string; color: string
   badge_color: string; category_label: string
   seo_title?: string; seo_description?: string; seo_keywords?: string
+  price?: number | string        // ✅ за schema.org offers
+  price_currency?: string        // ✅ за schema.org offers
 }
 
 interface CategoryLink {
@@ -315,6 +317,9 @@ async function getPageData() {
       seo_title:      p.seo_title      || null,
       seo_description:p.seo_description|| null,
       seo_keywords:   p.seo_keywords   || null,
+      // ✅ price за schema.org — Supabase може да върне numeric като string
+      price:          p.price != null ? (Number(p.price) || null) : null,
+      price_currency: p.price_currency || 'EUR',
     }))
 
     // ── Top 6 affiliate products by click count ──────────────────────────────
@@ -626,12 +631,18 @@ export default async function HomePage() {
           author: { '@type': 'Person', name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
           reviewBody: `Препоръчан от Denny Angelow — агро консултант с 8+ години опит в отглеждането на зеленчуци.`,
         },
-        offers: {
-          '@type':        'Offer',
-          availability:   'https://schema.org/InStock',
-          priceCurrency:  'BGN',
-          seller: { '@type': 'Organization', name: 'Agroapteki', url: 'https://agroapteki.com' },
-        },
+        // ✅ offers само ако има реална цена — без price Google връща грешка
+        ...(p.price ? {
+          offers: {
+            '@type':          'Offer',
+            price:             Number(p.price).toFixed(2),
+            priceCurrency:     p.price_currency || 'EUR',
+            availability:      'https://schema.org/InStock',
+            priceValidUntil:   new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            url:               `${BASE_URL}/produkt/${p.slug}`,
+            seller: { '@type': 'Organization', name: 'Agroapteki', url: 'https://agroapteki.com' },
+          },
+        } : {}),
       },
     })),
   } : null
