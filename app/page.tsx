@@ -915,10 +915,10 @@ export default async function HomePage() {
 
       {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
       {atlasProducts.length > 0 && (
-        <section id="atlas" style={{ padding: '72px 0 60px', background: 'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)', position: 'relative', overflow: 'hidden' }}>
+        <section id="atlas" className="atlas-section-wrap" style={{ background: 'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(22,163,74,.04) 1px, transparent 1px)', backgroundSize: '32px 32px', pointerEvents: 'none' }} />
 
-          <div style={{ maxWidth: 1160, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
+          <div className="atlas-inner-wrap" style={{ maxWidth: 1160, margin: '0 auto', position: 'relative' }}>
             <FadeIn>
               <div style={{ textAlign: 'center', marginBottom: 48 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', border: '1.5px solid #d1fae5', color: '#065f46', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 100, marginBottom: 18, boxShadow: '0 2px 8px rgba(22,163,74,.10)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
@@ -932,14 +932,14 @@ export default async function HomePage() {
                   Три специализирани биостимулаторни формули, разработени от <strong>български учени</strong>. Сертифицирани за екологично земеделие — Екосхема 3.
                 </p>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+                <div className="atlas-chips-grid">
                   {[
                     { icon: '🏭', text: 'Произведено в България' },
                     { icon: '🌿', text: 'Сертифицирано еко' },
                     { icon: '🔬', text: 'Разработено от учени' },
                     { icon: '📊', text: 'Безплатен анализ при 60л+' },
                   ].map(item => (
-                    <div key={item.text} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 100, padding: '6px 14px', fontSize: 12.5, fontWeight: 600, color: '#374151', boxShadow: '0 1px 4px rgba(0,0,0,.04)' }}>
+                    <div key={item.text} className="atlas-chip">
                       <span style={{ fontSize: 15 }}>{item.icon}</span>
                       {item.text}
                     </div>
@@ -1071,7 +1071,7 @@ export default async function HomePage() {
                 <div style={{ height: 3, background: 'linear-gradient(90deg, #d1fae5, #16a34a, #d1fae5)', position: 'absolute', top: 0, left: 0, right: 0 }} />
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0, padding: '14px 20px 12px' }}>
                   {[
-                    { icon: '🚚', text: `Безплатна доставка при 10л+ Атлас Тера`, color: '#16a34a' },
+                    { icon: '🚚', text: `Безплатна доставка над ${settings.free_shipping_above} ${settings.currency_symbol} (за Atlas Terra)`, color: '#16a34a' },
                     { icon: '💵', text: 'Плащане при доставка', color: '#2563eb' },
                     { icon: '⚡', text: 'Експресна пратка 1–2 дни', color: '#d97706' },
                     { icon: '📞', text: 'Лична консултация безплатно', color: '#7c3aed' },
@@ -1095,7 +1095,9 @@ export default async function HomePage() {
           Ако AffiliateSection рендерира <a href={affiliate_url}>, увери се, че има:
           rel="nofollow sponsored noopener" target="_blank"
           Виж бележките в края на файла. */}
-      <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
+      <div className="affiliate-section-wrap">
+        <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
+      </div>
 
       {/* ══ СПЕЦИАЛНИ СЕКЦИИ ═══════════════════════════════════════════════════ */}
       {specialSections.map(sec => (
@@ -1189,7 +1191,7 @@ export default async function HomePage() {
 
       {/* ══ TESTIMONIALS ═══════════════════════════════════════════════════════ */}
       {testimonials.length > 0 && (
-        <section id="testimonials" style={{ backgroundColor: '#f7f7f5', padding: '72px 24px' }}>
+        <section id="testimonials" className="testimonials-section" style={{ backgroundColor: '#f7f7f5' }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <FadeIn>
               <div className="section-head">

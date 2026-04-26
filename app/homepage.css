@@ -44,6 +44,10 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .cart-btn{background:#f0fdf4;color:#16a34a;border:2px solid #16a34a;border-radius:11px;padding:7px 14px;cursor:pointer;font-weight:800;font-size:13.5px;display:flex;align-items:center;gap:5px;transition:all .2s;font-family:inherit;white-space:nowrap;flex-shrink:0}
 .cart-btn--active{background:#16a34a;color:#fff}
 .cart-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(22,163,74,.25)}
+@media(max-width:640px){
+  .cart-btn{padding:6px 11px;font-size:12.5px;border-radius:9px}
+  .site-header{padding:0 14px;gap:8px}
+}
 .mob-btn{display:none;background:#f4f4f4;border:none;border-radius:9px;width:38px;height:38px;font-size:19px;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
 .mob-nav{position:sticky;top:60px;z-index:100;background:#fff;border-bottom:1px solid #e5e7eb;padding:10px 22px;display:flex;flex-direction:column;gap:3px;box-shadow:0 8px 24px rgba(0,0,0,.08);animation:slideRight .25s ease}
 .mob-nav-link{color:#374151;text-decoration:none;font-size:15px;font-weight:700;padding:9px 13px;border-radius:9px;display:block}
@@ -367,26 +371,63 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 }
 
 /* ── Sections ── */
-.section-wrap{padding:72px 24px;max-width:1100px;margin:0 auto}
-.section-head{text-align:center;margin-bottom:44px}
-.s-tag{font-size:10px;font-weight:700;letter-spacing:.14em;color:#16a34a;text-transform:uppercase}
-.s-title{font-family:'Cormorant Garamond',serif;font-size:clamp(30px,4.2vw,50px);margin:10px 0 10px;font-weight:700;line-height:1.1;letter-spacing:-.025em;font-feature-settings:'kern' 1,'liga' 1}
-.s-desc{color:#6b7280;font-size:15px;max-width:500px;margin:0 auto;line-height:1.7;font-weight:400}
+.section-wrap{padding:72px 24px;max-width:1200px;margin:0 auto}
+.section-head{text-align:center;margin-bottom:48px}
+.s-tag{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.14em;color:#16a34a;text-transform:uppercase;background:#f0fdf4;border:1px solid #bbf7d0;padding:5px 14px;border-radius:100px}
+.s-title{font-family:'Cormorant Garamond',serif;font-size:clamp(28px,4.2vw,52px);margin:14px 0 12px;font-weight:700;line-height:1.08;letter-spacing:-.025em;font-feature-settings:'kern' 1,'liga' 1}
+.s-desc{color:#6b7280;font-size:15.5px;max-width:520px;margin:0 auto;line-height:1.75;font-weight:400}
+@media(max-width:640px){
+  .section-head{margin-bottom:28px}
+  .s-desc{font-size:14px}
+  .s-title{margin:10px 0 8px}
+}
 
 /* ── Categories ── */
 .categories-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .cat-card{display:flex;align-items:center;gap:13px;background:#fff;border-radius:16px;padding:16px 18px;border:2px solid #e5e7eb;font-weight:700;font-size:13.5px;color:#1a1a1a;box-shadow:0 2px 12px rgba(0,0,0,.04);text-decoration:none;transition:all .25s}
 .cat-card:hover{border-color:var(--cat-color,#16a34a);box-shadow:0 8px 28px rgba(22,163,74,.12);background:#f9fff9;transform:translateY(-3px)}
+@media(max-width:960px){.categories-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){
+  .categories-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px}
+  .cat-card{gap:9px;padding:12px 11px;font-size:12.5px;border-radius:13px;border-width:1.5px}
+  /* Иконката (1-ви span) — по-малка */
+  .cat-card > span:first-child{
+    width:34px!important;height:34px!important;
+    font-size:16px!important;border-radius:9px!important;
+    flex-shrink:0!important;
+  }
+  /* Текстът (2-ри span) */
+  .cat-card > span:nth-child(2){font-size:12.5px!important;line-height:1.3}
+  /* Стрелката (3-ти span) — скрита */
+  .cat-card > span:last-child{display:none!important}
+}
+@media(max-width:380px){
+  .categories-grid{gap:6px}
+  .cat-card{padding:10px 9px;font-size:12px;gap:8px}
+  .cat-card > span:first-child{width:30px!important;height:30px!important;font-size:15px!important}
+}
 
 /* ── Product cards ── */
 .products-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
 .product-card{background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);border:1.5px solid #f0f0f0;display:flex;flex-direction:column;height:100%;transition:all .22s}
 .product-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(22,163,74,.15);border-color:rgba(22,163,74,.3)}
+/* На мобилен — по-компактна снимка и по-малко padding */
+@media(max-width:640px){
+  .product-card > div:first-child{min-height:140px!important;padding:14px 14px 0!important}
+  .product-card > div:first-child img{max-height:120px!important}
+  .product-card > div:last-child{padding:12px 14px 16px!important;gap:3px!important}
+  .product-card h3{font-size:17px!important}
+  .product-card > div:last-child > a:last-child{padding:10px 14px!important;font-size:13px!important;border-radius:10px!important}
+}
+@media(max-width:380px){
+  .product-card > div:first-child{min-height:120px!important}
+  .product-card > div:first-child img{max-height:100px!important}
+}
 
 /* ── Atlas Terra ── */
 .atlas-section{background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf4 100%);padding:72px 24px;position:relative;overflow:hidden}
 .atlas-blob{position:absolute;top:-70px;right:-50px;width:280px;height:280px;border-radius:50%;background:rgba(22,163,74,.07);pointer-events:none}
-.atlas-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-bottom:40px}
+.atlas-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-bottom:40px}
 .atlas-card{background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.09);border:2px solid #d1fae5;display:flex;flex-direction:column;transition:all .3s ease}
 .add-btn{background:#16a34a;color:#fff;border:none;border-radius:12px;padding:11px 18px;cursor:pointer;font-weight:800;font-size:14px;box-shadow:0 4px 14px rgba(22,163,74,.3);transition:all .2s;font-family:inherit;white-space:nowrap}
 .add-btn:hover{background:#15803d;transform:translateY(-1px)}
@@ -394,10 +435,10 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .cta-link-btn:hover{background:#14532d;transform:translateY(-2px)}
 
 /* ── Ginegar ── */
-.ginegar-section{background:#0f1f14;padding:72px 24px;position:relative;overflow:hidden}
+.ginegar-section{background:#0f1f14;padding:80px 32px;position:relative;overflow:hidden}
 .ginegar-glow{position:absolute;top:0;right:0;width:560px;height:100%;opacity:.12;pointer-events:none;background:radial-gradient(ellipse at top right,#22c55e,transparent 65%)}
 .ginegar-dots{position:absolute;inset:0;pointer-events:none;opacity:.07;background-image:radial-gradient(circle,rgba(255,255,255,.25) 1px,transparent 1px);background-size:36px 36px}
-.ginegar-inner{display:flex;flex-wrap:wrap;gap:48px;align-items:center;justify-content:space-between}
+.ginegar-inner{display:flex;flex-wrap:wrap;gap:56px;align-items:center;justify-content:space-between;max-width:1100px;margin:0 auto;position:relative;z-index:1}
 .ginegar-text{flex:1 1 340px;min-width:0}
 .ginegar-img-wrap{flex:0 0 auto;text-align:center;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;z-index:1}
 .ginegar-btn{display:inline-flex;align-items:center;gap:7px;background:#16a34a;color:#fff;text-decoration:none;padding:13px 26px;border-radius:13px;font-weight:800;font-size:14.5px;box-shadow:0 8px 24px rgba(22,163,74,.35);transition:all .25s}
@@ -667,46 +708,133 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .nar-back{display:block;text-align:center;padding:18px 32px 26px;color:#9ca3af;text-decoration:none;font-size:13.5px;font-weight:600;transition:color .2s}
 .nar-back:hover{color:#86efac}
 
+/* ── Atlas Terra chips ── */
+.atlas-chips-grid{
+  display:flex;flex-wrap:wrap;justify-content:center;gap:10px;
+}
+.atlas-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  background:#fff;border:1px solid #e5e7eb;border-radius:100px;
+  padding:6px 14px;font-size:12.5px;font-weight:600;color:#374151;
+  box-shadow:0 1px 4px rgba(0,0,0,.04);white-space:nowrap;
+}
+@media(max-width:640px){
+  .atlas-chips-grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;
+    max-width:360px;margin:0 auto;
+  }
+  .atlas-chip{
+    border-radius:14px;padding:9px 12px;
+    justify-content:flex-start;white-space:normal;font-size:12px;
+  }
+}
+
+/* ── Affiliate section wrapper ── */
+.affiliate-section-wrap{padding-top:20px}
+@media(max-width:640px){.affiliate-section-wrap{padding-top:12px}}
+
+/* ── Testimonials section wrapper ── */
+.testimonials-section{padding:72px 24px}
+@media(max-width:640px){.testimonials-section{padding:48px 16px}}
+@media(max-width:380px){.testimonials-section{padding:36px 14px}}
+
+/* ── Atlas Terra section wrapper ── */
+.atlas-section-wrap{padding:44px 0 60px}
+.atlas-inner-wrap{padding:0 24px}
+@media(max-width:640px){
+  .atlas-section-wrap{padding:32px 0 40px}
+  .atlas-inner-wrap{padding:0 16px}
+}
+@media(max-width:380px){
+  .atlas-section-wrap{padding:24px 0 32px}
+  .atlas-inner-wrap{padding:0 14px}
+}
+
 /* ── Responsive ── */
+
+/* Таблет широк (960–1060px) */
 @media(max-width:1060px){
   .atlas-grid{grid-template-columns:repeat(2,1fr)!important}
 }
-@media(max-width:960px){
-  .products-grid{grid-template-columns:repeat(2,1fr)!important}
-  .testimonials-grid{grid-template-columns:repeat(2,1fr)}
-  .categories-grid{grid-template-columns:repeat(2,1fr)}
-  .hero-inner{grid-template-columns:1fr;padding:36px 24px 48px;gap:28px}
-  .hero-title{font-size:clamp(30px,5vw,42px)}
-}
-@media(max-width:640px){
-  .products-grid,.atlas-grid,.categories-grid,.testimonials-grid{grid-template-columns:1fr!important}
-  .hero-inner{padding:28px 18px 36px;gap:20px}
-  .hero-title{font-size:30px}
 
-  .handbooks-panel{padding:18px 16px}
-  .hb-card{padding:12px 14px}
-  .hb-card-emoji{font-size:28px}
+/* Таблет (640–960px) */
+@media(max-width:960px){
+  .products-grid{grid-template-columns:repeat(2,1fr)!important;gap:16px}
+  .testimonials-grid{grid-template-columns:repeat(2,1fr)}
+  .hero-inner{grid-template-columns:1fr;padding:36px 28px 48px;gap:24px}
+  .hero-title{font-size:clamp(30px,5vw,44px)}
+  .ginegar-inner{gap:36px}
+  .section-wrap{padding:60px 28px}
+  .atlas-grid{grid-template-columns:repeat(2,1fr)!important;gap:18px}
+}
+
+/* Мобилен (≤640px) */
+@media(max-width:640px){
+  /* Grids — 2 колони на мобилен за продукти */
+  .products-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px}
+  .atlas-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px}
+  .testimonials-grid{grid-template-columns:1fr!important}
+
+  /* Hero */
+  .hero-inner{padding:24px 16px 32px;gap:20px}
+  .hero-title{font-size:28px}
+  .hero-subtitle-text{font-size:14px}
+  .hero-warning{padding:10px 13px}
+
+  /* Handbooks panel */
+  .handbooks-panel{padding:16px 14px}
+  .hb-card{padding:11px 12px;gap:10px}
+  .hb-card-emoji{font-size:26px}
   .hb-card-title{font-size:14px}
+
+  /* Navigation */
   .header-nav{display:none}
   .mob-btn{display:flex}
-  .section-wrap{padding:48px 18px}
-  .atlas-section,.ginegar-section{padding:56px 18px}
-  .ginegar-img-wrap{flex:1 1 100%;order:-1;max-width:220px;margin:0 auto}
 
+  /* Section spacing — тighter на мобилен */
+  .section-wrap{padding:40px 16px}
+  .ginegar-section{padding:48px 16px}
+
+  /* Ginegar */
+  .ginegar-inner{gap:24px;flex-direction:column}
+  .ginegar-img-wrap{flex:1 1 100%;order:-1;max-width:200px;margin:0 auto}
+  .ginegar-text{flex:1 1 100%}
+
+  /* Cart */
   .cart-drawer{max-width:100%}
-  .float-cart{bottom:14px;right:14px;padding:11px 16px;font-size:13.5px}
-  .urgency-bar{font-size:11.5px;padding:7px 14px}
-  .nar-page-bg{padding:16px}
-  .nar-header{padding:28px 20px 22px}
-  .nar-cover{padding:16px 20px 0}
-  .nar-info,.nar-dl-wrap{padding-left:20px;padding-right:20px}
-  .nar-inside,.nar-email-confirm,.nar-shipping,.nar-others{margin-left:16px;margin-right:16px}
+  .float-cart{bottom:14px;right:14px;padding:11px 16px;font-size:13px}
+
+  /* Misc */
+  .urgency-bar{font-size:11.5px;padding:7px 14px;line-height:1.4}
+
+  /* Naruchnik */
+  .nar-page-bg{padding:14px}
+  .nar-header{padding:26px 18px 20px}
+  .nar-cover{padding:14px 18px 0}
+  .nar-info,.nar-dl-wrap{padding-left:18px;padding-right:18px}
+  .nar-inside,.nar-email-confirm,.nar-shipping,.nar-others{margin-left:14px;margin-right:14px}
   .nar-others-grid{grid-template-columns:repeat(2,1fr)!important}
 }
+
+/* Малък мобилен (≤480px) */
 @media(max-width:480px){
-  .hero-title{font-size:27px}
-  .categories-grid{grid-template-columns:1fr}
+  .hero-title{font-size:26px}
+  .hero-learn-grid{grid-template-columns:1fr}
   .nar-others-grid{grid-template-columns:1fr!important}
+  /* Atlas картите — 1 колона на много малък */
+  .atlas-grid{grid-template-columns:1fr!important}
+  .s-title{font-size:clamp(26px,7vw,36px)}
+}
+
+/* Много малък (≤380px) */
+@media(max-width:380px){
+  .hero-title{font-size:24px}
+  .hero-inner{padding:20px 14px 28px}
+  .products-grid{grid-template-columns:1fr!important}
+  .section-wrap{padding:32px 14px}
+  .ginegar-section{padding:36px 14px}
+  .atlas-section-wrap{padding:36px 0 28px}
+  .atlas-inner-wrap{padding:0 14px}
 }
 
 /* Cart button badge */
