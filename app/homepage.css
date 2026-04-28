@@ -411,17 +411,24 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .products-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
 .product-card{background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);border:1.5px solid #f0f0f0;display:flex;flex-direction:column;height:100%;transition:all .22s}
 .product-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(22,163,74,.15);border-color:rgba(22,163,74,.3)}
-/* На мобилен — по-компактна снимка и по-малко padding */
+/* На мобилен — хоризонтална карта (снимка вляво, съдържание вдясно) */
 @media(max-width:640px){
-  .product-card > div:first-child{min-height:140px!important;padding:14px 14px 0!important}
-  .product-card > div:first-child img{max-height:120px!important}
-  .product-card > div:last-child{padding:12px 14px 16px!important;gap:3px!important}
-  .product-card h3{font-size:17px!important}
-  .product-card > div:last-child > a:last-child{padding:10px 14px!important;font-size:13px!important;border-radius:10px!important}
+  .product-card{flex-direction:row!important;align-items:stretch;border-radius:14px;height:auto}
+  .product-card:hover{transform:none}
+  .product-card > div:first-child{
+    width:130px!important;min-width:130px!important;flex-shrink:0;
+    min-height:unset!important;padding:14px 10px!important;
+    border-radius:0;
+  }
+  .product-card > div:first-child img{max-height:110px!important;width:100%}
+  .product-card > div:last-child{padding:12px 14px 14px!important;gap:3px!important;flex:1}
+  .product-card h3{font-size:16px!important;margin-bottom:2px}
+  .product-card > div:last-child > a:last-child{padding:10px 12px!important;font-size:13px!important;border-radius:10px!important;margin-top:8px}
 }
 @media(max-width:380px){
-  .product-card > div:first-child{min-height:120px!important}
+  .product-card > div:first-child{width:110px!important;min-width:110px!important}
   .product-card > div:first-child img{max-height:100px!important}
+  .product-card h3{font-size:15px!important}
 }
 
 /* ── Atlas Terra ── */
@@ -720,12 +727,11 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 }
 @media(max-width:640px){
   .atlas-chips-grid{
-    display:grid;grid-template-columns:1fr 1fr;gap:8px;
-    max-width:360px;margin:0 auto;
+    display:flex;flex-wrap:wrap;justify-content:center;gap:7px;
   }
   .atlas-chip{
-    border-radius:14px;padding:9px 12px;
-    justify-content:flex-start;white-space:normal;font-size:12px;
+    border-radius:100px;padding:6px 13px;font-size:11.5px;
+    white-space:nowrap;cursor:default;pointer-events:none;
   }
 }
 
@@ -770,8 +776,8 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 
 /* Мобилен (≤640px) */
 @media(max-width:640px){
-  /* Grids — 2 колони на мобилен за продукти */
-  .products-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px}
+  /* Грид — 1 колона на мобилен за продукти (хоризонтални карти) */
+  .products-grid{grid-template-columns:1fr!important;gap:12px}
   .atlas-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px}
   .testimonials-grid{grid-template-columns:1fr!important}
 
@@ -830,7 +836,6 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 @media(max-width:380px){
   .hero-title{font-size:24px}
   .hero-inner{padding:20px 14px 28px}
-  .products-grid{grid-template-columns:1fr!important}
   .section-wrap{padding:32px 14px}
   .ginegar-section{padding:36px 14px}
   .atlas-section-wrap{padding:36px 0 28px}
