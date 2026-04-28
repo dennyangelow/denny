@@ -232,6 +232,23 @@ export function ProduktCatalogClient({ products, categories }: Props) {
 
                   {/* Тяло */}
                   <div className="pk-card-body">
+
+                    {/* МОБИЛЕН: badge + tag в горната лента на body */}
+                    {(p.badge_text || p.tag_text) && (
+                      <div className="pk-mobile-badges">
+                        {p.badge_text && (
+                          <span className="pk-mobile-badge" style={{ background: p.badge_color || color }}>
+                            {p.badge_text}
+                          </span>
+                        )}
+                        {p.tag_text && (
+                          <span className="pk-mobile-tag">
+                            {p.emoji} {p.tag_text}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {p.category_label && (
                       <div className="pk-card-cat" style={{ color }}>
                         {CAT_ICONS[p.category_label] || p.emoji || '🌿'} {p.category_label}

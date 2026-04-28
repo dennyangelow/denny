@@ -343,6 +343,11 @@ a:hover .pk-card-title { color: #16a34a; }
 }
 .pk-bottom-btn-ghost:hover { border-color: #16a34a; color: #16a34a; }
 
+/* Mobile-only badge/tag row — скрит на desktop */
+.pk-mobile-badges {
+  display: none;
+}
+
 /* ══ RESPONSIVE ════════════════════════════════════════════════════ */
 @media (max-width: 960px) {
   .pk-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
@@ -385,10 +390,35 @@ a:hover .pk-card-title { color: #16a34a; }
     border-radius: 0;
   }
   .pk-card-img { max-height: 110px; }
-  .pk-card-body { padding: 14px 14px 14px; gap: 4px; }
-  .pk-card-title { font-size: 17px; }
-  .pk-card-sub   { font-size: 12px; }
+  .pk-card-body { padding: 12px 13px 13px; gap: 3px; }
+  .pk-card-title { font-size: 16px; }
+  .pk-card-sub   { font-size: 11.5px; }
   .pk-card:hover { transform: none; }
+
+  /* Скриваме absolute badges от снимката — няма място */
+  .pk-badge,
+  .pk-tag { display: none !important; }
+
+  /* Показваме мобилния ред с badge + tag */
+  .pk-mobile-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 3px;
+  }
+  .pk-mobile-badge {
+    color: #fff;
+    font-size: 9.5px; font-weight: 800;
+    letter-spacing: .04em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 20px;
+  }
+  .pk-mobile-tag {
+    background: rgba(0,0,0,.05);
+    color: #374151;
+    font-size: 10px; font-weight: 700;
+    padding: 3px 8px; border-radius: 20px;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
 }
 
 @media (max-width: 400px) {
