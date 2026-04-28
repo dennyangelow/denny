@@ -109,13 +109,15 @@ export function AffiliateSection({ products, allProducts }: Props) {
                 }}
               >
                 {/* ── Изображение ── */}
-                <div style={{
+                <div className="aff-img-wrap" style={{
                   position: 'relative', background: '#f8f9fa',
                   minHeight: 220, display: 'flex', alignItems: 'center',
                   justifyContent: 'center', padding: '20px 20px 0',
+                  flexDirection: 'column',
                 }}>
+                  {/* badge_text — горе вляво, само desktop */}
                   {p.badge_text && (
-                    <div style={{
+                    <div className="aff-badge-desktop" style={{
                       position: 'absolute', top: 14, left: 14,
                       background: badgeColor, color: '#fff',
                       fontSize: 11, fontWeight: 800,
@@ -125,8 +127,9 @@ export function AffiliateSection({ products, allProducts }: Props) {
                       {p.badge_text}
                     </div>
                   )}
+                  {/* tag_text — горе вдясно, само desktop */}
                   {p.tag_text && (
-                    <div style={{
+                    <div className="aff-tag-desktop" style={{
                       position: 'absolute', top: 14, right: 14,
                       background: 'rgba(255,255,255,0.95)', color: '#374151',
                       fontSize: 11, fontWeight: 700,
@@ -138,10 +141,10 @@ export function AffiliateSection({ products, allProducts }: Props) {
                       {p.tag_text}
                     </div>
                   )}
-                  {/* Карантина badge */}
+                  {/* Карантина badge — долу вляво, само desktop */}
                   {typeof p.quarantine_days === 'number' && (
-                    <div style={{
-                      position: 'absolute', bottom: 10, right: 10,
+                    <div className="aff-quarantine-desktop" style={{
+                      position: 'absolute', bottom: 10, left: 10,
                       background: p.quarantine_days === 0 ? '#f0fdf4' : '#fff7ed',
                       color:      p.quarantine_days === 0 ? '#166534'  : '#9a3412',
                       border:     `1px solid ${p.quarantine_days === 0 ? '#bbf7d0' : '#fed7aa'}`,
@@ -159,10 +162,53 @@ export function AffiliateSection({ products, allProducts }: Props) {
                       style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block' }}
                     />
                   </a>
+                  {/* МОБИЛЕН: badge горе в img зоната */}
+                  {p.badge_text && (
+                    <div className="aff-badge-mobile" style={{
+                      display: 'none',
+                      background: badgeColor, color: '#fff',
+                      fontSize: 10, fontWeight: 800,
+                      padding: '3px 9px', borderRadius: 20,
+                      letterSpacing: '0.04em', textTransform: 'uppercase',
+                      alignSelf: 'flex-start', marginTop: 6,
+                    }}>
+                      {p.badge_text}
+                    </div>
+                  )}
                 </div>
 
                 {/* ── Съдържание ── */}
                 <div style={{ padding: '18px 22px 22px', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {/* МОБИЛЕН: tag_text + карантина в 1 ред горе в content */}
+                  {(p.tag_text || typeof p.quarantine_days === 'number') && (
+                    <div className="aff-mobile-meta-row" style={{
+                      display: 'none', flexWrap: 'wrap', gap: 5, marginBottom: 4,
+                    }}>
+                      {p.tag_text && (
+                        <span style={{
+                          background: 'rgba(255,255,255,0.95)', color: '#374151',
+                          fontSize: 10, fontWeight: 700,
+                          padding: '3px 9px', borderRadius: 20,
+                          border: '1px solid #e5e7eb',
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                        }}>
+                          {p.emoji && <span>{p.emoji}</span>}
+                          {p.tag_text}
+                        </span>
+                      )}
+                      {typeof p.quarantine_days === 'number' && (
+                        <span style={{
+                          background: p.quarantine_days === 0 ? '#f0fdf4' : '#fff7ed',
+                          color:      p.quarantine_days === 0 ? '#166534'  : '#9a3412',
+                          border:     `1px solid ${p.quarantine_days === 0 ? '#bbf7d0' : '#fed7aa'}`,
+                          fontSize: 10, fontWeight: 700,
+                          padding: '3px 9px', borderRadius: 20,
+                        }}>
+                          {p.quarantine_days === 0 ? '✓ 0 дни карантина' : `${p.quarantine_days}д. карантина`}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {p.category_label && (
                     <div style={{
                       fontSize: 10.5, fontWeight: 800, color: cardColor,
@@ -326,6 +372,26 @@ export function AffiliateSection({ products, allProducts }: Props) {
           </a>
         </div>
       </FadeIn>
+
+      {/* Mobile layout CSS */}
+      <style>{`
+        @media (max-width: 640px) {
+          /* Показваме мобилните елементи */
+          .aff-mobile-meta-row { display: flex !important; }
+          .aff-badge-mobile    { display: flex !important; }
+          /* Скриваме desktop-only елементите */
+          .aff-badge-desktop   { display: none !important; }
+          .aff-tag-desktop     { display: none !important; }
+          .aff-quarantine-desktop { display: none !important; }
+          /* img wrap на мобилен — flex-col, justify-start */
+          .aff-img-wrap {
+            min-height: unset !important;
+            padding: 14px 10px 10px !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+          }
+        }
+      `}</style>
     </section>
   )
 }
