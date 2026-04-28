@@ -153,6 +153,8 @@ interface ProductVariant {
 interface AtlasProduct {
   id: string; name: string; subtitle: string; desc: string; badge: string; emoji: string; img: string
   price: number; comparePrice: number; priceLabel: string; features: string[]; variants?: ProductVariant[]
+  outOfStock?: boolean  // true = продуктът / всички активни варианти са с stock=0
+  stock?: number        // директен stock (за продукти без варианти)
 }
 interface CartItem {
   productId: string; variantId: string; productName: string; variantLabel: string
@@ -892,30 +894,45 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
   const discount = selectedVariant && selectedVariant.compare_price > selectedVariant.price
     ? Math.round(((selectedVariant.compare_price - selectedVariant.price) / selectedVariant.compare_price) * 100) : 0
 
+  // ── Out-of-stock логика ────────────────────────────────────────────────────
+  // Ако продуктът има варианти → изчерпан само когато избраният вариант е stock=0
+  // Ако няма варианти → ползваме outOfStock флага подаден от page.tsx
+  const selectedVariantOutOfStock = selectedVariant ? selectedVariant.stock === 0 : false
+  const isOutOfStock = variants.length > 0 ? selectedVariantOutOfStock : (product.outOfStock === true)
+
   const handleAdd = () => {
-    if (!selectedVariant) return
+    if (!selectedVariant || isOutOfStock) return
     onAddToCart({ productId: product.id, variantId: selectedVariant.id, productName: product.name, variantLabel: selectedVariant.label, price: selectedVariant.price, comparePrice: Number(selectedVariant.compare_price) > Number(selectedVariant.price) ? Number(selectedVariant.compare_price) : 0, qty: 1, emoji: product.emoji, img: product.img || '', size_liters: selectedVariant.size_liters })
     setAdded(true); setTimeout(() => setAdded(false), 1800)
   }
 
   return (
-    <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 4px 32px rgba(0,0,0,.07)', border: '1.5px solid #f0f0f0', display: 'flex', flexDirection: 'column', transition: 'transform .2s, box-shadow .2s' }}
-      onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-4px)'; el.style.boxShadow = '0 12px 48px rgba(0,0,0,.12)' }}
+    <div
+      style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 4px 32px rgba(0,0,0,.07)', border: `1.5px solid ${isOutOfStock ? '#fee2e2' : '#f0f0f0'}`, display: 'flex', flexDirection: 'column', transition: 'transform .2s, box-shadow .2s', opacity: isOutOfStock ? 0.85 : 1 }}
+      onMouseEnter={e => { if (!isOutOfStock) { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-4px)'; el.style.boxShadow = '0 12px 48px rgba(0,0,0,.12)' } }}
       onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.transform = ''; el.style.boxShadow = '0 4px 32px rgba(0,0,0,.07)' }}>
-      <div style={{ position: 'relative', background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        {product.badge && <div style={{ position: 'absolute', top: 14, left: 14, background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 30, letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>{product.badge}</div>}
-        {discount > 0 && <div style={{ position: 'absolute', top: 14, right: 14, background: '#dc2626', color: '#fff', fontSize: 12, fontWeight: 900, padding: '4px 10px', borderRadius: 30 }}>-{discount}%</div>}
-        {product.img ? <img src={product.img} alt={product.name} style={{ maxHeight: 160, maxWidth: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 72 }}>{product.emoji}</span>}
+      {/* Горна секция */}
+      <div style={{ position: 'relative', background: isOutOfStock ? 'linear-gradient(135deg,#fef2f2,#fee2e2)' : 'linear-gradient(135deg,#f0fdf4,#dcfce7)', minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        {isOutOfStock
+          ? <div style={{ position: 'absolute', top: 14, left: 14, background: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 30, letterSpacing: '0.05em', textTransform: 'uppercase' as const, boxShadow: '0 2px 8px rgba(220,38,38,0.3)' }}>⛔ Изчерпан</div>
+          : product.badge && <div style={{ position: 'absolute', top: 14, left: 14, background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 30, letterSpacing: '0.05em', textTransform: 'uppercase' as const }}>{product.badge}</div>
+        }
+        {discount > 0 && !isOutOfStock && <div style={{ position: 'absolute', top: 14, right: 14, background: '#dc2626', color: '#fff', fontSize: 12, fontWeight: 900, padding: '4px 10px', borderRadius: 30 }}>-{discount}%</div>}
+        {product.img
+          ? <img src={product.img} alt={product.name} style={{ maxHeight: 160, maxWidth: '100%', objectFit: 'contain', filter: isOutOfStock ? 'grayscale(35%)' : 'none', transition: 'filter .2s' }} />
+          : <span style={{ fontSize: 72, filter: isOutOfStock ? 'grayscale(50%)' : 'none' }}>{product.emoji}</span>
+        }
       </div>
+      {/* Долна секция */}
       <div style={{ padding: '20px 22px 22px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', letterSpacing: '0.07em', textTransform: 'uppercase' as const, marginBottom: 6 }}>{product.emoji} {product.subtitle}</div>
+        <div style={{ fontSize: 11, fontWeight: 800, color: isOutOfStock ? '#9ca3af' : '#16a34a', letterSpacing: '0.07em', textTransform: 'uppercase' as const, marginBottom: 6 }}>{product.emoji} {product.subtitle}</div>
         <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 800, color: '#111', margin: '0 0 10px', lineHeight: 1.2 }}>{product.name}</h3>
         <p style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.65, marginBottom: 16 }}>{product.desc}</p>
         {product.features?.length > 0 && (
           <ul style={{ margin: '0 0 18px', padding: 0, listStyle: 'none' }}>
             {product.features.slice(0, 3).map((f, i) => (
               <li key={i} style={{ fontSize: 12.5, color: '#374151', padding: '5px 0', display: 'flex', gap: 8, alignItems: 'flex-start', borderBottom: '1px solid #f5f5f5' }}>
-                <span style={{ background: '#16a34a', color: '#fff', width: 15, height: 15, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 900, flexShrink: 0, marginTop: 1 }}>✓</span>{f}
+                <span style={{ background: isOutOfStock ? '#d1d5db' : '#16a34a', color: '#fff', width: 15, height: 15, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 900, flexShrink: 0, marginTop: 1 }}>✓</span>{f}
               </li>
             ))}
           </ul>
@@ -926,23 +943,31 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
               {variants.map(v => {
                 const sel = v.id === selectedVariantId
+                const variantOut = v.stock === 0
                 const savePct = v.compare_price > v.price ? Math.round(((v.compare_price - v.price) / v.compare_price) * 100) : 0
                 return (
-                  <button key={v.id} onClick={() => setSelectedVariantId(v.id)} style={{ flex: '1 1 calc(50% - 4px)', padding: '10px 12px', borderRadius: 12, border: sel ? '2px solid #16a34a' : '1.5px solid #e5e7eb', background: sel ? '#f0fdf4' : '#fafafa', cursor: 'pointer', textAlign: 'left' as const, transition: 'all .15s', fontFamily: 'inherit' }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: sel ? '#15803d' : '#374151' }}>{v.label}</div>
-                    <div style={{ fontSize: 16, fontWeight: 900, color: sel ? '#16a34a' : '#111', marginTop: 2 }}>{fmt(v.price)}</div>
+                  <button key={v.id} onClick={() => setSelectedVariantId(v.id)}
+                    style={{ flex: '1 1 calc(50% - 4px)', padding: '10px 12px', borderRadius: 12, border: sel ? `2px solid ${variantOut ? '#f87171' : '#16a34a'}` : `1.5px solid ${variantOut ? '#fecaca' : '#e5e7eb'}`, background: sel ? (variantOut ? '#fff1f1' : '#f0fdf4') : (variantOut ? '#fafafa' : '#fafafa'), cursor: 'pointer', textAlign: 'left' as const, transition: 'all .15s', fontFamily: 'inherit', position: 'relative' as const, opacity: variantOut ? 0.7 : 1 }}>
+                    {/* Ribbon "ИЗЧЕРПАН" за варианта */}
+                    {variantOut && (
+                      <div style={{ position: 'absolute' as const, top: 0, right: 0, background: 'linear-gradient(135deg,#ef4444,#dc2626)', color: '#fff', fontSize: 8, fontWeight: 900, padding: '3px 8px', borderRadius: '0 10px 0 8px', letterSpacing: '0.05em' }}>
+                        ИЗЧЕРПАН
+                      </div>
+                    )}
+                    <div style={{ fontSize: 13, fontWeight: 800, color: variantOut ? '#9ca3af' : (sel ? '#15803d' : '#374151') }}>{v.label}</div>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: variantOut ? '#d1d5db' : (sel ? '#16a34a' : '#111'), marginTop: 2, textDecoration: variantOut ? 'line-through' : 'none' }}>{fmt(v.price)}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' as const }}>
-                      {v.compare_price > v.price && <span style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(v.compare_price)}</span>}
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#059669', background: '#d1fae5', padding: '1px 6px', borderRadius: 6 }}>{fmtLiter(v.price_per_liter)}</span>
+                      {v.compare_price > v.price && !variantOut && <span style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(v.compare_price)}</span>}
+                      {!variantOut && <span style={{ fontSize: 11, fontWeight: 700, color: '#059669', background: '#d1fae5', padding: '1px 6px', borderRadius: 6 }}>{fmtLiter(v.price_per_liter)}</span>}
                     </div>
-                    {savePct > 0 && v.size_liters >= 20 && <div style={{ fontSize: 10, fontWeight: 800, color: '#dc2626', marginTop: 3 }}>🔥 Спестяваш {savePct}%</div>}
+                    {savePct > 0 && v.size_liters >= 20 && !variantOut && <div style={{ fontSize: 10, fontWeight: 800, color: '#dc2626', marginTop: 3 }}>🔥 Спестяваш {savePct}%</div>}
                   </button>
                 )
               })}
             </div>
           </div>
         )}
-        {selectedVariant && (
+        {selectedVariant && !isOutOfStock && (
           <div style={{ background: '#f0fdf4', borderRadius: 12, padding: '12px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Избрано: {selectedVariant.label}</div>
@@ -959,14 +984,49 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
             </div>
           </div>
         )}
-        <button onClick={handleAdd} disabled={!selectedVariant} style={{ display: 'block', width: '100%', padding: '13px 20px', background: added ? '#059669' : '#16a34a', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .2s', marginTop: 'auto', transform: added ? 'scale(0.98)' : 'scale(1)' }}>
-          {added ? '✓ Добавено!' : '🛒 Добави в количката'}
-        </button>
+        {/* ── БУТОН: нормален при наличност, красив out-of-stock при изчерпан ── */}
+        {isOutOfStock ? (
+          <div style={{ marginTop: 'auto' }}>
+            {/* Изчерпан бутон */}
+            <button
+              disabled
+              style={{ width: '100%', padding: '13px 20px', background: 'linear-gradient(135deg,#f1f5f9,#e2e8f0)', color: '#94a3b8', border: '1.5px solid #e2e8f0', borderRadius: 14, fontWeight: 800, fontSize: 15, cursor: 'not-allowed', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, letterSpacing: '-0.01em' }}>
+              <span style={{ fontSize: 16 }}>⛔</span> Временно изчерпан
+            </button>
+            {/* Call-to-action: насочва към другите продукти */}
+            <div style={{ marginTop: 12, background: 'linear-gradient(135deg,#fff7ed,#ffedd5)', border: '1.5px solid #fed7aa', borderRadius: 14, padding: '13px 15px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>💡</span>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', marginBottom: 4, lineHeight: 1.3 }}>
+                    Разгледай другите ни продукти
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#b45309', lineHeight: 1.55 }}>
+                    Докато се допълват наличностите, Atlas Terra и AMINO са в наличност и доставяме до <strong>24 часа</strong>.
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => { const el = document.getElementById('atlas') || document.querySelector('[data-section="products"]'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                style={{ width: '100%', marginTop: 10, padding: '9px 14px', background: 'linear-gradient(135deg,#f97316,#ea580c)', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: '0 3px 12px rgba(249,115,22,0.35)', transition: 'all .2s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.filter = 'brightness(1.08)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.filter = '' }}>
+                <span>👀</span> Виж наличните продукти
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={handleAdd}
+            disabled={!selectedVariant}
+            style={{ display: 'block', width: '100%', padding: '13px 20px', background: added ? '#059669' : '#16a34a', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .2s', marginTop: 'auto', transform: added ? 'scale(0.98)' : 'scale(1)' }}>
+            {added ? '✓ Добавено!' : '🛒 Добави в количката'}
+          </button>
+        )}
       </div>
     </div>
   )
 }
-
 // ─── Cart Drawer ──────────────────────────────────────────────────────────────
 function CartDrawer({
   items, shippingPrice, freeShippingAbove, sitePhone,

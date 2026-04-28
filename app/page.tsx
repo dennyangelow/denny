@@ -67,6 +67,9 @@ interface AtlasProduct {
   seo_keywords: string
   price: number; comparePrice: number; priceLabel: string
   features: string[]; variants?: ProductVariant[]
+  // Наличност: true = изчерпан (всички варианти с stock=0 или продуктът с stock=0)
+  outOfStock?: boolean
+  stock?: number
 }
 
 interface AffiliateProduct {
@@ -279,6 +282,15 @@ async function getPageData() {
           active: v.active !== false,
         }))
       const base = variants[0]
+
+      // ── Наличност / OutOfStock логика ──────────────────────────────────────
+      // Ако продуктът има варианти → изчерпан само ако ВСИЧКИ активни варианти са stock=0
+      // Ако няма варианти → взима stock директно от products таблицата
+      const activeVariantsList = variants.filter(v => v.active)
+      const outOfStock = activeVariantsList.length > 0
+        ? activeVariantsList.every(v => v.stock === 0)
+        : (Number(p.stock) === 0)
+
       return {
         id:           p.id || p.slug,
         name:         p.name,
@@ -299,6 +311,8 @@ async function getPageData() {
           : `${parseFloat(p.price).toFixed(2)} ${settings.currency_symbol}`,
         features: p.features || [],
         variants,
+        outOfStock,
+        stock: Number(p.stock) || 0,
       }
     })
 
@@ -659,15 +673,14 @@ export default async function HomePage() {
     itemListElement: atlasProducts.map((p, i) => {
       // Взимаме най-ниската цена от вариантите (ако има)
       const activeVariants = (p.variants || []).filter(v => v.active && v.stock > 0)
-      const minPrice = activeVariants.length > 0
-        ? Math.min(...activeVariants.map(v => v.price))
+      const allActiveVariants = (p.variants || []).filter(v => v.active)
+      const minPrice = allActiveVariants.length > 0
+        ? Math.min(...allActiveVariants.map(v => v.price))
         : p.price
-      const maxPrice = activeVariants.length > 0
-        ? Math.max(...activeVariants.map(v => v.price))
+      const maxPrice = allActiveVariants.length > 0
+        ? Math.max(...allActiveVariants.map(v => v.price))
         : p.price
-      const inStock = activeVariants.length > 0
-        ? activeVariants.some(v => v.stock > 0)
-        : (p.price !== null)
+      const inStock = !p.outOfStock
 
       return {
         '@type':    'ListItem',
@@ -1082,7 +1095,7 @@ export default async function HomePage() {
                 <div style={{ height: 3, background: 'linear-gradient(90deg, #d1fae5, #16a34a, #d1fae5)', position: 'absolute', top: 0, left: 0, right: 0 }} />
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0, padding: '14px 20px 12px' }}>
                   {[
-                    { icon: '🚚', text: `Безплатна доставка над ${settings.free_shipping_above} ${settings.currency_symbol} (за Atlas Terra)`, color: '#16a34a' },
+                    { icon: '🚚', text: `Безплатна доставка при 10л+ (за Atlas Terra)`, color: '#16a34a' },
                     { icon: '💵', text: 'Плащане при доставка', color: '#2563eb' },
                     { icon: '⚡', text: 'Експресна пратка 1–2 дни', color: '#d97706' },
                     { icon: '📞', text: 'Лична консултация безплатно', color: '#7c3aed' },
