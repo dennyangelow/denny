@@ -325,24 +325,24 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           <div><div className="logo-name">Denny Angelow</div><div className="logo-sub">Агро Консултант</div></div>
         </a>
         <nav className="header-nav">
-          <a href="/#produkti" className="nav-link">Продукти</a>
+          <a href="/produkti" className="nav-link">Всички Продукти</a>
           <a href="/#atlas" className="nav-link">Atlas Terra</a>
           <a href="/#ginegar" className="nav-link">Ginegar</a>
           <a href="/#testimonials" className="nav-link">Отзиви</a>
           <a href="/#faq" className="nav-link">Въпроси</a>
         </nav>
         <div style={{ display:'flex',gap:10,alignItems:'center' }}>
-          <a href="/#produkti" className="cart-btn">← Всички продукти</a>
+          <a href="/produkti" className="cart-btn">← Всички продукти</a>
           <button className="mob-btn" onClick={() => setMobMenu(v=>!v)} aria-label="Меню" aria-expanded={mobMenu}>{mobMenu?'✕':'☰'}</button>
         </div>
       </header>
 
       {mobMenu && (
         <div className="mob-nav">
-          {([['/#produkti','Продукти'],['/#atlas','Atlas Terra'],['/#testimonials','Отзиви'],['/#faq','Въпроси']] as [string,string][]).map(([h,l]) => (
+          {([['/produkti','Всички Продукти'],['/#atlas','Atlas Terra'],['/#testimonials','Отзиви'],['/#faq','Въпроси']] as [string,string][]).map(([h,l]) => (
             <a key={h} href={h} className="mob-nav-link" onClick={()=>setMobMenu(false)}>{l}</a>
           ))}
-          <a href="/#produkti" className="mob-nav-link" style={{color:'#16a34a',fontWeight:800}} onClick={()=>setMobMenu(false)}>← Всички продукти</a>
+          <a href="/produkti" className="mob-nav-link" style={{color:'#16a34a',fontWeight:800}} onClick={()=>setMobMenu(false)}>← Всички продукти</a>
         </div>
       )}
 
@@ -351,7 +351,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         <div className="af-hero-inner">
           <nav className="af-bc" aria-label="Навигация до страницата">
             <a href="/">Начало</a><span className="af-bc-sep">›</span>
-            <a href="/#produkti">Продукти</a><span className="af-bc-sep">›</span>
+            <a href="/produkti">Всички Продукти</a><span className="af-bc-sep">›</span>
             <strong title={product.name}>{product.name}</strong>
           </nav>
           <span className="af-cat-badge" style={{ color,background:`${color}15`,border:`1.5px solid ${color}30`,display: product.category_label ? undefined : 'none' }}>

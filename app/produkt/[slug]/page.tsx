@@ -247,7 +247,7 @@ export default async function ProduktPage({
     '@type':    'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Начало',   item: BASE_URL },
-      { '@type': 'ListItem', position: 2, name: 'Продукти', item: `${BASE_URL}/#produkti` },
+      { '@type': 'ListItem', position: 2, name: 'Всички Продукти', item: `${BASE_URL}/produkti` },
       { '@type': 'ListItem', position: 3, name: product.name, item: canonicalUrl },
     ],
   }
