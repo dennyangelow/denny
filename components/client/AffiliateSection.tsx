@@ -78,159 +78,66 @@ export function AffiliateSection({ products, allProducts }: Props) {
 
       <div className="products-grid">
         {displayProducts.map((p, i) => {
-          const cardColor      = p.color       || '#16a34a'
-          const badgeColor     = p.badge_color || cardColor
-          const productPageUrl = `/produkt/${p.slug}`
-          const rating         = getRating(p)
+          const cardColor  = p.color       || '#16a34a'
+          const badgeColor = p.badge_color || cardColor
+          const pageUrl    = `/produkt/${p.slug}`
+          const rating     = getRating(p)
+          const bullets    = p.bullets || []
 
           return (
             <FadeIn key={p.id} delay={i * 60}>
-              <div
-                className="product-card"
-                style={{
-                  '--card-color': cardColor,
-                  boxShadow: '0 2px 16px rgba(0,0,0,0.07)',
-                  borderRadius: 16,
-                  overflow: 'hidden',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  background: '#fff',
-                  transition: 'transform .22s, box-shadow .22s',
-                } as React.CSSProperties}
-                onMouseEnter={e => {
-                  const el = e.currentTarget as HTMLDivElement
-                  el.style.transform = 'translateY(-4px)'
-                  el.style.boxShadow = `0 12px 40px ${cardColor}22`
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget as HTMLDivElement
-                  el.style.transform = 'translateY(0)'
-                  el.style.boxShadow = '0 2px 16px rgba(0,0,0,0.07)'
-                }}
-              >
-                {/* ── Изображение ── */}
-                <div className="aff-img-wrap" style={{
-                  position: 'relative', background: '#f8f9fa',
-                  minHeight: 220, display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', padding: '20px 20px 0',
-                  flexDirection: 'column',
-                }}>
-                  {/* badge_text — горе вляво, само desktop */}
-                  {p.badge_text && (
-                    <div className="aff-badge-desktop" style={{
-                      position: 'absolute', top: 14, left: 14,
-                      background: badgeColor, color: '#fff',
-                      fontSize: 11, fontWeight: 800,
-                      padding: '4px 11px', borderRadius: 30, zIndex: 2,
-                      letterSpacing: '0.04em', textTransform: 'uppercase',
-                    }}>
-                      {p.badge_text}
-                    </div>
-                  )}
-                  {/* tag_text — горе вдясно, само desktop */}
-                  {p.tag_text && (
-                    <div className="aff-tag-desktop" style={{
-                      position: 'absolute', top: 14, right: 14,
-                      background: 'rgba(255,255,255,0.95)', color: '#374151',
-                      fontSize: 11, fontWeight: 700,
-                      padding: '4px 10px', borderRadius: 30, zIndex: 2,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                      display: 'flex', alignItems: 'center', gap: 4,
-                    }}>
-                      {p.emoji && <span style={{ fontSize: 12 }}>{p.emoji}</span>}
-                      {p.tag_text}
-                    </div>
-                  )}
-                  {/* Карантина badge — долу вляво, само desktop */}
-                  {typeof p.quarantine_days === 'number' && (
-                    <div className="aff-quarantine-desktop" style={{
-                      position: 'absolute', bottom: 10, left: 10,
-                      background: p.quarantine_days === 0 ? '#f0fdf4' : '#fff7ed',
-                      color:      p.quarantine_days === 0 ? '#166534'  : '#9a3412',
-                      border:     `1px solid ${p.quarantine_days === 0 ? '#bbf7d0' : '#fed7aa'}`,
-                      fontSize: 10, fontWeight: 700,
-                      padding: '3px 8px', borderRadius: 20, zIndex: 2,
-                    }}>
-                      {p.quarantine_days === 0 ? '✓ 0 дни карантина' : `${p.quarantine_days}д. карантина`}
-                    </div>
-                  )}
-                  <a href={productPageUrl} style={{ display: 'block', width: '100%' }}>
-                    <SafeImg
-                      src={p.image_url ?? ''}
-                      alt={p.image_alt || p.name}
-                      fallbackEmoji={p.emoji || '🌿'}
-                      style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block' }}
-                    />
-                  </a>
-                  {/* МОБИЛЕН: badge горе в img зоната */}
-                  {p.badge_text && (
-                    <div className="aff-badge-mobile" style={{
-                      display: 'none',
-                      background: badgeColor, color: '#fff',
-                      fontSize: 10, fontWeight: 800,
-                      padding: '3px 9px', borderRadius: 20,
-                      letterSpacing: '0.04em', textTransform: 'uppercase',
-                      alignSelf: 'flex-start', marginTop: 6,
-                    }}>
-                      {p.badge_text}
-                    </div>
-                  )}
-                </div>
+              <article className="pk-card">
 
-                {/* ── Съдържание ── */}
-                <div style={{ padding: '18px 22px 22px', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {/* МОБИЛЕН: tag_text + карантина в 1 ред горе в content */}
-                  {(p.tag_text || typeof p.quarantine_days === 'number') && (
-                    <div className="aff-mobile-meta-row" style={{
-                      display: 'none', flexWrap: 'wrap', gap: 5, marginBottom: 4,
-                    }}>
+                {/* ── Снимка ── */}
+                <a href={pageUrl} className="pk-card-img-wrap">
+                  {p.badge_text && (
+                    <span className="pk-badge" style={{ background: badgeColor }}>
+                      {p.badge_text}
+                    </span>
+                  )}
+                  {p.tag_text && (
+                    <span className="pk-tag">
+                      {p.emoji && <span>{p.emoji}</span>}
+                      {p.tag_text}
+                    </span>
+                  )}
+                  <SafeImg
+                    src={p.image_url ?? ''}
+                    alt={p.image_alt || p.name}
+                    fallbackEmoji={p.emoji || '🌿'}
+                    className="pk-card-img"
+                  />
+                </a>
+
+                {/* ── Тяло ── */}
+                <div className="pk-card-body">
+
+                  {/* МОБИЛЕН: badge + tag горе в body (badge/tag са скрити върху снимката) */}
+                  {(p.badge_text || p.tag_text) && (
+                    <div className="pk-mobile-badges">
+                      {p.badge_text && (
+                        <span className="pk-mobile-badge" style={{ background: badgeColor }}>
+                          {p.badge_text}
+                        </span>
+                      )}
                       {p.tag_text && (
-                        <span style={{
-                          background: 'rgba(255,255,255,0.95)', color: '#374151',
-                          fontSize: 10, fontWeight: 700,
-                          padding: '3px 9px', borderRadius: 20,
-                          border: '1px solid #e5e7eb',
-                          display: 'inline-flex', alignItems: 'center', gap: 3,
-                        }}>
+                        <span className="pk-mobile-tag">
                           {p.emoji && <span>{p.emoji}</span>}
                           {p.tag_text}
                         </span>
                       )}
-                      {typeof p.quarantine_days === 'number' && (
-                        <span style={{
-                          background: p.quarantine_days === 0 ? '#f0fdf4' : '#fff7ed',
-                          color:      p.quarantine_days === 0 ? '#166534'  : '#9a3412',
-                          border:     `1px solid ${p.quarantine_days === 0 ? '#bbf7d0' : '#fed7aa'}`,
-                          fontSize: 10, fontWeight: 700,
-                          padding: '3px 9px', borderRadius: 20,
-                        }}>
-                          {p.quarantine_days === 0 ? '✓ 0 дни карантина' : `${p.quarantine_days}д. карантина`}
-                        </span>
-                      )}
                     </div>
                   )}
+
                   {p.category_label && (
-                    <div style={{
-                      fontSize: 10.5, fontWeight: 800, color: cardColor,
-                      letterSpacing: '0.07em', textTransform: 'uppercase',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                    }}>
-                      {p.emoji && <span style={{ fontSize: 12 }}>{p.emoji}</span>}
+                    <div className="pk-card-cat" style={{ color: cardColor }}>
+                      {p.emoji && <span>{p.emoji}</span>}
                       {p.category_label}
                     </div>
                   )}
-                  <a href={productPageUrl} style={{ textDecoration: 'none' }}>
-                    <h3 style={{
-                      fontFamily: "'Cormorant Garamond', serif",
-                      fontSize: 22, fontWeight: 800, color: '#111',
-                      margin: '2px 0 2px', lineHeight: 1.2,
-                      transition: 'color .15s',
-                    }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.color = cardColor }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.color = '#111' }}
-                    >
-                      {p.name}
-                    </h3>
+
+                  <a href={pageUrl} style={{ textDecoration: 'none' }}>
+                    <h3 className="pk-card-title">{p.name}</h3>
                   </a>
 
                   {/* Рейтинг */}
@@ -243,37 +150,36 @@ export function AffiliateSection({ products, allProducts }: Props) {
                   </div>
 
                   {p.subtitle && (
-                    <p style={{ fontSize: 12.5, color: '#9ca3af', fontWeight: 600, margin: '0 0 6px', lineHeight: 1.4 }}>
-                      {p.subtitle}
-                    </p>
+                    <p className="pk-card-sub">{p.subtitle}</p>
                   )}
+
                   {p.description && (
-                    <p style={{ fontSize: 13.5, color: '#6b7280', lineHeight: 1.65, marginBottom: 10, fontStyle: 'italic', flex: 0 }}>
-                      „{p.description}"
-                    </p>
+                    <p className="pk-card-desc">„{p.description}"</p>
                   )}
-                  {(p.bullets?.length ?? 0) > 0 && (
-                    <ul style={{ margin: '0 0 12px', padding: 0, listStyle: 'none', flex: 1 }}>
-                      {p.bullets!.slice(0, 3).map((b, j) => (
-                        <li key={j} style={{
-                          fontSize: 13, color: '#374151',
-                          padding: '5px 0', display: 'flex', gap: 9,
-                          alignItems: 'flex-start', borderBottom: '1px solid #f5f5f5',
-                        }}>
-                          <span style={{
-                            background: cardColor, color: '#fff',
-                            width: 16, height: 16, borderRadius: 4,
-                            display: 'flex', alignItems: 'center',
-                            justifyContent: 'center', fontSize: 8,
-                            fontWeight: 900, flexShrink: 0, marginTop: 2,
-                          }}>✓</span>
+
+                  {/* Bullets — 3 */}
+                  {bullets.slice(0, 3).length > 0 && (
+                    <ul className="pk-bullets">
+                      {bullets.slice(0, 3).map((b, j) => (
+                        <li key={j} className="pk-bullet">
+                          <span className="pk-bullet-dot" style={{ background: cardColor }}>✓</span>
                           {b}
                         </li>
                       ))}
                     </ul>
                   )}
 
-                  {/* Цена ако е налична */}
+                  {/* Meta chips: карантина + volume + season */}
+                  <div className="pk-chips-row">
+                    {p.quarantine_days === 0 && (
+                      <span className="pk-chip-meta pk-chip-green">✓ 0 дни карантина</span>
+                    )}
+                    {typeof p.quarantine_days === 'number' && p.quarantine_days > 0 && (
+                      <span className="pk-chip-meta pk-chip-orange">{p.quarantine_days}д. карантина</span>
+                    )}
+                  </div>
+
+                  {/* Цена */}
                   {p.price && (
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, margin: '4px 0 8px' }}>
                       <span style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 26, fontWeight: 700, color: '#0f172a', lineHeight: 1 }}>
@@ -285,42 +191,25 @@ export function AffiliateSection({ products, allProducts }: Props) {
                     </div>
                   )}
 
-                  {/* CTA — сочи към продуктовата страница, а не директно към affiliate_url */}
-                  {/* ✅ affiliate_url се отваря само от продуктовата страница (rel="nofollow sponsored") */}
+                  {/* CTA — сочи към продуктовата страница, не директно към affiliate_url */}
                   <a
-                    href={productPageUrl}
+                    href={pageUrl}
                     onClick={() => trackAffiliateClick(p.partner, p.slug)}
+                    className="pk-cta-btn"
                     style={{
-                      display: 'block', textAlign: 'center',
-                      background: `linear-gradient(135deg, ${cardColor}, ${cardColor}dd)`,
-                      color: '#fff',
-                      padding: '13px 20px', borderRadius: 12,
-                      textDecoration: 'none', fontWeight: 800,
-                      fontSize: 14.5, marginTop: 'auto',
+                      background: `linear-gradient(135deg,${cardColor},${cardColor}dd)`,
                       boxShadow: `0 6px 20px ${cardColor}33`,
-                      transition: 'filter .18s, transform .18s',
-                    }}
-                    onMouseEnter={e => {
-                      const el = e.currentTarget as HTMLAnchorElement
-                      el.style.filter = 'brightness(1.08)'
-                      el.style.transform = 'translateY(-1px)'
-                    }}
-                    onMouseLeave={e => {
-                      const el = e.currentTarget as HTMLAnchorElement
-                      el.style.filter = 'brightness(1)'
-                      el.style.transform = 'translateY(0)'
                     }}
                     aria-label={`${p.name} — прочети повече`}
                   >
                     Прочети повече →
                   </a>
                 </div>
-              </div>
+              </article>
             </FadeIn>
           )
         })}
       </div>
-
       {/* Бутон "Виж всички продукти" → /produkti */}
       <FadeIn delay={400}>
         <div style={{
