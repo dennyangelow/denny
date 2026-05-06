@@ -261,6 +261,12 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
         .m-tab:hover:not(.active){color:#374151}
         .ig{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         @media(max-width:500px){.ig{grid-template-columns:1fr}}
+        @media(max-width:480px){
+          .modal-box{border-radius:0!important;max-height:100vh!important;width:100%!important;max-width:100%!important}
+          .modal-backdrop{padding:0!important;align-items:flex-end}
+          .m-tab{padding:9px 10px;font-size:12px}
+          .act{padding:6px 9px;font-size:11px}
+        }
         .ii{background:#f9fafb;border-radius:10px;padding:11px 13px}
         .il{font-size:10.5px;color:#9ca3af;margin-bottom:2px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
         .iv{font-size:13.5px;color:#111;font-weight:600}
@@ -343,7 +349,7 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                 </div>
 
                 {/* Tracking + Статус плащане — в 1 ред */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, marginBottom: 18, alignItems: 'end' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
                   <div>
                     <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 7 }}>
                       Номер за проследяване ({courierLabel})
@@ -351,7 +357,7 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
                     <div style={{ display: 'flex', gap: 7 }}>
                       <input value={trackingInput} onChange={e => setTrackingInput(e.target.value)}
                         placeholder={`${courierLabel} номер...`}
-                        style={{ flex: 1, padding: '8px 11px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontFamily: 'monospace', fontSize: 13, outline: 'none', color: '#111', background: '#fff', transition: 'border-color .15s' }}
+                        style={{ flex: 1, padding: '8px 11px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontFamily: 'monospace', fontSize: 16, outline: 'none', color: '#111', background: '#fff', transition: 'border-color .15s' }}
                         onFocus={e => e.target.style.borderColor = '#2d6a4f'}
                         onBlur={e => e.target.style.borderColor = '#e5e7eb'} />
                       <button onClick={handleTracking} disabled={savingTracking}

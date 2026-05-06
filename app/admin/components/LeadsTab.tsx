@@ -521,7 +521,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     }
   }, [uniqueLeads, syncedIds, invalidIds, blockedIds, resetedIds])
 
-  const inp: React.CSSProperties = { padding:'8px 13px', border:'1px solid var(--border)', borderRadius:9, fontFamily:'inherit', fontSize:13, outline:'none', background:'#fff' }
+  const inp: React.CSSProperties = { padding:'8px 13px', border:'1px solid var(--border)', borderRadius:9, fontFamily:'inherit', fontSize:16, outline:'none', background:'#fff' }
   const SortArrow = ({ k }: { k: SortKey }) => (
     <span style={{ marginLeft:3, fontSize:9, opacity:sortKey===k?1:.25 }}>{sortKey===k&&sortDir==='asc'?'▲':'▼'}</span>
   )

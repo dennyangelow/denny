@@ -199,18 +199,26 @@ export default async function ProduktPage({
     datePublished:     product.date_published || product.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
     dateModified:      product.updated_at?.split('T')[0] || new Date().toISOString().split('T')[0],
     author: {
-      '@type': 'Person',
-      name:     AUTHOR_NAME,
-      url:      BASE_URL,
-      jobTitle: 'Агро Консултант',
+      '@type':   'Person',
+      name:       AUTHOR_NAME,
+      url:        BASE_URL,
+      jobTitle:  'Агро Консултант',
     },
+    // Fix: publisher трябва да е Organization (не Person) за Article schema
+    // Google Search Console изисква Organization + logo за rich results
     publisher: {
-      '@type': 'Person',
+      '@type': 'Organization',
       name:     AUTHOR_NAME,
       url:      BASE_URL,
+      logo: {
+        '@type': 'ImageObject',
+        url:      `${BASE_URL}/og/produkti.jpg`,
+        width:    1200,
+        height:   630,
+      },
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': canonicalUrl },
-    about: product.category_label || product.subtitle,
+    about:      product.category_label || product.subtitle,
     inLanguage: 'bg-BG',
   }
 
@@ -232,11 +240,12 @@ export default async function ProduktPage({
     name:        `Как да използваш ${product.name}`,
     description: product.description || product.subtitle,
     image:       product.image_url,
-    totalTime:   'PT10M',
+    // Fix: премахнато totalTime — произволна стойност, Google не изисква го
     step:        howToSteps.map((text, i) => ({
       '@type':   'HowToStep',
       position:   i + 1,
-      name:       `Стъпка ${i + 1}`,
+      // Fix: Google изисква различими name-и — взимаме първите 60 символа от текста
+      name:       text.length > 60 ? text.slice(0, 57) + '…' : text,
       text,
     })),
   } : null
@@ -247,7 +256,8 @@ export default async function ProduktPage({
     '@type':    'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Начало',   item: BASE_URL },
-      { '@type': 'ListItem', position: 2, name: 'Всички Продукти', item: `${BASE_URL}/produkti` },
+      // Fix: /produkti вместо /#produkti — Google не индексира fragment URL-и
+      { '@type': 'ListItem', position: 2, name: 'Продукти', item: `${BASE_URL}/produkti` },
       { '@type': 'ListItem', position: 3, name: product.name, item: canonicalUrl },
     ],
   }

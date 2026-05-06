@@ -29,7 +29,7 @@ const EMPTY: PromoBanner = {
 const inp: React.CSSProperties = {
   width: '100%', padding: '9px 12px',
   border: '1.5px solid #e5e7eb', borderRadius: 8,
-  fontFamily: 'inherit', fontSize: 13, outline: 'none',
+  fontFamily: 'inherit', fontSize: 16, outline: 'none',
   boxSizing: 'border-box', background: '#fff', color: '#111',
 }
 

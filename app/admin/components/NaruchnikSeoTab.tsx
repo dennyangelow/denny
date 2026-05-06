@@ -66,7 +66,7 @@ function normalize(n: NaruchnikSeo): NaruchnikSeo {
 const inp: React.CSSProperties = {
   width: '100%', padding: '9px 12px',
   border: '1.5px solid #e5e7eb', borderRadius: 8,
-  fontFamily: 'inherit', fontSize: 13, outline: 'none',
+  fontFamily: 'inherit', fontSize: 16, outline: 'none',
   boxSizing: 'border-box', background: '#fff',
   transition: 'border-color 0.15s', color: '#111',
 }
@@ -260,7 +260,15 @@ export function NaruchnikSeoTab() {
   }
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: '16px 14px', maxWidth: 1100, margin: '0 auto' }}>
+      <style>{`
+        .nar-layout{display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start}
+        .nar-sidebar{background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;position:sticky;top:24px}
+        @media(max-width:768px){
+          .nar-layout{grid-template-columns:1fr;gap:12px}
+          .nar-sidebar{position:static;max-height:240px;overflow-y:auto}
+        }
+      `}</style>
 
       {/* Header */}
       <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -287,10 +295,10 @@ export function NaruchnikSeoTab() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
+      <div className="nar-layout">
 
         {/* ── Left: Naruchnici list ── */}
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, overflow: 'hidden', position: 'sticky', top: 24 }}>
+        <div className="nar-sidebar">
           <div style={{ padding: '10px 14px', borderBottom: '1px solid #f3f4f6', fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '.06em', textTransform: 'uppercase' }}>
             Наръчници
           </div>
@@ -463,7 +471,7 @@ export function NaruchnikSeoTab() {
                 <Hint>Google E-E-A-T: Experience, Expertise, Authority, Trust. Показва на Google, че авторът е специалист.</Hint>
               </FieldGroup>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
                 <FieldGroup>
                   <Label>Брой изтегляния</Label>
                   <input

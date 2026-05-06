@@ -1,5 +1,7 @@
 'use client'
-// app/admin/components/SettingsTab.tsx — v7 с Resend + Systeme.io интеграции
+// app/admin/components/SettingsTab.tsx — v8
+// ✅ НОВО: urgency_bar_products — отделен urgency bar само за /products/* страниците
+//    Различен от urgency_bar_text (началната страница)
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { toast } from '@/components/ui/Toast'
@@ -10,13 +12,14 @@ const SECTIONS = [
   {
     id: 'hero', label: '🏠 Главна страница',
     keys: [
-      { key: 'urgency_bar_text', label: 'Urgency лента (горе)',         type: 'textarea', placeholder: '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 € · 💵 Само наложен платеж', hint: 'Поддържа **bold** форматиране' },
-      { key: 'hero_title',       label: 'Главно заглавие',              type: 'text',     placeholder: 'Искаш едри, здрави и сочни домати?' },
-      { key: 'hero_subtitle',    label: 'Подзаглавие (под заглавието)', type: 'textarea', placeholder: 'Без болести, без гниене...', hint: 'Поддържа **bold** форматиране' },
-      { key: 'hero_warning',     label: 'Warning кутия (под subtitle)', type: 'text',     placeholder: 'Не рискувай да изхвърлиш продукцията...', hint: 'Показва се в червена кутия с ⚠️' },
-      { key: 'cta_title',        label: 'CTA заглавие (долу)',          type: 'text',     placeholder: 'Изтегли И Двата Наръчника Напълно Безплатно' },
-      { key: 'cta_subtitle',     label: 'CTA подзаглавие (долу)',       type: 'textarea', placeholder: 'Над 6 000 фермери вече ги изтеглиха...', hint: 'Поддържа **bold** форматиране' },
-      { key: 'footer_about_text',label: 'Текст в Footer',              type: 'textarea', placeholder: 'Помагам на фермери да отглеждат...' },
+      { key: 'urgency_bar_text',     label: 'Urgency лента — Начална страница',      type: 'textarea', placeholder: '🎁 **2 безплатни наръчника** — Домати & Краставици · 🚚 **Безплатна доставка** над 60 € · 💵 Само наложен платеж', hint: 'Показва се САМО на началната страница (/).' },
+      { key: 'urgency_bar_products', label: '🌱 Urgency лента — Продуктови страници', type: 'textarea', placeholder: '🌱 **Atlas Terra** — Органичен биостимулант · 📦 **Безплатна доставка** при 10л+ · 💵 Само наложен платеж', hint: 'Показва се САМО на /products/* страниците (Atlas Terra продукти). Поддържа **bold** форматиране.' },
+      { key: 'hero_title',           label: 'Главно заглавие',                        type: 'text',     placeholder: 'Искаш едри, здрави и сочни домати?' },
+      { key: 'hero_subtitle',        label: 'Подзаглавие (под заглавието)',            type: 'textarea', placeholder: 'Без болести, без гниене...', hint: 'Поддържа **bold** форматиране' },
+      { key: 'hero_warning',         label: 'Warning кутия (под subtitle)',            type: 'text',     placeholder: 'Не рискувай да изхвърлиш продукцията...', hint: 'Показва се в червена кутия с ⚠️' },
+      { key: 'cta_title',            label: 'CTA заглавие (долу)',                     type: 'text',     placeholder: 'Изтегли И Двата Наръчника Напълно Безплатно' },
+      { key: 'cta_subtitle',         label: 'CTA подзаглавие (долу)',                 type: 'textarea', placeholder: 'Над 6 000 фермери вече ги изтеглиха...', hint: 'Поддържа **bold** форматиране' },
+      { key: 'footer_about_text',    label: 'Текст в Footer',                         type: 'textarea', placeholder: 'Помагам на фермери да отглеждат...' },
     ],
   },
   {
@@ -61,83 +64,17 @@ const SECTIONS = [
   {
     id: 'seo', label: '🔍 SEO — Начална страница',
     keys: [
-      {
-        key: 'seo_title',
-        label: 'Meta Title (50–70 символа)',
-        type: 'text',
-        placeholder: 'Denny Angelow — Домати, Краставици, Торове и Агро Наръчници',
-        hint: 'Показва се в Google като заглавие на резултата. Оптимално: 55–60 символа.',
-      },
-      {
-        key: 'seo_description',
-        label: 'Meta Description (120–160 символа)',
-        type: 'textarea',
-        placeholder: 'Безплатни PDF наръчници за домати и краставици. Над {count} фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.',
-        hint: 'Пиши {count} за да се замени автоматично с брой изтегляния. Оптимално: 145–155 символа.',
-      },
-      {
-        key: 'seo_keywords',
-        label: 'Keywords (чрез запетая)',
-        type: 'textarea',
-        placeholder: 'домати, отглеждане на домати, Прев-Голд, Амалгерол, агро консултант, Denny Angelow...',
-        hint: 'Базови keywords. Автоматично се добавят и имената + keywords на всички афилиейт продукти.',
-      },
-      {
-        key: 'og_title',
-        label: 'OG Title (Facebook / Viber / WhatsApp)',
-        type: 'text',
-        placeholder: 'Denny Angelow — Безплатни Наръчници за Домати и Краставици',
-        hint: 'Заглавие при споделяне в социалните мрежи.',
-      },
-      {
-        key: 'og_description',
-        label: 'OG Description',
-        type: 'textarea',
-        placeholder: 'Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над {count} фермери вече го използват.',
-        hint: 'Описание при споделяне. Пиши {count} за автоматичен брой изтегляния.',
-      },
-      {
-        key: 'og_image',
-        label: 'OG Image URL (1200×630px)',
-        type: 'text',
-        placeholder: '/og-image.jpg',
-        hint: 'Снимка при споделяне. Може да е /og-image.jpg (от public/) или пълен https:// линк.',
-      },
-      {
-        key: 'og_image_alt',
-        label: 'OG Image Alt текст',
-        type: 'text',
-        placeholder: 'Denny Angelow — Агро Наръчници за Домати и Краставици',
-        hint: 'Описание на снимката за достъпност и SEO.',
-      },
-      {
-        key: 'twitter_title',
-        label: 'Twitter / X Title',
-        type: 'text',
-        placeholder: 'Denny Angelow — Безплатни Агро Наръчници',
-        hint: 'Заглавие при споделяне в Twitter/X.',
-      },
-      {
-        key: 'twitter_description',
-        label: 'Twitter / X Description',
-        type: 'textarea',
-        placeholder: 'Домати, краставици, торене, болести, оранжерии. Изтегли безплатно.',
-        hint: 'Описание при споделяне в Twitter/X.',
-      },
-      {
-        key: 'twitter_creator',
-        label: 'Twitter / X Handle',
-        type: 'text',
-        placeholder: '@dennyangelow',
-        hint: 'Твоят Twitter handle с @.',
-      },
-      {
-        key: 'google_site_verification',
-        label: 'Google Search Console Verification',
-        type: 'text',
-        placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        hint: 'Кода от Google Search Console → Settings → Ownership verification → HTML tag. Само стойността на content="...".',
-      },
+      { key: 'seo_title',       label: 'Meta Title (50–70 символа)', type: 'text',     placeholder: 'Denny Angelow — Домати, Краставици, Торове и Агро Наръчници', hint: 'Показва се в Google като заглавие на резултата. Оптимално: 55–60 символа.' },
+      { key: 'seo_description', label: 'Meta Description (120–160 символа)', type: 'textarea', placeholder: 'Безплатни PDF наръчници за домати и краставици. Над {count} фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.', hint: 'Пиши {count} за да се замени автоматично с брой изтегляния. Оптимално: 145–155 символа.' },
+      { key: 'seo_keywords',    label: 'Keywords (чрез запетая)',      type: 'textarea', placeholder: 'домати, отглеждане на домати, Прев-Голд, Амалгерол, агро консултант, Denny Angelow...', hint: 'Базови keywords. Автоматично се добавят и имената + keywords на всички афилиейт продукти.' },
+      { key: 'og_title',        label: 'OG Title (Facebook / Viber / WhatsApp)', type: 'text', placeholder: 'Denny Angelow — Безплатни Наръчници за Домати и Краставици', hint: 'Заглавие при споделяне в социалните мрежи.' },
+      { key: 'og_description',  label: 'OG Description', type: 'textarea', placeholder: 'Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над {count} фермери вече го използват.', hint: 'Описание при споделяне. Пиши {count} за автоматичен брой изтегляния.' },
+      { key: 'og_image',        label: 'OG Image URL (1200×630px)', type: 'text', placeholder: '/og-image.jpg', hint: 'Снимка при споделяне. Може да е /og-image.jpg (от public/) или пълен https:// линк.' },
+      { key: 'og_image_alt',    label: 'OG Image Alt текст', type: 'text', placeholder: 'Denny Angelow — Агро Наръчници за Домати и Краstavici', hint: 'Описание на снимката за достъпност и SEO.' },
+      { key: 'twitter_title',       label: 'Twitter / X Title',       type: 'text',     placeholder: 'Denny Angelow — Безплатни Агро Наръчници', hint: 'Заглавие при споделяне в Twitter/X.' },
+      { key: 'twitter_description', label: 'Twitter / X Description', type: 'textarea', placeholder: 'Домати, краставици, торене, болести, оранжерии. Изтегли безплатно.', hint: 'Описание при споделяне в Twitter/X.' },
+      { key: 'twitter_creator',     label: 'Twitter / X Handle',      type: 'text',     placeholder: '@dennyangelow', hint: 'Твоят Twitter handle с @.' },
+      { key: 'google_site_verification', label: 'Google Search Console Verification', type: 'text', placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', hint: 'Кода от Google Search Console → Settings → Ownership verification → HTML tag. Само стойността на content="...".' },
     ],
   },
 ] as const
@@ -165,62 +102,50 @@ function useDebounce<T>(value: T, delay: number): T {
 
 // ─── Интеграции toggle компонент ─────────────────────────────────────────────
 interface IntegrationRowProps {
-  icon: string
-  name: string
-  description: string
-  enabled: boolean
-  loading: boolean
-  onToggle: () => void
-  statusLabel?: string
-  statusColor?: string
-  href?: string
+  icon: string; name: string; description: string; enabled: boolean; loading: boolean
+  onToggle: () => void; statusLabel?: string; statusColor?: string; href?: string
 }
 
 function IntegrationRow({ icon, name, description, enabled, loading, onToggle, statusLabel, statusColor, href }: IntegrationRowProps) {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '12px 0', borderBottom: '1px solid #f5f5f5',
-    }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid #f5f5f5' }}>
       <div style={{ fontSize: 22, width: 32, textAlign: 'center', flexShrink: 0 }}>{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{name}</span>
           {statusLabel && (
-            <span style={{
-              fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
-              background: statusColor ? `${statusColor}18` : '#f0fdf4',
-              color: statusColor || '#166534',
-            }}>{statusLabel}</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: statusColor ? `${statusColor}18` : '#f0fdf4', color: statusColor || '#166534' }}>{statusLabel}</span>
           )}
         </div>
         <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1, lineHeight: 1.4 }}>
           {description}
-          {href && (
-            <a href={href} target="_blank" rel="noreferrer"
-              style={{ color: '#2d6a4f', marginLeft: 6, textDecoration: 'none', fontWeight: 600 }}>
-              Dashboard ↗
-            </a>
-          )}
+          {href && <a href={href} target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', marginLeft: 6, textDecoration: 'none', fontWeight: 600 }}>Dashboard ↗</a>}
         </div>
       </div>
-      <button
-        onClick={onToggle}
-        disabled={loading}
-        style={{
-          width: 44, height: 24, borderRadius: 12, border: 'none', cursor: loading ? 'default' : 'pointer',
-          background: enabled ? '#16a34a' : '#d1d5db',
-          position: 'relative', transition: 'background .2s', flexShrink: 0,
-          opacity: loading ? 0.6 : 1,
-        }}
-      >
-        <span style={{
-          position: 'absolute', top: 3, width: 18, height: 18, borderRadius: '50%',
-          background: '#fff', transition: 'left .2s',
-          left: enabled ? 23 : 3,
-          boxShadow: '0 1px 3px rgba(0,0,0,.2)',
-        }} />
+      <button onClick={onToggle} disabled={loading} style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: loading ? 'default' : 'pointer', background: enabled ? '#16a34a' : '#d1d5db', position: 'relative', transition: 'background .2s', flexShrink: 0, opacity: loading ? 0.6 : 1 }}>
+        <span style={{ position: 'absolute', top: 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .2s', left: enabled ? 23 : 3, boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
       </button>
+    </div>
+  )
+}
+
+// ─── Urgency Bar Preview ──────────────────────────────────────────────────────
+function UrgencyPreview({ text, label }: { text: string; label: string }) {
+  if (!text) return null
+  // Рендира **bold** → <strong>
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 4 }}>
+        Preview — {label}
+      </div>
+      <div style={{ background: 'linear-gradient(90deg,#14532d,#166534,#14532d)', padding: '8px 16px', borderRadius: 8, textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,.9)', lineHeight: 1.5 }}>
+        {parts.map((part, i) =>
+          part.startsWith('**') && part.endsWith('**')
+            ? <strong key={i} style={{ color: '#fff', fontWeight: 800 }}>{part.slice(2, -2)}</strong>
+            : <span key={i}>{part}</span>
+        )}
+      </div>
     </div>
   )
 }
@@ -236,19 +161,17 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   const [expanded,   setExpanded]   = useState<Set<string>>(new Set(SECTIONS.map(s => s.id)))
   const isFirstLoad = useRef(true)
 
-  // ── Интеграции state ────────────────────────────────────────────────────
-  const [resendEnabled,     setResendEnabled]     = useState(true)
-  const [systemeEnabled,    setSystemeEnabled]    = useState(true)
-  const [togglingResend,    setTogglingResend]    = useState(false)
-  const [togglingSysteme,   setTogglingSysteme]   = useState(false)
-  const [testingSysteme,    setTestingSysteme]    = useState(false)
+  const [resendEnabled,   setResendEnabled]   = useState(true)
+  const [systemeEnabled,  setSystemeEnabled]  = useState(true)
+  const [togglingResend,  setTogglingResend]  = useState(false)
+  const [togglingSysteme, setTogglingSysteme] = useState(false)
+  const [testingSysteme,  setTestingSysteme]  = useState(false)
 
   const dirty = useMemo(
     () => Object.keys(vals).some(k => vals[k] !== savedVals[k]),
     [vals, savedVals],
   )
 
-  // ── Load settings + integration flags ────────────────────────────────────
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.json())
@@ -256,8 +179,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
         if (d.settings) {
           setVals(d.settings)
           setSavedVals(d.settings)
-          // Прочети флаговете от settings
-          setResendEnabled(d.settings.resend_enabled   !== 'false')
+          setResendEnabled(d.settings.resend_enabled    !== 'false')
           setSystemeEnabled(d.settings.systemeio_enabled !== 'false')
         }
         setLoading(false)
@@ -265,50 +187,31 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
       .catch(() => { toast.error('Грешка при зареждане на настройките'); setLoading(false) })
   }, [])
 
-  // ── Toggle helper ─────────────────────────────────────────────────────────
-  const toggleIntegration = async (
-    key: string,
-    current: boolean,
-    setFn: (v: boolean) => void,
-    setBusy: (v: boolean) => void,
-    label: string,
-  ) => {
+  const toggleIntegration = async (key: string, current: boolean, setFn: (v: boolean) => void, setBusy: (v: boolean) => void, label: string) => {
     setBusy(true)
     const next = !current
     try {
-      const res = await fetch('/api/settings', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ updates: { [key]: String(next) } }),
-      })
+      const res = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: { [key]: String(next) } }) })
       if (!res.ok) throw new Error()
       setFn(next)
       setVals(p => ({ ...p, [key]: String(next) }))
       setSavedVals(p => ({ ...p, [key]: String(next) }))
       toast.success(`${label} е ${next ? 'активиран' : 'деактивиран'}`)
-    } catch {
-      toast.error(`Грешка при промяна на ${label}`)
-    } finally {
-      setBusy(false)
-    }
+    } catch { toast.error(`Грешка при промяна на ${label}`) }
+    finally { setBusy(false) }
   }
 
-  // ── Test Systeme.io connection ────────────────────────────────────────────
   const testSystemeIO = async () => {
     setTestingSysteme(true)
     try {
       const res = await fetch('/api/integrations/systemeio/test')
       const d   = await res.json()
       if (d.ok) toast.success(`✅ Systeme.io: свързан (${d.contacts ?? '?'} контакта)`)
-      else       toast.error(`❌ Systeme.io: ${d.error || 'грешка'}`)
-    } catch {
-      toast.error('❌ Не може да се свърже с Systeme.io')
-    } finally {
-      setTestingSysteme(false)
-    }
+      else      toast.error(`❌ Systeme.io: ${d.error || 'грешка'}`)
+    } catch { toast.error('❌ Не може да се свърже с Systeme.io') }
+    finally { setTestingSysteme(false) }
   }
 
-  // ── Auto-save (debounced 2s) ──────────────────────────────────────────────
   const debouncedVals = useDebounce(vals, 2000)
   useEffect(() => {
     if (isFirstLoad.current) { isFirstLoad.current = false; return }
@@ -316,11 +219,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
     const errs = validate(debouncedVals)
     if (errs.length > 0) return
     setAutoSaving(true)
-    fetch('/api/settings', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ updates: debouncedVals }),
-    })
+    fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: debouncedVals }) })
       .then(res => { if (res.ok) { setSavedVals({ ...debouncedVals }); toast.success('Автоматично запазено ✓') } })
       .catch(() => {})
       .finally(() => setAutoSaving(false))
@@ -339,27 +238,18 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
     if (errs.length > 0) { errs.forEach(e => toast.error(e)); return }
     setSaving(true)
     try {
-      const res = await fetch('/api/settings', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ updates: vals }),
-      })
+      const res = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: vals }) })
       if (!res.ok) throw new Error()
       setSavedVals({ ...vals })
       toast.success('Настройките са запазени!')
-    } catch {
-      toast.error('Грешка при запазване')
-    } finally {
-      setSaving(false)
-    }
+    } catch { toast.error('Грешка при запазване') }
+    finally { setSaving(false) }
   }
 
   const exportSettings = () => {
     const blob = new Blob([JSON.stringify(vals, null, 2)], { type: 'application/json' })
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `settings-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
+    a.href = URL.createObjectURL(blob); a.download = `settings-${new Date().toISOString().slice(0, 10)}.json`; a.click()
     toast.success('Настройките са изтеглени')
   }
 
@@ -374,8 +264,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
         toast.success('Импортирано — провери и запази')
       } catch { toast.error('Невалиден JSON файл') }
     }
-    reader.readAsText(file)
-    e.target.value = ''
+    reader.readAsText(file); e.target.value = ''
   }
 
   const triggerSequence = async () => {
@@ -399,7 +288,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '10px 14px',
     border: '1.5px solid #f0f0f0', borderRadius: 9,
-    fontFamily: 'inherit', fontSize: 14, outline: 'none',
+    fontFamily: 'inherit', fontSize: 16, outline: 'none',
     background: '#f9fafb', color: 'var(--text)',
     boxSizing: 'border-box', transition: 'border-color .2s',
   }
@@ -413,16 +302,20 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   )
 
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div style={{ padding: '16px 14px' }}>
       <style>{`
-        .settings-input:focus   { border-color: #2d6a4f !important; background: #fff !important }
-        .settings-textarea:focus{ border-color: #2d6a4f !important; background: #fff !important }
+        .settings-input:focus    { border-color: #2d6a4f !important; background: #fff !important }
+        .settings-textarea:focus { border-color: #2d6a4f !important; background: #fff !important }
         @keyframes spin  { to { transform: rotate(360deg) } }
         @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .5 } }
+        .settings-layout{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start}
+        .settings-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;gap:16px;flex-wrap:wrap}
+        @media(max-width:900px){.settings-layout{grid-template-columns:1fr}}
+        @media(max-width:560px){.settings-header{flex-direction:column;align-items:flex-start}}
       `}</style>
 
-      {/* ── Header ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
+      {/* Header */}
+      <div className="settings-header">
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: 0 }}>Настройки</h1>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -433,8 +326,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={exportSettings}
-            style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text)' }}>
+          <button onClick={exportSettings} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text)' }}>
             ↓ Експорт JSON
           </button>
           <label style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text)' }}>
@@ -448,34 +340,23 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
         </div>
       </div>
 
-      {/* ── Search ── */}
+      {/* Search */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ position: 'relative' }}>
           <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
-          <input
-            placeholder="Търси настройка..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ ...inputStyle, paddingLeft: 36, background: '#fff' }}
-            className="settings-input"
-          />
+          <input placeholder="Търси настройка..." value={search} onChange={e => setSearch(e.target.value)}
+            style={{ ...inputStyle, paddingLeft: 36, background: '#fff' }} className="settings-input" />
           {search && (
             <button onClick={() => setSearch('')}
-              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>
-              ✕
-            </button>
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>✕</button>
           )}
         </div>
-        {search && (
-          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>
-            {filteredSections.reduce((s, sec) => s + sec.keys.length, 0)} намерени резултата
-          </div>
-        )}
+        {search && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>{filteredSections.reduce((s, sec) => s + sec.keys.length, 0)} намерени резултата</div>}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, alignItems: 'start' }}>
+      <div className="settings-layout">
 
-        {/* ── Settings sections ── */}
+        {/* Settings sections */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filteredSections.length === 0 ? (
             <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 40, textAlign: 'center', color: '#9ca3af' }}>
@@ -502,25 +383,44 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
                     <div style={{ height: 14 }} />
                     {section.keys.map(k => {
                       const isChanged = vals[k.key] !== savedVals[k.key]
+                      const isUrgencyProducts = k.key === 'urgency_bar_products'
+                      const isUrgencyHome     = k.key === 'urgency_bar_text'
+
                       return (
                         <div key={k.key}>
                           <label style={{ fontSize: 12, fontWeight: 700, color: isChanged ? '#92400e' : '#374151', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
                             {k.label}
                             {isChanged && <span style={{ fontSize: 10, color: '#f59e0b' }}>●</span>}
                           </label>
-                          {k.type === 'textarea' ? (
-                            <textarea rows={3} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
-                              placeholder={k.placeholder} className="settings-textarea"
-                              style={{ ...inputStyle, resize: 'vertical' }} />
+
+                          {/* Специален контейнер за urgency bar полетата */}
+                          {(isUrgencyProducts || isUrgencyHome) ? (
+                            <div style={{ border: `1.5px solid ${isUrgencyProducts ? '#bbf7d0' : '#fde68a'}`, borderRadius: 10, padding: 12, background: isUrgencyProducts ? '#f0fdf4' : '#fffbeb' }}>
+                              <div style={{ fontSize: 10, fontWeight: 800, color: isUrgencyProducts ? '#15803d' : '#92400e', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+                                {isUrgencyProducts ? '🌱 Само /products/* страници' : '🏠 Само началната страница /'}
+                              </div>
+                              <textarea rows={3} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
+                                placeholder={k.placeholder} className="settings-textarea"
+                                style={{ ...inputStyle, resize: 'vertical', background: '#fff' }} />
+                              {'hint' in k && k.hint && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{k.hint}</div>}
+                              {/* Live preview */}
+                              <UrgencyPreview text={vals[k.key] || ''} label={isUrgencyProducts ? 'Продуктова страница' : 'Начална страница'} />
+                            </div>
                           ) : (
-                            <input type={k.type} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
-                              placeholder={k.placeholder} className="settings-input"
-                              step={k.type === 'number' ? '0.01' : undefined}
-                              min={k.type === 'number' ? '0' : undefined}
-                              style={inputStyle} />
-                          )}
-                          {'hint' in k && k.hint && (
-                            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{k.hint}</div>
+                            <>
+                              {k.type === 'textarea' ? (
+                                <textarea rows={3} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
+                                  placeholder={k.placeholder} className="settings-textarea"
+                                  style={{ ...inputStyle, resize: 'vertical' }} />
+                              ) : (
+                                <input type={k.type} value={vals[k.key] || ''} onChange={e => set(k.key, e.target.value)}
+                                  placeholder={k.placeholder} className="settings-input"
+                                  step={k.type === 'number' ? '0.01' : undefined}
+                                  min={k.type === 'number' ? '0' : undefined}
+                                  style={inputStyle} />
+                              )}
+                              {'hint' in k && k.hint && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{k.hint}</div>}
+                            </>
                           )}
                         </div>
                       )
@@ -532,65 +432,41 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           })}
         </div>
 
-        {/* ── Sidebar ── */}
+        {/* Sidebar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* ── ИНТЕГРАЦИИ ── */}
+          {/* Urgency bar quick guide */}
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 14, padding: 16 }}>
+            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#14532d', marginBottom: 10 }}>🌱 Urgency Bar Guide</h2>
+            <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.7 }}>
+              <strong>urgency_bar_text</strong> → Началната страница / — показва се само там.<br/>
+              <strong>urgency_bar_products</strong> → Всички /products/* страници — само Atlas Terra продукти.<br/>
+              <br/>
+              Поддържа <code style={{ background: '#dcfce7', padding: '1px 4px', borderRadius: 3 }}>**bold**</code> форматиране.<br/>
+              <br/>
+              <strong>Препоръчан текст за продуктите:</strong><br/>
+              <code style={{ background: '#dcfce7', padding: '3px 6px', borderRadius: 4, fontSize: 11, display: 'block', marginTop: 4, lineHeight: 1.6 }}>
+                🌱 **Atlas Terra** — Органичен биостимулант · 📦 **Безплатна доставка** при 10л+ · 💵 Само наложен платеж
+              </code>
+            </div>
+          </div>
+
+          {/* ИНТЕГРАЦИИ */}
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>🔌 Интеграции</h2>
-            <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.5 }}>
-              Активирай/деактивирай без рестартиране — влиза в сила веднага.
-            </p>
-
-            <IntegrationRow
-              icon="✉️"
-              name="Resend"
-              description="Welcome + follow-up имейли към потребителите"
-              enabled={resendEnabled}
-              loading={togglingResend}
-              statusLabel={resendEnabled ? 'Активен' : 'Изключен'}
-              statusColor={resendEnabled ? '#16a34a' : '#6b7280'}
-              href="https://resend.com/emails"
-              onToggle={() => toggleIntegration(
-                'resend_enabled', resendEnabled,
-                setResendEnabled, setTogglingResend, 'Resend'
-              )}
-            />
-
-            <IntegrationRow
-              icon="🟠"
-              name="Systeme.io"
-              description="Синхрониза leads + автоматизации в Systeme.io"
-              enabled={systemeEnabled}
-              loading={togglingSysteme}
-              statusLabel={systemeEnabled ? 'Активен' : 'Изключен'}
-              statusColor={systemeEnabled ? '#16a34a' : '#6b7280'}
-              href="https://systeme.io/dashboard/contacts"
-              onToggle={() => toggleIntegration(
-                'systemeio_enabled', systemeEnabled,
-                setSystemeEnabled, setTogglingSysteme, 'Systeme.io'
-              )}
-            />
-
-            {/* Test connection бутон */}
-            <button
-              onClick={testSystemeIO}
-              disabled={testingSysteme || !systemeEnabled}
-              style={{
-                marginTop: 12, width: '100%', padding: '9px', fontSize: 12, fontWeight: 700,
-                fontFamily: 'inherit', cursor: (testingSysteme || !systemeEnabled) ? 'default' : 'pointer',
-                background: systemeEnabled ? '#fff7ed' : '#f9fafb',
-                border: `1px solid ${systemeEnabled ? '#fed7aa' : '#e5e7eb'}`,
-                borderRadius: 9, color: systemeEnabled ? '#c2410c' : '#9ca3af',
-                transition: 'all .2s', opacity: !systemeEnabled ? 0.5 : 1,
-              }}>
+            <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.5 }}>Активирай/деактивирай без рестартиране — влиза в сила веднага.</p>
+            <IntegrationRow icon="✉️" name="Resend" description="Welcome + follow-up имейли към потребителите" enabled={resendEnabled} loading={togglingResend} statusLabel={resendEnabled ? 'Активен' : 'Изключен'} statusColor={resendEnabled ? '#16a34a' : '#6b7280'} href="https://resend.com/emails"
+              onToggle={() => toggleIntegration('resend_enabled', resendEnabled, setResendEnabled, setTogglingResend, 'Resend')} />
+            <IntegrationRow icon="🟠" name="Systeme.io" description="Синхронизира leads + автоматизации в Systeme.io" enabled={systemeEnabled} loading={togglingSysteme} statusLabel={systemeEnabled ? 'Активен' : 'Изключен'} statusColor={systemeEnabled ? '#16a34a' : '#6b7280'} href="https://systeme.io/dashboard/contacts"
+              onToggle={() => toggleIntegration('systemeio_enabled', systemeEnabled, setSystemeEnabled, setTogglingSysteme, 'Systeme.io')} />
+            <button onClick={testSystemeIO} disabled={testingSysteme || !systemeEnabled}
+              style={{ marginTop: 12, width: '100%', padding: '9px', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: (testingSysteme || !systemeEnabled) ? 'default' : 'pointer', background: systemeEnabled ? '#fff7ed' : '#f9fafb', border: `1px solid ${systemeEnabled ? '#fed7aa' : '#e5e7eb'}`, borderRadius: 9, color: systemeEnabled ? '#c2410c' : '#9ca3af', transition: 'all .2s', opacity: !systemeEnabled ? 0.5 : 1 }}>
               {testingSysteme ? '⏳ Проверява...' : '🔗 Тествай Systeme.io връзка'}
             </button>
-
             <div style={{ marginTop: 10, background: '#f8fafc', borderRadius: 8, padding: '8px 10px', fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>
               <strong style={{ color: '#374151', display: 'block', marginBottom: 2 }}>Как работи:</strong>
-              При изтегляне на наръчник → записва се в Supabase → изпраща welcome имейл (Resend) → добавя контакт в Systeme.io (за автоматизации).
-              <br/><strong style={{color:'#92400e'}}>⚠️ Env var:</strong> трябва да е точно <code>systemeio_api</code> в Vercel.
+              При изтегляне на наръчник → записва се в Supabase → изпраща welcome имейл (Resend) → добавя контакт в Systeme.io.<br/>
+              <strong style={{ color: '#92400e' }}>⚠️ Env var:</strong> трябва да е точно <code>systemeio_api</code> в Vercel.
             </div>
           </div>
 
@@ -598,12 +474,12 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 14px' }}>📊 Статус</h2>
             {[
-              { label: 'Поръчки',    value: ordersCount,                              color: '#16a34a' },
-              { label: 'Абонати',    value: leadsCount,                               color: '#0ea5e9' },
+              { label: 'Поръчки',    value: ordersCount,   color: '#16a34a' },
+              { label: 'Абонати',    value: leadsCount,    color: '#0ea5e9' },
               { label: 'Framework',  value: 'Next.js 14' },
               { label: 'База данни', value: 'Supabase' },
-              { label: 'Email',      value: resendEnabled    ? '✅ Resend'    : '⏸ Resend изкл.',    color: resendEnabled    ? '#16a34a' : '#9ca3af' },
-              { label: 'Leads sync', value: systemeEnabled   ? '✅ Systeme.io': '⏸ Systeme изкл.',   color: systemeEnabled   ? '#f97316' : '#9ca3af' },
+              { label: 'Email',      value: resendEnabled  ? '✅ Resend'     : '⏸ Resend изкл.',   color: resendEnabled  ? '#16a34a' : '#9ca3af' },
+              { label: 'Leads sync', value: systemeEnabled ? '✅ Systeme.io' : '⏸ Systeme изкл.',  color: systemeEnabled ? '#f97316' : '#9ca3af' },
               { label: 'Hosting',    value: 'Vercel' },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: 13 }}>
@@ -616,15 +492,11 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           {/* Email sequences */}
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>⚙️ Email Sequences</h2>
-            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.5 }}>
-              Изпълнява се автоматично всеки час (Vercel Cron).
-            </p>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.5 }}>Изпълнява се автоматично всеки час (Vercel Cron).</p>
             <div style={{ background: '#f0fdf4', borderRadius: 9, padding: '10px 12px', fontSize: 12, color: '#166534', marginBottom: 12, lineHeight: 1.6 }}>
-              📅 Welcome → +2д → +5д → +10д<br />
-              🛒 Abandoned: след 24ч без обработка
+              📅 Welcome → +2д → +5д → +10д<br/>🛒 Abandoned: след 24ч без обработка
             </div>
-            <button onClick={triggerSequence}
-              style={{ width: '100%', padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+            <button onClick={triggerSequence} style={{ width: '100%', padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
               ▶ Стартирай ръчно
             </button>
           </div>
@@ -640,20 +512,16 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
               <ol style={{ paddingLeft: 16, margin: 0, color: '#4b5563' }}>
                 <li>Отиди на <a href="https://analytics.google.com" target="_blank" rel="noreferrer" style={{ color: '#2d6a4f', fontWeight: 600 }}>analytics.google.com</a></li>
                 <li>Създай Property → Web → въведи dennyangelow.com</li>
-                <li>Копирай Measurement ID (изглежда така: <code style={{ background: '#e5e7eb', padding: '1px 4px', borderRadius: 3 }}>G-XXXXXXXXXX</code>)</li>
-                <li>Vercel → Settings → Environment Variables → добави:<br />
-                  <code style={{ background: '#e5e7eb', padding: '2px 6px', borderRadius: 3, fontSize: 11 }}>NEXT_PUBLIC_GA_ID = G-XXXXXXXXXX</code>
-                </li>
+                <li>Копирай Measurement ID (<code style={{ background: '#e5e7eb', padding: '1px 4px', borderRadius: 3 }}>G-XXXXXXXXXX</code>)</li>
+                <li>Vercel → Environment Variables → <code style={{ background: '#e5e7eb', padding: '2px 6px', borderRadius: 3, fontSize: 11 }}>NEXT_PUBLIC_GA_ID = G-XXXXXXXXXX</code></li>
                 <li>Redeploy → готово ✅</li>
               </ol>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <a href="https://analytics.google.com" target="_blank" rel="noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 9, textDecoration: 'none', color: '#15803d', fontSize: 13, fontWeight: 600 }}>
+              <a href="https://analytics.google.com" target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 9, textDecoration: 'none', color: '#15803d', fontSize: 13, fontWeight: 600 }}>
                 <span>📊</span> Отвори GA4
               </a>
-              <a href="https://vercel.com/dennyangelows-projects/denny/settings/environment-variables" target="_blank" rel="noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 9, textDecoration: 'none', color: '#374151', fontSize: 13, fontWeight: 600 }}>
+              <a href="https://vercel.com/dennyangelows-projects/denny/settings/environment-variables" target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 9, textDecoration: 'none', color: '#374151', fontSize: 13, fontWeight: 600 }}>
                 <span>▲</span> Vercel Env Vars
               </a>
             </div>
@@ -663,11 +531,11 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>🔗 Бързи линкове</h2>
             {[
-              { label: 'Supabase Dashboard', url: 'https://app.supabase.com',            icon: '⬡', color: '#3ecf8e' },
-              { label: 'Resend Dashboard',   url: 'https://resend.com/emails',            icon: '✉', color: '#0ea5e9' },
-              { label: 'Systeme.io',         url: 'https://systeme.io/dashboard/contacts',icon: '🟠', color: '#f97316' },
-              { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard',         icon: '▲', color: '#111' },
-              { label: 'Главна страница',    url: '/',                                    icon: '◫', color: '#6b7280' },
+              { label: 'Supabase Dashboard', url: 'https://app.supabase.com',             icon: '⬡', color: '#3ecf8e' },
+              { label: 'Resend Dashboard',   url: 'https://resend.com/emails',             icon: '✉', color: '#0ea5e9' },
+              { label: 'Systeme.io',         url: 'https://systeme.io/dashboard/contacts', icon: '🟠', color: '#f97316' },
+              { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard',          icon: '▲', color: '#111' },
+              { label: 'Главна страница',    url: '/',                                     icon: '◫', color: '#6b7280' },
             ].map(l => (
               <a key={l.url} href={l.url} target="_blank" rel="noreferrer"
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 9, textDecoration: 'none', color: 'var(--text)', fontSize: 13, fontWeight: 500, marginBottom: 6, transition: 'all .15s' }}
@@ -684,10 +552,10 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: 18 }}>
             <h2 style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 10 }}>⚠️ Сигурност</h2>
             {[
-              ['ADMIN_SECRET',      'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
-              ['systemeio_api', 'Задай в Vercel → Env Vars с точно това име. Взима се от Systeme.io → Settings → API Keys.'],
-              ['RLS в Supabase',    'Row Level Security трябва да е активирана.'],
-              ['CRON_SECRET',       'Защита на /api/leads/sequence.'],
+              ['ADMIN_SECRET',   'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
+              ['systemeio_api',  'Задай в Vercel → Env Vars с точно това име.'],
+              ['RLS в Supabase', 'Row Level Security трябва да е активирана.'],
+              ['CRON_SECRET',    'Защита на /api/leads/sequence.'],
             ].map(([k, v]) => (
               <div key={k} style={{ marginBottom: 8, fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
                 <strong style={{ color: '#92400e', display: 'block', fontSize: 11, textTransform: 'uppercase' }}>{k}</strong>

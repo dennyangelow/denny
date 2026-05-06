@@ -1,11 +1,11 @@
 'use client'
-// hooks/useAdminData.ts — v13
-// ✅ ПОПРАВКИ v13 (спрямо v12):
-//   - PageViewStats: добавени всички полета от API v9
-//     → last90, last90Unique, topPages30/7/Today, topReferrers30/7/Today
-//     → hourlyChart с unique поле
-//   - AffiliateAnalytics вече се импортва от @/lib/supabase (пълен тип)
-//   - pageViews се записва директно от API без load в непълен тип
+// hooks/useAdminData.ts — v14
+// ✅ ПОПРАВКИ v14 (спрямо v13):
+//   - fetchAllLeads() — зарежда ВСИЧКИ leads чрез пагинация (fix за limit=1000 таван)
+//     → Вече не е ограничено до 1000 записа — зарежда по 500 на страница
+//     → stats.leads показва реалния брой (напр. 1247, не 1000)
+//   - orders: повишен лимит на 2000 (повечето сайтове нямат над 2000 активни поръчки)
+//   - Всичко от v13 е запазено
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
@@ -73,6 +73,38 @@ export interface PageViewStats {
   topCampaigns?: { name: string; count: number }[]
 }
 
+// ── ✅ v14: Зарежда ВСИЧКИ leads чрез пагинация ──────────────────────────────
+// Суpabase .range() е ограничен до 1000 реда по подразбиране.
+// Решение: зареждаме по 500 на страница докато получим всички.
+async function fetchAllLeads(): Promise<Lead[]> {
+  const PAGE_SIZE = 500
+  let page = 1
+  let all: Lead[] = []
+
+  while (true) {
+    const r = await fetch(`/api/leads?limit=${PAGE_SIZE}&page=${page}`)
+    if (!r.ok) throw new Error(`leads ${r.status}`)
+    const data = await r.json()
+
+    const batch: Lead[] = data.leads || []
+    all = [...all, ...batch]
+
+    // Спираме ако:
+    // 1. Получихме по-малко от PAGE_SIZE (последна страница)
+    // 2. Вече имаме всички (ако API връща total)
+    const total = data.total ?? null
+    if (batch.length < PAGE_SIZE) break
+    if (total !== null && all.length >= total) break
+
+    page++
+
+    // Safety: максимум 20 страници (10 000 leads) за да не се зациклим
+    if (page > 20) break
+  }
+
+  return all
+}
+
 export function useAdminData() {
   const [orders, setOrders]       = useState<Order[]>([])
   const [leads, setLeads]         = useState<Lead[]>([])
@@ -92,14 +124,13 @@ export function useAdminData() {
     setError(null)
     try {
       const [ordRes, leadRes, affRes, pvRes] = await Promise.allSettled([
-        fetch('/api/orders?limit=1000').then(r => {
+        // ✅ Orders: limit=2000 (достатъчно за повечето сайтове)
+        fetch('/api/orders?limit=2000').then(r => {
           if (!r.ok) throw new Error(`orders ${r.status}`)
           return r.json()
         }),
-        fetch('/api/leads?limit=1000').then(r => {
-          if (!r.ok) throw new Error(`leads ${r.status}`)
-          return r.json()
-        }),
+        // ✅ v14: fetchAllLeads() — пагинирано, без таван от 1000
+        fetchAllLeads(),
         fetch('/api/analytics/affiliate-click').then(r => r.ok ? r.json() : null),
         fetch('/api/analytics/page-view').then(r => {
           if (!r.ok) {
@@ -110,8 +141,9 @@ export function useAdminData() {
         }),
       ])
 
-      const orderList: Order[] = ordRes.status  === 'fulfilled' ? (ordRes.value?.orders  || []) : []
-      const leadList:  Lead[]  = leadRes.status === 'fulfilled' ? (leadRes.value?.leads   || []) : []
+      const orderList: Order[] = ordRes.status  === 'fulfilled' ? (ordRes.value?.orders || []) : []
+      // ✅ v14: leadRes.value е директно Lead[] (не обект с .leads)
+      const leadList:  Lead[]  = leadRes.status === 'fulfilled' ? (leadRes.value || []) : []
       const affData            = affRes.status  === 'fulfilled' ? affRes.value  : null
       const pvData             = pvRes.status   === 'fulfilled' ? pvRes.value   : null
 
@@ -157,7 +189,7 @@ export function useAdminData() {
       setStats({
         totalOrders:     orderList.length,
         revenue,
-        leads:           leadList.length,
+        leads:           leadList.length,   // ✅ v14: реален брой, не 1000
         newOrders:       orderList.filter(o => o.status === 'new').length,
         todayRevenue,
         weekRevenue,

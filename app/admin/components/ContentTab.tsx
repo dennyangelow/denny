@@ -212,7 +212,7 @@ const SUB_LABELS: Record<SubTab, string> = {
 const inp: React.CSSProperties = {
   width: '100%', padding: '9px 12px',
   border: '1.5px solid #e5e7eb', borderRadius: 8,
-  fontFamily: 'inherit', fontSize: 13, outline: 'none',
+  fontFamily: 'inherit', fontSize: 16, outline: 'none',
   boxSizing: 'border-box', background: '#fff',
 }
 const focusGreen = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement).style.borderColor = '#2d6a4f')
@@ -704,15 +704,22 @@ export function ContentTab() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px 28px' }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    <div style={{ padding: '16px 14px' }}>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .content-subtabs{display:flex;gap:6px;flex-wrap:wrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+        .content-subtabs::-webkit-scrollbar{display:none}
+        @media(max-width:768px){
+          .content-edit-panel{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;max-height:100vh!important;border-radius:0!important;z-index:200;overflow-y:auto}
+        }
+      `}</style>
 
       {/* Header + main sub-tabs */}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: '0 0 16px' }}>
           Съдържание
         </h1>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div className="content-subtabs">
           {(Object.keys({ ...CONFIGS, promos: true }) as SubTab[]).map(t => (
             <button key={t} onClick={() => setSubTab(t)}
               style={{
@@ -779,7 +786,7 @@ export function ContentTab() {
 
       {/* List + edit panel */}
       {subTab !== 'promos' && subTab !== 'own' && !(subTab === 'naruchnici' && naruchnikMode === 'seo') && (
-        <div style={{ display: 'grid', gridTemplateColumns: editing ? '1fr 440px' : '1fr', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: editing ? 'minmax(0,1fr) min(440px,100%)' : '1fr', gap: 20 }}>
 
           {/* List */}
           <div>
@@ -890,7 +897,7 @@ export function ContentTab() {
 
           {/* Edit panel */}
           {editing && (
-            <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20, maxHeight: '88vh', overflowY: 'auto', position: 'sticky', top: 20 }}>
+            <div className="content-edit-panel" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20, maxHeight: '88vh', overflowY: 'auto', position: 'sticky', top: 20 }}>
 
               {/* Panel header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>

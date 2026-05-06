@@ -20,6 +20,26 @@ interface Props {
 
 type TabId = 'about' | 'howto' | 'tech' | 'faq'
 
+// Fix: извадена извън компонента — стабилна референция, без re-create при всеки render
+// Fix: добавен role="img" + aria-label за screen readers
+function Stars({ rating, size = 13 }: { rating: number; size?: number }) {
+  return (
+    <span
+      style={{ display: 'inline-flex', gap: 1 }}
+      role="img"
+      aria-label={`Рейтинг ${rating} от 5`}
+    >
+      {[1,2,3,4,5].map(i => (
+        <span
+          key={i}
+          aria-hidden="true"
+          style={{ fontSize: size, color: i <= Math.round(rating) ? '#f59e0b' : '#e2e8f0', lineHeight: 1 }}
+        >★</span>
+      ))}
+    </span>
+  )
+}
+
 function parseHowToUse(raw?: string): string[] {
   if (!raw) return []
   try {
@@ -115,9 +135,14 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
     hasFaq   && { id: 'faq'   as TabId, label: 'Въпроси',     icon: '❓' },
   ].filter(Boolean) as { id: TabId; label: string; icon: string }[]
 
+  // Fix: добавени tabs в deps + useCallback pattern за стабилност
+  // При mount проверяваме дали activeTab е валиден
   useEffect(() => {
-    if (tabs.length > 0 && !tabs.find(t => t.id === activeTab)) setActiveTab(tabs[0].id)
-  }, [])
+    if (tabs.length > 0 && !tabs.find(t => t.id === activeTab)) {
+      setActiveTab(tabs[0].id)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.length])  // tabs.length е стабилен proxy — tabs не се rebuild-ват освен при промяна на продукта
 
   useEffect(() => {
     const onScroll = () => {
@@ -129,18 +154,19 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  // Fix: window.open() ПРЕДИ fetch — при async call popup блокерите на Safari/Chrome
+  // блокират window.open() защото вече не е в контекста на потребителски жест
   const handleBuy = () => {
-    fetch('/api/affiliate-clicks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partner: product.partner, product_slug: product.slug }) }).catch(() => {})
+    window.open(product.affiliate_url, '_blank', 'noopener noreferrer')
     setBought(true)
     setTimeout(() => setBought(false), 2500)
-    window.open(product.affiliate_url, '_blank', 'noopener noreferrer')
+    // Analytics след отварянето — не блокира UX
+    fetch('/api/affiliate-clicks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ partner: product.partner, product_slug: product.slug }),
+    }).catch(() => {})
   }
-
-  const stars = (rating: number, size = 13) => (
-    <span style={{ display: 'inline-flex', gap: 1 }}>
-      {[1,2,3,4,5].map(i => <span key={i} style={{ fontSize: size, color: i <= Math.round(rating) ? '#f59e0b' : '#e2e8f0', lineHeight: 1 }}>★</span>)}
-    </span>
-  )
 
   return (
     <div className="af-page-root">
@@ -325,24 +351,24 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           <div><div className="logo-name">Denny Angelow</div><div className="logo-sub">Агро Консултант</div></div>
         </a>
         <nav className="header-nav">
-          <a href="/produkti" className="nav-link">Всички Продукти</a>
+          <a href="/#produkti" className="nav-link">Продукти</a>
           <a href="/#atlas" className="nav-link">Atlas Terra</a>
           <a href="/#ginegar" className="nav-link">Ginegar</a>
           <a href="/#testimonials" className="nav-link">Отзиви</a>
           <a href="/#faq" className="nav-link">Въпроси</a>
         </nav>
         <div style={{ display:'flex',gap:10,alignItems:'center' }}>
-          <a href="/produkti" className="cart-btn">← Всички продукти</a>
+          <a href="/#produkti" className="cart-btn">← Всички продукти</a>
           <button className="mob-btn" onClick={() => setMobMenu(v=>!v)} aria-label="Меню" aria-expanded={mobMenu}>{mobMenu?'✕':'☰'}</button>
         </div>
       </header>
 
       {mobMenu && (
         <div className="mob-nav">
-          {([['/produkti','Всички Продукти'],['/#atlas','Atlas Terra'],['/#testimonials','Отзиви'],['/#faq','Въпроси']] as [string,string][]).map(([h,l]) => (
+          {([['/#produkti','Продукти'],['/#atlas','Atlas Terra'],['/#testimonials','Отзиви'],['/#faq','Въпроси']] as [string,string][]).map(([h,l]) => (
             <a key={h} href={h} className="mob-nav-link" onClick={()=>setMobMenu(false)}>{l}</a>
           ))}
-          <a href="/produkti" className="mob-nav-link" style={{color:'#16a34a',fontWeight:800}} onClick={()=>setMobMenu(false)}>← Всички продукти</a>
+          <a href="/#produkti" className="mob-nav-link" style={{color:'#16a34a',fontWeight:800}} onClick={()=>setMobMenu(false)}>← Всички продукти</a>
         </div>
       )}
 
@@ -351,7 +377,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         <div className="af-hero-inner">
           <nav className="af-bc" aria-label="Навигация до страницата">
             <a href="/">Начало</a><span className="af-bc-sep">›</span>
-            <a href="/produkti">Всички Продукти</a><span className="af-bc-sep">›</span>
+            <a href="/#produkti">Продукти</a><span className="af-bc-sep">›</span>
             <strong title={product.name}>{product.name}</strong>
           </nav>
           <span className="af-cat-badge" style={{ color,background:`${color}15`,border:`1.5px solid ${color}30`,display: product.category_label ? undefined : 'none' }}>
@@ -430,7 +456,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           {/* Buy card */}
           <div className="af-card af-card-p" id="af-buy-card">
             <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:12 }}>
-              {stars(avgRating,14)}<span style={{ fontSize:12.5,fontWeight:700,color:'#374151' }}>{avgRating}/5</span>
+              <Stars rating={avgRating} size={14} /><span style={{ fontSize:12.5,fontWeight:700,color:'#374151' }}>{avgRating}/5</span>
               <span style={{ fontSize:11.5,color:'#94a3b8' }}>({reviewCount} отзива)</span>
             </div>
 
@@ -484,7 +510,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 <div style={{ fontSize:9,color:'#16a34a',fontWeight:800,textTransform:'uppercase',letterSpacing:'.1em',marginTop:3 }}>Агро Консултант</div>
               </div>
               <div style={{ marginLeft:'auto',textAlign:'right' }}>
-                {stars(avgRating,11)}
+                <Stars rating={avgRating} size={11} />
                 <div style={{ fontSize:9.5,color:'#64748b',marginTop:2 }}>{avgRating}/5 · {reviewCount}</div>
               </div>
             </div>
@@ -527,7 +553,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
             </h1>
             {product.subtitle && <p style={{ fontSize:14.5,color:'#64748b',lineHeight:1.55,marginBottom:12 }}>{product.subtitle}</p>}
             <div style={{ display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' }}>
-              {stars(avgRating,13)}
+              <Stars rating={avgRating} size={13} />
               <span style={{ fontSize:12.5,fontWeight:700,color:'#374151' }}>{avgRating}/5</span>
               <span style={{ fontSize:12,color:'#94a3b8' }}>({reviewCount} верифицирани отзива)</span>
               {product.social_proof && <span style={{ fontSize:12,color:'#64748b',fontStyle:'italic' }}>· {product.social_proof}</span>}
@@ -736,7 +762,10 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
               <div className="af-yt-wrap">
                 <iframe src={product.youtube_url.replace('watch?v=','embed/')}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen title={`${product.name} видео`} />
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  title={`${product.name} видео`} />
               </div>
             </div>
           )}

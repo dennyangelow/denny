@@ -245,7 +245,7 @@ function AffiliateDetailsTable({ details, range }: { details: AffiliateDetail; r
       </div>
 
       <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:460 }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:340 }}>
           <thead>
             <tr style={{ borderBottom:'2px solid #f3f4f6' }}>
               {['Продукт','Тип','Днес','7д','30д','Общо',''].map((h, i) => (
@@ -550,8 +550,8 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   return (
     <div className="an-root">
       <style>{`
-        .an-root { padding: 20px 24px; max-width: 1200px; box-sizing: border-box; overflow-x: hidden }
-        @media(max-width:640px) { .an-root { padding: 12px 10px } }
+        .an-root { padding: 16px 14px; max-width: 1200px; box-sizing: border-box; overflow-x: hidden }
+        @media(min-width:641px) { .an-root { padding: 20px 24px } }
 
         /* ── Grids ── */
         .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0 }

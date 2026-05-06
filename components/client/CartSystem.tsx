@@ -1,10 +1,8 @@
 'use client'
-// components/client/CartSystem.tsx — v11
-// ✅ Фактура: redesign — красив accordion с иконки и анимации
-// ✅ ДДС регистрация: чек + незадължително поле за ДДС номер (BG...)
-// ✅ Всички invoice полета → /api/orders + Discord embed
-// ✅ Само Еконт офис; тежки пратки предупреждение
-// ✅ Discord: само 1 съобщение на поръчка
+// components/client/CartSystem.tsx — v12
+// ✅ НОВО: cart:sync event listener → ре-чете localStorage при external write
+// (позволява OwnProduktClient и всяка друга страница да добавя в количката)
+// ✅ Всички предишни fix-ове от v11
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 
@@ -358,7 +356,7 @@ function EcontOfficePicker({ onSelect }: {
   const mkInputStyle = (active: boolean): React.CSSProperties => ({
     width: '100%', boxSizing: 'border-box',
     padding: '11px 38px 11px 38px',
-    fontSize: 14, fontWeight: 500,
+    fontSize: 16, fontWeight: 500,
     border: `1.5px solid ${active ? '#16a34a' : '#d1d5db'}`,
     borderRadius: 11, outline: 'none', background: '#fff',
     color: '#0f172a', transition: 'border-color .18s', marginBottom: 0,
@@ -1310,7 +1308,7 @@ function CartDrawer({
         /* ══ INPUTS ═══════════════════════════════════════════════ */
         .cart-input {
           width: 100%; padding: 10px 12px; border: 1.5px solid #e2e8f0;
-          border-radius: 10px; font-family: inherit; font-size: 13.5px;
+          border-radius: 10px; font-family: inherit; font-size: 16px;
           outline: none; box-sizing: border-box; margin-bottom: 7px;
           color: #0f172a; background: #fff;
           transition: border-color .15s, box-shadow .15s;
@@ -1910,6 +1908,17 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
     const handler = () => setDrawerOpen(prev => !prev)
     window.addEventListener('cart:open', handler)
     return () => window.removeEventListener('cart:open', handler)
+  }, [])
+
+  // ✅ cart:sync — позволява на product страницата да notify-ва CartSystem
+  // след external write в localStorage (напр. от OwnProduktClient.addToCart)
+  useEffect(() => {
+    const handler = () => {
+      const fresh = loadCartFromStorage()
+      setCartItems(fresh)
+    }
+    window.addEventListener('cart:sync', handler)
+    return () => window.removeEventListener('cart:sync', handler)
   }, [])
 
   useEffect(() => {

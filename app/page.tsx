@@ -58,7 +58,7 @@ interface ProductVariant {
 }
 
 interface AtlasProduct {
-  id: string; name: string; subtitle: string; desc: string
+  id: string; slug: string; name: string; subtitle: string; desc: string
   badge: string; emoji: string; img: string
   // [SEO] нови полета
   image_alt: string
@@ -293,6 +293,7 @@ async function getPageData() {
 
       return {
         id:           p.id || p.slug,
+        slug:         p.slug || p.id,
         name:         p.name,
         subtitle:     p.subtitle || '',
         desc:         p.description || '',
@@ -1014,6 +1015,31 @@ export default async function HomePage() {
                 sitePhone={settings.site_phone}
               />
             </div>
+
+
+
+{atlasProducts.length > 0 && (
+  <FadeIn>
+    <div className="atlas-learn-row">
+      <span className="atlas-learn-label">Не си сигурен кой е подходящ за теб?</span>
+      <div className="atlas-learn-links">
+        {atlasProducts.map(p => (
+          <a
+            key={p.id}
+            href={`/products/${p.slug}`}
+            className="atlas-learn-link"
+          >
+            <span className="atlas-learn-emoji">{p.emoji || '🌱'}</span>
+            <span className="atlas-learn-name">{p.name.split(' — ')[0]}</span>
+            <span className="atlas-learn-cta">Прочети повече</span>
+            <span className="atlas-learn-arrow">→</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </FadeIn>
+)}
+
 
             {/* Featured promo banners */}
             {promoBanners.filter(b => b.display_style === 'featured').length > 0 && (

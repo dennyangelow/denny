@@ -1,11 +1,7 @@
-// app/robots.ts — v3
-// ПОПРАВКИ спрямо v2:
-//   ✅ /*?* → /*? (правилен синтаксис за блокиране на query params)
-//      /*?* не е валиден robots.txt синтаксис в повечето crawler-и
-// ПОДОБРЕНИЯ:
-//   ✅ Crawl-delay премахнат (Next.js не го поддържа в MetadataRoute.Robots)
-//   ✅ Добавен /api/ disallow за всички ботове (не само Googlebot)
-//   ✅ Добавен /admin/ disallow за всички
+// app/robots.ts — v4
+// ✅ ПРОМЯНА спрямо v3: Добавен /products/ в allow списъка
+//    /products/ = собствени Atlas Terra продуктови страници
+// Запазени всички v3 поправки и подобрения
 
 import { MetadataRoute } from 'next'
 
@@ -21,13 +17,15 @@ export default function robots(): MetadataRoute.Robots {
           '/',
           '/naruchnik/',
           '/produkt/',
+          '/produkti/',
+          '/products/',    // ✅ НОВО: собствени Atlas Terra продуктови страници
         ],
         disallow: [
           '/admin',
           '/admin/',
           '/api/',
           '/unsubscribe',
-          '/*?',        // ✅ ПОПРАВКА: блокира всички URL-и с query params
+          '/*?',           // Блокира всички URL-и с query params
         ],
       },
       // Googlebot — без ограничения (може да crawl-ва всичко позволено)
