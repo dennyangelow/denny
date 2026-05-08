@@ -149,7 +149,7 @@ interface ProductVariant {
   price: number; compare_price: number; price_per_liter: number; stock: number; active: boolean
 }
 interface AtlasProduct {
-  id: string; name: string; subtitle: string; desc: string; badge: string; emoji: string; img: string
+  id: string; slug: string; name: string; subtitle: string; desc: string; badge: string; emoji: string; img: string
   price: number; comparePrice: number; priceLabel: string; features: string[]; variants?: ProductVariant[]
   outOfStock?: boolean  // true = продуктът / всички активни варианти са с stock=0
   stock?: number        // директен stock (за продукти без варианти)
@@ -1014,12 +1014,23 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
             </div>
           </div>
         ) : (
-          <button
-            onClick={handleAdd}
-            disabled={!selectedVariant}
-            style={{ display: 'block', width: '100%', padding: '13px 20px', background: added ? '#059669' : '#16a34a', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .2s', marginTop: 'auto', transform: added ? 'scale(0.98)' : 'scale(1)' }}>
-            {added ? '✓ Добавено!' : '🛒 Добави в количката'}
-          </button>
+          <div style={{ marginTop: 'auto' }}>
+            <button
+              onClick={handleAdd}
+              disabled={!selectedVariant}
+              style={{ display: 'block', width: '100%', padding: '13px 20px', background: added ? '#059669' : '#16a34a', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .2s', transform: added ? 'scale(0.98)' : 'scale(1)' }}>
+              {added ? '✓ Добавено!' : '🛒 Добави в количката'}
+            </button>
+            {product.slug && (
+              <a
+                href={`/products/${product.slug}`}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 10, fontSize: 12.5, color: '#059669', fontWeight: 600, textDecoration: 'none', opacity: 0.85, padding: '4px 0' }}
+              >
+                <span>📖</span>
+                <span>Не си сигурен? Прочети повече →</span>
+              </a>
+            )}
+          </div>
         )}
       </div>
     </div>

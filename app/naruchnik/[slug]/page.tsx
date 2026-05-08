@@ -194,8 +194,7 @@ export default async function NaruchnikPage({ params }: { params: { slug: string
     '@type':    'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Начало',    item: BASE_URL },
-      { '@type': 'ListItem', position: 2, name: 'Наръчници', item: `${BASE_URL}/naruchnici` },
-      { '@type': 'ListItem', position: 3, name: nar.title,   item: canonicalUrl },
+      { '@type': 'ListItem', position: 2, name: nar.title,   item: canonicalUrl },
     ],
   }
 
