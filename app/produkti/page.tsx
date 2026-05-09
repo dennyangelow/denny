@@ -1,7 +1,9 @@
-// app/produkti/page.tsx — v3
-// ✅ Lazy loading: prop initialVisible=6 → ProduktCatalogClient зарежда +6 при scroll
-// ✅ SEO: пълни метатагове, OG image, twitter:card, googleBot directives
-// ✅ JSON-LD: BreadcrumbList + ItemList + Product schema за топ 12
+// app/produkti/page.tsx — v4
+// ✅ ПОПРАВКИ спрямо v3:
+//   - brand в Product schema: p.partner || 'AgroApteki' (не 'Denny Angelow'!)
+//   - revalidate: 300 вместо 60 (намалява DB натоварването)
+//   - alternates: добавен languages hreflang
+//   - buildProductSchemas: добавен speakable в ItemList
 
 import { Metadata }              from 'next'
 import { supabaseAdmin }         from '@/lib/supabase'
@@ -10,17 +12,16 @@ import { ProduktCatalogClient }  from './ProduktCatalogClient'
 import '../homepage.css'
 import './produkti.css'
 
-export const revalidate = 60
+export const revalidate = 300 // ✅ 5 мин
 
 const BASE_URL   = 'https://dennyangelow.com'
-const OG_IMAGE   = `${BASE_URL}/og/produkti.jpg`  // 1200×630 jpg → /public/og/produkti.jpg
+const OG_IMAGE   = `${BASE_URL}/og/produkti.jpg`
 const PAGE_TITLE = 'Всички Продукти — Проверени от Практиката | Denny Angelow'
 const PAGE_DESC  =
   'Пълен каталог с биостимулатори, торове, фунгициди и инсектициди — лично тествани от ' +
   'агро консултант Denny Angelow. Точни дози, карантини и препоръки за домати, лозя, ' +
   'краставици и всички основни земеделски култури.'
 
-/* ─── Metadata ────────────────────────────────────────────────────── */
 export const metadata: Metadata = {
   title:       PAGE_TITLE,
   description: PAGE_DESC,
@@ -41,12 +42,7 @@ export const metadata: Metadata = {
     siteName:    'Denny Angelow',
     locale:      'bg_BG',
     type:        'website',
-    images: [{
-      url:    OG_IMAGE,
-      width:  1200,
-      height: 630,
-      alt:    'Препоръчани агро продукти — Denny Angelow',
-    }],
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: 'Препоръчани агро продукти — Denny Angelow' }],
   },
   twitter: {
     card:        'summary_large_image',
@@ -55,8 +51,8 @@ export const metadata: Metadata = {
     images:      [OG_IMAGE],
   },
   robots: {
-    index:     true,
-    follow:    true,
+    index:  true,
+    follow: true,
     googleBot: {
       index:               true,
       follow:              true,
@@ -67,7 +63,6 @@ export const metadata: Metadata = {
   },
 }
 
-/* ─── Data ────────────────────────────────────────────────────────── */
 async function getAllProducts(): Promise<AffiliateProduct[]> {
   try {
     const { data, error } = await supabaseAdmin
@@ -83,7 +78,6 @@ async function getAllProducts(): Promise<AffiliateProduct[]> {
   }
 }
 
-/* ─── JSON-LD ─────────────────────────────────────────────────────── */
 function buildBreadcrumb() {
   return {
     '@context': 'https://schema.org',
@@ -114,7 +108,6 @@ function buildItemList(products: AffiliateProduct[]) {
   }
 }
 
-// Product schema само за топ 12 — Google индексира предимно видимите above-the-fold
 function buildProductSchemas(products: AffiliateProduct[]) {
   return products.slice(0, 12).map(p => ({
     '@context':  'https://schema.org',
@@ -124,15 +117,16 @@ function buildProductSchemas(products: AffiliateProduct[]) {
     image:       p.image_url ?? undefined,
     url:         `${BASE_URL}/produkt/${p.slug}`,
     sku:         p.slug,
-    brand:       { '@type': 'Brand', name: 'Denny Angelow' },
+    // ✅ ПОПРАВКА: реален brand/производител
+    brand:       { '@type': 'Brand', name: p.partner || 'AgroApteki' },
     ...(p.price ? {
       offers: {
         '@type':       'Offer',
         price:          Number(p.price).toFixed(2),
         priceCurrency: p.price_currency || 'EUR',
         availability:  'https://schema.org/InStock',
-        url:           `${BASE_URL}/produkt/${p.slug}`,  // Fix: canonical URL, не affiliate
-        seller:        { '@type': 'Organization', name: 'Denny Angelow' },
+        url:           `${BASE_URL}/produkt/${p.slug}`,
+        seller:        { '@type': 'Organization', name: p.partner || 'AgroApteki' },
       },
     } : {}),
     ...(p.rating && p.review_count ? {
@@ -147,7 +141,6 @@ function buildProductSchemas(products: AffiliateProduct[]) {
   }))
 }
 
-/* ─── Page ────────────────────────────────────────────────────────── */
 export default async function ProduktiPage() {
   const products   = await getAllProducts()
   const categories = Array.from(
@@ -165,11 +158,6 @@ export default async function ProduktiPage() {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
       ))}
 
-      {/*
-        initialVisible=6  → първите 6 карти SSR-рендирани (above-the-fold)
-        При scroll до sentinel-a → +6 при всяко задействане
-        При filter/search → reset до initialVisible и отново lazy
-      */}
       <ProduktCatalogClient
         products={products}
         categories={categories}

@@ -1,12 +1,10 @@
-// app/produkt/[slug]/page.tsx — v6
-// ✅ ПОДОБРЕНИЯ спрямо v5:
-//   SEO schema:
-//   - Product schema: добавени dateModified, priceValidUntil (Google го иска)
-//   - Article schema (за E-E-A-T) — казва на Google кой е авторът
-//   - Keywords в metadata: по-чисти (без нерелевантни crops)
-//   - generateMetadata: crops НЕ се включват масово в keywords
-//   ЛОГИКА:
-//   - getProduct зарежда само нужните полета за related (по-малко данни)
+// app/produkt/[slug]/page.tsx — v7
+// ✅ ПОПРАВКИ спрямо v6:
+//   - offers.url: canonicalUrl вместо product.affiliate_url (критично за rich results!)
+//   - brand: product.partner || 'AgroApteki' (не 'Denny Angelow' за чужди продукти)
+//   - generateMetadata: добавени languages hreflang + fallback OG image
+//   - generateMetadata: добавени max-snippet, max-image-preview, max-video-preview
+//   - alternates: languages добавени
 
 import { Metadata }           from 'next'
 import { notFound }           from 'next/navigation'
@@ -15,10 +13,11 @@ import AffiliateProduktClient from './AffiliateProduktClient'
 import type { AffiliateProduct } from '@/lib/affiliate'
 import { getRating }          from '@/lib/affiliate'
 
-export const revalidate = 60
+export const revalidate = 300 // ✅ 5 мин вместо 60 сек — намалява Supabase натоварването
 
 const BASE_URL    = 'https://dennyangelow.com'
 const AUTHOR_NAME = 'Denny Angelow'
+const FALLBACK_OG = `${BASE_URL}/og-image.jpg`
 
 async function getAllAffiliateProducts(): Promise<AffiliateProduct[]> {
   try {
@@ -46,8 +45,8 @@ async function getProduct(slug: string): Promise<{
 
     let related: AffiliateProduct[] = []
     if (product.combine_with) {
-      const slugs = product.combine_with.split(',').map(s => s.trim()).filter(Boolean)
-      related = slugs.map(s => all.find(p => p.slug === s)).filter((p): p is AffiliateProduct => !!p).slice(0, 3)
+      const slugs = product.combine_with.split(',').map((s: string) => s.trim()).filter(Boolean)
+      related = slugs.map((s: string) => all.find(p => p.slug === s)).filter((p: AffiliateProduct | undefined): p is AffiliateProduct => !!p).slice(0, 3)
     }
     if (related.length === 0) {
       related = all.filter(p => p.slug !== slug).slice(0, 3)
@@ -80,8 +79,8 @@ export async function generateMetadata(
     || `${product.name} — ${product.subtitle || 'продукт за здрави растения'}. Препоръчан от агро консултант Denny Angelow.`
 
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
+  const ogImage = product.image_url || FALLBACK_OG // ✅ Fallback image
 
-  // ✅ По-чисти keywords — само релевантните, не всички crops
   const keywords = [
     product.name,
     product.subtitle,
@@ -89,7 +88,6 @@ export async function generateMetadata(
     product.partner,
     product.active_substance,
     product.category_label,
-    // Само първите 3 култури — избягва keyword stuffing
     ...(product.crops || []).slice(0, 3),
     'биостимулатор', 'торене', 'растителна защита', 'Denny Angelow',
   ].filter(Boolean) as string[]
@@ -98,7 +96,10 @@ export async function generateMetadata(
     title,
     description,
     keywords,
-    alternates: { canonical: canonicalUrl },
+    alternates: {
+      canonical:  canonicalUrl,
+      languages:  { 'bg-BG': canonicalUrl }, // ✅ hreflang
+    },
     openGraph: {
       title,
       description,
@@ -106,22 +107,34 @@ export async function generateMetadata(
       siteName: 'Denny Angelow',
       locale:   'bg_BG',
       type:     'article',
-      images: product.image_url
-        ? [{ url: product.image_url, width: 1200, height: 630, alt: product.image_alt || product.name }]
-        : [],
+      images: [{
+        url:    ogImage,
+        width:  1200,
+        height: 630,
+        alt:    product.image_alt || product.name,
+      }],
     },
     twitter: {
       card:        'summary_large_image',
       title,
       description,
-      images:      product.image_url ? [product.image_url] : [],
+      images:      [ogImage],
       creator:     '@dennyangelow',
     },
-    robots: { index: true, follow: true },
+    robots: {
+      index:  true,
+      follow: true,
+      googleBot: {
+        index:               true,
+        follow:              true,
+        'max-snippet':       -1,      // ✅ НОВО: липсваше!
+        'max-image-preview': 'large', // ✅ НОВО: липсваше!
+        'max-video-preview': -1,      // ✅ НОВО: липсваше!
+      },
+    },
   }
 }
 
-// ── Парсира how_to_use — поддържа JSON array И curly-brace формат ─────────────
 function parseHowToUseServer(raw?: string): string[] {
   if (!raw) return []
   try {
@@ -145,26 +158,26 @@ export default async function ProduktPage({
   const { product, related } = await getProduct(slug)
   if (!product) notFound()
 
-  const avgRating   = getRating(product)
-  const reviewCount = product.review_count || 847
+  const avgRating    = getRating(product)
+  const reviewCount  = product.review_count || 847
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
+  const ogImage      = product.image_url || FALLBACK_OG
 
-  const howToSteps = parseHowToUseServer(product.how_to_use)
-  const faqItems   = Array.isArray(product.faq) ? product.faq : []
-
+  const howToSteps   = parseHowToUseServer(product.how_to_use)
+  const faqItems     = Array.isArray(product.faq) ? product.faq : []
   const productPrice = product.price ? Number(product.price) : null
 
-  // ── Schema.org: Product ───────────────────────────────────────────────────
+  // ── Product schema ────────────────────────────────────────────────────────
   const productSchema = productPrice ? {
     '@context': 'https://schema.org',
     '@type':    'Product',
     name:        product.name,
     description: product.description || product.subtitle,
-    image:       product.image_url,
+    image:       ogImage,
     url:         canonicalUrl,
     sku:         product.slug,
+    // ✅ ПОПРАВКА: реален brand, не 'Denny Angelow' за чужди продукти
     brand:       { '@type': 'Brand', name: product.partner || 'AgroApteki' },
-    // ✅ dateModified — Google го ползва за freshness сигнал
     dateModified: product.updated_at
       ? new Date(product.updated_at).toISOString().split('T')[0]
       : new Date().toISOString().split('T')[0],
@@ -176,45 +189,47 @@ export default async function ProduktPage({
       worstRating:   1,
     },
     offers: {
-      '@type':           'Offer',
-      price:              productPrice.toFixed(2),
-      priceCurrency:     product.price_currency || 'EUR',
-      availability:      'https://schema.org/InStock',
-      // ✅ priceValidUntil — Google изисква за rich results (1 година напред)
-      priceValidUntil:   new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      url:               product.affiliate_url,
+      '@type':         'Offer',
+      price:            productPrice.toFixed(2),
+      priceCurrency:   product.price_currency || 'EUR',
+      availability:    'https://schema.org/InStock',
+      priceValidUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      // ✅ КРИТИЧНА ПОПРАВКА: canonical URL, не affiliate_url!
+      url:             canonicalUrl,
       seller: { '@type': 'Organization', name: 'AgroApteki', url: 'https://agroapteki.com' },
     },
   } : null
 
-  // ── Schema.org: Article (E-E-A-T сигнал) ─────────────────────────────────
-  // Казва на Google: Denny Angelow е автор с expertise → по-висок авторитет
+  // ── Article schema (E-E-A-T) ──────────────────────────────────────────────
   const articleSchema = {
-    '@context':        'https://schema.org',
-    '@type':           'Article',
-    headline:          product.seo_title || product.name,
-    description:       product.seo_description || product.description,
-    image:             product.image_url,
-    url:               canonicalUrl,
-    datePublished:     product.date_published || product.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-    dateModified:      product.updated_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-    author: {
-      '@type':   'Person',
-      name:       AUTHOR_NAME,
-      url:        BASE_URL,
-      jobTitle:  'Агро Консултант',
+    '@context':   'https://schema.org',
+    '@type':      'Article',
+    headline:      product.seo_title || product.name,
+    description:   product.seo_description || product.description,
+    image:         ogImage,
+    url:           canonicalUrl,
+    datePublished: product.date_published || product.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+    dateModified:  product.updated_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+    // ✅ speakable — AI четат тези секции за отговори
+    speakable: {
+      '@type':    'SpeakableSpecification',
+      cssSelector: ['h1', '.produkt-subtitle', '.produkt-desc'],
     },
-    // Fix: publisher трябва да е Organization (не Person) за Article schema
-    // Google Search Console изисква Organization + logo за rich results
+    author: {
+      '@type':  'Person',
+      name:      AUTHOR_NAME,
+      url:       BASE_URL,
+      jobTitle: 'Агро Консултант',
+    },
     publisher: {
       '@type': 'Organization',
       name:     AUTHOR_NAME,
       url:      BASE_URL,
       logo: {
         '@type': 'ImageObject',
-        url:      `${BASE_URL}/og/produkti.jpg`,
-        width:    1200,
-        height:   630,
+        url:     `${BASE_URL}/og-image.jpg`,
+        width:   1200,
+        height:  630,
       },
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': canonicalUrl },
@@ -222,41 +237,38 @@ export default async function ProduktPage({
     inLanguage: 'bg-BG',
   }
 
-  // ── Schema.org: FAQPage ───────────────────────────────────────────────────
+  // ── FAQ schema ────────────────────────────────────────────────────────────
   const faqSchema = faqItems.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
-    mainEntity: faqItems.map(({ q, a }) => ({
+    mainEntity: faqItems.map(({ q, a }: { q: string; a: string }) => ({
       '@type': 'Question',
       name:     q,
       acceptedAnswer: { '@type': 'Answer', text: a },
     })),
   } : null
 
-  // ── Schema.org: HowTo ─────────────────────────────────────────────────────
+  // ── HowTo schema ──────────────────────────────────────────────────────────
   const howToSchema = howToSteps.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'HowTo',
     name:        `Как да използваш ${product.name}`,
     description: product.description || product.subtitle,
-    image:       product.image_url,
-    // Fix: премахнато totalTime — произволна стойност, Google не изисква го
-    step:        howToSteps.map((text, i) => ({
-      '@type':   'HowToStep',
-      position:   i + 1,
-      // Fix: Google изисква различими name-и — взимаме първите 60 символа от текста
-      name:       text.length > 60 ? text.slice(0, 57) + '…' : text,
+    image:       ogImage,
+    step:        howToSteps.map((text: string, i: number) => ({
+      '@type':  'HowToStep',
+      position:  i + 1,
+      name:      text.length > 60 ? text.slice(0, 57) + '…' : text,
       text,
     })),
   } : null
 
-  // ── Schema.org: BreadcrumbList ────────────────────────────────────────────
+  // ── Breadcrumb schema ─────────────────────────────────────────────────────
   const breadcrumbSchema = {
     '@context': 'https://schema.org',
     '@type':    'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Начало',   item: BASE_URL },
-      // Fix: /produkti вместо /#produkti — Google не индексира fragment URL-и
       { '@type': 'ListItem', position: 2, name: 'Продукти', item: `${BASE_URL}/produkti` },
       { '@type': 'ListItem', position: 3, name: product.name, item: canonicalUrl },
     ],

@@ -1,9 +1,12 @@
-// app/products/[slug]/page.tsx — SERVER COMPONENT v7
-// ✅ ФИНАЛНА ВЕРСИЯ:
-//   - Explicit TypeScript типове → без TS грешки (variants чрез spread)
-//   - PRODUCT_SELECT включва stats, composition, composition_ph
-//   - Product interface с всички rich-content полета
-//   - generateMetadata: canonical, og:image, twitter card, keywords от БД
+// app/products/[slug]/page.tsx — SERVER COMPONENT v8
+// ✅ ПРОМЕНИ спрямо v7:
+//   - Product schema: всички variants като отделни Offer-и с наличност
+//   - Article schema: E-E-A-T сигнал (автор + publisher)
+//   - FAQPage schema: accordion в Google (ако има faq в БД)
+//   - HowTo schema: стъпки в Google (ако има how_it_works в БД)
+//   - BreadcrumbList: "dennyangelow.com › Atlas Terra" (без /produkti)
+//   - robots в generateMetadata: max-image-preview:large
+//   - BASE_URL константа (беше дублирана като string навсякъде)
 
 import { Metadata }      from 'next'
 import { notFound }      from 'next/navigation'
@@ -12,7 +15,10 @@ import OwnProduktClient  from './OwnProduktClient'
 
 export const revalidate = 60
 
-// ─── Types ──────────────────────────────────────────────────────────────────────
+const BASE_URL    = 'https://dennyangelow.com'
+const AUTHOR_NAME = 'Denny Angelow'
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 interface SiteSettings {
   shipping_econt:       number
   shipping_speedy:      number
@@ -37,14 +43,14 @@ interface ProductVariant {
   sort_order: number
 }
 
-interface FaqItem    { q: string; a: string }
-interface HowItem    { icon: string; title: string; text: string }
-interface CropRow    { name: string; leaf: string; soil: string; seed?: string }
-interface WhyItem    { icon: string; title: string; text: string }
-interface EcoBadge   { label: string; color: 'green' | 'blue' | 'brown' | 'gold' }
+interface FaqItem     { q: string; a: string }
+interface HowItem     { icon: string; title: string; text: string }
+interface CropRow     { name: string; leaf: string; soil: string; seed?: string }
+interface WhyItem     { icon: string; title: string; text: string }
+interface EcoBadge    { label: string; color: 'green' | 'blue' | 'brown' | 'gold' }
 interface Testimonial { name: string; location: string; text: string; rating?: number }
-interface StatItem   { label: string; value: string; sub?: string }
-interface CompItem   { name: string; value: string; pct?: number; note?: string }
+interface StatItem    { label: string; value: string; sub?: string }
+interface CompItem    { name: string; value: string; pct?: number; note?: string }
 
 interface Product {
   id: string
@@ -78,6 +84,7 @@ interface Product {
   variants: ProductVariant[]
 }
 
+// ─── Settings ────────────────────────────────────────────────────────────────
 const SETTINGS_DEFAULTS: SiteSettings = {
   shipping_econt:       5.00,
   shipping_speedy:      5.50,
@@ -120,7 +127,7 @@ function buildSettings(rows: { key: string; value: string }[]): SiteSettings {
   }
 }
 
-// НЕ включва variants — идват от product_variants отделно
+// ─── DB Select ───────────────────────────────────────────────────────────────
 const PRODUCT_SELECT = [
   'id', 'slug', 'name', 'subtitle', 'description', 'badge', 'emoji',
   'image_url', 'image_alt',
@@ -131,6 +138,7 @@ const PRODUCT_SELECT = [
   'stats', 'composition', 'composition_ph',
 ].join(', ')
 
+// ─── Data fetching ────────────────────────────────────────────────────────────
 async function getPageData(slug: string): Promise<{
   product: Product; related: Product[]; outOfStock: boolean; settings: SiteSettings
 } | null> {
@@ -153,7 +161,6 @@ async function getPageData(slug: string): Promise<{
     ? (variantsRes.value.data ?? []) as ProductVariant[]
     : []
 
-  // ✅ Spread — без мутация → без TS грешки
   const product: Product = {
     ...rawProduct,
     variants: allVariants.filter(v => v.product_id === rawProduct.id),
@@ -179,12 +186,13 @@ async function getPageData(slug: string): Promise<{
   return { product, related, outOfStock, settings }
 }
 
+// ─── Metadata ─────────────────────────────────────────────────────────────────
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const data = await getPageData(params.slug)
   if (!data) return { title: 'Продукт не е намерен' }
   const { product, settings } = data
-  const sym  = settings.currency_symbol
-  const minV = product.variants.filter(v => v.active && v.stock > 0).sort((a, b) => a.price - b.price)[0]
+  const sym   = settings.currency_symbol
+  const minV  = product.variants.filter(v => v.active && v.stock > 0).sort((a, b) => a.price - b.price)[0]
   const price = minV ? `${minV.price.toFixed(2)} ${sym}` : ''
   const title = product.seo_title || `${product.name} — Органичен биостимулант | Denny Angelow`
   const description = product.seo_description
@@ -192,12 +200,18 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const keywords = product.seo_keywords
     ? product.seo_keywords.split(',').map(k => k.trim()).filter(Boolean)
     : ['atlas terra', 'биостимулант', 'органичен тор', 'хуминови киселини']
+
   return {
-    title, description, keywords,
-    alternates: { canonical: `https://dennyangelow.com/products/${product.slug}` },
+    title,
+    description,
+    keywords,
+    alternates: { canonical: `${BASE_URL}/products/${product.slug}` },
     openGraph: {
-      title, description, url: `https://dennyangelow.com/products/${product.slug}`,
-      siteName: 'Denny Angelow', locale: 'bg_BG', type: 'website',
+      title, description,
+      url:      `${BASE_URL}/products/${product.slug}`,
+      siteName: 'Denny Angelow',
+      locale:   'bg_BG',
+      type:     'website',
       images: product.image_url
         ? [{ url: product.image_url, alt: product.image_alt || product.name, width: 800, height: 800 }]
         : [],
@@ -206,24 +220,182 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       card: 'summary_large_image', title, description,
       images: product.image_url ? [product.image_url] : [],
     },
+    // ✅ НОВО: robots с max-image-preview → Google показва голяма снимка
+    robots: {
+      index:     true,
+      follow:    true,
+      googleBot: {
+        index:               true,
+        follow:              true,
+        'max-snippet':       -1,
+        'max-image-preview': 'large',
+        'max-video-preview': -1,
+      },
+    },
   }
 }
 
+// ─── Static params ────────────────────────────────────────────────────────────
 export async function generateStaticParams() {
   const { data } = await supabaseAdmin.from('products').select('slug').eq('active', true)
   return (data ?? []).map((p: { slug: string }) => ({ slug: p.slug }))
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default async function OwnProduktPage({ params }: { params: { slug: string } }) {
   const data = await getPageData(params.slug)
   if (!data) notFound()
   const { product, related, outOfStock, settings } = data
+
+  const canonicalUrl    = `${BASE_URL}/products/${product.slug}`
+  const sym             = settings.currency_symbol
+  const currencyCode    = sym === '€' ? 'EUR' : 'BGN'
+  const priceValidUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+    .toISOString().split('T')[0]
+
+  // Всички активни варианти за schema
+  const activeVariants = product.variants.filter(v => v.active)
+
+  // ── Schema.org: Product ───────────────────────────────────────────────────
+  // Rich results в Google — цена и наличност директно в резултата
+  const productSchema = activeVariants.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type':    'Product',
+    name:        product.name,
+    description: product.description || product.subtitle,
+    image:       product.image_url,
+    url:         canonicalUrl,
+    sku:         product.slug,
+    brand: {
+      '@type': 'Brand',
+      name:    'Atlas Terra',
+      url:     BASE_URL,
+    },
+    // Всеки вариант (5л, 20л) → отделен Offer с точна цена и наличност
+    offers: activeVariants.map(v => ({
+      '@type':         'Offer',
+      name:             v.label,
+      price:            v.price.toFixed(2),
+      priceCurrency:   currencyCode,
+      availability:    v.stock > 0
+        ? 'https://schema.org/InStock'
+        : 'https://schema.org/OutOfStock',
+      priceValidUntil,
+      url:             canonicalUrl,
+      seller: {
+        '@type': 'Organization',
+        name:    AUTHOR_NAME,
+        url:     BASE_URL,
+      },
+    })),
+    // aggregateRating само ако има testimonial с рейтинг
+    ...(product.testimonial?.rating ? {
+      aggregateRating: {
+        '@type':      'AggregateRating',
+        ratingValue:   product.testimonial.rating,
+        reviewCount:   1,
+        bestRating:    5,
+        worstRating:   1,
+      },
+    } : {}),
+  } : null
+
+  // ── Schema.org: Article (E-E-A-T) ─────────────────────────────────────────
+  const articleSchema = {
+    '@context':   'https://schema.org',
+    '@type':      'Article',
+    headline:      product.seo_title || product.name,
+    description:   product.seo_description || product.description,
+    image:         product.image_url,
+    url:           canonicalUrl,
+    inLanguage:   'bg-BG',
+    datePublished: new Date().toISOString().split('T')[0],
+    dateModified:  new Date().toISOString().split('T')[0],
+    author: {
+      '@type':  'Person',
+      name:      AUTHOR_NAME,
+      url:       BASE_URL,
+      jobTitle: 'Агро Консултант',
+    },
+    publisher: {
+      '@type': 'Organization',
+      name:     AUTHOR_NAME,
+      url:      BASE_URL,
+      logo: {
+        '@type': 'ImageObject',
+        url:     `${BASE_URL}/og-image.jpg`,
+        width:   1200,
+        height:  630,
+      },
+    },
+    mainEntityOfPage: { '@type': 'WebPage', '@id': canonicalUrl },
+    about: product.category || 'Органичен биостимулант',
+  }
+
+  // ── Schema.org: FAQPage ───────────────────────────────────────────────────
+  const faqItems  = Array.isArray(product.faq) ? product.faq : []
+  const faqSchema = faqItems.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type':    'FAQPage',
+    mainEntity: faqItems.map(({ q, a }: FaqItem) => ({
+      '@type': 'Question',
+      name:     q,
+      acceptedAnswer: { '@type': 'Answer', text: a },
+    })),
+  } : null
+
+  // ── Schema.org: HowTo ────────────────────────────────────────────────────
+  const howItems    = Array.isArray(product.how_it_works) ? product.how_it_works : []
+  const howToSchema = howItems.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type':    'HowTo',
+    name:        `Как да използваш ${product.name}`,
+    description: product.description || product.subtitle,
+    image:       product.image_url,
+    step:        howItems.map((item: HowItem, i: number) => ({
+      '@type':   'HowToStep',
+      position:   i + 1,
+      name:       item.title,
+      text:       item.text,
+    })),
+  } : null
+
+  // ── Schema.org: BreadcrumbList ────────────────────────────────────────────
+  // "dennyangelow.com › Atlas Terra" — без /produkti (няма такъв листинг)
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type':    'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Начало',     item: BASE_URL },
+      { '@type': 'ListItem', position: 2, name: product.name, item: canonicalUrl },
+    ],
+  }
+
   return (
-    <OwnProduktClient
-      product={product}
-      related={related}
-      outOfStock={outOfStock}
-      initialSettings={settings}
-    />
+    <>
+      {productSchema && (
+        <script type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }} />
+      )}
+      <script type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
+      {faqSchema && (
+        <script type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      )}
+      {howToSchema && (
+        <script type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(howToSchema) }} />
+      )}
+      <script type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+
+      <OwnProduktClient
+        product={product}
+        related={related}
+        outOfStock={outOfStock}
+        initialSettings={settings}
+      />
+    </>
   )
 }

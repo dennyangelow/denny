@@ -620,7 +620,6 @@ export default function NaruchnikClient({
       <nav className="n-bc" aria-label="Навигация">
         <div className="n-bc-inner">
           <a href="/">Начало</a><span>›</span>
-          <a href="/naruchnici">Наръчници</a><span>›</span>
           <span className="n-bc-cur">{nar.title}</span>
         </div>
       </nav>

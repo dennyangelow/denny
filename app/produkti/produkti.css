@@ -183,14 +183,17 @@
   display: flex;
   flex-direction: column;
   transition: transform .22s, box-shadow .22s, border-color .22s;
-/* GPU offload за карти извън viewport — @supports за Safari < 15.4 */
+  /* ✅ ПОПРАВКА: @supports НЕ се слага вътре в CSS rule! Преместен долу. */
+}
+
+/* ✅ ПОПРАВКА: content-visibility извън .pk-card блока */
 @supports (content-visibility: auto) {
   .pk-card {
     content-visibility: auto;
     contain-intrinsic-size: 0 480px;
   }
 }
-}
+
 .pk-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 40px rgba(22,163,74,.14);

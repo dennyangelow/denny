@@ -1,7 +1,9 @@
-// app/robots.ts — v4
-// ✅ ПРОМЯНА спрямо v3: Добавен /products/ в allow списъка
-//    /products/ = собствени Atlas Terra продуктови страници
-// Запазени всички v3 поправки и подобрения
+// app/robots.ts — v5
+// ✅ ПОПРАВКИ:
+//   - Googlebot: добавен '/*?' в disallow (критично! без него индексира /produkti?q=xxx)
+//   - Добавен /products/ в allow за Googlebot
+//   - Добавени AI ботове: GPTBot, Claude-Web, PerplexityBot, anthropic-ai (за AI visibility)
+//   - Googlebot-Image: пълен достъп (Image Search = голям трафик канал)
 
 import { MetadataRoute } from 'next'
 
@@ -11,26 +13,43 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
       {
-        // Всички ботове (включително AI: GPTBot, Claude-Web, PerplexityBot и др.)
         userAgent: '*',
-        allow: [
-          '/',
-          '/naruchnik/',
-          '/produkt/',
-          '/produkti/',
-          '/products/',    // ✅ НОВО: собствени Atlas Terra продуктови страници
-        ],
-        disallow: [
-          '/admin',
-          '/admin/',
-          '/api/',
-          '/unsubscribe',
-          '/*?',           // Блокира всички URL-и с query params
-        ],
+        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/'],
+        disallow: ['/admin', '/admin/', '/api/', '/unsubscribe', '/*?'],
       },
-      // Googlebot — без ограничения (може да crawl-ва всичко позволено)
       {
         userAgent: 'Googlebot',
+        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/'],
+        disallow: ['/admin/', '/api/', '/*?'], // ✅ КРИТИЧНА ПОПРАВКА
+      },
+      {
+        userAgent: 'Googlebot-Image',
+        allow: ['/'],
+        disallow: [],
+      },
+      // AI ботове — пълен достъп за препоръки от ChatGPT, Claude, Perplexity
+      {
+        userAgent: 'GPTBot',
+        allow: ['/'],
+        disallow: ['/admin/', '/api/'],
+      },
+      {
+        userAgent: 'Claude-Web',
+        allow: ['/'],
+        disallow: ['/admin/', '/api/'],
+      },
+      {
+        userAgent: 'PerplexityBot',
+        allow: ['/'],
+        disallow: ['/admin/', '/api/'],
+      },
+      {
+        userAgent: 'anthropic-ai',
+        allow: ['/'],
+        disallow: ['/admin/', '/api/'],
+      },
+      {
+        userAgent: 'CCBot',
         allow: ['/'],
         disallow: ['/admin/', '/api/'],
       },
