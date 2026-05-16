@@ -1,10 +1,13 @@
 'use client'
-// components/client/CartSystem.tsx — v12
-// ✅ НОВО: cart:sync event listener → ре-чете localStorage при external write
-// (позволява OwnProduktClient и всяка друга страница да добавя в количката)
-// ✅ Всички предишни fix-ове от v11
+// components/client/CartSystem.tsx — v13
+// ✅ НОВО: cart:add event listener → OwnProduktClient изпраща CartItem директно
+//    (CartSystem е единственият owner на state — без директен localStorage от product)
+// ✅ Econt cities regex разширен: поддържа цифри и () в имена на градове
+// ✅ TypeScript: всички `any` заменени с конкретни типове
+// ✅ AtlasProduct: добавени seo_title/seo_description/image_alt за TS съвместимост
+// ✅ Всички предишни fix-ове от v12
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 
 // ── Детекция на мобилен (≤640px) — синхронна, без flash ──────────────────────
 function useIsMobile() {
@@ -91,7 +94,9 @@ function prefetchCities(): Promise<EcontCity[]> {
   _citiesPrefetchPromise = fetch('/api/econt/cities')
     .then(r => r.ok ? r.json() : { cities: [] })
     .then(d => {
-      const bgOnly = (d.cities || []).filter((c: EcontCity) => /^[Ѐ-ӿ\s\-\.]+$/.test(c.name))
+      const bgOnly = (d.cities || []).filter((c: EcontCity) =>
+        /^[\u0400-\u04FF\s\-\.0-9()]+$/.test(c.name)
+      )
       saveCitiesToSession(bgOnly)
       return bgOnly
     })
@@ -108,7 +113,7 @@ export function CartHeaderButton() {
       if (raw) {
         const parsed = JSON.parse(raw)
         const total = Array.isArray(parsed.items)
-          ? parsed.items.reduce((s: number, i: any) => s + (i.quantity || i.qty || 0), 0) : 0
+          ? parsed.items.reduce((s: number, i: { qty?: number; quantity?: number }) => s + (i.qty ?? i.quantity ?? 0), 0) : 0
         setCount(total)
       }
     } catch {}
@@ -153,6 +158,12 @@ interface AtlasProduct {
   price: number; comparePrice: number; priceLabel: string; features: string[]; variants?: ProductVariant[]
   outOfStock?: boolean  // true = продуктът / всички активни варианти са с stock=0
   stock?: number        // директен stock (за продукти без варианти)
+  // ✅ SEO полета — генерирани в page.tsx, не се ползват в CartSystem UI
+  // но трябват за TypeScript съвместимост при подаване от page.tsx
+  image_alt?: string
+  seo_title?: string
+  seo_description?: string
+  seo_keywords?: string
 }
 interface CartItem {
   productId: string; variantId: string; productName: string; variantLabel: string
@@ -163,6 +174,8 @@ interface CartItem {
 type InvoiceType = 'none' | 'company' | 'person'
 interface InvoiceData {
   type: InvoiceType
+  // Вътрешно поле за toggle на фактура — не се изпраща към API
+  _savedType?: string
   // Фирма
   company_name?:    string
   company_eik?:     string
@@ -438,7 +451,7 @@ function EcontOfficePicker({ onSelect }: {
           </div>
         )}
         {showCities && !selectedCity && cityQuery.length >= 2 && filteredCities.length === 0 && !citiesLoading && (
-          <div style={{ ...dropdownStyle, maxHeight: 'none' as any, padding: 14, textAlign: 'center' as const, fontSize: 13, color: '#94a3b8' }}>
+          <div style={{ ...dropdownStyle, maxHeight: 'none' as React.CSSProperties['maxHeight'], padding: 14, textAlign: 'center' as const, fontSize: 13, color: '#94a3b8' }}>
             🔍 Няма намерен град „{cityQuery}"
           </div>
         )}
@@ -590,7 +603,7 @@ function useLockBodyScroll(lock: boolean) {
       document.body.style.position = op
       document.body.style.top = ''
       document.body.style.width = ''
-      window.scrollTo({ top: restoreY, behavior: 'instant' as any })
+      window.scrollTo({ top: restoreY, behavior: 'instant' as ScrollBehavior })
     }
   }, [lock])
 }
@@ -842,11 +855,11 @@ function CartItemRow({ item, onUpdateQty, onRemove, fmt }: {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 5, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: 11, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-          <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' as any }}>−</button>
+          <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' }}>−</button>
           <span style={{ fontSize: 14, fontWeight: 800, minWidth: 26, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
-          <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' as any }}>+</button>
+          <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' }}>+</button>
         </div>
-        <button onClick={() => onRemove(item.variantId)} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '3px 7px', borderRadius: 5, WebkitTapHighlightColor: 'transparent' as any }}>🗑</button>
+        <button onClick={() => onRemove(item.variantId)} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '3px 7px', borderRadius: 5, WebkitTapHighlightColor: 'transparent' }}>🗑</button>
       </div>
     </div>
   )
@@ -1162,7 +1175,7 @@ function CartDrawer({
           payment_method: 'cod',
           items: orderItems.map(({ from_offer, ...rest }) => rest),
           subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
-          invoice: invoice.type !== 'none' ? (({ _savedType, ...inv }) => inv)(invoice as any) : null,
+          invoice: invoice.type !== 'none' ? (({ _savedType, ...inv }) => inv)(invoice) : null,
         }),
       })
       if (!res.ok) {
@@ -1194,7 +1207,7 @@ function CartDrawer({
         subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
         total_savings: +totalSavings.toFixed(2), items: orderItems,
         has_upsell: hasUpsell, has_cross_sell: hasCross, currency_symbol: sym,
-        invoice: invoice.type !== 'none' ? (({ _savedType, ...inv }) => inv)(invoice as any) : null,
+        invoice: invoice.type !== 'none' ? (({ _savedType, ...inv }) => inv)(invoice) : null,
         _orderId: newOrderId,
       }
 
@@ -1219,8 +1232,8 @@ function CartDrawer({
         const pp = ms!.offers.filter(o => o.type === 'post_purchase' && offerMatches(o, items, subtotal))
         if (pp.length > 0) setTimeout(() => setPostPurchaseOffer(pp[0]), Math.max(0, (ms!.post_purchase_delay ?? 2)) * 1000)
       }
-    } catch (err: any) {
-      setError(err.message || 'Грешка при изпращане. Моля опитай отново.')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Грешка при изпращане. Моля опитай отново.')
     } finally { setSubmitting(false) }
   }
 
@@ -1590,7 +1603,7 @@ function CartDrawer({
                   onClick={() => setInvoice(prev =>
                     prev.type !== 'none'
                       ? { ...prev, _savedType: prev.type as string, type: 'none' }
-                      : { ...prev, type: ((prev as any)._savedType as InvoiceType) || 'company' }
+                      : { ...prev, type: (prev._savedType as InvoiceType) || 'company' }
                   )}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 12,
@@ -1921,8 +1934,7 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
     return () => window.removeEventListener('cart:open', handler)
   }, [])
 
-  // ✅ cart:sync — позволява на product страницата да notify-ва CartSystem
-  // след external write в localStorage (напр. от OwnProduktClient.addToCart)
+  // ✅ cart:sync — backward compat: ре-чете localStorage при external write
   useEffect(() => {
     const handler = () => {
       const fresh = loadCartFromStorage()
@@ -1931,6 +1943,19 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
     window.addEventListener('cart:sync', handler)
     return () => window.removeEventListener('cart:sync', handler)
   }, [])
+
+  // ✅ cart:add — OwnProduktClient (и всяка друга страница) изпраща CartItem
+  // директно чрез CustomEvent. CartSystem е единственият owner на state.
+  // Без директен достъп до localStorage от external компоненти.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const item = (e as CustomEvent<CartItem>).detail
+      if (!item?.variantId) return
+      addToCart({ ...item, qty: item.qty ?? 1 })
+    }
+    window.addEventListener('cart:add', handler)
+    return () => window.removeEventListener('cart:add', handler)
+  }, [addToCart])
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('cart:count', { detail: totalItems }))

@@ -1,12 +1,10 @@
-// app/api/analytics/page-view/route.ts — v9
-// ✅ ПОПРАВКИ v7 (спрямо v6):
-//   БЪГОВЕ ПОПРАВЕНИ:
-//   1. topReferrers + topPages — сега се изчисляват за ВСЕКИ range поотделно
-//      (преди се показваха само за 90д независимо от избрания период)
-//   2. unique total — отделна COUNT заявка (без limit cap)
-//      (преди се броеше само от 100K реда → занижен брой при повече данни)
-//   3. getAffDailyChart — БГ дати за филтриране (не UTC)
-//   4. Добавени topReferrers/topPages полета за 7д, 30д, днес в отговора
+// app/api/analytics/page-view/route.ts — v10
+// ✅ ПОПРАВКИ v10 (спрямо v9):
+//   1. dailyChart разширен от 90д → 365д (detailRes вече взима 365д данни)
+//   2. Добавена last365 COUNT заявка → ново поле в отговора
+//   3. Добавени topPages90/topReferrers90 — отделни от "all" (преди всички non-30/7/today падаха в stats90)
+//   4. Добавени topPages365/topReferrers365 (= statsAll — от 365д данни)
+//   5. topPages/topReferrers (default "all") вече е от всички 365д данни, не само 90д
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -134,14 +132,16 @@ export async function GET() {
     const now = new Date()
 
     const todayStr = toBulgarianDate(now)
-    const bgDate7  = bgDateNDaysAgo(now, 7)
-    const bgDate30 = bgDateNDaysAgo(now, 30)
-    const bgDate90 = bgDateNDaysAgo(now, 90)
+    const bgDate7   = bgDateNDaysAgo(now, 7)
+    const bgDate30  = bgDateNDaysAgo(now, 30)
+    const bgDate90  = bgDateNDaysAgo(now, 90)
+    const bgDate365 = bgDateNDaysAgo(now, 365)
 
     const todayStartUtc = bulgarianDayStartUtc(todayStr)
     const since7Utc     = bulgarianDayStartUtc(bgDate7)
     const since30Utc    = bulgarianDayStartUtc(bgDate30)
     const since90Utc    = bulgarianDayStartUtc(bgDate90)
+    const since365Utc   = bulgarianDayStartUtc(bgDate365)
 
     const [
       totalRes,
@@ -161,6 +161,9 @@ export async function GET() {
       detail30Res,
       detail7Res,
       detailTodayRes,
+      // ✅ v10: отделни заявки за 90д топ (≠ all) и 365д
+      detail90Res,
+      last365Res,
     ] = await Promise.all([
       // COUNT заявки
       supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }),
@@ -176,18 +179,21 @@ export async function GET() {
       supabaseAdmin.rpc('count_unique_visitors', { since_ts: since7Utc }),
       supabaseAdmin.rpc('count_unique_visitors', { since_ts: todayStartUtc }),
 
-      // Детайли за 90д (chart + hourly + UTM)
+      // Детайли за 365д — за chart + hourly + UTM (разширено от 90д → 365д)
       supabaseAdmin
         .from('page_views')
         .select('visitor_id, session_id, ip_address, path, referrer, utm_source, utm_campaign, is_mobile, created_at')
-        .gte('created_at', since90Utc)
+        .gte('created_at', since365Utc)
         .order('created_at', { ascending: false })
-        .limit(100000),
+        .limit(200000),
 
       // ✅ ПОПРАВКА 1: path+referrer за топ статистики по range
       supabaseAdmin.from('page_views').select('path, referrer').gte('created_at', since30Utc).limit(50000),
       supabaseAdmin.from('page_views').select('path, referrer').gte('created_at', since7Utc).limit(20000),
       supabaseAdmin.from('page_views').select('path, referrer').gte('created_at', todayStartUtc).limit(5000),
+      // ✅ v10: 90д топ статистики (отделно от "all") и 365д топ + count
+      supabaseAdmin.from('page_views').select('path, referrer').gte('created_at', since90Utc).limit(80000),
+      supabaseAdmin.from('page_views').select('*', { count: 'exact', head: true }).gte('created_at', since365Utc),
     ])
 
     if (totalRes.error)  throw totalRes.error
@@ -198,6 +204,7 @@ export async function GET() {
     const total7     = last7Res.count  ?? 0
     const totalToday = todayRes.count  ?? 0
     const total90    = last90Res.count ?? 0
+    const total365   = last365Res.count ?? 0
 
     // ✅ ПОПРАВКА 2: unique visitors — броим Set от всички редове (без limit)
     function countUnique(rows: { visitor_id: string | null; ip_address: string | null }[] | null): number {
@@ -258,8 +265,9 @@ export async function GET() {
       ? Math.round((mobileCount / totalDetailRows) * 100)
       : 0
 
-    const dailyChart = Array.from({ length: 90 }, (_, i) => {
-      const bgDay = bgDateNDaysAgo(now, 89 - i)
+    // ✅ v10: dailyChart покрива 365 дни (за range=365 view)
+    const dailyChart = Array.from({ length: 365 }, (_, i) => {
+      const bgDay = bgDateNDaysAgo(now, 364 - i)
       const entry = byDay[bgDay]
       return {
         date:   bgDay.slice(5),
@@ -276,7 +284,8 @@ export async function GET() {
     }))
 
     // ✅ ПОПРАВКА 1: topPages/topReferrers по range
-    const stats90    = buildTopStats(detailRes.data || [])
+    const statsAll   = buildTopStats(detailRes.data || [])   // всички (365д данни)
+    const stats90    = buildTopStats(detail90Res.data || [])
     const stats30    = buildTopStats(detail30Res.data || [])
     const stats7     = buildTopStats(detail7Res.data || [])
     const statsToday = buildTopStats(detailTodayRes.data || [])
@@ -290,7 +299,7 @@ export async function GET() {
       .map(([name, count]) => ({ name, count }))
 
     return NextResponse.json({
-      total, last30: total30, last7: total7, today: totalToday, last90: total90,
+      total, last30: total30, last7: total7, today: totalToday, last90: total90, last365: total365,
 
       // ✅ Поправени unique — точни числа без limit cap
       unique:       uniqueTotal,
@@ -303,15 +312,20 @@ export async function GET() {
       dailyChart,
       hourlyChart,
 
-      // ✅ ПОПРАВКА 1: топ статистики по всеки range поотделно
-      topPages:      stats90.topPages,      // default (90д) — за "all" view
-      topReferrers:  stats90.topReferrers,
-      topPages30:    stats30.topPages,
-      topReferrers30: stats30.topReferrers,
-      topPages7:     stats7.topPages,
-      topReferrers7: stats7.topReferrers,
-      topPagesToday:    statsToday.topPages,
+      // ✅ v10: топ статистики за всеки range поотделно (90д ≠ all)
+      topPages:          statsAll.topPages,      // "all" — от всички данни
+      topReferrers:      statsAll.topReferrers,
+      topPages90:        stats90.topPages,       // 90д
+      topReferrers90:    stats90.topReferrers,
+      topPages30:        stats30.topPages,
+      topReferrers30:    stats30.topReferrers,
+      topPages7:         stats7.topPages,
+      topReferrers7:     stats7.topReferrers,
+      topPagesToday:     statsToday.topPages,
       topReferrersToday: statsToday.topReferrers,
+      // 365д — ползва statsAll (365д данни = "last year")
+      topPages365:       statsAll.topPages,
+      topReferrers365:   statsAll.topReferrers,
 
       topUtm,
       topCampaigns,
@@ -320,14 +334,16 @@ export async function GET() {
   } catch (err) {
     console.error('[page-view GET]', err)
     return NextResponse.json({
-      total: 0, last30: 0, last7: 0, today: 0, last90: 0,
+      total: 0, last30: 0, last7: 0, today: 0, last90: 0, last365: 0,
       unique: 0, todayUnique: 0, last7Unique: 0, last30Unique: 0, last90Unique: 0,
       mobilePercent: 0,
       dailyChart: [], hourlyChart: [],
       topPages: [], topReferrers: [],
+      topPages90: [], topReferrers90: [],
       topPages30: [], topReferrers30: [],
       topPages7: [], topReferrers7: [],
       topPagesToday: [], topReferrersToday: [],
+      topPages365: [], topReferrers365: [],
       topUtm: [], topCampaigns: [],
     }, { headers: { 'Cache-Control': 'no-store' } })
   }

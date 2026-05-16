@@ -1,19 +1,16 @@
-// app/produkt/[slug]/page.tsx — v7
-// ✅ ПОПРАВКИ спрямо v6:
-//   - offers.url: canonicalUrl вместо product.affiliate_url (критично за rich results!)
-//   - brand: product.partner || 'AgroApteki' (не 'Denny Angelow' за чужди продукти)
-//   - generateMetadata: добавени languages hreflang + fallback OG image
-//   - generateMetadata: добавени max-snippet, max-image-preview, max-video-preview
-//   - alternates: languages добавени
+// app/produkt/[slug]/page.tsx — v8
+// ✅ ПОПРАВКИ спрямо v7:
+//   - parseHowToUseServer премахната — използва се parseHowToUse от @/lib/affiliate
+//   - Няма повече дублиране на логиката между server и client
 
 import { Metadata }           from 'next'
 import { notFound }           from 'next/navigation'
 import { supabaseAdmin }      from '@/lib/supabase'
 import AffiliateProduktClient from './AffiliateProduktClient'
 import type { AffiliateProduct } from '@/lib/affiliate'
-import { getRating }          from '@/lib/affiliate'
+import { getRating, parseHowToUse } from '@/lib/affiliate'
 
-export const revalidate = 300 // ✅ 5 мин вместо 60 сек — намалява Supabase натоварването
+export const revalidate = 300
 
 const BASE_URL    = 'https://dennyangelow.com'
 const AUTHOR_NAME = 'Denny Angelow'
@@ -46,7 +43,10 @@ async function getProduct(slug: string): Promise<{
     let related: AffiliateProduct[] = []
     if (product.combine_with) {
       const slugs = product.combine_with.split(',').map((s: string) => s.trim()).filter(Boolean)
-      related = slugs.map((s: string) => all.find(p => p.slug === s)).filter((p: AffiliateProduct | undefined): p is AffiliateProduct => !!p).slice(0, 3)
+      related = slugs
+        .map((s: string) => all.find(p => p.slug === s))
+        .filter((p: AffiliateProduct | undefined): p is AffiliateProduct => !!p)
+        .slice(0, 3)
     }
     if (related.length === 0) {
       related = all.filter(p => p.slug !== slug).slice(0, 3)
@@ -79,7 +79,7 @@ export async function generateMetadata(
     || `${product.name} — ${product.subtitle || 'продукт за здрави растения'}. Препоръчан от агро консултант Denny Angelow.`
 
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
-  const ogImage = product.image_url || FALLBACK_OG // ✅ Fallback image
+  const ogImage      = product.image_url || FALLBACK_OG
 
   const keywords = [
     product.name,
@@ -97,8 +97,8 @@ export async function generateMetadata(
     description,
     keywords,
     alternates: {
-      canonical:  canonicalUrl,
-      languages:  { 'bg-BG': canonicalUrl }, // ✅ hreflang
+      canonical: canonicalUrl,
+      languages: { 'bg-BG': canonicalUrl },
     },
     openGraph: {
       title,
@@ -127,26 +127,12 @@ export async function generateMetadata(
       googleBot: {
         index:               true,
         follow:              true,
-        'max-snippet':       -1,      // ✅ НОВО: липсваше!
-        'max-image-preview': 'large', // ✅ НОВО: липсваше!
-        'max-video-preview': -1,      // ✅ НОВО: липсваше!
+        'max-snippet':       -1,
+        'max-image-preview': 'large',
+        'max-video-preview': -1,
       },
     },
   }
-}
-
-function parseHowToUseServer(raw?: string): string[] {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) return parsed.map(String)
-  } catch {}
-  try {
-    const fixed = raw.trim().replace(/^\{/, '[').replace(/\}$/, ']')
-    const parsed = JSON.parse(fixed)
-    if (Array.isArray(parsed)) return parsed.map(String)
-  } catch {}
-  return raw.split('\n').map(s => s.trim()).filter(Boolean)
 }
 
 export default async function ProduktPage({
@@ -163,7 +149,8 @@ export default async function ProduktPage({
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
   const ogImage      = product.image_url || FALLBACK_OG
 
-  const howToSteps   = parseHowToUseServer(product.how_to_use)
+  // ✅ Използва споделения helper от affiliate.ts — без дублиране
+  const howToSteps   = parseHowToUse(product.how_to_use)
   const faqItems     = Array.isArray(product.faq) ? product.faq : []
   const productPrice = product.price ? Number(product.price) : null
 
@@ -176,7 +163,6 @@ export default async function ProduktPage({
     image:       ogImage,
     url:         canonicalUrl,
     sku:         product.slug,
-    // ✅ ПОПРАВКА: реален brand, не 'Denny Angelow' за чужди продукти
     brand:       { '@type': 'Brand', name: product.partner || 'AgroApteki' },
     dateModified: product.updated_at
       ? new Date(product.updated_at).toISOString().split('T')[0]
@@ -194,7 +180,6 @@ export default async function ProduktPage({
       priceCurrency:   product.price_currency || 'EUR',
       availability:    'https://schema.org/InStock',
       priceValidUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      // ✅ КРИТИЧНА ПОПРАВКА: canonical URL, не affiliate_url!
       url:             canonicalUrl,
       seller: { '@type': 'Organization', name: 'AgroApteki', url: 'https://agroapteki.com' },
     },
@@ -210,9 +195,8 @@ export default async function ProduktPage({
     url:           canonicalUrl,
     datePublished: product.date_published || product.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
     dateModified:  product.updated_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-    // ✅ speakable — AI четат тези секции за отговори
     speakable: {
-      '@type':    'SpeakableSpecification',
+      '@type':     'SpeakableSpecification',
       cssSelector: ['h1', '.produkt-subtitle', '.produkt-desc'],
     },
     author: {

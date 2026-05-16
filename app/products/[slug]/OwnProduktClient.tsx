@@ -1,13 +1,16 @@
 'use client'
-// app/products/[slug]/OwnProduktClient.tsx — v13
-// ✅ НОВИ СЕКЦИИ v13:
-//   - op-stats-row: 3 ключови числа (ор. вещество, хуминови к-ни, pH) от БД
-//   - op-composition: химичен състав с progress bars — реални данни от atlasagro.eu
-//   - Всичко от БД — нищо hard-coded
-//   - CSS variables за консистентен дизайн
-//   - Коректни HeaderClient / CartSystem props
+// app/products/[slug]/OwnProduktClient.tsx — v15
+// ✅ ПОПРАВКИ спрямо v14:
+//   - ProductSchema компонент: faqSchema ПРЕМАХНАТ — живее само в page.tsx (server)
+//     Дублирането причиняваше "Дублиращо се поле FAQPage" в Google Search Console
+//   - FAQ секция: itemScope/itemType="FAQPage" ПРЕМАХНАТИ от <section> тага
+//     (inline microdata се дублираше с JSON-LD от page.tsx)
+//   - FaqAccordion: itemScope/itemProp атрибутите ПРЕМАХНАТИ — дублираха schema
+//   - review_count и avg_rating добавени в OwnProduct interface
+//   - created_at и updated_at добавени в OwnProduct interface
+//   - Рейтинг ред: показва реален брой отзиви ако има, иначе показва testimonial
 
-import { useState, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import { HeaderClient } from '@/components/client/HeaderClient'
 import { CartSystem }   from '@/components/client/CartSystem'
@@ -55,88 +58,88 @@ interface OwnProduct {
   faq?: FaqItem[]; how_it_works?: HowItem[]; crops?: CropRow[]
   testimonial?: Testimonial; why_items?: WhyItem[]
   eco_badges?: EcoBadge[]; certifications?: string[]
-  // Нови полета v13
   stats?: StatItem[]
   composition?: CompItem[]
   composition_ph?: string
+  // ✅ Реални данни от БД
+  review_count?: number
+  avg_rating?: number
+  created_at?: string
+  updated_at?: string
 }
 interface Props {
   product: OwnProduct; related: OwnProduct[]
   outOfStock: boolean; initialSettings: SiteSettings
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
-function addToCart(product: OwnProduct, variant: ProductVariant) {
-  try {
-    const raw    = localStorage.getItem('denny_cart_v2')
-    const parsed = raw ? JSON.parse(raw) : { items: [], savedAt: Date.now() }
-    const items: any[] = Array.isArray(parsed.items) ? parsed.items : []
-    const idx = items.findIndex(i => i.variantId === variant.id)
-    if (idx >= 0) { items[idx].qty += 1 } else {
-      items.push({
-        productId: product.id, variantId: variant.id,
-        productName: product.name, variantLabel: variant.label,
-        price: variant.price, comparePrice: variant.compare_price ?? 0,
-        qty: 1, emoji: product.emoji || '🌱',
-        img: product.image_url || '', size_liters: variant.size_liters ?? 0,
-      })
-    }
-    localStorage.setItem('denny_cart_v2', JSON.stringify({ items, savedAt: Date.now() }))
-    const total = items.reduce((s: number, i: any) => s + (i.qty || 0), 0)
-    window.dispatchEvent(new CustomEvent('cart:count', { detail: total }))
-    window.dispatchEvent(new CustomEvent('cart:sync'))
-    window.dispatchEvent(new Event('cart:open'))
-  } catch (e) { console.error(e) }
+// ─── Cart item type (съвпада с CartSystem CartItem) ──────────────────────────
+interface CartItemPayload {
+  productId:    string
+  variantId:    string
+  productName:  string
+  variantLabel: string
+  price:        number
+  comparePrice: number
+  qty:          number
+  emoji:        string
+  img:          string
+  size_liters:  number
 }
+
+// ─── Helpers ────────────────────────────────────────────────────────────────────
+function dispatchAddToCart(payload: CartItemPayload) {
+  window.dispatchEvent(new CustomEvent<CartItemPayload>('cart:add', { detail: payload }))
+}
+
 const fmt = (n: number, sym = '€') => `${Number(n).toFixed(2)} ${sym}`
 const md  = (t: string) => t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-const pct = (p: number, c: number) => !c||c<=p ? 0 : Math.round((1-p/c)*100)
+const pct = (p: number, c: number) => !c || c <= p ? 0 : Math.round((1 - p / c) * 100)
 
-// ─── Schema.org ─────────────────────────────────────────────────────────────────
-function ProductSchema({ product, variant, sym }: { product: OwnProduct; variant: ProductVariant|null; sym: string }) {
+// ─── Schema.org (Product САМО) ────────────────────────────────────────────────
+// ✅ FAQPage schema е ПРЕМАХНАТА от тук — живее само в page.tsx (server component)
+// ✅ BreadcrumbList е ПРЕМАХНАТА от тук — живее само в page.tsx (server component)
+// Дублирането на тези schemas причиняваше грешки в Google Search Console
+function ProductSchema({
+  product, variant, sym,
+}: {
+  product: OwnProduct; variant: ProductVariant | null; sym: string
+}) {
   const oos = !variant || variant.stock === 0
+
+  // ✅ AggregateRating само ако имаме РЕАЛЕН брой отзиви от БД
+  const hasRealRating =
+    typeof product.review_count === 'number' && product.review_count > 0 &&
+    typeof product.avg_rating   === 'number' && product.avg_rating   > 0
+
   const schema = {
-    '@context': 'https://schema.org', '@type': 'Product',
-    name: product.name, description: product.description,
-    image: product.image_url ? [product.image_url] : [],
-    brand: { '@type': 'Brand', name: 'Atlas Terra' },
+    '@context': 'https://schema.org',
+    '@type':    'Product',
+    name:        product.name,
+    description: product.description || '',
+    image:       product.image_url ? [product.image_url] : [],
+    brand:       { '@type': 'Brand', name: 'Atlas Terra' },
     ...(product.seo_keywords ? { keywords: product.seo_keywords } : {}),
     offers: {
-      '@type': 'Offer', priceCurrency: sym === 'лв.' ? 'BGN' : 'EUR',
-      price: (variant?.price ?? 0).toFixed(2),
-      availability: oos ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
-      seller: { '@type': 'Organization', name: 'Denny Angelow' },
-      url: `https://dennyangelow.com/products/${product.slug}`,
+      '@type':        'Offer',
+      priceCurrency:   sym === 'лв.' ? 'BGN' : 'EUR',
+      price:           (variant?.price ?? 0).toFixed(2),
+      availability:    oos ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
+      seller:          { '@type': 'Organization', name: 'Denny Angelow' },
+      url:             `https://dennyangelow.com/products/${product.slug}`,
     },
-    ...(product.testimonial?.text ? {
+    ...(hasRealRating ? {
       aggregateRating: {
-        '@type': 'AggregateRating',
-        ratingValue: product.testimonial.rating ?? 4.9,
-        reviewCount: 1, bestRating: 5,
-      }
+        '@type':      'AggregateRating',
+        ratingValue:   product.avg_rating!.toFixed(1),
+        reviewCount:   product.review_count!,
+        bestRating:    5,
+        worstRating:   1,
+      },
     } : {}),
   }
-  const faqSchema = product.faq?.length ? {
-    '@context': 'https://schema.org', '@type': 'FAQPage',
-    mainEntity: product.faq.map(f => ({
-      '@type': 'Question', name: f.q,
-      acceptedAnswer: { '@type': 'Answer', text: f.a },
-    })),
-  } : null
-  const breadcrumb = {
-    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Начало', item: 'https://dennyangelow.com' },
-      { '@type': 'ListItem', position: 2, name: 'Продукти', item: 'https://dennyangelow.com/produkti' },
-      { '@type': 'ListItem', position: 3, name: product.name, item: `https://dennyangelow.com/products/${product.slug}` },
-    ],
-  }
+
   return (
-    <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
-      {faqSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }} />
-    </>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
   )
 }
 
@@ -152,11 +155,11 @@ function Stars({ rating = 4.9 }: { rating?: number }) {
 }
 
 function RelatedCard({ r, fmtFn }: { r: OwnProduct; fmtFn: (n: number) => string }) {
-  const v = (r.variants||[]).find(v => v.active && v.stock > 0) || (r.variants||[])[0]
+  const v = (r.variants || []).find(v => v.active && v.stock > 0) || (r.variants || [])[0]
   const oos = !v || v.stock === 0
   return (
     <Link href={`/products/${r.slug}`} className="op-related-card">
-      {r.image_url && <img src={r.image_url} alt={r.image_alt||r.name} className="op-related-img" width={54} height={54} />}
+      {r.image_url && <img src={r.image_url} alt={r.image_alt || r.name} className="op-related-img" width={54} height={54} />}
       <div className="op-related-info">
         <div className="op-related-name">{r.emoji} {r.name.split(' — ')[0]}</div>
         <div className="op-related-sub">{r.subtitle}</div>
@@ -167,17 +170,19 @@ function RelatedCard({ r, fmtFn }: { r: OwnProduct; fmtFn: (n: number) => string
   )
 }
 
-function FaqItem({ q, a }: { q: string; a: string }) {
+// ✅ FaqAccordion: itemScope/itemProp атрибутите ПРЕМАХНАТИ
+// Inline microdata се дублираше с JSON-LD от page.tsx → грешки в Search Console
+function FaqAccordion({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="op-faq-item" itemScope itemProp="mainEntity" itemType="https://schema.org/Question">
+    <div className="op-faq-item">
       <button className="op-faq-q" onClick={() => setOpen(v => !v)} type="button" aria-expanded={open}>
-        <span itemProp="name">{q}</span>
+        <span>{q}</span>
         <span className={`op-faq-icon${open ? ' open' : ''}`} aria-hidden>+</span>
       </button>
       {open && (
-        <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
-          <p className="op-faq-a" itemProp="text">{a}</p>
+        <div>
+          <p className="op-faq-a">{a}</p>
         </div>
       )}
     </div>
@@ -185,33 +190,22 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────────
-export default function OwnProduktClient({ product, related, outOfStock, initialSettings }: Props) {
+export default function OwnProduktClient({
+  product, related, outOfStock, initialSettings,
+}: Props) {
   const activeVariants = (product.variants || []).filter(v => v.active)
-  const [selVariant, setSelVariant] = useState<ProductVariant|null>(
+  const [selVariant, setSelVariant] = useState<ProductVariant | null>(
     activeVariants.find(v => v.stock > 0) || activeVariants[0] || null
   )
   const [added,     setAdded]     = useState(false)
   const [imgLoaded, setImgLoaded] = useState(false)
 
-  const settings = initialSettings
-  const sym      = settings.currency_symbol
-  const fmtFn    = (n: number) => fmt(n, sym)
+  const settings     = initialSettings
+  const sym          = settings.currency_symbol
+  const fmtFn        = (n: number) => fmt(n, sym)
   const freeAbove    = settings.free_shipping_above
   const freeAboveFmt = `${freeAbove} ${sym}`
   const shippingMin  = Math.min(settings.shipping_econt, settings.shipping_speedy)
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('denny_cart_v2')
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (parsed?.items) {
-          const total = parsed.items.reduce((s: number, i: any) => s + (i.qty||0), 0)
-          window.dispatchEvent(new CustomEvent('cart:count', { detail: total }))
-        }
-      }
-    } catch {}
-  }, [])
 
   const variant      = selVariant
   const price        = variant?.price ?? 0
@@ -221,18 +215,28 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
 
   const urgencyRaw = settings.urgency_bar_products?.trim() || SETTINGS_DEFAULTS.urgency_bar_products
 
-  const handleAddToCart = () => {
+  const handleAddToCart = useCallback(() => {
     if (!variant || isOOS) return
-    addToCart(product, variant)
+    const payload: CartItemPayload = {
+      productId:    product.id,
+      variantId:    variant.id,
+      productName:  product.name,
+      variantLabel: variant.label,
+      price:        variant.price,
+      comparePrice: variant.compare_price ?? 0,
+      qty:          1,
+      emoji:        product.emoji || '🌱',
+      img:          product.image_url || '',
+      size_liters:  variant.size_liters ?? 0,
+    }
+    dispatchAddToCart(payload)
     setAdded(true)
     setTimeout(() => setAdded(false), 2500)
-  }
+  }, [variant, isOOS, product])
 
-  // Parse usage_notes → [листно, почвено, семена]
   const usageLines = (product.usage_notes || '')
     .split(/\.\s*/).map(s => s.replace(/^[^:]+:\s*/, '').trim()).filter(Boolean)
 
-  // DB content
   const faq         = product.faq          || []
   const howItems    = product.how_it_works || []
   const crops       = product.crops        || []
@@ -242,6 +246,14 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
   const stats       = product.stats        || []
   const composition = product.composition  || []
 
+  // ✅ Рейтинг — реален от БД → testimonial → fallback
+  const displayRating = product.avg_rating ?? testimonial?.rating ?? 4.9
+  const displayReviewCount = product.review_count && product.review_count > 0
+    ? `${product.review_count} отзива`
+    : testimonial?.name
+      ? '1+ отзива'
+      : '124+ отзива'
+
   const badgeClass: Record<string, string> = {
     green: 'op-eco-badge--green', blue: 'op-eco-badge--blue',
     brown: 'op-eco-badge--brown', gold: 'op-eco-badge--gold',
@@ -249,6 +261,7 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
 
   return (
     <div className="op-page">
+      {/* ✅ ProductSchema — само Product type, без FAQ/Breadcrumb (те са в page.tsx) */}
       <ProductSchema product={product} variant={variant} sym={sym} />
 
       {/* Urgency bar */}
@@ -261,6 +274,7 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
         shippingPrice={shippingMin}
         freeShippingAbove={freeAbove}
       />
+
       <CartSystem
         atlasProducts={[]}
         shippingPrice={shippingMin}
@@ -308,7 +322,7 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
                 {ecoBadges.length > 0 && (
                   <div className="op-eco-badges">
                     {ecoBadges.map((b, i) => (
-                      <span key={i} className={`op-eco-badge ${badgeClass[b.color]||'op-eco-badge--green'}`}>
+                      <span key={i} className={`op-eco-badge ${badgeClass[b.color] || 'op-eco-badge--green'}`}>
                         {b.label}
                       </span>
                     ))}
@@ -339,7 +353,7 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
             <div className="op-right">
               <div className="op-sticky">
 
-                {/* Info */}
+                {/* Info card */}
                 <div className="op-info-card">
                   <div className="op-category">
                     {product.emoji} Atlas Terra · {product.category || 'Биостимулант'}
@@ -347,9 +361,11 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
                   <h1 className="op-title">{product.name}</h1>
                   {product.subtitle && <p className="op-subtitle">{product.subtitle}</p>}
                   <div className="op-rating-row">
-                    <Stars rating={testimonial?.rating ?? 4.9} />
+                    <Stars rating={displayRating} />
                     <span className="op-rating-text">
-                      {(testimonial?.rating ?? 4.9).toFixed(1)} · {testimonial?.name ? '1+ отзива' : '124+ отзива'}
+                      {displayRating.toFixed(1)}
+                      {' · '}
+                      {displayReviewCount}
                     </span>
                     <span className="op-separator">·</span>
                     <span className={`op-instock-text${isOOS ? ' op-instock-text--oos' : ''}`}>
@@ -389,7 +405,7 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
                             ].filter(Boolean).join(' ')}
                             onClick={() => v.stock > 0 && setSelVariant(v)}
                             aria-pressed={selVariant?.id === v.id}
-                            aria-label={`${v.label} — ${fmtFn(v.price)}${v.stock===0 ? ' (изчерпан)' : ''}`}
+                            aria-label={`${v.label} — ${fmtFn(v.price)}${v.stock === 0 ? ' (изчерпан)' : ''}`}
                           >
                             <span className="op-variant-label">{v.label}</span>
                             <span className="op-variant-price">{fmtFn(v.price)}</span>
@@ -439,7 +455,7 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
                   </div>
                 )}
 
-                {/* Author */}
+                {/* Author card */}
                 <div className="op-author-card">
                   <div className="op-author-avatar">🧑‍🌾</div>
                   <div className="op-author-info">
@@ -609,15 +625,15 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
             )}
 
             {/* 8. FAQ */}
+            {/* ✅ itemScope/itemType="FAQPage" ПРЕМАХНАТИ — дублираха JSON-LD от page.tsx */}
             {faq.length > 0 && (
               <section
                 className="op-content-card op-content-card--faq"
                 aria-labelledby="s-faq"
-                itemScope itemType="https://schema.org/FAQPage"
               >
                 <h2 id="s-faq" className="op-section-title">Въпроси и отговори</h2>
                 <div className="op-faq-list">
-                  {faq.map((item, i) => <FaqItem key={i} q={item.q} a={item.a} />)}
+                  {faq.map((item, i) => <FaqAccordion key={i} q={item.q} a={item.a} />)}
                 </div>
               </section>
             )}
@@ -645,7 +661,8 @@ export default function OwnProduktClient({ product, related, outOfStock, initial
         <button
           type="button"
           className={`op-mobile-bar-btn${isOOS ? ' op-mobile-bar-btn--oos' : ''}`}
-          onClick={handleAddToCart} disabled={isOOS}
+          onClick={handleAddToCart}
+          disabled={isOOS}
         >
           {isOOS ? 'Изчерпан' : added ? '✓ Добавено!' : '🛒 Купи сега'}
         </button>

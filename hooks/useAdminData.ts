@@ -1,11 +1,8 @@
 'use client'
-// hooks/useAdminData.ts — v14
-// ✅ ПОПРАВКИ v14 (спрямо v13):
-//   - fetchAllLeads() — зарежда ВСИЧКИ leads чрез пагинация (fix за limit=1000 таван)
-//     → Вече не е ограничено до 1000 записа — зарежда по 500 на страница
-//     → stats.leads показва реалния брой (напр. 1247, не 1000)
-//   - orders: повишен лимит на 2000 (повечето сайтове нямат над 2000 активни поръчки)
-//   - Всичко от v13 е запазено
+// hooks/useAdminData.ts — v15
+// ✅ ПОПРАВКИ v15 (спрямо v14):
+//   - PageViewStats: добавени topPages90/topReferrers90, topPages365/topReferrers365, last365
+//     → Съвпада с новия API v10 отговор
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
@@ -56,17 +53,24 @@ export interface PageViewStats {
   dailyChart:  { date: string; count: number; unique?: number }[]
   hourlyChart?: { hour: number; count: number; unique: number }[]
 
-  // Топ статистики — default (90д / всичко)
+  // Топ статистики — default (all данни)
   topPages:     { name: string; count: number }[]
   topReferrers: { name: string; count: number }[]
 
   // Топ статистики по период — от API v7+
+  topPages90?:         { name: string; count: number }[]
+  topReferrers90?:     { name: string; count: number }[]
+  topPages365?:        { name: string; count: number }[]
+  topReferrers365?:    { name: string; count: number }[]
   topPages30?:         { name: string; count: number }[]
   topReferrers30?:     { name: string; count: number }[]
   topPages7?:          { name: string; count: number }[]
   topReferrers7?:      { name: string; count: number }[]
   topPagesToday?:      { name: string; count: number }[]
   topReferrersToday?:  { name: string; count: number }[]
+
+  // 365д брой посещения
+  last365?: number
 
   // UTM данни
   topUtm?:       { name: string; count: number }[]

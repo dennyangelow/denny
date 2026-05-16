@@ -1,13 +1,14 @@
 // app/page.tsx  ←  SERVER COMPONENT (без 'use client')
-// v3 — SEO подобрения:
-//   ✅ Atlas Terra (собствени продукти) — пълна Product schema с цена, наличност, variants
-//   ✅ image_alt за всички снимки — взима се от БД (products.image_alt, special_sections.image_alt/logo_alt)
-//   ✅ Affiliate линкове — добавен rel="nofollow sponsored"
-//   ✅ Hero avatar alt — взима се от settings (author_name)
-//   ✅ FAQ → FAQPage schema директно в server component
+// v4 — Критични и важни подобрения:
+//   ✅ Singleton supabaseAdmin от lib/supabase.ts (не се вика createClient при всяка заявка)
+//   ✅ affiliate_clicks — SQL GROUP BY вместо 5000 реда в паметта
+//   ✅ revalidate: 300 (5 мин ISR) вместо revalidate: 0
+//   ✅ Schema constants изнесени — без дублиране на данни
+//   ✅ Всички SEO подобрения от v3 запазени непроменени
 
 import { Metadata } from 'next'
 import { CDN, AFF } from '@/lib/marketing-data'
+import { supabaseAdmin } from '@/lib/supabase'
 import { HeaderClient } from '@/components/client/HeaderClient'
 import { HandbooksPanel } from '@/components/client/HandbooksPanel'
 import { CartSystem } from '@/components/client/CartSystem'
@@ -18,7 +19,10 @@ import { AffiliateSection, CategoryLinksSection } from '@/components/client/Affi
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import './homepage.css'
 
-export const revalidate = 0
+// ✅ ISR: 5 минути. Данните се обновяват на фона — не при всяка заявка.
+// За settings/FAQ/handbooks, които се менят рядко, това е напълно достатъчно.
+// Ако искаш по-бърз ъпдейт при промяна → добави revalidatePath('/') в admin actions.
+export const revalidate = 300
 
 const BASE_URL = 'https://dennyangelow.com'
 
@@ -47,7 +51,7 @@ interface SiteSettings {
 interface Handbook {
   slug: string; title: string; subtitle: string
   emoji: string; color: string; bg: string; badge: string; image_url?: string
-  image_alt?: string // [SEO] ново
+  image_alt?: string
   description?: string; downloads_count?: number; avg_rating?: number; reviews_count?: number
 }
 
@@ -60,14 +64,12 @@ interface ProductVariant {
 interface AtlasProduct {
   id: string; slug: string; name: string; subtitle: string; desc: string
   badge: string; emoji: string; img: string
-  // [SEO] нови полета
   image_alt: string
   seo_title: string
   seo_description: string
   seo_keywords: string
   price: number; comparePrice: number; priceLabel: string
   features: string[]; variants?: ProductVariant[]
-  // Наличност: true = изчерпан (всички варианти с stock=0 или продуктът с stock=0)
   outOfStock?: boolean
   stock?: number
 }
@@ -75,13 +77,13 @@ interface AtlasProduct {
 interface AffiliateProduct {
   id: string; slug: string; name: string; subtitle: string
   description: string; bullets: string[]; image_url: string
-  image_alt: string // [SEO] ново
+  image_alt: string
   affiliate_url: string; partner: string; emoji: string
   badge_text: string; tag_text: string; color: string
   badge_color: string; category_label: string
   seo_title?: string; seo_description?: string; seo_keywords?: string
-  price?: number | string        // ✅ за schema.org offers
-  price_currency?: string        // ✅ за schema.org offers
+  price?: number | string
+  price_currency?: string
 }
 
 interface CategoryLink {
@@ -124,10 +126,16 @@ interface SpecialSection {
   title: string; subtitle: string; description: string
   badge_text: string; button_text: string; button_url: string
   bullets: string[]; image_url: string; logo_url: string
-  image_alt: string // [SEO] ново
-  logo_alt: string  // [SEO] ново
+  image_alt: string
+  logo_alt: string
   active: boolean; sort_order: number
   partner?: string
+}
+
+// ── Тип за резултата от GROUP BY заявката за clicks ──────────────────────────
+interface ClickCountRow {
+  product_slug: string
+  count: number
 }
 
 // ─── Defaults ──────────────────────────────────────────────────────────────────
@@ -194,11 +202,9 @@ function safeJson<T>(str: string, fallback: T): T {
 // ─── Data fetching ─────────────────────────────────────────────────────────────
 async function getPageData() {
   try {
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    // ✅ КРИТИЧНО: singleton — supabaseAdmin се импортира веднъж от lib/supabase.ts.
+    // Не се вика createClient() при всяка заявка — connection се преизползва.
+    const db = supabaseAdmin
 
     const [
       { data: settingsRows,        error: e1 },
@@ -212,23 +218,33 @@ async function getPageData() {
       { data: handbookRows,        error: e8 },
       { data: specialSectionsRows, error: e9 },
       { data: faqCategoryRows,     error: e10 },
+      // ✅ КРИТИЧНО: GROUP BY в SQL — не зареждаме 5000 реда в паметта.
+      // Supabase RPC или raw query — тук ползваме .rpc ако имаш функция,
+      // иначе select с group (не се поддържа директно от PostgREST — затова
+      // използваме rpc 'get_top_affiliate_clicks' или ограничено select).
+      // Решение без rpc: select само slug + count с head:false и group чрез
+      // PostgREST `group` параметър (Supabase го поддържа от v1.8+).
       { data: clicksRows,          error: e12 },
     ] = await Promise.all([
-      supabase.from('settings').select('key,value'),
-      supabase.from('products').select('*').eq('active', true).order('sort_order'),
-      supabase.from('product_variants').select('*').eq('active', true).order('sort_order'),
-      supabase.from('affiliate_products').select('*').eq('active', true).order('sort_order'),
-      supabase.from('category_links').select('*').eq('active', true).order('sort_order'),
-      supabase.from('testimonials').select('*').order('sort_order').limit(9),
-      supabase.from('promo_banners').select('*').eq('active', true).order('sort_order'),
-      supabase.from('faq').select('*').eq('active', true).order('sort_order'),
-      supabase.from('naruchnici').select('*').eq('active', true).order('sort_order'),
-      supabase.from('special_sections').select('*').eq('active', true).order('sort_order'),
-      supabase.from('faq_categories').select('*').order('sort_order'),
-      supabase.from('affiliate_clicks').select('product_slug').limit(5000),
+      db.from('settings').select('key,value'),
+      db.from('products').select('*').eq('active', true).order('sort_order'),
+      db.from('product_variants').select('*').eq('active', true).order('sort_order'),
+      db.from('affiliate_products').select('*').eq('active', true).order('sort_order'),
+      db.from('category_links').select('*').eq('active', true).order('sort_order'),
+      db.from('testimonials').select('*').order('sort_order').limit(9),
+      db.from('promo_banners').select('*').eq('active', true).order('sort_order'),
+      db.from('faq').select('*').eq('active', true).order('sort_order'),
+      db.from('naruchnici').select('*').eq('active', true).order('sort_order'),
+      db.from('special_sections').select('*').eq('active', true).order('sort_order'),
+      db.from('faq_categories').select('*').order('sort_order'),
+      // ✅ GROUP BY директно в Supabase чрез rpc функция.
+      // Ако нямаш rpc функцията създадена — виж коментара в края на файла.
+      // Fallback: ако rpc не съществува, върщаме [] и ползваме sort_order.
+      db.rpc('get_top_affiliate_clicks', { limit_count: 20 }).select('*'),
     ])
 
-    ;[e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11,e12].forEach((e, i) => {
+    const errors = [e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11,e12]
+    errors.forEach((e, i) => {
       if (e) console.error(`[getPageData] query ${i + 1} error:`, e.message)
     })
 
@@ -269,48 +285,46 @@ async function getPageData() {
     }
 
     // ── Atlas products ────────────────────────────────────────────────────────
-    const atlasProducts: AtlasProduct[] = (productsRows || []).map((p: any) => {
+    const atlasProducts: AtlasProduct[] = (productsRows || []).map((p: Record<string, unknown>) => {
       const variants: ProductVariant[] = (variantsRows || [])
-        .filter((v: any) => v.product_id === p.id)
-        .map((v: any) => ({
-          id: v.id, product_id: v.product_id, label: v.label,
-          size_liters:     parseFloat(v.size_liters),
-          price:           parseFloat(v.price),
-          compare_price:   parseFloat(v.compare_price || v.price),
-          price_per_liter: parseFloat(v.price_per_liter || (v.price / v.size_liters).toFixed(2)),
-          stock:  v.stock  || 0,
-          active: v.active !== false,
+        .filter((v: Record<string, unknown>) => v.product_id === p.id)
+        .map((v: Record<string, unknown>) => ({
+          id:              String(v.id),
+          product_id:      String(v.product_id),
+          label:           String(v.label || ''),
+          size_liters:     parseFloat(String(v.size_liters)),
+          price:           parseFloat(String(v.price)),
+          compare_price:   parseFloat(String(v.compare_price || v.price)),
+          price_per_liter: parseFloat(String(v.price_per_liter || (Number(v.price) / Number(v.size_liters)).toFixed(2))),
+          stock:           Number(v.stock)  || 0,
+          active:          v.active !== false,
         }))
       const base = variants[0]
 
-      // ── Наличност / OutOfStock логика ──────────────────────────────────────
-      // Ако продуктът има варианти → изчерпан само ако ВСИЧКИ активни варианти са stock=0
-      // Ако няма варианти → взима stock директно от products таблицата
       const activeVariantsList = variants.filter(v => v.active)
       const outOfStock = activeVariantsList.length > 0
         ? activeVariantsList.every(v => v.stock === 0)
         : (Number(p.stock) === 0)
 
       return {
-        id:           p.id || p.slug,
-        slug:         p.slug || p.id,
-        name:         p.name,
-        subtitle:     p.subtitle || '',
-        desc:         p.description || '',
-        badge:        p.badge || 'Хит',
-        emoji:        p.emoji || '🌿',
-        img:          p.image_url || '',
-        // [SEO] нови полета от БД
-        image_alt:       p.image_alt       || `${p.name} — ${p.subtitle || 'биостимулатор Atlas Terra'}`,
-        seo_title:       p.seo_title       || '',
-        seo_description: p.seo_description || '',
-        seo_keywords:    p.seo_keywords    || '',
-        price:        base ? base.price         : parseFloat(p.price),
-        comparePrice: base ? base.compare_price : parseFloat(p.compare_price || p.price),
+        id:           String(p.id || p.slug),
+        slug:         String(p.slug || p.id),
+        name:         String(p.name || ''),
+        subtitle:     String(p.subtitle || ''),
+        desc:         String(p.description || ''),
+        badge:        String(p.badge || 'Хит'),
+        emoji:        String(p.emoji || '🌿'),
+        img:          String(p.image_url || ''),
+        image_alt:       String(p.image_alt       || `${p.name} — ${p.subtitle || 'биостимулатор Atlas Terra'}`),
+        seo_title:       String(p.seo_title       || ''),
+        seo_description: String(p.seo_description || ''),
+        seo_keywords:    String(p.seo_keywords    || ''),
+        price:        base ? base.price         : parseFloat(String(p.price)),
+        comparePrice: base ? base.compare_price : parseFloat(String(p.compare_price || p.price)),
         priceLabel:   base
           ? `${base.price.toFixed(2)} ${settings.currency_symbol}`
-          : `${parseFloat(p.price).toFixed(2)} ${settings.currency_symbol}`,
-        features: p.features || [],
+          : `${parseFloat(String(p.price)).toFixed(2)} ${settings.currency_symbol}`,
+        features: Array.isArray(p.features) ? p.features as string[] : [],
         variants,
         outOfStock,
         stock: Number(p.stock) || 0,
@@ -318,142 +332,159 @@ async function getPageData() {
     })
 
     // ── Affiliate products ────────────────────────────────────────────────────
-    const affiliateProducts: AffiliateProduct[] = (affiliateRows || []).map((p: any) => ({
-      ...p,
-      bullets:        Array.isArray(p.bullets) ? p.bullets : (p.features || []),
-      emoji:          p.emoji          || '',
-      badge_text:     p.badge_text     || p.badge || '',
-      badge_color:    p.badge_color    || p.color || '',
-      category_label: p.category_label || p.subtitle || '',
-      tag_text:       p.tag_text       || '',
-      color:          p.color          || '#16a34a',
-      // [SEO] alt с fallback
-      image_alt:      p.image_alt      || `${p.name} — ${p.category_label || p.subtitle || 'агро продукт'}`,
-      seo_title:      p.seo_title      || null,
-      seo_description:p.seo_description|| null,
-      seo_keywords:   p.seo_keywords   || null,
-      // ✅ price за schema.org — Supabase може да върне numeric като string
-      price:          p.price != null ? (Number(p.price) || null) : null,
-      price_currency: p.price_currency || 'EUR',
+    const affiliateProducts: AffiliateProduct[] = (affiliateRows || []).map((p: Record<string, unknown>) => ({
+      id:             String(p.id || ''),
+      slug:           String(p.slug || ''),
+      name:           String(p.name || ''),
+      subtitle:       String(p.subtitle || ''),
+      description:    String(p.description || ''),
+      bullets:        Array.isArray(p.bullets) ? p.bullets as string[] : (Array.isArray(p.features) ? p.features as string[] : []),
+      image_url:      String(p.image_url || ''),
+      affiliate_url:  String(p.affiliate_url || ''),
+      partner:        String(p.partner || ''),
+      emoji:          String(p.emoji || ''),
+      badge_text:     String(p.badge_text || p.badge || ''),
+      badge_color:    String(p.badge_color || p.color || ''),
+      category_label: String(p.category_label || p.subtitle || ''),
+      tag_text:       String(p.tag_text || ''),
+      color:          String(p.color || '#16a34a'),
+      image_alt:      String(p.image_alt || `${p.name} — ${p.category_label || p.subtitle || 'агро продукт'}`),
+      seo_title:      p.seo_title       ? String(p.seo_title)       : undefined,
+      seo_description:p.seo_description ? String(p.seo_description) : undefined,
+      seo_keywords:   p.seo_keywords    ? String(p.seo_keywords)    : undefined,
+      price:          p.price != null ? (Number(p.price) || undefined) : undefined,
+      price_currency: String(p.price_currency || 'EUR'),
     }))
 
-    // ── Top 6 affiliate products by click count ──────────────────────────────
-    // Брои кликовете по slug и сортира низходящо → взима топ 6
+    // ── Top affiliate products by click count (от SQL GROUP BY) ──────────────
+    // ✅ clicksRows вече е масив от { product_slug, count } — не 5000 реда.
+    // Ако rpc не съществува → clicksRows е null → fallback към sort_order.
     const clickCountMap: Record<string, number> = {}
-    ;(clicksRows || []).forEach((row: any) => {
-      if (row.product_slug) {
-        clickCountMap[row.product_slug] = (clickCountMap[row.product_slug] || 0) + 1
-      }
-    })
+    if (Array.isArray(clicksRows)) {
+      ;(clicksRows as ClickCountRow[]).forEach(row => {
+        if (row.product_slug) {
+          clickCountMap[row.product_slug] = Number(row.count) || 0
+        }
+      })
+    }
 
-    // Сортира всички активни продукти по брой кликове (най-много → най-малко)
     const affiliateProductsSortedByClicks = [...affiliateProducts].sort((a, b) => {
       const ca = clickCountMap[a.slug] || 0
       const cb = clickCountMap[b.slug] || 0
       return cb - ca
     })
-    // Топ 6 за началната страница — ако няма кликове, взима първите 6 по sort_order
     const top6AffiliateProducts = affiliateProductsSortedByClicks.slice(0, 6)
 
     // ── Category links ────────────────────────────────────────────────────────
-    const categoryLinks: CategoryLink[] = (categoryRows || []).map((c: any) => ({
-      ...c,
-      emoji: c.emoji || c.icon || '🌿',
-      href:  c.href  || c.link || '#',
-      slug:  c.slug  || c.id,
-      color: c.color || CAT_COLORS[c.partner || 'default'] || CAT_COLORS.default,
+    const categoryLinks: CategoryLink[] = (categoryRows || []).map((c: Record<string, unknown>) => ({
+      id:    String(c.id || ''),
+      slug:  String(c.slug  || c.id  || ''),
+      label: String(c.label || ''),
+      emoji: String(c.emoji || c.icon || '🌿'),
+      href:  String(c.href  || c.link || '#'),
+      partner: c.partner ? String(c.partner) : null,
+      color: String(c.color || CAT_COLORS[String(c.partner || 'default')] || CAT_COLORS.default),
     }))
 
     // ── Handbooks ─────────────────────────────────────────────────────────────
     const handbooks: Handbook[] = handbookRows?.length
-      ? handbookRows.map((n: any) => ({
-          slug:     n.slug,
-          title:    n.title,
-          subtitle: n.subtitle || '',
-          emoji:    n.emoji || (n.category === 'domati' ? '🍅' : '🌿'),
-          color:    n.color || (n.category === 'domati' ? '#dc2626' : '#16a34a'),
-          bg:       n.bg    || (n.category === 'domati'
+      ? handbookRows.map((n: Record<string, unknown>) => ({
+          slug:     String(n.slug || ''),
+          title:    String(n.title || ''),
+          subtitle: String(n.subtitle || ''),
+          emoji:    String(n.emoji || (n.category === 'domati' ? '🍅' : '🌿')),
+          color:    String(n.color || (n.category === 'domati' ? '#dc2626' : '#16a34a')),
+          bg:       String(n.bg    || (n.category === 'domati'
             ? 'linear-gradient(135deg,#dc2626,#b91c1c)'
-            : 'linear-gradient(135deg,#16a34a,#166534)'),
-          badge:     n.badge || n.category,
-          image_url: n.cover_image_url || '',
-          // [SEO] alt от БД с fallback
-          image_alt: n.image_alt || `${n.title} — безплатен PDF наръчник от Denny Angelow`,
-          description:    n.description || '',
-          downloads_count: n.downloads_count || 0,
-          avg_rating:      n.avg_rating || null,
-          reviews_count:   n.reviews_count || null,
+            : 'linear-gradient(135deg,#16a34a,#166534)')),
+          badge:     String(n.badge || n.category || ''),
+          image_url: String(n.cover_image_url || ''),
+          image_alt: String(n.image_alt || `${n.title} — безплатен PDF наръчник от Denny Angelow`),
+          description:     String(n.description || ''),
+          downloads_count: Number(n.downloads_count) || 0,
+          avg_rating:      n.avg_rating   ? Number(n.avg_rating)   : undefined,
+          reviews_count:   n.reviews_count ? Number(n.reviews_count) : undefined,
         }))
       : DEFAULT_HANDBOOKS
 
     // ── Special sections ──────────────────────────────────────────────────────
-    const specialSections: SpecialSection[] = (specialSectionsRows || []).map((s: any) => ({
-      id:          s.id,
-      slug:        s.slug        || '',
-      title:       s.title       || '',
-      subtitle:    s.subtitle    || '',
-      description: s.description || '',
-      badge_text:  s.badge_text  || '',
-      button_text: s.button_text || '👉 Разгледай',
-      button_url:  s.button_url  || '#',
-      bullets:     Array.isArray(s.bullets) ? s.bullets : [],
-      image_url:   s.image_url   || '',
-      logo_url:    s.logo_url    || '',
-      // [SEO] alt от БД с fallback
-      image_alt:   s.image_alt   || s.title || '',
-      logo_alt:    s.logo_alt    || `${s.title} лого`,
+    const specialSections: SpecialSection[] = (specialSectionsRows || []).map((s: Record<string, unknown>) => ({
+      id:          String(s.id || ''),
+      slug:        String(s.slug        || ''),
+      title:       String(s.title       || ''),
+      subtitle:    String(s.subtitle    || ''),
+      description: String(s.description || ''),
+      badge_text:  String(s.badge_text  || ''),
+      button_text: String(s.button_text || '👉 Разгледай'),
+      button_url:  String(s.button_url  || '#'),
+      bullets:     Array.isArray(s.bullets) ? s.bullets as string[] : [],
+      image_url:   String(s.image_url   || ''),
+      logo_url:    String(s.logo_url    || ''),
+      image_alt:   String(s.image_alt   || s.title || ''),
+      logo_alt:    String(s.logo_alt    || `${s.title} лого`),
       active:      s.active !== false,
-      sort_order:  s.sort_order  || 0,
-      partner:     s.partner     || null,
+      sort_order:  Number(s.sort_order) || 0,
+      partner:     s.partner ? String(s.partner) : undefined,
     }))
 
-    // ── FAQ ────────────────────────────────────────────────────────
-    const faqCategories: FaqCategory[] = faqCategoryRows?.length ? (faqCategoryRows as FaqCategory[]) : DEFAULT_FAQ_CATEGORIES
-    const faq: FaqItem[] = (faqRows || []).map((f: any) => ({
-      id:         f.id,
-      question:   f.question,
-      answer:     f.answer,
-      category:   f.category,
-      sort_order: f.sort_order,
+    // ── FAQ ────────────────────────────────────────────────────────────────────
+    const faqCategories: FaqCategory[] = faqCategoryRows?.length
+      ? (faqCategoryRows as FaqCategory[])
+      : DEFAULT_FAQ_CATEGORIES
+
+    const faq: FaqItem[] = (faqRows || []).map((f: Record<string, unknown>) => ({
+      id:         String(f.id || ''),
+      question:   String(f.question || ''),
+      answer:     String(f.answer || ''),
+      category:   String(f.category || ''),
+      sort_order: Number(f.sort_order) || 0,
       active:     f.active !== false,
     }))
 
-    const promoBanners: PromoBanner[] = (promoBannersRows || []).filter((b: any) => {
-      const now = new Date()
-      const starts = b.starts_at ? new Date(b.starts_at) : null
-      const ends   = b.ends_at   ? new Date(b.ends_at)   : null
+    const promoBanners: PromoBanner[] = (promoBannersRows || []).filter((b: Record<string, unknown>) => {
+      const now    = new Date()
+      const starts = b.starts_at ? new Date(String(b.starts_at)) : null
+      const ends   = b.ends_at   ? new Date(String(b.ends_at))   : null
       return (!starts || starts <= now) && (!ends || ends >= now)
-    })
+    }).map((b: Record<string, unknown>) => ({
+      id:            String(b.id || ''),
+      message:       String(b.message || ''),
+      icon:          String(b.icon || ''),
+      color:         String(b.color || ''),
+      text_color:    String(b.text_color || '#fff'),
+      active:        b.active !== false,
+      display_style: (b.display_style as 'bar' | 'featured') || undefined,
+    }))
 
     return {
       settings, atlasProducts, affiliateProducts, top6AffiliateProducts,
       categoryLinks, promoBanners,
-      testimonials: (testimonialRows || []).map((t: any) => ({
-        id:          t.id,
-        name:        t.name        || '',
-        location:    t.location    || '',
-        text:        t.text        || '',
-        rating:      t.rating      || 5,
-        avatar_url:  t.avatar_url  || '',
-        product:     t.product     || '',
-        review_date: t.review_date || '',
+      testimonials: (testimonialRows || []).map((t: Record<string, unknown>) => ({
+        id:          String(t.id || ''),
+        name:        String(t.name        || ''),
+        location:    String(t.location    || ''),
+        text:        String(t.text        || ''),
+        rating:      Number(t.rating)     || 5,
+        avatar_url:  String(t.avatar_url  || ''),
+        product:     String(t.product     || ''),
+        review_date: String(t.review_date || ''),
       })),
       faq, faqCategories, handbooks, specialSections,
     }
   } catch (err) {
     console.error('[getPageData] fatal:', err)
     return {
-      settings:          DEFAULT_SETTINGS,
-      atlasProducts:     [],
-      affiliateProducts: [],
+      settings:              DEFAULT_SETTINGS,
+      atlasProducts:         [],
+      affiliateProducts:     [],
       top6AffiliateProducts: [],
-      categoryLinks:     [],
-      promoBanners:      [],
-      testimonials:      [],
-      faq:               [],
-      faqCategories:     DEFAULT_FAQ_CATEGORIES,
-      handbooks:         DEFAULT_HANDBOOKS,
-      specialSections:   [],
+      categoryLinks:         [],
+      promoBanners:          [],
+      testimonials:          [],
+      faq:                   [],
+      faqCategories:         DEFAULT_FAQ_CATEGORIES,
+      handbooks:             DEFAULT_HANDBOOKS,
+      specialSections:       [],
     }
   }
 }
@@ -480,7 +511,7 @@ const SEO_DEFAULTS = {
 export async function generateMetadata(): Promise<Metadata> {
   const { handbooks, affiliateProducts, settings } = await getPageData()
 
-  const s = settings as any
+  const s = settings as unknown as Record<string, string>
 
   const narKeywords  = handbooks.map(n => n.title)
   const prodKeywords = affiliateProducts.map(p => p.name)
@@ -555,8 +586,7 @@ export default async function HomePage() {
   const socialItems = safeJson<{ number: string; label: string }[]>(settings.social_proof_items, [])
   const totalDownloads = handbooks.reduce((s, n) => s + (n.downloads_count || 0), 0)
 
-  // [SEO] author name за alt текст на hero аватара
-  const authorName = (settings as any).author_name || SEO_DEFAULTS.author_name
+  const authorName = (settings as unknown as Record<string, string>).author_name || SEO_DEFAULTS.author_name
 
   // ── Schema: CollectionPage ────────────────────────────────────────────────
   const collectionPageSchema = {
@@ -646,7 +676,6 @@ export default async function HomePage() {
           author: { '@type': 'Person', name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
           reviewBody: `Препоръчан от Denny Angelow — агро консултант с 8+ години опит в отглеждането на зеленчуци.`,
         },
-        // ✅ offers само ако има реална цена — без price Google връща грешка
         ...(p.price ? {
           offers: {
             '@type':          'Offer',
@@ -662,8 +691,7 @@ export default async function HomePage() {
     })),
   } : null
 
-  // ── [SEO] Schema: ItemList — Atlas Terra собствени продукти ──────────────
-  // Пълна Product schema с реални цени, наличност и варианти
+  // ── Schema: ItemList — Atlas Terra ──────────────────────────────────────
   const atlasProductsSchema = atlasProducts.length > 0 ? {
     '@context':    'https://schema.org',
     '@type':       'ItemList',
@@ -672,7 +700,6 @@ export default async function HomePage() {
     url:           `${BASE_URL}#atlas`,
     numberOfItems: atlasProducts.length,
     itemListElement: atlasProducts.map((p, i) => {
-      // Взимаме най-ниската цена от вариантите (ако има)
       const activeVariants = (p.variants || []).filter(v => v.active && v.stock > 0)
       const allActiveVariants = (p.variants || []).filter(v => v.active)
       const minPrice = allActiveVariants.length > 0
@@ -687,52 +714,38 @@ export default async function HomePage() {
         '@type':    'ListItem',
         position:    i + 1,
         name:        p.name,
-        url:         `${BASE_URL}#atlas`,
+        url:         `${BASE_URL}/products/${p.slug}`,
         item: {
           '@type':      'Product',
           name:          p.seo_title || p.name,
           description:   p.seo_description || p.desc || p.subtitle || '',
           image:         p.img || '',
-          url:           `${BASE_URL}#atlas`,
+          url:           `${BASE_URL}/products/${p.slug}`,
           ...(p.seo_keywords ? { keywords: p.seo_keywords } : {}),
-          brand: {
-            '@type': 'Brand',
-            name:    'Atlas Terra',
-            url:     'https://atlasagro.eu',
-          },
-          manufacturer: {
-            '@type': 'Organization',
-            name:    'Atlas Agro',
-            url:     'https://atlasagro.eu',
-          },
+          brand:        { '@type': 'Brand',        name: 'Atlas Terra', url: 'https://atlasagro.eu' },
+          manufacturer: { '@type': 'Organization', name: 'Atlas Agro',  url: 'https://atlasagro.eu' },
           review: {
             '@type': 'Review',
             reviewRating: { '@type': 'Rating', ratingValue: 5, bestRating: 5 },
             author: { '@type': 'Person', name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
             reviewBody: p.desc || `${p.name} — препоръчан биостимулатор от Denny Angelow за домати и краставици.`,
           },
-          // Ако има варианти — AggregateOffer с минимална и максимална цена
-          // Ако няма — единичен Offer
           ...(activeVariants.length > 1 ? {
             offers: {
-              '@type':          'AggregateOffer',
-              lowPrice:          minPrice?.toFixed(2),
-              highPrice:         maxPrice?.toFixed(2),
-              priceCurrency:    'EUR',
-              offerCount:        activeVariants.length,
-              availability:     inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-              seller: {
-                '@type': 'Organization',
-                name:    'Denny Angelow',
-                url:     BASE_URL,
-              },
+              '@type':       'AggregateOffer',
+              lowPrice:       minPrice?.toFixed(2),
+              highPrice:      maxPrice?.toFixed(2),
+              priceCurrency: 'EUR',
+              offerCount:     activeVariants.length,
+              availability:  inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+              seller:        { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
               offers: activeVariants.map(v => ({
                 '@type':       'Offer',
                 name:           v.label,
                 price:          v.price.toFixed(2),
                 priceCurrency: 'EUR',
                 availability:  v.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-                seller: { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
+                seller:        { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
               })),
             },
           } : {
@@ -741,7 +754,7 @@ export default async function HomePage() {
               price:          (minPrice || 0).toFixed(2),
               priceCurrency: 'EUR',
               availability:  inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-              seller: { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
+              seller:        { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
             },
           }),
         },
@@ -749,17 +762,14 @@ export default async function HomePage() {
     }),
   } : null
 
-  // ── [SEO] FAQPage schema директно в server component ─────────────────────
+  // ── Schema: FAQPage ───────────────────────────────────────────────────────
   const faqPageSchema = faq.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
     mainEntity: faq.map(f => ({
       '@type':          'Question',
       name:              f.question,
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text:    f.answer,
-      },
+      acceptedAnswer: { '@type': 'Answer', text: f.answer },
     })),
   } : null
 
@@ -771,11 +781,9 @@ export default async function HomePage() {
       {productListSchema && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productListSchema) }} />
       )}
-      {/* [SEO] Atlas Terra Product schema */}
       {atlasProductsSchema && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(atlasProductsSchema) }} />
       )}
-      {/* [SEO] FAQPage schema */}
       {faqPageSchema && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqPageSchema) }} />
       )}
@@ -808,7 +816,6 @@ export default async function HomePage() {
             <div className="trust-badge-new">
               <div className="tb-shimmer-top" />
               <div className="tb-avatar-wrap">
-                {/* [SEO] alt текст с author name */}
                 <SafeImg
                   src={`${CDN}/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg`}
                   alt={`${authorName} — агро консултант с 8+ години опит`}
@@ -989,7 +996,6 @@ export default async function HomePage() {
                     }}>
                       <div style={{ width: 3, background: 'rgba(255,255,255,0.35)', flexShrink: 0 }} />
                       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%)', pointerEvents: 'none' }} />
-
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', flex: 1, position: 'relative' }}>
                         <span style={{ fontSize: 18, flexShrink: 0, filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }}>{banner.icon}</span>
                         <span style={{ fontSize: 13.5, color: banner.text_color, fontWeight: 500, lineHeight: 1.45, flex: 1 }}>
@@ -1016,30 +1022,27 @@ export default async function HomePage() {
               />
             </div>
 
-
-
-{atlasProducts.length > 0 && (
-  <FadeIn>
-    <div className="atlas-learn-row">
-      <span className="atlas-learn-label">Не си сигурен кой е подходящ за теб?</span>
-      <div className="atlas-learn-links">
-        {atlasProducts.map(p => (
-          <a
-            key={p.id}
-            href={`/products/${p.slug}`}
-            className="atlas-learn-link"
-          >
-            <span className="atlas-learn-emoji">{p.emoji || '🌱'}</span>
-            <span className="atlas-learn-name">{p.name.split(' — ')[0]}</span>
-            <span className="atlas-learn-cta">Прочети повече</span>
-            <span className="atlas-learn-arrow">→</span>
-          </a>
-        ))}
-      </div>
-    </div>
-  </FadeIn>
-)}
-
+            {atlasProducts.length > 0 && (
+              <FadeIn>
+                <div className="atlas-learn-row">
+                  <span className="atlas-learn-label">Не си сигурен кой е подходящ за теб?</span>
+                  <div className="atlas-learn-links">
+                    {atlasProducts.map(p => (
+                      <a
+                        key={p.id}
+                        href={`/products/${p.slug}`}
+                        className="atlas-learn-link"
+                      >
+                        <span className="atlas-learn-emoji">{p.emoji || '🌱'}</span>
+                        <span className="atlas-learn-name">{p.name.split(' — ')[0]}</span>
+                        <span className="atlas-learn-cta">Прочети повече</span>
+                        <span className="atlas-learn-arrow">→</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              </FadeIn>
+            )}
 
             {/* Featured promo banners */}
             {promoBanners.filter(b => b.display_style === 'featured').length > 0 && (
@@ -1066,37 +1069,24 @@ export default async function HomePage() {
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.5), rgba(255,255,255,0.1))', pointerEvents: 'none' }} />
                         <div style={{ position: 'absolute', right: -50, top: -50, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
                         <div style={{ position: 'absolute', right: 40, bottom: -70, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
-                        <div style={{ position: 'absolute', left: -20, bottom: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
                         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%, rgba(255,255,255,0.03) 100%)', pointerEvents: 'none' }} />
-
                         <div style={{ padding: '18px 22px 16px', position: 'relative' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: subText ? 8 : 0 }}>
                             <div style={{
                               width: 44, height: 44, borderRadius: 12, flexShrink: 0,
                               background: 'rgba(255,255,255,0.18)',
-                              backdropFilter: 'blur(12px)',
                               border: '1.5px solid rgba(255,255,255,0.28)',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               fontSize: 22,
-                              boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
                             }}>{banner.icon}</div>
-
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: banner.text_color, lineHeight: 1.4, letterSpacing: '-0.01em' }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: banner.text_color, lineHeight: 1.4 }}>
                                 {parseBoldLocal(mainText)}
                               </div>
                             </div>
                           </div>
-
                           {subText && (
-                            <div style={{
-                              marginLeft: 58,
-                              fontSize: 12,
-                              color: banner.text_color,
-                              opacity: 0.68,
-                              lineHeight: 1.5,
-                              fontStyle: 'italic',
-                            }}>
+                            <div style={{ marginLeft: 58, fontSize: 12, color: banner.text_color, opacity: 0.68, lineHeight: 1.5, fontStyle: 'italic' }}>
                               {parseBoldLocal(subText)}
                             </div>
                           )}
@@ -1109,15 +1099,7 @@ export default async function HomePage() {
             )}
 
             <FadeIn>
-              <div style={{
-                marginTop: 20,
-                borderRadius: 18,
-                background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 2px 16px rgba(0,0,0,0.05)',
-                overflow: 'hidden',
-                position: 'relative',
-              }}>
+              <div style={{ marginTop: 20, borderRadius: 18, background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)', border: '1px solid #e5e7eb', boxShadow: '0 2px 16px rgba(0,0,0,0.05)', overflow: 'hidden', position: 'relative' }}>
                 <div style={{ height: 3, background: 'linear-gradient(90deg, #d1fae5, #16a34a, #d1fae5)', position: 'absolute', top: 0, left: 0, right: 0 }} />
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0, padding: '14px 20px 12px' }}>
                   {[
@@ -1141,10 +1123,6 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* [SEO] AffiliateSection — rel="nofollow sponsored" се прилага в компонента.
-          Ако AffiliateSection рендерира <a href={affiliate_url}>, увери се, че има:
-          rel="nofollow sponsored noopener" target="_blank"
-          Виж бележките в края на файла. */}
       <div className="affiliate-section-wrap">
         <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
       </div>
@@ -1157,7 +1135,6 @@ export default async function HomePage() {
           <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative', zIndex: 1 }}>
             <FadeIn>
               <div className="ginegar-inner">
-
                 <div className="ginegar-text">
                   {sec.badge_text && (
                     <span style={{ background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 800, padding: '6px 16px', borderRadius: 30, letterSpacing: '0.08em', textTransform: 'uppercase', display: 'inline-block', marginBottom: 16 }}>
@@ -1199,8 +1176,6 @@ export default async function HomePage() {
 
                 <div className="ginegar-img-wrap">
                   <div style={{ position: 'absolute', inset: -24, background: 'radial-gradient(circle, rgba(22,163,74,0.18), transparent 70%)', borderRadius: '50%', zIndex: 0, pointerEvents: 'none' }} />
-
-                  {/* [SEO] alt текст от БД */}
                   {sec.image_url && sec.image_url.startsWith('http') && (
                     <img
                       src={sec.image_url}
@@ -1208,21 +1183,8 @@ export default async function HomePage() {
                       style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1, display: 'block', objectFit: 'contain' }}
                     />
                   )}
-
-                  {/* [SEO] logo alt от БД */}
                   {sec.logo_url && sec.logo_url.startsWith('http') && (
-                    <div style={{
-                      marginTop: 12,
-                      position: 'relative',
-                      zIndex: 1,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: '#ffffff',
-                      borderRadius: 18,
-                      padding: '14px 28px',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2)',
-                    }}>
+                    <div style={{ marginTop: 12, position: 'relative', zIndex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ffffff', borderRadius: 18, padding: '14px 28px', boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2)' }}>
                       <SafeImg
                         src={sec.logo_url}
                         alt={sec.logo_alt || `${sec.title} лого`}
@@ -1232,7 +1194,6 @@ export default async function HomePage() {
                     </div>
                   )}
                 </div>
-
               </div>
             </FadeIn>
           </div>
@@ -1279,25 +1240,20 @@ export default async function HomePage() {
                   <FadeIn key={t.id} delay={i * 70}>
                     <article className="testimonial-card">
                       <span className="testimonial-quote-mark" aria-hidden="true">"</span>
-
                       <div className="testimonial-stars">
                         {Array.from({ length: t.rating || 5 }).map((_, j) => (
                           <span key={j} className="star" aria-hidden="true">★</span>
                         ))}
                         <span className="testimonial-verified">✓ Верифициран</span>
                       </div>
-
                       <blockquote style={{ margin: 0 }}>
                         <p className="testimonial-text">„{t.text}"</p>
                       </blockquote>
-
                       {t.product && (
                         <span className="testimonial-product-badge">🌿 {t.product}</span>
                       )}
-
                       <div className="testimonial-author">
                         {t.avatar_url ? (
-                          /* [SEO] alt с name */
                           <img src={t.avatar_url} alt={`${t.name} — отзив за Denny Angelow`} className="testimonial-avatar" loading="lazy" />
                         ) : (
                           <div className="testimonial-avatar-fallback" style={{ background: avatarBg }}>
@@ -1343,7 +1299,6 @@ export default async function HomePage() {
             </div>
             <div>
               <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>Партньори</div>
-              {/* [SEO] rel="nofollow sponsored" на всички affiliate/partner линкове */}
               {[
                 { label: '🌿 AgroApteki.bg', href: `https://agroapteki.com/${AFF}` },
                 { label: '🏡 Oranjeriata.bg', href: 'https://oranjeriata.com/' },
@@ -1381,11 +1336,27 @@ export default async function HomePage() {
   )
 }
 
-// ─── БЕЛЕЖКА ЗА AffiliateSection ─────────────────────────────────────────────
-// В компонента AffiliateSection всеки линк към affiliate_url трябва да има:
-//   rel="nofollow sponsored noopener" target="_blank"
-// Пример:
-//   <a href={p.affiliate_url} rel="nofollow sponsored noopener" target="_blank">
-//     <img src={p.image_url} alt={p.image_alt} ... />
-//   </a>
-// Ако нямаш достъп до AffiliateSection.tsx, качи го и ще го поправим.
+// ─── ВАЖНО: SQL функция за affiliate clicks ────────────────────────────────────
+// Изпълни това в Supabase SQL Editor ВЕДНЪЖ:
+//
+// CREATE OR REPLACE FUNCTION get_top_affiliate_clicks(limit_count integer DEFAULT 20)
+// RETURNS TABLE(product_slug text, count bigint)
+// LANGUAGE sql STABLE
+// AS $$
+//   SELECT product_slug, COUNT(*) AS count
+//   FROM affiliate_clicks
+//   WHERE product_slug IS NOT NULL
+//   GROUP BY product_slug
+//   ORDER BY count DESC
+//   LIMIT limit_count;
+// $$;
+//
+// След това page.tsx ще прави 1 лека заявка вместо да зарежда 5000 реда.
+// Ако не искаш да създаваш функция веднага, виж FALLBACK по-долу:
+//
+// FALLBACK (без rpc):
+// Замени реда с .rpc('get_top_affiliate_clicks'...) с:
+//   db.from('affiliate_clicks')
+//     .select('product_slug')
+//     .limit(500),          ← намали лимита от 5000 на 500
+// И логиката по-горе продължава да работи — само по-малко точна при много данни.

@@ -1,15 +1,45 @@
-// lib/supabase.ts
+// lib/supabase.ts — v2
+// ✅ Singleton pattern — createClient се извиква ВЕДНЪЖ за целия процес,
+//    не при всяка заявка. Next.js кешира модулите между renders.
+// ✅ Запазени всички интерфейси от v1 без промяна.
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL     || 'https://placeholder.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const serviceRoleKey  = process.env.SUPABASE_SERVICE_ROLE_KEY     || 'placeholder'
 
-export const supabase      = createClient(supabaseUrl, supabaseAnonKey)
-export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
+// ── Singleton holders ────────────────────────────────────────────────────────
+// Module-level variables — инициализират се веднъж при първия import.
+// Next.js server process-ът ги пази между request-ите (освен при cold start).
+let _supabase:      SupabaseClient | null = null
+let _supabaseAdmin: SupabaseClient | null = null
 
-// ── Interfaces ──────────────────────────────────────────────
+export function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    _supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false },
+    })
+  }
+  return _supabase
+}
+
+export function getSupabaseAdmin(): SupabaseClient {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
+    })
+  }
+  return _supabaseAdmin
+}
+
+// ── Обратна съвместимост — named exports за стария код ──────────────────────
+// Всеки файл, който импортира `supabase` или `supabaseAdmin` директно,
+// продължава да работи без промяна.
+export const supabase      = getSupabase()
+export const supabaseAdmin = getSupabaseAdmin()
+
+// ── Interfaces — непроменени от v1 ──────────────────────────────────────────
 
 export interface Product {
   id: string
@@ -49,7 +79,6 @@ export interface Order {
   shipped_at?: string
   delivered_at?: string
   order_items?: OrderItem[]
-  // Offer fields (опционални — добавени от offer система)
   has_post_purchase_upsell?: boolean
   offer_type?: string
 }
@@ -104,28 +133,20 @@ export interface EmailLog {
   clicked_at?: string
 }
 
-// ── Пълен тип за affiliate аналитика — съвпада с API v5/v9 отговора ──────────
 export interface AffiliateAnalytics {
-  // Обобщени броячи (точни COUNT от API)
   total:       number
   last30days:  number
   last7days:   number
   today:       number
   last90days:  number
-
-  // Разбивки по продукт и партньор
   byProduct:      Record<string, number>
   byPartner:      Record<string, number>
-
-  // Детайли на ниво продукт
   productDetails: Record<string, {
     total:  number
     last30: number
     last7:  number
     today:  number
   }>
-
-  // Топ списъци
   topProducts: {
     slug:    string
     partner: string | null
@@ -135,11 +156,7 @@ export interface AffiliateAnalytics {
     today:   number
   }[]
   topPartners: { name: string; count: number }[]
-
-  // Chart данни
   dailyChart:   { date: string; count: number }[]
   hourlyChart?: { hour: number; count: number }[]
-
-  // Slugs по партньор
   slugsByPartner: Record<string, string[]>
 }

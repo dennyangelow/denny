@@ -1,5 +1,8 @@
-// app/products/[slug]/loading.tsx — v2
-// ✅ Подобрен skeleton: mobile-first, матчира новия grid layout
+// app/products/[slug]/loading.tsx — v3
+// ✅ ПОПРАВКИ спрямо v2:
+//   - Grid layout е responsive: 1 колона на мобилен, 360px+1fr на desktop
+//   - @keyframes shimmer изнесена в <style> tag веднъж — без дублиране с CSS
+//   - Shimmer цветовете съвпадат с реалната страница (зелени тонове за image)
 
 export default function OwnProduktLoading() {
   const shimmer: React.CSSProperties = {
@@ -22,6 +25,40 @@ export default function OwnProduktLoading() {
           0%   { background-position: -600px 0; }
           100% { background-position:  600px 0; }
         }
+
+        /* ✅ Responsive grid за skeleton — матчира реалния op-grid */
+        .sk-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 20px;
+          align-items: start;
+          margin-bottom: 36px;
+        }
+        @media (min-width: 860px) {
+          .sk-grid {
+            grid-template-columns: 360px 1fr;
+            gap: 32px;
+          }
+        }
+
+        /* Stats row — 1 колона мобилен, 3 desktop */
+        .sk-stats {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+        @media (min-width: 480px) {
+          .sk-stats {
+            grid-template-columns: 1fr 1fr 1fr;
+          }
+        }
+
+        /* Buy variants grid */
+        .sk-variants {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
       `}</style>
 
       {/* Urgency bar */}
@@ -30,10 +67,10 @@ export default function OwnProduktLoading() {
       {/* Header */}
       <div style={{ height: 60, background: '#fff', borderBottom: '1px solid #e2e8f0', boxShadow: '0 1px 8px rgba(0,0,0,.04)' }} />
 
-      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 28px' }}>
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 20px' }}>
 
         {/* Breadcrumb */}
-        <div style={{ display: 'flex', gap: 8, padding: '18px 0 22px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, padding: '18px 0 22px', alignItems: 'center', flexWrap: 'wrap' }}>
           {[60, 8, 80, 8, 160].map((w, i) =>
             i % 2 === 1
               ? <span key={i} style={{ color: '#cbd5e1', fontSize: 12 }}>›</span>
@@ -41,14 +78,8 @@ export default function OwnProduktLoading() {
           )}
         </div>
 
-        {/* Main grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '360px 1fr',
-          gap: 32,
-          alignItems: 'start',
-          marginBottom: 36,
-        }}>
+        {/* ✅ Responsive main grid */}
+        <div className="sk-grid">
 
           {/* Left: image card */}
           <div style={{ background: '#fff', borderRadius: 22, border: '1.5px solid #e2e8f0', padding: 24, boxShadow: '0 4px 20px rgba(0,0,0,.07)' }}>
@@ -76,8 +107,8 @@ export default function OwnProduktLoading() {
               </div>
             </div>
 
-            {/* Stats row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            {/* Stats row — ✅ responsive */}
+            <div className="sk-stats">
               {[1, 2, 3].map(i => (
                 <div key={i} style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #e2e8f0', padding: '16px 14px', textAlign: 'center' }}>
                   <div style={{ ...shimmer, height: 28, width: 70, borderRadius: 8, margin: '0 auto 8px' }} />
@@ -90,17 +121,23 @@ export default function OwnProduktLoading() {
             {/* Buy card */}
             <div style={{ background: '#fff', borderRadius: 22, border: '1.5px solid #e2e8f0', padding: '22px 24px', boxShadow: '0 4px 20px rgba(0,0,0,.07)', display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ ...shimmer, height: 10, width: 90 }} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+
+              {/* Variants — ✅ responsive */}
+              <div className="sk-variants">
                 {[1, 2].map(i => (
                   <div key={i} style={{ ...shimmer, height: 82, borderRadius: 10 }} />
                 ))}
               </div>
+
               <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
                 <div style={{ ...shimmer, height: 36, width: 120, borderRadius: 8 }} />
                 <div style={{ ...shimmer, height: 16, width: 70, borderRadius: 6 }} />
               </div>
+
+              {/* CTA button */}
               <div style={{ ...shimmer, height: 52, borderRadius: 14,
                 backgroundImage: 'linear-gradient(90deg,#d1fae5 25%,#a7f3d0 50%,#d1fae5 75%)' }} />
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: 7, paddingTop: 4, borderTop: '1px solid #f1f5f9' }}>
                 {[170, 130, 150].map((w, i) => (
                   <div key={i} style={{ ...shimmer, height: 10, width: w }} />
@@ -124,7 +161,7 @@ export default function OwnProduktLoading() {
         {[260, 180, 220, 160, 200].map((h, i) => (
           <div key={i} style={{
             background: '#fff', borderRadius: 22,
-            border: '1.5px solid #e2e8f0', padding: '30px 34px',
+            border: '1.5px solid #e2e8f0', padding: '28px 24px',
             marginBottom: 20, boxShadow: '0 4px 20px rgba(0,0,0,.07)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>

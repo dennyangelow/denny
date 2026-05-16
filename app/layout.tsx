@@ -1,12 +1,8 @@
-// app/layout.tsx — v3
-// ✅ ПРОМЕНИ спрямо v2:
-//   - Добавен Service schema (локално SEO за България — "агро консултант България")
-//   - Добавен speakable schema в WebSite (за Google SGE / Perplexity / AI snippet)
-//   - Добавен llms-meta tag (за AI crawler visibility)
-//   - WebSite SearchAction: махнат potentialAction ако search не работи реално
-//     (ако /produkti?q= работи като search — остави; иначе → коментирай)
-//   - DNS prefetch за Supabase CDN добавен
-//   - theme-color обновен
+// app/layout.tsx — v4
+// ✅ ПРОМЕНИ спрямо v3:
+//   - AUTHOR_* и ORG_* константи → телефон/имейл/sameAs на едно място
+//   - Person и Organization schema ползват общите константи — без copy-paste
+//   - Всички v3 подобрения запазени (Service schema, speakable, AI meta)
 
 import type { Metadata } from 'next'
 import { Suspense }      from 'react'
@@ -15,6 +11,34 @@ import { GoogleAnalytics }    from '@/components/analytics/GoogleAnalytics'
 import { AffiliatePreloader } from '@/components/AffiliatePreloader'
 
 const BASE_URL = 'https://dennyangelow.com'
+
+// ── Споделени константи — промяна на 1 място, важи навсякъде ────────────────
+const AUTHOR = {
+  name:        'Denny Angelow',
+  alternateName: 'Дени Ангелов',
+  url:         BASE_URL,
+  image:       'https://d1yei2z3i6k35z.cloudfront.net/4263526/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg',
+  jobTitle:    'Агро Консултант',
+  phone:       '+359876238623',
+  email:       'support@dennyangelow.com',
+  hours:       'Mo-Fr 09:00-17:00',
+  sameAs: [
+    'https://www.facebook.com/dennyangelow',
+    'https://www.instagram.com/dennyangelow',
+    'https://www.youtube.com/@dennyangelow',
+    'https://www.tiktok.com/@dennyangelow',
+  ],
+} as const
+
+// Контактна точка — реизползвана в Person и Organization schema
+const CONTACT_POINT = {
+  '@type':          'ContactPoint',
+  telephone:         AUTHOR.phone,
+  email:             AUTHOR.email,
+  contactType:       'customer service',
+  availableLanguage: 'Bulgarian',
+  hoursAvailable:    AUTHOR.hours,
+} as const
 
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
@@ -78,9 +102,9 @@ export const metadata: Metadata = {
     },
   },
 
-  authors:   [{ name: 'Denny Angelow', url: BASE_URL }],
-  creator:   'Denny Angelow',
-  publisher: 'Denny Angelow',
+  authors:   [{ name: AUTHOR.name, url: BASE_URL }],
+  creator:   AUTHOR.name,
+  publisher: AUTHOR.name,
 
   icons: {
     icon:  '/favicon.ico',
@@ -91,20 +115,20 @@ export const metadata: Metadata = {
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 const personSchema = {
-  '@context': 'https://schema.org',
-  '@type':    'Person',
-  name:        'Denny Angelow',
-  alternateName: 'Дени Ангелов',
-  url:         BASE_URL,
-  image:       'https://d1yei2z3i6k35z.cloudfront.net/4263526/687aa8144659d_504368576_24540238958894103_5234342802938640767_n.jpg',
-  jobTitle:    'Агро Консултант',
-  description: 'Агро консултант с над 8 години опит в отглеждането на зеленчуци. Помогнал е на над 800 домакинства и малки стопанства в България да увеличат реколтата от домати, краставици и зеленчуци с органични методи и правилно торене.',
+  '@context':    'https://schema.org',
+  '@type':       'Person',
+  name:           AUTHOR.name,
+  alternateName:  AUTHOR.alternateName,
+  url:            AUTHOR.url,
+  image:          AUTHOR.image,
+  jobTitle:       AUTHOR.jobTitle,
+  description:    'Агро консултант с над 8 години опит в отглеждането на зеленчуци. Помогнал е на над 800 домакинства и малки стопанства в България да увеличат реколтата от домати, краставици и зеленчуци с органични методи и правилно торене.',
   hasOccupation: {
-    '@type':             'Occupation',
-    name:                 'Агро Консултант',
-    occupationLocation:  { '@type': 'Country', name: 'България' },
-    description:          'Консултации за земеделие, торене, растителна защита и оранжерийно производство.',
-    skills:               'Отглеждане на домати, краставици, торене, биостимулатори, растителна защита',
+    '@type':            'Occupation',
+    name:                'Агро Консултант',
+    occupationLocation: { '@type': 'Country', name: 'България' },
+    description:         'Консултации за земеделие, торене, растителна защита и оранжерийно производство.',
+    skills:              'Отглеждане на домати, краставици, торене, биостимулатори, растителна защита',
   },
   knowsAbout: [
     'Отглеждане на домати', 'Отглеждане на краставици', 'Торене на зеленчуци',
@@ -112,27 +136,15 @@ const personSchema = {
     'Оранжерийно производство', 'Найлон за оранжерии', 'Защита от болести по растенията',
     'Капково напояване', 'Земеделие в България', 'Биологично земеделие',
   ],
-  sameAs: [
-    'https://www.facebook.com/dennyangelow',
-    'https://www.instagram.com/dennyangelow',
-    'https://www.youtube.com/@dennyangelow',
-    'https://www.tiktok.com/@dennyangelow',
-  ],
-  contactPoint: {
-    '@type':           'ContactPoint',
-    telephone:          '+359876238623',
-    email:              'support@dennyangelow.com',
-    contactType:        'customer service',
-    availableLanguage:  'Bulgarian',
-    hoursAvailable:     'Mo-Fr 09:00-17:00',
-  },
+  sameAs:       AUTHOR.sameAs,
+  contactPoint: CONTACT_POINT,
 }
 
 const organizationSchema = {
   '@context':  'https://schema.org',
   '@type':     'Organization',
-  name:         'Denny Angelow',
-  legalName:    'Denny Angelow',
+  name:         AUTHOR.name,
+  legalName:    AUTHOR.name,
   url:          BASE_URL,
   logo: {
     '@type': 'ImageObject',
@@ -144,22 +156,10 @@ const organizationSchema = {
   areaServed:   'BG',
   foundingDate: '2017',
   numberOfEmployees: { '@type': 'QuantitativeValue', value: 1 },
-  sameAs: [
-    'https://www.facebook.com/dennyangelow',
-    'https://www.instagram.com/dennyangelow',
-    'https://www.youtube.com/@dennyangelow',
-    'https://www.tiktok.com/@dennyangelow',
-  ],
-  contactPoint: {
-    '@type':           'ContactPoint',
-    telephone:          '+359876238623',
-    email:              'support@dennyangelow.com',
-    contactType:        'customer service',
-    availableLanguage:  'Bulgarian',
-  },
+  sameAs:       AUTHOR.sameAs,   // ✅ едно място — не дублиране
+  contactPoint: CONTACT_POINT,   // ✅ едно място — не дублиране
 }
 
-// ✅ НОВО: Service schema — "агро консултант България" локално SEO
 const serviceSchema = {
   '@context':  'https://schema.org',
   '@type':     'Service',
@@ -167,7 +167,7 @@ const serviceSchema = {
   description:  'Безплатни консултации и наръчници за отглеждане на домати, краставици, правилно торене и растителна защита.',
   provider: {
     '@type': 'Person',
-    name:     'Denny Angelow',
+    name:     AUTHOR.name,
     url:      BASE_URL,
   },
   areaServed: {
@@ -179,7 +179,7 @@ const serviceSchema = {
   availableChannel: {
     '@type':       'ServiceChannel',
     serviceUrl:     BASE_URL,
-    servicePhone:  '+359876238623',
+    servicePhone:   AUTHOR.phone,
     availableLanguage: 'Bulgarian',
   },
   offers: {
@@ -199,7 +199,7 @@ const websiteSchema = {
   description: 'Безплатни наръчници и съвети за домати, краставици, торене и земеделие в България.',
   publisher: {
     '@type': 'Person',
-    name:    'Denny Angelow',
+    name:    AUTHOR.name,
     url:     BASE_URL,
   },
   about: [
@@ -212,12 +212,10 @@ const websiteSchema = {
     { '@type': 'Thing', name: 'Atlas Terra' },
     { '@type': 'Thing', name: 'Ginegar' },
   ],
-  // ✅ speakable — Google SGE, Perplexity и AI четат тези селектори за snippet
   speakable: {
-    '@type':         'SpeakableSpecification',
-    cssSelector:     ['h1', 'h2', '.hero-desc', '[data-speakable]'],
+    '@type':     'SpeakableSpecification',
+    cssSelector: ['h1', 'h2', '.hero-desc', '[data-speakable]'],
   },
-  // Остави potentialAction само ако /produkti?q= реално работи като search
   potentialAction: {
     '@type':       'SearchAction',
     target:        `${BASE_URL}/produkti?q={search_term_string}`,
@@ -239,12 +237,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="language"         content="Bulgarian" />
         <meta name="content-language" content="bg" />
 
-        {/* ✅ НОВО: AI crawler meta — помага на AI да идентифицира сайта */}
         <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
-
         <meta name="theme-color" content="#1b4332" />
 
-        {/* DNS prefetch — ускорява зареждането */}
+        {/* DNS prefetch */}
         <link rel="dns-prefetch" href="https://d1yei2z3i6k35z.cloudfront.net" />
         <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
         <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
@@ -258,25 +254,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
 
-        {/* Schema.org: Person — E-E-A-T авторитет */}
+        {/* Schema.org: Person */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(personSchema) }}
         />
-
-        {/* Schema.org: Organization — Knowledge Panel */}
+        {/* Schema.org: Organization */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
         />
-
-        {/* Schema.org: Service — локално SEO "агро консултант България" */}
+        {/* Schema.org: Service */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceSchema) }}
         />
-
-        {/* Schema.org: WebSite — SearchAction + speakable за AI */}
+        {/* Schema.org: WebSite */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}

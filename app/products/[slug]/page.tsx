@@ -1,12 +1,12 @@
-// app/products/[slug]/page.tsx — SERVER COMPONENT v8
-// ✅ ПРОМЕНИ спрямо v7:
-//   - Product schema: всички variants като отделни Offer-и с наличност
-//   - Article schema: E-E-A-T сигнал (автор + publisher)
-//   - FAQPage schema: accordion в Google (ако има faq в БД)
-//   - HowTo schema: стъпки в Google (ако има how_it_works в БД)
-//   - BreadcrumbList: "dennyangelow.com › Atlas Terra" (без /produkti)
-//   - robots в generateMetadata: max-image-preview:large
-//   - BASE_URL константа (беше дублирана като string навсякъде)
+// app/products/[slug]/page.tsx — SERVER COMPONENT v9
+// ✅ ПОПРАВКИ спрямо v8:
+//   - review_count и avg_rating добавени в PRODUCT_SELECT и Product interface
+//   - created_at и updated_at добавени в PRODUCT_SELECT → datePublished/dateModified реални
+//   - aggregateRating: САМО с реални данни от БД (review_count > 0 && avg_rating)
+//     reviewCount: 1 (hard-coded) е ПРЕМАХНАТ — нарушаваше Google guidelines
+//   - FAQPage schema: САМО в page.tsx (server) — премахната от OwnProduktClient
+//   - BreadcrumbList: 3 нива (Начало › Продукти › Продукт) за по-добра навигация
+//   - Article schema: datePublished от created_at (реална дата, не new Date())
 
 import { Metadata }      from 'next'
 import { notFound }      from 'next/navigation'
@@ -31,16 +31,16 @@ interface SiteSettings {
 }
 
 interface ProductVariant {
-  id: string
-  product_id: string
-  label: string
-  size_liters: number
-  price: number
-  compare_price: number
+  id:              string
+  product_id:      string
+  label:           string
+  size_liters:     number
+  price:           number
+  compare_price:   number
   price_per_liter: number
-  stock: number
-  active: boolean
-  sort_order: number
+  stock:           number
+  active:          boolean
+  sort_order:      number
 }
 
 interface FaqItem     { q: string; a: string }
@@ -53,35 +53,41 @@ interface StatItem    { label: string; value: string; sub?: string }
 interface CompItem    { name: string; value: string; pct?: number; note?: string }
 
 interface Product {
-  id: string
-  slug: string
-  name: string
-  subtitle?: string
-  description?: string
-  badge?: string
-  emoji?: string
-  image_url?: string
-  image_alt?: string
-  features?: string[]
-  usage_notes?: string
-  category?: string
-  stock: number
-  active: boolean
-  sort_order?: number
-  seo_title?: string
-  seo_description?: string
-  seo_keywords?: string
-  how_it_works?: HowItem[]
-  crops?: CropRow[]
-  faq?: FaqItem[]
-  testimonial?: Testimonial
-  why_items?: WhyItem[]
-  eco_badges?: EcoBadge[]
+  id:              string
+  slug:            string
+  name:            string
+  subtitle?:       string
+  description?:    string
+  badge?:          string
+  emoji?:          string
+  image_url?:      string
+  image_alt?:      string
+  features?:       string[]
+  usage_notes?:    string
+  category?:       string
+  stock:           number
+  active:          boolean
+  sort_order?:     number
+  seo_title?:      string
+  seo_description?:string
+  seo_keywords?:   string
+  how_it_works?:   HowItem[]
+  crops?:          CropRow[]
+  faq?:            FaqItem[]
+  testimonial?:    Testimonial
+  why_items?:      WhyItem[]
+  eco_badges?:     EcoBadge[]
   certifications?: string[]
-  stats?: StatItem[]
-  composition?: CompItem[]
+  stats?:          StatItem[]
+  composition?:    CompItem[]
   composition_ph?: string
-  variants: ProductVariant[]
+  // ✅ Реални данни от БД — задължителни за AggregateRating
+  review_count?:   number
+  avg_rating?:     number
+  // ✅ Реални дати от БД — за Article schema
+  created_at?:     string
+  updated_at?:     string
+  variants:        ProductVariant[]
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
@@ -121,13 +127,15 @@ function buildSettings(rows: { key: string; value: string }[]): SiteSettings {
   return {
     shipping_econt: econt, shipping_speedy: speedy, free_shipping_above: free,
     currency_symbol: sym,
-    site_phone: s.site_phone || SETTINGS_DEFAULTS.site_phone,
-    site_email: s.site_email || SETTINGS_DEFAULTS.site_email,
-    urgency_bar_text: urgencyHome, urgency_bar_products: urgencyProducts,
+    site_phone:  s.site_phone  || SETTINGS_DEFAULTS.site_phone,
+    site_email:  s.site_email  || SETTINGS_DEFAULTS.site_email,
+    urgency_bar_text:     urgencyHome,
+    urgency_bar_products: urgencyProducts,
   }
 }
 
 // ─── DB Select ───────────────────────────────────────────────────────────────
+// ✅ review_count, avg_rating, created_at, updated_at добавени
 const PRODUCT_SELECT = [
   'id', 'slug', 'name', 'subtitle', 'description', 'badge', 'emoji',
   'image_url', 'image_alt',
@@ -136,6 +144,8 @@ const PRODUCT_SELECT = [
   'how_it_works', 'crops', 'faq', 'testimonial',
   'why_items', 'eco_badges', 'certifications',
   'stats', 'composition', 'composition_ph',
+  'review_count', 'avg_rating',
+  'created_at', 'updated_at',
 ].join(', ')
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
@@ -220,7 +230,6 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       card: 'summary_large_image', title, description,
       images: product.image_url ? [product.image_url] : [],
     },
-    // ✅ НОВО: robots с max-image-preview → Google показва голяма снимка
     robots: {
       index:     true,
       follow:    true,
@@ -253,17 +262,40 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
   const priceValidUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
     .toISOString().split('T')[0]
 
+  // ✅ Реални дати от БД — Article schema няма да флуктуира при всеки render
+  const datePublished = product.created_at
+    ? product.created_at.split('T')[0]
+    : '2026-01-01'
+  const dateModified = product.updated_at
+    ? product.updated_at.split('T')[0]
+    : new Date().toISOString().split('T')[0]
+
   // Всички активни варианти за schema
   const activeVariants = product.variants.filter(v => v.active)
 
+  // ✅ AggregateRating — САМО с реални данни от БД
+  // Никога hard-coded reviewCount — нарушава Google guidelines и спира rich results
+  const hasRealRating =
+    typeof product.review_count === 'number' && product.review_count > 0 &&
+    typeof product.avg_rating   === 'number' && product.avg_rating   > 0
+
+  const aggregateRating = hasRealRating ? {
+    aggregateRating: {
+      '@type':      'AggregateRating',
+      ratingValue:   product.avg_rating!.toFixed(1),
+      reviewCount:   product.review_count!,
+      bestRating:    5,
+      worstRating:   1,
+    },
+  } : {}
+
   // ── Schema.org: Product ───────────────────────────────────────────────────
-  // Rich results в Google — цена и наличност директно в резултата
   const productSchema = activeVariants.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'Product',
     name:        product.name,
     description: product.description || product.subtitle,
-    image:       product.image_url,
+    image:       product.image_url ? [product.image_url] : [],
     url:         canonicalUrl,
     sku:         product.slug,
     brand: {
@@ -271,7 +303,7 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
       name:    'Atlas Terra',
       url:     BASE_URL,
     },
-    // Всеки вариант (5л, 20л) → отделен Offer с точна цена и наличност
+    // Всеки вариант → отделен Offer с точна цена и наличност
     offers: activeVariants.map(v => ({
       '@type':         'Offer',
       name:             v.label,
@@ -288,16 +320,7 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
         url:     BASE_URL,
       },
     })),
-    // aggregateRating само ако има testimonial с рейтинг
-    ...(product.testimonial?.rating ? {
-      aggregateRating: {
-        '@type':      'AggregateRating',
-        ratingValue:   product.testimonial.rating,
-        reviewCount:   1,
-        bestRating:    5,
-        worstRating:   1,
-      },
-    } : {}),
+    ...aggregateRating,
   } : null
 
   // ── Schema.org: Article (E-E-A-T) ─────────────────────────────────────────
@@ -306,11 +329,12 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
     '@type':      'Article',
     headline:      product.seo_title || product.name,
     description:   product.seo_description || product.description,
-    image:         product.image_url,
+    image:         product.image_url ? [product.image_url] : [],
     url:           canonicalUrl,
     inLanguage:   'bg-BG',
-    datePublished: new Date().toISOString().split('T')[0],
-    dateModified:  new Date().toISOString().split('T')[0],
+    // ✅ Реални дати — не new Date() при всеки render
+    datePublished,
+    dateModified,
     author: {
       '@type':  'Person',
       name:      AUTHOR_NAME,
@@ -333,6 +357,7 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
   }
 
   // ── Schema.org: FAQPage ───────────────────────────────────────────────────
+  // ✅ САМО ТУК — премахната от OwnProduktClient за да няма дублиране
   const faqItems  = Array.isArray(product.faq) ? product.faq : []
   const faqSchema = faqItems.length > 0 ? {
     '@context': 'https://schema.org',
@@ -351,7 +376,7 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
     '@type':    'HowTo',
     name:        `Как да използваш ${product.name}`,
     description: product.description || product.subtitle,
-    image:       product.image_url,
+    image:       product.image_url ? [product.image_url] : [],
     step:        howItems.map((item: HowItem, i: number) => ({
       '@type':   'HowToStep',
       position:   i + 1,
@@ -361,13 +386,14 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
   } : null
 
   // ── Schema.org: BreadcrumbList ────────────────────────────────────────────
-  // "dennyangelow.com › Atlas Terra" — без /produkti (няма такъв листинг)
+  // ✅ 3 нива — Начало › Продукти › Продукт (съответства на реалния URL)
   const breadcrumbSchema = {
     '@context': 'https://schema.org',
     '@type':    'BreadcrumbList',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Начало',     item: BASE_URL },
-      { '@type': 'ListItem', position: 2, name: product.name, item: canonicalUrl },
+      { '@type': 'ListItem', position: 1, name: 'Начало',   item: BASE_URL },
+      { '@type': 'ListItem', position: 2, name: 'Продукти', item: `${BASE_URL}/produkti` },
+      { '@type': 'ListItem', position: 3, name: product.name, item: canonicalUrl },
     ],
   }
 
