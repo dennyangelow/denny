@@ -1,14 +1,16 @@
 'use client'
-// app/products/[slug]/OwnProduktClient.tsx — v15
-// ✅ ПОПРАВКИ спрямо v14:
-//   - ProductSchema компонент: faqSchema ПРЕМАХНАТ — живее само в page.tsx (server)
-//     Дублирането причиняваше "Дублиращо се поле FAQPage" в Google Search Console
-//   - FAQ секция: itemScope/itemType="FAQPage" ПРЕМАХНАТИ от <section> тага
-//     (inline microdata се дублираше с JSON-LD от page.tsx)
-//   - FaqAccordion: itemScope/itemProp атрибутите ПРЕМАХНАТИ — дублираха schema
-//   - review_count и avg_rating добавени в OwnProduct interface
-//   - created_at и updated_at добавени в OwnProduct interface
-//   - Рейтинг ред: показва реален брой отзиви ако има, иначе показва testimonial
+// app/products/[slug]/OwnProduktClient.tsx — v16
+// ✅ ПОПРАВКИ спрямо v15:
+//   - ГЛАВНА ПОПРАВКА: atlasProducts вече получава реални продукти (product + related)
+//     нормализирани от OwnProduct → AtlasProduct формата на CartSystem.
+//     Преди: atlasProducts={[]} → ъпселите и post-purchase НИКОГА не се зареждаха.
+//   - normalizeToAtlasProduct() хелпър: превежда OwnProduct (image_url, description…)
+//     към AtlasProduct (img, desc…) без промяна на CartSystem.
+//   - Текущият продукт се подава ПЪРВИ → ъпселите могат да предложат по-голям вариант.
+//   - CartSystem рендира ProductCard grid САМО ако atlasProducts са подадени и страницата
+//     е homepage. На продуктовата страница картите не се искат — CartSystem получава
+//     продуктите само за нуждите на drawer-а (ъпсели, cross-sell, post-purchase).
+//   - Всички v15 подобрения запазени.
 
 import { useState, useCallback } from 'react'
 import Link from 'next/link'
@@ -94,6 +96,47 @@ function dispatchAddToCart(payload: CartItemPayload) {
 const fmt = (n: number, sym = '€') => `${Number(n).toFixed(2)} ${sym}`
 const md  = (t: string) => t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
 const pct = (p: number, c: number) => !c || c <= p ? 0 : Math.round((1 - p / c) * 100)
+
+// ─── AtlasProduct (формат на CartSystem) ─────────────────────────────────────
+// CartSystem очаква: img, desc, features: string[] (не image_url, description)
+// normalizeToAtlasProduct() превежда OwnProduct → AtlasProduct без промяна на CartSystem
+interface AtlasProduct {
+  id: string; slug: string; name: string; subtitle: string; desc: string
+  badge: string; emoji: string; img: string; price: number; comparePrice: number
+  priceLabel: string; features: string[]; variants?: ProductVariant[]
+  outOfStock?: boolean; stock?: number
+  image_alt?: string; seo_title?: string; seo_description?: string; seo_keywords?: string
+}
+
+function normalizeToAtlasProduct(p: OwnProduct): AtlasProduct {
+  const activeVariants = (p.variants || []).filter(v => v.active)
+  const cheapestVariant = activeVariants
+    .filter(v => v.stock > 0)
+    .sort((a, b) => a.price - b.price)[0] || activeVariants[0]
+  const isOOS = p.stock === 0 ||
+    (activeVariants.length > 0 && activeVariants.every(v => v.stock === 0))
+  return {
+    id:           p.id,
+    slug:         p.slug,
+    name:         p.name,
+    subtitle:     p.subtitle   || p.category || 'Биостимулант',
+    desc:         p.description || p.subtitle || '',
+    badge:        p.badge      || '',
+    emoji:        p.emoji      || '🌱',
+    img:          p.image_url  || '',
+    image_alt:    p.image_alt,
+    seo_title:    p.seo_title,
+    seo_description: p.seo_description,
+    seo_keywords: p.seo_keywords,
+    price:        cheapestVariant?.price ?? 0,
+    comparePrice: cheapestVariant?.compare_price ?? 0,
+    priceLabel:   cheapestVariant?.label ?? '',
+    features:     Array.isArray(p.features) ? p.features : [],
+    variants:     activeVariants,
+    outOfStock:   isOOS,
+    stock:        p.stock,
+  }
+}
 
 // ─── Schema.org (Product САМО) ────────────────────────────────────────────────
 // ✅ FAQPage schema е ПРЕМАХНАТА от тук — живее само в page.tsx (server component)
@@ -276,12 +319,13 @@ export default function OwnProduktClient({
       />
 
       <CartSystem
-        atlasProducts={[]}
+        atlasProducts={[normalizeToAtlasProduct(product), ...related.map(normalizeToAtlasProduct)]}
         shippingPrice={shippingMin}
         freeShippingAbove={freeAbove}
         siteEmail={settings.site_email}
         sitePhone={settings.site_phone}
         currencySymbol={sym}
+        hideProductGrid
       />
 
       <main className="op-main">

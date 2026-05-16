@@ -1,11 +1,11 @@
 'use client'
-// components/client/CartSystem.tsx — v13
-// ✅ НОВО: cart:add event listener → OwnProduktClient изпраща CartItem директно
-//    (CartSystem е единственият owner на state — без директен localStorage от product)
-// ✅ Econt cities regex разширен: поддържа цифри и () в имена на градове
-// ✅ TypeScript: всички `any` заменени с конкретни типове
-// ✅ AtlasProduct: добавени seo_title/seo_description/image_alt за TS съвместимост
-// ✅ Всички предишни fix-ове от v12
+// components/client/CartSystem.tsx — v14
+// ✅ ПОПРАВКИ спрямо v13:
+//   - Props: добавен hideProductGrid?: boolean
+//     → на продуктовата страница CartSystem получава реалните продукти (за ъпсели)
+//       но НЕ рендира ProductCard grid-а (той е само за homepage)
+//     → ако hideProductGrid е false/undefined → поведението е като преди (homepage)
+//   - Всички v13 fix-ове запазени (TypeScript, Econt, cart:add event…)
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 
@@ -193,6 +193,8 @@ interface InvoiceData {
 interface Props {
   atlasProducts: AtlasProduct[]; shippingPrice: number; freeShippingAbove: number
   siteEmail: string; sitePhone: string; currencySymbol?: string
+  /** Ако true — не рендира ProductCard grid-а (само drawer + ъпсели). Ползва се на продуктова страница. */
+  hideProductGrid?: boolean
 }
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
@@ -1874,7 +1876,7 @@ function CartDrawer({
 }
 
 // ─── MAIN CartSystem ──────────────────────────────────────────────────────────
-export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone, currencySymbol }: Props) {
+export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone, currencySymbol, hideProductGrid }: Props) {
   const [cartItems, setCartItems]     = useState<CartItem[]>([])
   const [drawerOpen, setDrawerOpen]   = useState(false)
   const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(null)
@@ -1962,20 +1964,24 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
   }, [totalItems])
 
   if (!hydrated) return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
-      {atlasProducts.map(product => (
-        <ProductCard key={product.id} product={product} onAddToCart={addToCart} fmt={fmt} fmtLiter={fmtLiter} />
-      ))}
-    </div>
-  )
-
-  return (
-    <>
+    hideProductGrid ? null : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
         {atlasProducts.map(product => (
           <ProductCard key={product.id} product={product} onAddToCart={addToCart} fmt={fmt} fmtLiter={fmtLiter} />
         ))}
       </div>
+    )
+  )
+
+  return (
+    <>
+      {!hideProductGrid && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
+          {atlasProducts.map(product => (
+            <ProductCard key={product.id} product={product} onAddToCart={addToCart} fmt={fmt} fmtLiter={fmtLiter} />
+          ))}
+        </div>
+      )}
       {drawerOpen && (
         <CartDrawer
           items={cartItems} shippingPrice={shippingPrice} freeShippingAbove={freeShippingAbove}
