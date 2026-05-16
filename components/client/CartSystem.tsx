@@ -1,11 +1,11 @@
 'use client'
-// components/client/CartSystem.tsx — v14
-// ✅ ПОПРАВКИ спрямо v13:
-//   - Props: добавен hideProductGrid?: boolean
-//     → на продуктовата страница CartSystem получава реалните продукти (за ъпсели)
-//       но НЕ рендира ProductCard grid-а (той е само за homepage)
-//     → ако hideProductGrid е false/undefined → поведението е като преди (homepage)
-//   - Всички v13 fix-ове запазени (TypeScript, Econt, cart:add event…)
+// components/client/CartSystem.tsx — v13
+// ✅ НОВО: cart:add event listener → OwnProduktClient изпраща CartItem директно
+//    (CartSystem е единственият owner на state — без директен localStorage от product)
+// ✅ Econt cities regex разширен: поддържа цифри и () в имена на градове
+// ✅ TypeScript: всички `any` заменени с конкретни типове
+// ✅ AtlasProduct: добавени seo_title/seo_description/image_alt за TS съвместимост
+// ✅ Всички предишни fix-ове от v12
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 
@@ -193,7 +193,7 @@ interface InvoiceData {
 interface Props {
   atlasProducts: AtlasProduct[]; shippingPrice: number; freeShippingAbove: number
   siteEmail: string; sitePhone: string; currencySymbol?: string
-  /** Ако true — не рендира ProductCard grid-а (само drawer + ъпсели). Ползва се на продуктова страница. */
+  /** true → не рендира ProductCard grid (само drawer+ъпсели). Ползва се на продуктова страница. */
   hideProductGrid?: boolean
 }
 
@@ -1267,14 +1267,16 @@ function CartDrawer({
         }
 
         /* ══ МОБИЛНИ ≤ 640px: ЦЯЛ ЕКРАН ══════════════════════════
-           top се задава динамично от JS (под sticky header)
+           top: 0 — покрива целия екран (urgency bar + header са под overlay)
            Drawer се анимира отдолу нагоре
            ══════════════════════════════════════════════════════════ */
         @media (max-width: 640px) {
           .cart-overlay { top: 0 !important; }
           .cart-drawer {
+            top: 0 !important;
             left: 0; right: 0; bottom: 0;
             max-width: 100%; border-radius: 0;
+            max-height: 100dvh !important;
             animation: cartSlideUp .3s cubic-bezier(.4,0,.2,1);
           }
         }
@@ -1289,9 +1291,9 @@ function CartDrawer({
           flex-shrink: 0; position: sticky; top: 0; z-index: 10;
         }
         @media (max-width: 640px) {
-          /* На мобилни хедърът е само drag handle — скриваме title+X */
-          .cart-header { padding: 8px 0 0; border-bottom: none; }
-          .cart-header-content { display: none !important; }
+          /* На мобилни drawer е full-screen (top:0) — показваме header с drag+title+X */
+          .cart-header { padding: 8px 16px 9px; border-bottom: 1.5px solid #f1f5f9; }
+          .cart-header-content { display: flex !important; }
         }
 
         .cart-drag-handle { display: none; }
@@ -1424,9 +1426,16 @@ function CartDrawer({
       <div className="cart-overlay" onClick={onClose}
         style={isMobile ? undefined : { top: Math.max(48, headerBottom) } as React.CSSProperties} />
 
-      {/* Drawer: на мобилни и десктоп стартира от headerBottom (под sticky header) */}
+      {/* Drawer:
+          - Мобилни (≤640px): top:0, цял екран — НЕ следва urgency bar / header
+          - Десктоп: top = headerBottom (под sticky header + urgency bar)
+      */}
       <div className="cart-drawer" role="dialog" aria-modal="true" aria-label="Количка"
-        style={{ top: Math.max(48, headerBottom), maxHeight: `calc(100vh - ${Math.max(48, headerBottom)}px)` } as React.CSSProperties}>
+        style={
+          isMobile
+            ? { top: 0, maxHeight: '100dvh' } as React.CSSProperties
+            : { top: Math.max(48, headerBottom), maxHeight: `calc(100vh - ${Math.max(48, headerBottom)}px)` } as React.CSSProperties
+        }>
 
         {/* ── HEADER ── */}
         <div className="cart-header">
