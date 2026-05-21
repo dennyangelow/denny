@@ -1,10 +1,9 @@
-// middleware.ts — v9
-// ✅ ПОПРАВКА спрямо v8:
-//   - ПРЕМАХНАТ handleWwwRedirect() от middleware
-//     На Vercel req.nextUrl.host не съдържа "www." (Vercel го strip-ва преди middleware)
-//     → функцията никога не match-ваше, но создаваше риск от redirect loop
-//   - www → non-www се управлява САМО от next.config.js redirects() — правилното място
-//   - matcher '/(.*)'  ЗАПАЗЕН — нужен е за security headers на публичните страници
+// middleware.ts — v10
+// ✅ ПОПРАВКА спрямо v9:
+//   - matcher '/(.*)'  → негативен lookahead, exclude-ва _next/static, _next/image,
+//     favicon.ico, sitemap.xml и всички статични файлове
+//     Без това middleware се изпълняваше за Vercel internals → ERR_TOO_MANY_REDIRECTS
+//   - next.config.js redirects() се грижи за www → non-www (не middleware)
 //   - Всички v7 функции запазени: rate limiting, admin auth, security headers
 
 import { NextResponse } from 'next/server'
@@ -128,9 +127,12 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
+  // ✅ КРИТИЧНА ПОПРАВКА: негативен lookahead exclude-ва _next/* и статични файлове
+  // '/(.*)'  без exclude → middleware се изпълнява за _next/static, _next/image,
+  // Vercel internals → ERR_TOO_MANY_REDIRECTS на dennyangelow.com
   matcher: [
-    '/(.*)',          // публични пътища — security headers
-    '/admin/:path*',  // admin защита
-    '/api/:path*',    // API auth
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|og-image.jpg|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2)).*)',
+    '/admin/:path*',
+    '/api/:path*',
   ],
 }
