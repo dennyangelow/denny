@@ -1,10 +1,7 @@
-// middleware.ts — v10
-// ✅ ПОПРАВКА спрямо v9:
-//   - matcher '/(.*)'  → негативен lookahead, exclude-ва _next/static, _next/image,
-//     favicon.ico, sitemap.xml и всички статични файлове
-//     Без това middleware се изпълняваше за Vercel internals → ERR_TOO_MANY_REDIRECTS
-//   - next.config.js redirects() се грижи за www → non-www (не middleware)
-//   - Всички v7 функции запазени: rate limiting, admin auth, security headers
+// middleware.ts — v7
+// ПРОМЕНИ спрямо v6:
+//   ✅ /api/affiliate-clicks POST добавен като публичен route
+//      (извиква се от клиента при клик върху affiliate бутон — без auth)
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -24,6 +21,7 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/naruchnici' && method === 'GET')                         return true
   if (pathname === '/api/naruchnici/track')                                        return true
   if (pathname === '/api/affiliate-products' && method === 'GET')                  return true
+  // ✅ Логване на affiliate кликове — публично (без auth)
   if (pathname === '/api/affiliate-clicks' && method === 'POST')                   return true
   if (pathname === '/api/orders' && method === 'POST')                             return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST')       return true
@@ -40,7 +38,7 @@ const PROTECTED_API_PREFIXES = [
   '/api/settings',
   '/api/own-products',
   '/api/affiliate-products',
-  '/api/affiliate-clicks',
+  '/api/affiliate-clicks',   // GET (admin статистики) е защитен; POST е публичен (горе)
   '/api/testimonials',
   '/api/naruchnici',
   '/api/faq',
@@ -70,17 +68,14 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const method = req.method
 
-  // Публични non-admin/non-api страници — само security headers
   if (!pathname.startsWith('/admin') && !pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // Публични API routes
   if (isPublicApiRequest(pathname, method)) {
     return securityHeaders(NextResponse.next())
   }
 
-  // Защитени API routes
   if (isProtectedApi(pathname, method)) {
     if (!isValidToken(req)) {
       return NextResponse.json(
@@ -91,17 +86,14 @@ export function middleware(req: NextRequest) {
     return securityHeaders(NextResponse.next())
   }
 
-  // Останали API routes
   if (pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // Admin login — свободен достъп
   if (pathname.startsWith('/admin/login')) {
     return securityHeaders(NextResponse.next())
   }
 
-  // Защитен admin — rate limiting + token проверка
   const ip      = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
   const attempt = loginAttempts.get(ip)
 
@@ -127,12 +119,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // ✅ КРИТИЧНА ПОПРАВКА: негативен lookahead exclude-ва _next/* и статични файлове
-  // '/(.*)'  без exclude → middleware се изпълнява за _next/static, _next/image,
-  // Vercel internals → ERR_TOO_MANY_REDIRECTS на dennyangelow.com
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|og-image.jpg|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2)).*)',
-    '/admin/:path*',
-    '/api/:path*',
-  ],
+  matcher: ['/admin/:path*', '/api/:path*'],
 }
