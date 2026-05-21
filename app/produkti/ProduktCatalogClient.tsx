@@ -1,21 +1,27 @@
 'use client'
-// app/produkti/ProduktCatalogClient.tsx — v3
-// ✅ Lazy loading: IntersectionObserver sentinel → +6 карти при scroll
-// ✅ Reset при filter/search промяна
-// ✅ loading="eager" за първите 6 снимки, loading="lazy" за останалите
-// ✅ useCallback за стабилни референции
-// ✅ Запазено всичко от v2 — нищо не е премахнато
+// app/produkti/ProduktCatalogClient.tsx — v4
+// ✅ НОВИ ФУНКЦИИ спрямо v3:
+//   1. Autocomplete търсачка — instant dropdown с до 5 резултата при писане
+//   2. Сортиране: "Популярни" (по кликове) / "По ред" (sort_order) / "А-Я" (азбучен)
+//   3. sortedByClicks и clickCounts пропси от сървъра
+//   4. "🔥 N клика" badge на картите (само ако > 0)
+//   5. Запазено всичко от v3 — нищо не е премахнато
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import type { AffiliateProduct } from '@/lib/affiliate'
 import { getRating } from '@/lib/affiliate'
 
-const BATCH = 6  // брой карти при всяко зареждане
+const BATCH = 6
+
+type SortMode = 'popular' | 'order' | 'alpha'
 
 interface Props {
-  products:       AffiliateProduct[]
-  categories:     string[]
-  initialVisible?: number  // по подразбиране = BATCH
+  products:        AffiliateProduct[]   // оригинален ред (sort_order)
+  sortedByClicks?: AffiliateProduct[]   // наредени по кликове (от сървъра)
+  clickCounts?:    Record<string, number> // брой кликове по slug
+  categories:      string[]
+  initialVisible?: number
+  initialSort?:    SortMode
 }
 
 const CAT_ICONS: Record<string, string> = {
@@ -42,27 +48,20 @@ const CAT_ICONS: Record<string, string> = {
   'Комбиниран фунгицид за лозя': '🍇',
   'Системен инсектицид':         '🪲',
   'Акарицид и инсектицид':       '🕷️',
+  'Селективен хербицид':         '🌾',
 }
 
 function Stars({ rating }: { rating: number }) {
   return (
-    <span
-      style={{ display:'inline-flex', gap:1 }}
-      aria-label={`Рейтинг ${rating} от 5`}
-      role="img"
-    >
+    <span style={{ display:'inline-flex', gap:1 }} aria-label={`Рейтинг ${rating} от 5`} role="img">
       {[1,2,3,4,5].map(i => (
-        <span
-          key={i}
-          aria-hidden="true"
-          style={{ fontSize:13, color: i <= Math.round(rating) ? '#f59e0b' : '#e2e8f0', lineHeight:1 }}
-        >★</span>
+        <span key={i} aria-hidden="true"
+          style={{ fontSize:13, color: i <= Math.round(rating) ? '#f59e0b' : '#e2e8f0', lineHeight:1 }}>★</span>
       ))}
     </span>
   )
 }
 
-/* Skeleton card — показва се докато картите се зареждат */
 function SkeletonCard() {
   return (
     <div className="pk-card pk-skeleton" aria-hidden="true">
@@ -78,31 +77,137 @@ function SkeletonCard() {
   )
 }
 
+// ── Autocomplete dropdown ────────────────────────────────────────────────────
+function SearchDropdown({
+  results,
+  onSelect,
+}: {
+  results: AffiliateProduct[]
+  onSelect: (p: AffiliateProduct) => void
+}) {
+  if (results.length === 0) return null
+  return (
+    <div style={{
+      position: 'absolute',
+      top: 'calc(100% + 6px)',
+      left: 0, right: 0,
+      background: '#fff',
+      border: '1.5px solid #e2e8f0',
+      borderRadius: 14,
+      boxShadow: '0 8px 32px rgba(0,0,0,.12)',
+      zIndex: 100,
+      overflow: 'hidden',
+    }}>
+      {results.map(p => (
+        <button
+          key={p.id}
+          onClick={() => onSelect(p)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 11,
+            width: '100%',
+            padding: '10px 14px',
+            background: 'none',
+            border: 'none',
+            borderBottom: '1px solid #f1f5f9',
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontFamily: "'DM Sans', sans-serif",
+            transition: 'background .12s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#f0fdf4')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+        >
+          {p.image_url ? (
+            <img src={p.image_url} alt={p.name} width={36} height={36}
+              style={{ width:36, height:36, objectFit:'contain', borderRadius:8, flexShrink:0, mixBlendMode:'multiply' }} />
+          ) : (
+            <span style={{ fontSize:22, flexShrink:0, width:36, textAlign:'center' }}>{p.emoji || '🌿'}</span>
+          )}
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:13.5, fontWeight:700, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {p.name}
+            </div>
+            <div style={{ fontSize:11, color: p.color || '#16a34a', fontWeight:700, textTransform:'uppercase', letterSpacing:'.04em', marginTop:1 }}>
+              {p.category_label || p.subtitle}
+            </div>
+          </div>
+          <span style={{ fontSize:11, color:'#9ca3af', flexShrink:0 }}>→</span>
+        </button>
+      ))}
+      <div style={{ padding:'8px 14px', fontSize:11, color:'#9ca3af', textAlign:'center' }}>
+        Натисни Enter за всички резултати
+      </div>
+    </div>
+  )
+}
+
 export function ProduktCatalogClient({
   products,
+  sortedByClicks,
+  clickCounts = {},
   categories,
   initialVisible = BATCH,
+  initialSort = 'popular',
 }: Props) {
   const [activeFilter, setActiveFilter] = useState<string>('all')
   const [search,       setSearch]       = useState('')
+  const [searchFocus,  setSearchFocus]  = useState(false)
+  const [sortMode,     setSortMode]     = useState<SortMode>(initialSort)
   const [scrolled,     setScrolled]     = useState(false)
   const [mobileMenu,   setMobileMenu]   = useState(false)
   const [visible,      setVisible]      = useState(initialVisible)
   const [loading,      setLoading]      = useState(false)
 
-  // Sentinel ref — IntersectionObserver го наблюдава
-  const sentinelRef = useRef<HTMLDivElement>(null)
+  const sentinelRef  = useRef<HTMLDivElement>(null)
+  const searchRef    = useRef<HTMLInputElement>(null)
+  const dropdownRef  = useRef<HTMLDivElement>(null)
 
-  /* ── Header scroll ─────────────────────────────────────────────── */
+  // ── Header scroll ────────────────────────────────────────────────────────
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 30)
     window.addEventListener('scroll', fn, { passive: true })
     return () => window.removeEventListener('scroll', fn)
   }, [])
 
-  /* ── Филтриране ────────────────────────────────────────────────── */
+  // ── Затваряне на dropdown при клик извън него ────────────────────────────
+  useEffect(() => {
+    const fn = (e: MouseEvent) => {
+      if (
+        searchRef.current && !searchRef.current.contains(e.target as Node) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setSearchFocus(false)
+      }
+    }
+    document.addEventListener('mousedown', fn)
+    return () => document.removeEventListener('mousedown', fn)
+  }, [])
+
+  // ── Базов списък спрямо sort mode ────────────────────────────────────────
+  const baseList = useMemo(() => {
+    if (sortMode === 'popular' && sortedByClicks) return sortedByClicks
+    if (sortMode === 'alpha')  return [...products].sort((a, b) => a.name.localeCompare(b.name, 'bg'))
+    return products  // 'order' — sort_order от DB
+  }, [sortMode, products, sortedByClicks])
+
+  // ── Автокомплийт резултати (max 5, само при focus + писане) ─────────────
+  const autocompleteResults = useMemo(() => {
+    if (!search.trim() || search.length < 2) return []
+    const q = search.toLowerCase()
+    return products.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.subtitle?.toLowerCase().includes(q) ||
+      p.category_label?.toLowerCase().includes(q) ||
+      p.active_substance?.toLowerCase().includes(q) ||
+      (p.crops || []).some(c => c.toLowerCase().includes(q))
+    ).slice(0, 5)
+  }, [search, products])
+
+  // ── Филтриране на основния grid ──────────────────────────────────────────
   const filtered = useMemo(() => {
-    let list = products
+    let list = baseList
     if (activeFilter !== 'all') {
       list = list.filter(p => p.category_label === activeFilter)
     }
@@ -118,16 +223,14 @@ export function ProduktCatalogClient({
       )
     }
     return list
-  }, [products, activeFilter, search])
+  }, [baseList, activeFilter, search])
 
-  /* ── Reset visible при search промяна ──────────────────────────── */
-  // Fix: filter reset е директно в handleFilter за да няма race condition
-  // Тук пазим само search reset
+  // ── Reset visible при промяна ────────────────────────────────────────────
   useEffect(() => {
     setVisible(initialVisible)
   }, [search, initialVisible])
 
-  /* ── IntersectionObserver за lazy loading ───────────────────────── */
+  // ── Lazy loading ─────────────────────────────────────────────────────────
   const loadMore = useCallback(() => {
     setVisible(v => v + BATCH)
   }, [])
@@ -135,49 +238,46 @@ export function ProduktCatalogClient({
   useEffect(() => {
     const el = sentinelRef.current
     if (!el) return
-
     const observer = new IntersectionObserver(
       entries => {
-        const entry = entries[0]
-        if (!entry.isIntersecting) return
-        // Fix: setLoading(true) преди rAF, false в следващ frame
-        // така skeleton картите реално се виждат между двата render-а
+        if (!entries[0].isIntersecting) return
         setLoading(true)
         requestAnimationFrame(() => {
           loadMore()
           requestAnimationFrame(() => setLoading(false))
         })
       },
-      {
-        rootMargin: '0px',  // Fix: 200px причиняваше зареждане преди scroll
-        threshold:  0,
-      }
+      { rootMargin: '0px', threshold: 0 }
     )
-
     observer.observe(el)
     return () => observer.disconnect()
-    // Fix: НЕ слагай filtered.length в deps — re-attach при всяка партида
-    // причиняваше зацикляне (observer се disconnect/re-attach докато sentinel е visible)
   }, [loadMore])
 
-  /* ── Видими карти ───────────────────────────────────────────────── */
   const visibleCards  = filtered.slice(0, visible)
   const hasMore       = visible < filtered.length
   const skeletonCount = hasMore ? Math.min(BATCH, filtered.length - visible) : 0
 
-  /* ── Handlers ───────────────────────────────────────────────────── */
+  // ── Handlers ─────────────────────────────────────────────────────────────
   const handleFilter = useCallback((cat: string) => {
     setActiveFilter(cat)
-    setVisible(initialVisible)  // Fix: reset веднага, не в useEffect след ре-рендер
+    setVisible(initialVisible)
     document.getElementById('pk-grid-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [initialVisible])
 
   const handleClearSearch = useCallback(() => {
     setSearch('')
     setActiveFilter('all')
+    setSearchFocus(false)
   }, [])
 
-  /* ════════════════════════════════════════════════════════════════ */
+  // При избор от dropdown — отиваме директно на продуктовата страница
+  const handleAutocompleteSelect = useCallback((p: AffiliateProduct) => {
+    window.location.href = `/produkt/${p.slug}`
+  }, [])
+
+  const showDropdown = searchFocus && search.length >= 2 && autocompleteResults.length > 0
+
+  /* ══════════════════════════════════════════════════════════════════════════ */
   return (
     <div style={{
       fontFamily: "'DM Sans',-apple-system,sans-serif",
@@ -210,7 +310,6 @@ export function ProduktCatalogClient({
         </div>
       </header>
 
-      {/* Мобилно меню */}
       {mobileMenu && (
         <div className="mob-nav">
           {([
@@ -247,27 +346,77 @@ export function ProduktCatalogClient({
       {/* ══ СЪДЪРЖАНИЕ ══ */}
       <div className="pk-content">
 
-        {/* ── Search ── */}
-        <div className="pk-search-wrap">
-          <span className="pk-search-icon" aria-hidden="true">🔍</span>
-          <input
-            type="search"
-            className="pk-search"
-            placeholder="Търси продукт, болест, активно вещество..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            aria-label="Търсене в продуктите"
-            autoComplete="off"
-          />
-          {search && (
-            <button className="pk-search-x" onClick={handleClearSearch} aria-label="Изчисти търсенето">
-              ✕
-            </button>
-          )}
+        {/* ── Search + Sort row ── */}
+        <div style={{ display:'flex', gap:10, alignItems:'flex-start', marginBottom:16, flexWrap:'wrap' }}>
+
+          {/* ✅ AUTOCOMPLETE ТЪРСАЧКА */}
+          <div className="pk-search-wrap" style={{ position:'relative', flex:'1 1 260px', marginBottom:0 }}>
+            <span className="pk-search-icon" aria-hidden="true">🔍</span>
+            <input
+              ref={searchRef}
+              type="search"
+              className="pk-search"
+              placeholder="Търси препарат, болест или култура..."
+              value={search}
+              onChange={e => { setSearch(e.target.value); setVisible(initialVisible) }}
+              onFocus={() => setSearchFocus(true)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { setSearchFocus(false); setSearch('') }
+                if (e.key === 'Enter')  { setSearchFocus(false) }
+              }}
+              aria-label="Търсене в продуктите"
+              aria-autocomplete="list"
+              aria-expanded={showDropdown}
+              autoComplete="off"
+            />
+            {search && (
+              <button className="pk-search-x" onClick={handleClearSearch} aria-label="Изчисти търсенето">✕</button>
+            )}
+
+            {/* ✅ DROPDOWN */}
+            {showDropdown && (
+              <div ref={dropdownRef}>
+                <SearchDropdown
+                  results={autocompleteResults}
+                  onSelect={handleAutocompleteSelect}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ✅ SORT DROPDOWN */}
+          <div style={{ position:'relative', flexShrink:0 }}>
+            <select
+              value={sortMode}
+              onChange={e => { setSortMode(e.target.value as SortMode); setVisible(initialVisible) }}
+              style={{
+                padding: '13px 36px 13px 14px',
+                border: '1.5px solid #e2e8f0',
+                borderRadius: 14,
+                fontSize: 13.5,
+                fontFamily: "'DM Sans', sans-serif",
+                fontWeight: 600,
+                color: '#374151',
+                background: '#fff',
+                cursor: 'pointer',
+                outline: 'none',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239ca3af' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 12px center',
+                minWidth: 150,
+              }}
+              aria-label="Сортиране"
+            >
+              <option value="popular">🔥 Популярни</option>
+              <option value="order">📋 По ред</option>
+              <option value="alpha">🔤 А-Я</option>
+            </select>
+          </div>
         </div>
 
         {/* ── Филтри ── */}
-        {/* id="pk-grid-anchor" — scroll target при смяна на филтър */}
         <div id="pk-grid-anchor" className="pk-filters" role="group" aria-label="Филтър по категория">
           <button
             className={`pk-chip${activeFilter === 'all' ? ' pk-chip--on' : ''}`}
@@ -317,31 +466,22 @@ export function ProduktCatalogClient({
           <>
             <div className="pk-grid" role="list" aria-label="Продуктов каталог">
               {visibleCards.map((p, idx) => {
-                const color   = p.color || '#16a34a'
-                const rating  = getRating(p)
-                const pageUrl = `/produkt/${p.slug}`
-                const bullets = Array.isArray(p.bullets) && p.bullets.length
+                const color    = p.color || '#16a34a'
+                const rating   = getRating(p)
+                const pageUrl  = `/produkt/${p.slug}`
+                const clicks   = clickCounts[p.slug] || 0
+                const bullets  = Array.isArray(p.bullets) && p.bullets.length
                   ? p.bullets
                   : Array.isArray(p.features) ? p.features : []
-
-                // Първите BATCH снимки → eager (above-the-fold), останалите → lazy
                 const imgLoading = idx < initialVisible ? 'eager' : 'lazy'
 
                 return (
                   <article key={p.id} className="pk-card" role="listitem">
 
                     {/* Снимка */}
-                    <a
-                      href={pageUrl}
-                      className="pk-card-img-wrap"
-                      tabIndex={-1}
-                      aria-hidden="true"
-                    >
+                    <a href={pageUrl} className="pk-card-img-wrap" tabIndex={-1} aria-hidden="true">
                       {p.badge_text && (
-                        <span
-                          className="pk-badge"
-                          style={{ background: p.badge_color || color }}
-                        >
+                        <span className="pk-badge" style={{ background: p.badge_color || color }}>
                           {p.badge_text}
                         </span>
                       )}
@@ -350,52 +490,57 @@ export function ProduktCatalogClient({
                           {p.emoji} {p.tag_text}
                         </span>
                       )}
+                      {/* ✅ Click badge — само ако > 0 */}
+                      {clicks > 0 && (
+                        <span style={{
+                          position: 'absolute',
+                          bottom: 10, right: 10,
+                          background: 'rgba(0,0,0,.55)',
+                          color: '#fff',
+                          fontSize: 9.5,
+                          fontWeight: 800,
+                          padding: '3px 8px',
+                          borderRadius: 20,
+                          backdropFilter: 'blur(4px)',
+                          letterSpacing: '.03em',
+                          zIndex: 2,
+                        }}>
+                          🔥 {clicks} {clicks === 1 ? 'клик' : 'клика'}
+                        </span>
+                      )}
                       {p.image_url ? (
                         <img
                           src={p.image_url}
                           alt={p.image_alt || p.name}
                           loading={imgLoading}
                           decoding={idx < initialVisible ? 'sync' : 'async'}
-                          width={220}
-                          height={180}
+                          width={220} height={180}
                           className="pk-card-img"
-                          onError={e => {
-                            ;(e.target as HTMLImageElement).style.display = 'none'
-                          }}
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                         />
                       ) : (
-                        <span style={{ fontSize:64 }} aria-hidden="true">
-                          {p.emoji || '🌿'}
-                        </span>
+                        <span style={{ fontSize:64 }} aria-hidden="true">{p.emoji || '🌿'}</span>
                       )}
                     </a>
 
                     {/* Тяло */}
                     <div className="pk-card-body">
-
-                      {/* Мобилен ред с badge + tag */}
                       {(p.badge_text || p.tag_text) && (
                         <div className="pk-mobile-badges">
                           {p.badge_text && (
-                            <span
-                              className="pk-mobile-badge"
-                              style={{ background: p.badge_color || color }}
-                            >
+                            <span className="pk-mobile-badge" style={{ background: p.badge_color || color }}>
                               {p.badge_text}
                             </span>
                           )}
                           {p.tag_text && (
-                            <span className="pk-mobile-tag">
-                              {p.emoji} {p.tag_text}
-                            </span>
+                            <span className="pk-mobile-tag">{p.emoji} {p.tag_text}</span>
                           )}
                         </div>
                       )}
 
                       {p.category_label && (
                         <div className="pk-card-cat" style={{ color }}>
-                          {CAT_ICONS[p.category_label] || p.emoji || '🌿'}{' '}
-                          {p.category_label}
+                          {CAT_ICONS[p.category_label] || p.emoji || '🌿'}{' '}{p.category_label}
                         </div>
                       )}
 
@@ -403,68 +548,41 @@ export function ProduktCatalogClient({
                         <h2 className="pk-card-title">{p.name}</h2>
                       </a>
 
-                      {p.subtitle && (
-                        <p className="pk-card-sub">{p.subtitle}</p>
-                      )}
+                      {p.subtitle && <p className="pk-card-sub">{p.subtitle}</p>}
 
-                      {/* Рейтинг */}
                       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
                         <Stars rating={rating} />
-                        <span style={{ fontSize:12, fontWeight:700, color:'#374151' }}>
-                          {rating}/5
-                        </span>
+                        <span style={{ fontSize:12, fontWeight:700, color:'#374151' }}>{rating}/5</span>
                         {p.review_count && (
-                          <span style={{ fontSize:11, color:'#9ca3af' }}>
-                            ({p.review_count})
-                          </span>
+                          <span style={{ fontSize:11, color:'#9ca3af' }}>({p.review_count})</span>
                         )}
                       </div>
 
-                      {/* Bullets — само 2 */}
                       {bullets.slice(0, 2).length > 0 && (
                         <ul className="pk-bullets">
                           {bullets.slice(0, 2).map((b, j) => (
                             <li key={j} className="pk-bullet">
-                              <span
-                                className="pk-bullet-dot"
-                                style={{ background: color }}
-                                aria-hidden="true"
-                              >✓</span>
+                              <span className="pk-bullet-dot" style={{ background: color }} aria-hidden="true">✓</span>
                               {b}
                             </li>
                           ))}
                         </ul>
                       )}
 
-                      {/* Meta chips */}
                       <div className="pk-chips-row">
                         {p.quarantine_days === 0 && (
                           <span className="pk-chip-meta pk-chip-green">✓ 0 дни карантина</span>
                         )}
                         {typeof p.quarantine_days === 'number' && p.quarantine_days > 0 && (
-                          <span className="pk-chip-meta pk-chip-orange">
-                            {p.quarantine_days}д. карантина
-                          </span>
+                          <span className="pk-chip-meta pk-chip-orange">{p.quarantine_days}д. карантина</span>
                         )}
-                        {p.volume && (
-                          <span className="pk-chip-meta">{p.volume}</span>
-                        )}
-                        {p.season && (
-                          <span className="pk-chip-meta">🌤 {p.season}</span>
-                        )}
+                        {p.volume && <span className="pk-chip-meta">{p.volume}</span>}
+                        {p.season && <span className="pk-chip-meta">🌤 {p.season}</span>}
                       </div>
 
-                      {/* Цена */}
                       {p.price && (
-                        <div style={{
-                          display: 'flex', alignItems: 'baseline',
-                          gap: 4, margin: '6px 0 2px',
-                        }}>
-                          <span style={{
-                            fontFamily: "'Cormorant Garamond',serif",
-                            fontSize: 26, fontWeight: 700,
-                            color: '#0f172a', lineHeight: 1,
-                          }}>
+                        <div style={{ display:'flex', alignItems:'baseline', gap:4, margin:'6px 0 2px' }}>
+                          <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:26, fontWeight:700, color:'#0f172a', lineHeight:1 }}>
                             {Number(p.price).toFixed(2)}
                           </span>
                           <span style={{ fontSize:13, fontWeight:700, color:'#374151' }}>
@@ -473,7 +591,6 @@ export function ProduktCatalogClient({
                         </div>
                       )}
 
-                      {/* CTA */}
                       <a
                         href={pageUrl}
                         className="pk-cta-btn"
@@ -489,33 +606,20 @@ export function ProduktCatalogClient({
                 )
               })}
 
-              {/* Skeleton placeholders — само когато loading */}
               {loading && Array.from({ length: skeletonCount }).map((_, i) => (
                 <SkeletonCard key={`sk-${i}`} />
               ))}
 
-              {/* ── Sentinel за IntersectionObserver — вътре в grid-а ── */}
-              {/* Fix: трябва да е grid child за да работи grid-column: 1/-1 */}
               {hasMore && (
-                <div
-                  ref={sentinelRef}
-                  className="pk-sentinel"
-                  aria-hidden="true"
-                  style={{ gridColumn: '1 / -1' }}
-                />
+                <div ref={sentinelRef} className="pk-sentinel" aria-hidden="true" style={{ gridColumn:'1/-1' }} />
               )}
             </div>
 
-            {/* ── Показани X от N ── */}
             {filtered.length > initialVisible && (
               <p className="pk-load-info" aria-live="polite">
                 Показани {Math.min(visible, filtered.length)} от {filtered.length} продукта
                 {hasMore && (
-                  <button
-                    className="pk-load-more-btn"
-                    onClick={loadMore}
-                    aria-label="Зареди още продукти"
-                  >
+                  <button className="pk-load-more-btn" onClick={loadMore} aria-label="Зареди още продукти">
                     Зареди още ↓
                   </button>
                 )}
@@ -533,16 +637,13 @@ export function ProduktCatalogClient({
             продукт кога да приложиш.
           </p>
           <div className="pk-bottom-btns">
-            <a href="/#handbooks" className="pk-bottom-btn-primary">
-              🎁 Вземи безплатния наръчник
-            </a>
+            <a href="/#handbooks" className="pk-bottom-btn-primary">🎁 Вземи безплатния наръчник</a>
             <a href="/" className="pk-bottom-btn-ghost">← Назад към началото</a>
           </div>
         </div>
 
       </div>
 
-      {/* Footer */}
       <footer style={{
         textAlign: 'center', padding: '20px 24px',
         fontSize: 12.5, color: '#9ca3af',

@@ -1,9 +1,9 @@
-// app/produkti/page.tsx — v4
-// ✅ ПОПРАВКИ спрямо v3:
-//   - brand в Product schema: p.partner || 'AgroApteki' (не 'Denny Angelow'!)
-//   - revalidate: 300 вместо 60 (намалява DB натоварването)
-//   - alternates: добавен languages hreflang
-//   - buildProductSchemas: добавен speakable в ItemList
+// app/produkti/page.tsx — v5
+// ✅ ПОПРАВКИ спрямо v4:
+//   - Продуктите се сортират по click_count DESC (от affiliate_clicks таблицата)
+//   - clickCounts се подават на ProduktCatalogClient за sort UI
+//   - getAllProducts вече взима и кликовете за последните 90 дни
+//   - Добавен initialSort пропс за default "popular"
 
 import { Metadata }              from 'next'
 import { supabaseAdmin }         from '@/lib/supabase'
@@ -12,7 +12,7 @@ import { ProduktCatalogClient }  from './ProduktCatalogClient'
 import '../homepage.css'
 import './produkti.css'
 
-export const revalidate = 300 // ✅ 5 мин
+export const revalidate = 300
 
 const BASE_URL   = 'https://dennyangelow.com'
 const OG_IMAGE   = `${BASE_URL}/og/produkti.jpg`
@@ -61,6 +61,31 @@ export const metadata: Metadata = {
       'max-video-preview': -1,
     },
   },
+}
+
+// ── Взима брой кликове на продукт за последните 90 дни ──────────────────────
+async function getClickCounts(): Promise<Record<string, number>> {
+  try {
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+    const { data, error } = await supabaseAdmin
+      .from('affiliate_clicks')
+      .select('product_slug')
+      .gte('created_at', since)
+      .not('product_slug', 'is', null)
+      .neq('product_slug', '')
+      .neq('product_slug', '-')
+
+    if (error) throw error
+
+    const counts: Record<string, number> = {}
+    for (const row of data || []) {
+      counts[row.product_slug] = (counts[row.product_slug] || 0) + 1
+    }
+    return counts
+  } catch (err) {
+    console.error('[produkti/page] getClickCounts:', err)
+    return {}
+  }
 }
 
 async function getAllProducts(): Promise<AffiliateProduct[]> {
@@ -117,7 +142,6 @@ function buildProductSchemas(products: AffiliateProduct[]) {
     image:       p.image_url ?? undefined,
     url:         `${BASE_URL}/produkt/${p.slug}`,
     sku:         p.slug,
-    // ✅ ПОПРАВКА: реален brand/производител
     brand:       { '@type': 'Brand', name: p.partner || 'AgroApteki' },
     ...(p.price ? {
       offers: {
@@ -142,26 +166,41 @@ function buildProductSchemas(products: AffiliateProduct[]) {
 }
 
 export default async function ProduktiPage() {
-  const products   = await getAllProducts()
+  // ✅ Паралелни заявки — по-бързо
+  const [products, clickCounts] = await Promise.all([
+    getAllProducts(),
+    getClickCounts(),
+  ])
+
   const categories = Array.from(
     new Set(products.map(p => p.category_label).filter(Boolean))
   ) as string[]
+
+  // ✅ Сортираме по кликове за default view (популярни най-отгоре)
+  const sortedByClicks = [...products].sort((a, b) => {
+    const ca = clickCounts[a.slug] || 0
+    const cb = clickCounts[b.slug] || 0
+    return cb - ca  // DESC — най-кликвани първи
+  })
 
   return (
     <>
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildBreadcrumb()) }} />
       <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildItemList(products)) }} />
-      {buildProductSchemas(products).map((schema, i) => (
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildItemList(sortedByClicks)) }} />
+      {buildProductSchemas(sortedByClicks).map((schema, i) => (
         <script key={i} type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
       ))}
 
       <ProduktCatalogClient
-        products={products}
+        products={products}           // оригинален ред (sort_order) — за "По ред"
+        sortedByClicks={sortedByClicks}  // ✅ наредени по кликове — за "Популярни"
+        clickCounts={clickCounts}     // ✅ за показване на badge с брой кликове
         categories={categories}
         initialVisible={6}
+        initialSort="popular"         // ✅ default: популярни
       />
     </>
   )

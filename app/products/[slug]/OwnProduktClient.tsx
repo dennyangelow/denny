@@ -14,6 +14,7 @@
 
 import { useState, useCallback } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { HeaderClient } from '@/components/client/HeaderClient'
 import { CartSystem }   from '@/components/client/CartSystem'
 import SiteFooter       from '@/components/layout/SiteFooter'
@@ -202,7 +203,7 @@ function RelatedCard({ r, fmtFn }: { r: OwnProduct; fmtFn: (n: number) => string
   const oos = !v || v.stock === 0
   return (
     <Link href={`/products/${r.slug}`} className="op-related-card">
-      {r.image_url && <img src={r.image_url} alt={r.image_alt || r.name} className="op-related-img" width={54} height={54} />}
+      {r.image_url && <img src={r.image_url} alt={r.image_alt || r.name} className="op-related-img" width={54} height={54} loading="lazy" />}
       <div className="op-related-info">
         <div className="op-related-name">{r.emoji} {r.name.split(' — ')[0]}</div>
         <div className="op-related-sub">{r.subtitle}</div>
@@ -241,7 +242,6 @@ export default function OwnProduktClient({
     activeVariants.find(v => v.stock > 0) || activeVariants[0] || null
   )
   const [added,     setAdded]     = useState(false)
-  const [imgLoaded, setImgLoaded] = useState(false)
 
   const settings     = initialSettings
   const sym          = settings.currency_symbol
@@ -349,14 +349,18 @@ export default function OwnProduktClient({
                 {product.badge && (
                   <div className="op-img-badge">{product.emoji} {product.badge}</div>
                 )}
-                <div className={`op-img-wrap${imgLoaded ? ' op-img-wrap--loaded' : ''}`}>
+                <div className="op-img-wrap op-img-wrap--loaded">
                   {product.image_url ? (
-                    <img
+                    <Image
                       src={product.image_url}
                       alt={product.image_alt || product.name}
                       className="op-img"
-                      onLoad={() => setImgLoaded(true)}
-                      width={500} height={500} fetchPriority="high"
+                      width={500}
+                      height={500}
+                      priority
+                      quality={85}
+                      sizes="(max-width: 860px) calc(100vw - 40px), 360px"
+                      style={{ objectFit: 'contain', width: '100%', height: 'auto' }}
                     />
                   ) : (
                     <div className="op-img-placeholder">{product.emoji || '🌱'}</div>
