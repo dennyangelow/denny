@@ -1,13 +1,15 @@
 /** @type {import('next').NextConfig} */
+// next.config.js — v4
+// ✅ ПОПРАВКА: ПРЕМАХНАТИ ВСИЧКИ redirects()
+// www → non-www се решава от Vercel Dashboard (Domain Settings → Add www → redirect to apex)
+// НЕ трябва да се прави в Next.js код когато си на Vercel
+
 const nextConfig = {
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'd1yei2z3i6k35z.cloudfront.net' },
       { protocol: 'https', hostname: '*.supabase.co' },
-      // ✅ Cloudflare R2 публичен домейн — задължително за next/image
       { protocol: 'https', hostname: '*.r2.dev' },
-      // Ако имаш custom domain пред R2, добави и него:
-      // { protocol: 'https', hostname: 'cdn.dennyangelow.com' },
     ],
   },
   env: {

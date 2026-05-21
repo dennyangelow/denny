@@ -1,7 +1,6 @@
-// middleware.ts — v7
-// ПРОМЕНИ спрямо v6:
-//   ✅ /api/affiliate-clicks POST добавен като публичен route
-//      (извиква се от клиента при клик върху affiliate бутон — без auth)
+// middleware.ts — v10 (ОРИГИНАЛЕН v7 + само matcher поправка)
+// Върнат оригиналният v7 middleware без НИКАКВИ redirect промени
+// Единствена промяна: matcher върнат на оригиналния от v7
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -21,7 +20,6 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/naruchnici' && method === 'GET')                         return true
   if (pathname === '/api/naruchnici/track')                                        return true
   if (pathname === '/api/affiliate-products' && method === 'GET')                  return true
-  // ✅ Логване на affiliate кликове — публично (без auth)
   if (pathname === '/api/affiliate-clicks' && method === 'POST')                   return true
   if (pathname === '/api/orders' && method === 'POST')                             return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST')       return true
@@ -38,7 +36,7 @@ const PROTECTED_API_PREFIXES = [
   '/api/settings',
   '/api/own-products',
   '/api/affiliate-products',
-  '/api/affiliate-clicks',   // GET (admin статистики) е защитен; POST е публичен (горе)
+  '/api/affiliate-clicks',
   '/api/testimonials',
   '/api/naruchnici',
   '/api/faq',
@@ -118,6 +116,7 @@ export function middleware(req: NextRequest) {
   return NextResponse.redirect(loginUrl)
 }
 
+// ОРИГИНАЛЕН matcher от v7 — само /admin и /api
 export const config = {
   matcher: ['/admin/:path*', '/api/:path*'],
 }
