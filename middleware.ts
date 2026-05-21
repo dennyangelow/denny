@@ -1,7 +1,12 @@
-// middleware.ts — v7
-// ПРОМЕНИ спрямо v6:
-//   ✅ /api/affiliate-clicks POST добавен като публичен route
-//      (извиква се от клиента при клик върху affiliate бутон — без auth)
+// middleware.ts — v8
+// ✅ ПОПРАВКИ спрямо v7:
+//   - matcher разширен: добавен '/(.*)'  ← КРИТИЧНО за www → non-www redirect
+//     Без него next.config.js redirects() НЕ се изпълняват за публични страници
+//     (/produkt/xxx, /products/xxx, /naruchnik/xxx, / etc.)
+//     защото middleware не се стартира за тях
+//   - www → non-www redirect в middleware като допълнителна гаранция
+//     (next.config.js redirects са основния механизъм, middleware е backup)
+//   - Всички v7 функции запазени: rate limiting, admin auth, security headers
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -16,12 +21,26 @@ function securityHeaders(res: NextResponse): NextResponse {
   return res
 }
 
+// ── www → non-www redirect ────────────────────────────────────────────────────
+// Изпълнява се ПРЕДИ всичко останало — решава "Алтернативна страница с правилен каноничен маркер"
+function handleWwwRedirect(req: NextRequest): NextResponse | null {
+  const host = req.headers.get('host') || ''
+  if (host.startsWith('www.')) {
+    const url = req.nextUrl.clone()
+    url.host = host.replace(/^www\./, '')
+    // Ако сме на HTTP, force HTTPS
+    url.protocol = 'https:'
+    return NextResponse.redirect(url, { status: 301 })
+  }
+  return null
+}
+
 function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/site-data')                                              return true
   if (pathname === '/api/naruchnici' && method === 'GET')                         return true
   if (pathname === '/api/naruchnici/track')                                        return true
   if (pathname === '/api/affiliate-products' && method === 'GET')                  return true
-  // ✅ Логване на affiliate кликове — публично (без auth)
+  // Логване на affiliate кликове — публично (без auth)
   if (pathname === '/api/affiliate-clicks' && method === 'POST')                   return true
   if (pathname === '/api/orders' && method === 'POST')                             return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST')       return true
@@ -68,14 +87,21 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const method = req.method
 
+  // ✅ СТЪПКА 1: www → non-www redirect (за ВСИЧКИ пътища)
+  const wwwRedirect = handleWwwRedirect(req)
+  if (wwwRedirect) return wwwRedirect
+
+  // ✅ СТЪПКА 2: Публични non-admin/non-api страници — само security headers
   if (!pathname.startsWith('/admin') && !pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 
+  // ✅ СТЪПКА 3: Публични API routes
   if (isPublicApiRequest(pathname, method)) {
     return securityHeaders(NextResponse.next())
   }
 
+  // ✅ СТЪПКА 4: Защитени API routes
   if (isProtectedApi(pathname, method)) {
     if (!isValidToken(req)) {
       return NextResponse.json(
@@ -86,14 +112,17 @@ export function middleware(req: NextRequest) {
     return securityHeaders(NextResponse.next())
   }
 
+  // ✅ СТЪПКА 5: Останали API routes
   if (pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 
+  // ✅ СТЪПКА 6: Admin login страница — свободен достъп
   if (pathname.startsWith('/admin/login')) {
     return securityHeaders(NextResponse.next())
   }
 
+  // ✅ СТЪПКА 7: Защитен admin — rate limiting + token проверка
   const ip      = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
   const attempt = loginAttempts.get(ip)
 
@@ -119,5 +148,12 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/:path*'],
+  // ✅ КРИТИЧНА ПОПРАВКА: добавен '/(.*)'
+  // Без него middleware не се стартира за публични страници
+  // и www → non-www redirect НЕ работи за /produkt/xxx, /products/xxx, etc.
+  matcher: [
+    '/(.*)',           // ← всички публични пътища (www redirect + security headers)
+    '/admin/:path*',   // ← admin защита
+    '/api/:path*',     // ← API auth
+  ],
 }
