@@ -344,14 +344,28 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
   }
 
   // ── Schema.org: FAQPage ───────────────────────────────────────────────────
-  const faqItems  = Array.isArray(product.faq) ? product.faq : []
-  const faqSchema = faqItems.length > 0 ? {
+  // ✅ ПОПРАВКИ:
+  //   1. Филтрираме въпроси без отговор → решава "Липсващо acceptedAnswer" (4 елемента)
+  //   2. Дедублираме по въпрос → решава "Дублиращо се поле FAQPage" (10 елемента)
+  const faqItems = Array.isArray(product.faq)
+    ? product.faq.filter(({ q, a }: FaqItem) =>
+        typeof q === 'string' && q.trim().length > 0 &&
+        typeof a === 'string' && a.trim().length > 0
+      )
+    : []
+  const faqSeen = new Set<string>()
+  const faqUniq = faqItems.filter(({ q }: FaqItem) => {
+    if (faqSeen.has(q)) return false
+    faqSeen.add(q)
+    return true
+  })
+  const faqSchema = faqUniq.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
-    mainEntity: faqItems.map(({ q, a }: FaqItem) => ({
+    mainEntity: faqUniq.map(({ q, a }: FaqItem) => ({
       '@type': 'Question',
-      name:     q,
-      acceptedAnswer: { '@type': 'Answer', text: a },
+      name:     q.trim(),
+      acceptedAnswer: { '@type': 'Answer', text: a.trim() },
     })),
   } : null
 

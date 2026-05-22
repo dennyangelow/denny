@@ -133,10 +133,12 @@ interface SpecialSection {
 }
 
 // ── Тип за резултата от GROUP BY заявката за clicks ──────────────────────────
+// ✅ Колоната се казва "click_count" (не "count") в новата RPC функция
 interface ClickCountRow {
   product_slug: string
-  count: number
+  click_count:  number   // ✅ ПОПРАВЕНО: беше "count", сега е "click_count"
 }
+
 
 // ─── Defaults ──────────────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS: SiteSettings = {
@@ -359,11 +361,11 @@ async function getPageData() {
     // ── Top affiliate products by click count (от SQL GROUP BY) ──────────────
     // ✅ clicksRows вече е масив от { product_slug, count } — не 5000 реда.
     // Ако rpc не съществува → clicksRows е null → fallback към sort_order.
-    const clickCountMap: Record<string, number> = {}
+      const clickCountMap: Record<string, number> = {}
     if (Array.isArray(clicksRows)) {
       ;(clicksRows as ClickCountRow[]).forEach(row => {
         if (row.product_slug) {
-          clickCountMap[row.product_slug] = Number(row.count) || 0
+          clickCountMap[row.product_slug] = Number(row.click_count) || 0  // ✅ беше row.count
         }
       })
     }
@@ -763,13 +765,26 @@ export default async function HomePage() {
   } : null
 
   // ── Schema: FAQPage ───────────────────────────────────────────────────────
-  const faqPageSchema = faq.length > 0 ? {
+  // ✅ ПОПРАВКИ:
+  //   1. Филтрираме въпроси без question или answer → решава "Липсващо acceptedAnswer"
+  //   2. Дедублираме по question → решава "Дублиращо се поле FAQPage"
+  const faqValid = faq.filter(f =>
+    typeof f.question === 'string' && f.question.trim().length > 0 &&
+    typeof f.answer   === 'string' && f.answer.trim().length   > 0
+  )
+  const faqQSeen = new Set<string>()
+  const faqDedup = faqValid.filter(f => {
+    if (faqQSeen.has(f.question)) return false
+    faqQSeen.add(f.question)
+    return true
+  })
+  const faqPageSchema = faqDedup.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
-    mainEntity: faq.map(f => ({
+    mainEntity: faqDedup.map(f => ({
       '@type':          'Question',
-      name:              f.question,
-      acceptedAnswer: { '@type': 'Answer', text: f.answer },
+      name:              f.question.trim(),
+      acceptedAnswer: { '@type': 'Answer', text: f.answer.trim() },
     })),
   } : null
 

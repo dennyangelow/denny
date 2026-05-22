@@ -1,9 +1,10 @@
-// app/produkti/page.tsx — v5
-// ✅ ПОПРАВКИ спрямо v4:
-//   - Продуктите се сортират по click_count DESC (от affiliate_clicks таблицата)
-//   - clickCounts се подават на ProduktCatalogClient за sort UI
-//   - getAllProducts вече взима и кликовете за последните 90 дни
-//   - Добавен initialSort пропс за default "popular"
+// app/produkti/page.tsx — v6
+// ✅ ПОПРАВКИ спрямо v5:
+//   - getClickCounts() заменен с get_top_affiliate_clicks RPC (същата функция като homepage)
+//   - RPC филтрира partner='category' — категорийните кликове ВЕЧЕ НЕ замърсяват sort-а
+//   - RPC брои само последните 90 дни (days_back=90)
+//   - Колоната вече се казва "click_count" (не "count") — обновен ClickCountRow тип
+//   - Резултатът е идентичен с homepage → продуктите се нареждат еднакво и на двете места
 
 import { Metadata }              from 'next'
 import { supabaseAdmin }         from '@/lib/supabase'
@@ -63,23 +64,36 @@ export const metadata: Metadata = {
   },
 }
 
-// ── Взима брой кликове на продукт за последните 90 дни ──────────────────────
+// ── Тип за RPC резултата ─────────────────────────────────────────────────────
+// ✅ ВАЖНО: колоната се казва "click_count" (не "count") в новата RPC функция
+interface ClickCountRow {
+  product_slug: string
+  click_count:  number
+}
+
+// ── Взима брой кликове чрез RPC (идентично с homepage) ──────────────────────
+// ✅ ПОПРАВКА: ползва get_top_affiliate_clicks RPC вместо директна заявка
+//   - автоматично изключва partner='category' кликове
+//   - брои само последните 90 дни
+//   - резултатът е 100% идентичен с homepage → еднакво наредени продукти
 async function getClickCounts(): Promise<Record<string, number>> {
   try {
-    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
     const { data, error } = await supabaseAdmin
-      .from('affiliate_clicks')
-      .select('product_slug')
-      .gte('created_at', since)
-      .not('product_slug', 'is', null)
-      .neq('product_slug', '')
-      .neq('product_slug', '-')
+      .rpc('get_top_affiliate_clicks', {
+        limit_count: 999,  // всички продукти
+        days_back:   90,   // последните 90 дни
+      })
 
-    if (error) throw error
+    if (error) {
+      console.error('[produkti/page] getClickCounts RPC грешка:', error)
+      return {}
+    }
 
     const counts: Record<string, number> = {}
-    for (const row of data || []) {
-      counts[row.product_slug] = (counts[row.product_slug] || 0) + 1
+    for (const row of (data as ClickCountRow[]) || []) {
+      if (row.product_slug) {
+        counts[row.product_slug] = Number(row.click_count) || 0
+      }
     }
     return counts
   } catch (err) {
@@ -169,7 +183,7 @@ export default async function ProduktiPage() {
   // ✅ Паралелни заявки — по-бързо
   const [products, clickCounts] = await Promise.all([
     getAllProducts(),
-    getClickCounts(),
+    getClickCounts(),  // ✅ вече ползва RPC — идентично с homepage
   ])
 
   const categories = Array.from(
@@ -195,12 +209,12 @@ export default async function ProduktiPage() {
       ))}
 
       <ProduktCatalogClient
-        products={products}           // оригинален ред (sort_order) — за "По ред"
+        products={products}              // оригинален ред (sort_order) — за "По ред"
         sortedByClicks={sortedByClicks}  // ✅ наредени по кликове — за "Популярни"
-        clickCounts={clickCounts}     // ✅ за показване на badge с брой кликове
+        clickCounts={clickCounts}        // ✅ за показване на badge с брой кликове
         categories={categories}
         initialVisible={6}
-        initialSort="popular"         // ✅ default: популярни
+        initialSort="popular"            // ✅ default: популярни
       />
     </>
   )
