@@ -222,13 +222,27 @@ export default async function ProduktPage({
   }
 
   // ── FAQ schema ────────────────────────────────────────────────────────────
-  const faqSchema = faqItems.length > 0 ? {
+  // ✅ ПОПРАВКИ: @id за canonical entity + filter за празни q/a + дедупликация
+  const faqSeen  = new Set<string>()
+  const faqClean = faqItems
+    .filter(({ q, a }: { q: string; a: string }) =>
+      typeof q === 'string' && q.trim().length > 0 &&
+      typeof a === 'string' && a.trim().length > 0
+    )
+    .filter(({ q }: { q: string }) => {
+      if (faqSeen.has(q)) return false
+      faqSeen.add(q)
+      return true
+    })
+  const faqSchema = faqClean.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
-    mainEntity: faqItems.map(({ q, a }: { q: string; a: string }) => ({
+    '@id':       canonicalUrl,
+    url:          canonicalUrl,
+    mainEntity: faqClean.map(({ q, a }: { q: string; a: string }) => ({
       '@type': 'Question',
-      name:     q,
-      acceptedAnswer: { '@type': 'Answer', text: a },
+      name:     q.trim(),
+      acceptedAnswer: { '@type': 'Answer', text: a.trim() },
     })),
   } : null
 

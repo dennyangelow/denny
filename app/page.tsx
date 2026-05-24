@@ -133,12 +133,10 @@ interface SpecialSection {
 }
 
 // ── Тип за резултата от GROUP BY заявката за clicks ──────────────────────────
-// ✅ Колоната се казва "click_count" (не "count") в новата RPC функция
 interface ClickCountRow {
   product_slug: string
-  click_count:  number   // ✅ ПОПРАВЕНО: беше "count", сега е "click_count"
+  count: number
 }
-
 
 // ─── Defaults ──────────────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS: SiteSettings = {
@@ -361,11 +359,11 @@ async function getPageData() {
     // ── Top affiliate products by click count (от SQL GROUP BY) ──────────────
     // ✅ clicksRows вече е масив от { product_slug, count } — не 5000 реда.
     // Ако rpc не съществува → clicksRows е null → fallback към sort_order.
-      const clickCountMap: Record<string, number> = {}
+    const clickCountMap: Record<string, number> = {}
     if (Array.isArray(clicksRows)) {
       ;(clicksRows as ClickCountRow[]).forEach(row => {
         if (row.product_slug) {
-          clickCountMap[row.product_slug] = Number(row.click_count) || 0  // ✅ беше row.count
+          clickCountMap[row.product_slug] = Number(row.count) || 0
         }
       })
     }
@@ -781,6 +779,9 @@ export default async function HomePage() {
   const faqPageSchema = faqDedup.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
+    // ✅ @id = canonical URL → казва на Google "един entity" дори при www vs non-www crawl
+    '@id':       'https://dennyangelow.com/#faq',
+    url:          'https://dennyangelow.com/',
     mainEntity: faqDedup.map(f => ({
       '@type':          'Question',
       name:              f.question.trim(),

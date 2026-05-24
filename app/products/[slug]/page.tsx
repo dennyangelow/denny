@@ -362,6 +362,10 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
   const faqSchema = faqUniq.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
+    // ✅ @id = canonical URL → казва на Google "това е един entity, не дублирани schemas"
+    // Решава "Дублиращо се поле FAQPage" причинено от www vs non-www URL варианти
+    '@id':       canonicalUrl,
+    url:          canonicalUrl,
     mainEntity: faqUniq.map(({ q, a }: FaqItem) => ({
       '@type': 'Question',
       name:     q.trim(),

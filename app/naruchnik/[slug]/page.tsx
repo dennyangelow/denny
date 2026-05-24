@@ -263,10 +263,12 @@ export default async function NaruchnikPage({
   const faqSchema = faqEntries.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'FAQPage',
+    '@id':       canonicalUrl,   // ✅ canonical entity ID → решава "Дублиращо се поле FAQPage"
+    url:          canonicalUrl,
     mainEntity: faqEntries.map(({ q, a }) => ({
       '@type': 'Question',
-      name:     q,
-      acceptedAnswer: { '@type': 'Answer', text: a },
+      name:     q.trim(),
+      acceptedAnswer: { '@type': 'Answer', text: a.trim() },
     })),
   } : null
 
