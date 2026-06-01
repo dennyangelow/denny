@@ -1,5 +1,7 @@
 'use client'
-// app/admin/components/OrdersTab.tsx — v8
+// app/admin/components/OrdersTab.tsx — v9
+// ✅ v9: Date range filter за таблицата с поръчки (preset + custom от/до)
+// ✅ Заменен productStats блок с <ProductStatsSection> (с собствен date picker)
 // ✅ Discord статус индикатор (discord_sent колона)
 // ✅ Бутон "Изпрати пропуснати в Discord" — само за admin
 // ✅ Мобилен изглед — карти вместо таблица
@@ -11,6 +13,8 @@ import { STATUS_LABELS, PAYMENT_LABELS, COURIER_LABELS, ORDER_STATUSES, type Ord
 import { useCurrency } from './CurrencyContext'
 import { OrderModal } from './OrderModal'
 import { toast } from '@/components/ui/Toast'
+import { toBulgarianDateStr } from './rangeUtils'
+import { ProductStatsSection } from './ProductStatsSection'
 
 const PAGE_SIZE = 15
 
@@ -276,6 +280,32 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   const [isMobile, setIsMobile]        = useState(false)
   const [sendingMissed, setSendingMissed] = useState(false)
 
+  // ── Date range filter за таблицата ────────────────────────────────────────
+  type DatePreset = 'all' | 'today' | '7d' | '30d' | '90d' | 'custom'
+  const [datePreset,     setDatePreset]     = useState<DatePreset>('all')
+  const [dateFrom,       setDateFrom]       = useState<string>('')
+  const [dateTo,         setDateTo]         = useState<string>('')
+  const [showDatePicker, setShowDatePicker] = useState(false)
+
+  const todayBg = useMemo(() => toBulgarianDateStr(), [])
+
+  function bgNDaysAgo(days: number): string {
+    const utcMid = new Date(todayBg + 'T00:00:00Z')
+    utcMid.setUTCDate(utcMid.getUTCDate() - days)
+    return new Date(utcMid).toLocaleDateString('en-CA', { timeZone: 'Europe/Sofia' })
+  }
+
+  const activeDateRange = useMemo((): { start: string | null; end: string | null } => {
+    if (datePreset === 'all')    return { start: null, end: null }
+    if (datePreset === 'today')  return { start: todayBg, end: todayBg }
+    if (datePreset === '7d')     return { start: bgNDaysAgo(6),  end: todayBg }
+    if (datePreset === '30d')    return { start: bgNDaysAgo(29), end: todayBg }
+    if (datePreset === '90d')    return { start: bgNDaysAgo(89), end: todayBg }
+    if (datePreset === 'custom') return { start: dateFrom || null, end: dateTo || null }
+    return { start: null, end: null }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datePreset, dateFrom, dateTo, todayBg])
+
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
     check()
@@ -316,74 +346,23 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
     }
   }, [orders])
 
-  // ── Product / volume stats (from order_items) ─────────────────────────────
-  const productStats = useMemo(() => {
-    // Flatten all items from non-cancelled orders
-    const allItems = orders
-      .filter(o => o.status !== 'cancelled')
-      .flatMap(o => (o.order_items || []))
 
-    // Detect size from product name
-    function detectSize(name: string): '5L' | '20L' | 'other' {
-      const n = name || ''
-      if (/20\s*литра/i.test(n) || /20L/i.test(n)) return '20L'
-      if (/5\s*литра/i.test(n)  || /5L/i.test(n))  return '5L'
-      return 'other'
-    }
-
-    // Detect product line
-    function detectLine(name: string): 'AMINO' | 'NITRO' | 'Terra' | 'other' {
-      const n = name || ''
-      if (/AMINO/i.test(n))  return 'AMINO'
-      if (/NITRO/i.test(n))  return 'NITRO'
-      if (/Terra/i.test(n))  return 'Terra'
-      return 'other'
-    }
-
-    let tubes5L   = 0
-    let tubes20L  = 0
-    let totalLiters = 0
-
-    // Per-product breakdown: key = "LINE_SIZE"
-    const breakdown: Record<string, { name: string; qty: number; revenue: number; size: string; line: string }> = {}
-
-    allItems.forEach(item => {
-      const qty     = Number(item.quantity) || 1
-      const price   = Number(item.total_price) || 0
-      const rawName = item.product_name || ''
-      // Strip prefixes like [POST-PURCHASE], [UPSELL], [CROSS]
-      const name    = rawName.replace(/^\[(POST-PURCHASE|UPSELL|CROSS)\]\s*/i, '').trim()
-      const size    = detectSize(name)
-      const line    = detectLine(name)
-
-      if (size === '5L')  { tubes5L  += qty; totalLiters += qty * 5  }
-      if (size === '20L') { tubes20L += qty; totalLiters += qty * 20 }
-
-      // Simplified display name: "AMINO 5L", "Terra NITRO 20L" etc.
-      const key = `${line}_${size}`
-      // Build short display name
-      let shortName = ''
-      if (line === 'AMINO')  shortName = size === '20L' ? 'Atlas Terra AMINO 20л' : 'Atlas Terra AMINO 5л'
-      else if (line === 'NITRO')  shortName = size === '20L' ? 'Atlas Terra NITRO 20л' : 'Atlas Terra NITRO 5л'
-      else if (line === 'Terra')  shortName = size === '20L' ? 'Atlas Terra 20л' : 'Atlas Terra 5л'
-      else shortName = name.slice(0, 40)
-
-      if (!breakdown[key]) breakdown[key] = { name: shortName, qty: 0, revenue: 0, size, line }
-      breakdown[key].qty     += qty
-      breakdown[key].revenue += price
-    })
-
-    const sorted = Object.values(breakdown).sort((a, b) => b.qty - a.qty)
-    const totalTubes = tubes5L + tubes20L
-
-    return { tubes5L, tubes20L, totalLiters, totalTubes, breakdown: sorted }
-  }, [orders])
+  // productStats — премахнато, заменено с <ProductStatsSection orders={orders} formatPrice={formatPrice} />
+  // (ProductStatsSection има собствен date picker и изчислява всичко вътрешно)
 
   // ── Filtered & sorted ─────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
+    const { start, end } = activeDateRange
     let result = orders
       .filter(o => filter === 'all' || o.status === filter)
+      .filter(o => {
+        if (!start && !end) return true
+        const d = new Date(o.created_at).toLocaleDateString('en-CA', { timeZone: 'Europe/Sofia' })
+        if (start && d < start) return false
+        if (end   && d > end)   return false
+        return true
+      })
       .filter(o => {
         // ✅ Ползваме getOfferTypes() (масив) — поръчка с multiple оферти се match-ва правилно
         if (offerFilter === 'has_offer')     return getOfferTypes(o).length > 0
@@ -412,7 +391,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
       return sortDir === 'asc' ? diff : -diff
     })
     return result
-  }, [orders, filter, offerFilter, discordFilter, search, sort, sortDir])
+  }, [orders, filter, offerFilter, discordFilter, search, sort, sortDir, activeDateRange])
 
   const totalPages   = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated    = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -623,104 +602,8 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </div>
       )}
 
-      {/* ── Product / volume stats ── */}
-      {productStats.totalTubes > 0 && (
-        <div style={{
-          background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14,
-          marginBottom: 20, overflow: 'hidden',
-        }}>
-          {/* Header row with inline summary pills */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 16px', borderBottom: '1px solid #f3f4f6',
-            flexWrap: 'wrap', gap: 8,
-          }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}>
-              📦 <span>Продадени продукти</span>
-            </span>
-            {/* Compact stats pills */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              {[
-                { label: '5л', value: productStats.tubes5L,    color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
-                { label: '20л', value: productStats.tubes20L,  color: '#0369a1', bg: '#eff6ff', border: '#bfdbfe' },
-                { label: 'литри', value: productStats.totalLiters, color: '#7c3aed', bg: '#f5f3ff', border: '#ede9fe' },
-              ].map(p => (
-                <div key={p.label} style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  background: p.bg, border: `1px solid ${p.border}`,
-                  borderRadius: 99, padding: '3px 10px',
-                }}>
-                  <span style={{ fontSize: 14, fontWeight: 900, color: p.color, lineHeight: 1 }}>{p.value}</span>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: p.color, opacity: .75 }}>{p.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Breakdown rows — compact */}
-          {productStats.breakdown.map((item, idx) => {
-            const lineColor =
-              item.line === 'AMINO' ? '#16a34a' :
-              item.line === 'NITRO' ? '#2563eb' :
-              item.line === 'Terra' ? '#b45309' : '#6b7280'
-            const dotColor =
-              item.line === 'AMINO' ? '#22c55e' :
-              item.line === 'NITRO' ? '#3b82f6' :
-              item.line === 'Terra' ? '#f59e0b' : '#9ca3af'
-            const maxQty = productStats.breakdown[0]?.qty || 1
-            const pct    = Math.round(item.qty / maxQty * 100)
-
-            return (
-              <div key={`${item.line}_${item.size}`} style={{
-                display: 'grid',
-                gridTemplateColumns: '16px 1fr auto',
-                alignItems: 'center',
-                gap: 10,
-                padding: '8px 16px',
-                borderBottom: idx < productStats.breakdown.length - 1 ? '1px solid #f9fafb' : 'none',
-              }}>
-                {/* Color dot */}
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0, margin: '0 auto' }} />
-
-                {/* Name + bar */}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#111', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {item.name}
-                    </span>
-                    <span style={{
-                      fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 4,
-                      background: item.size === '20L' ? '#eff6ff' : '#f0fdf4',
-                      color: item.size === '20L' ? '#1d4ed8' : '#16a34a',
-                      flexShrink: 0,
-                    }}>
-                      {item.size}
-                    </span>
-                  </div>
-                  <div style={{ height: 3, background: '#f3f4f6', borderRadius: 99, overflow: 'hidden' }}>
-                    <div style={{
-                      height: '100%', width: `${pct}%`,
-                      background: dotColor, borderRadius: 99,
-                      transition: 'width .5s ease',
-                    }} />
-                  </div>
-                </div>
-
-                {/* Stats — right aligned */}
-                <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexShrink: 0 }}>
-                  <div style={{ textAlign: 'right' as const }}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: lineColor }}>{item.qty}</span>
-                    <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 2 }}>бр</span>
-                  </div>
-                  <div style={{ textAlign: 'right' as const, minWidth: 72 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#059669' }}>{formatPrice(item.revenue)}</span>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {/* ── Product / volume stats — с date picker ── */}
+      <ProductStatsSection orders={orders} formatPrice={formatPrice} />
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' as const }}>
@@ -754,6 +637,99 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
             ↓ CSV
           </button>
         </div>
+      </div>
+
+      {/* ── Date range filter ── */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', marginRight: 2 }}>📅</span>
+          {([
+            { key: 'all',    label: 'Всички дати' },
+            { key: 'today',  label: 'Днес'   },
+            { key: '7d',     label: '7 дни'  },
+            { key: '30d',    label: '30 дни' },
+            { key: '90d',    label: '3 мес'  },
+            { key: 'custom', label: '📅 По дати' },
+          ] as const).map(opt => {
+            const isActive = datePreset === opt.key
+            return (
+              <button key={opt.key} className="filter-btn"
+                onClick={() => {
+                  setDatePreset(opt.key)
+                  setPage(1)
+                  setChecked(new Set())
+                  if (opt.key === 'custom') {
+                    if (!dateFrom) setDateFrom(bgNDaysAgo(29))
+                    if (!dateTo)   setDateTo(todayBg)
+                    setShowDatePicker(true)
+                  } else {
+                    setShowDatePicker(false)
+                  }
+                }}
+                style={{
+                  padding: '4px 11px', borderRadius: 99, fontSize: 11, fontWeight: isActive ? 700 : 500,
+                  border: `1px solid ${isActive ? '#1b4332' : 'var(--border)'}`,
+                  background: isActive ? '#1b4332' : '#fff',
+                  color: isActive ? '#fff' : 'var(--muted)',
+                  whiteSpace: 'nowrap' as const,
+                }}>
+                {opt.label}
+              </button>
+            )
+          })}
+          {/* Active range label */}
+          {datePreset !== 'all' && datePreset !== 'custom' && (
+            <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4, fontStyle: 'italic' }}>
+              {datePreset === 'today'
+                ? todayBg.split('-').reverse().slice(0,2).join('.')
+                : `${activeDateRange.start?.slice(5).split('-').reverse().join('.')} – ${activeDateRange.end?.slice(5).split('-').reverse().join('.')}`
+              }
+            </span>
+          )}
+        </div>
+
+        {/* Custom picker */}
+        {datePreset === 'custom' && showDatePicker && (
+          <div style={{
+            display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' as const, alignItems: 'center',
+            background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10,
+            padding: '10px 14px',
+          }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+              От:
+              <input type="date" value={dateFrom} max={dateTo || todayBg}
+                onChange={e => { setDateFrom(e.target.value); setPage(1); setChecked(new Set()) }}
+                style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid #d1d5db', fontFamily: 'inherit', fontSize: 12, color: '#111', background: '#fff', outline: 'none', cursor: 'pointer' }}
+              />
+            </label>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+              До:
+              <input type="date" value={dateTo} min={dateFrom} max={todayBg}
+                onChange={e => { setDateTo(e.target.value); setPage(1); setChecked(new Set()) }}
+                style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid #d1d5db', fontFamily: 'inherit', fontSize: 12, color: '#111', background: '#fff', outline: 'none', cursor: 'pointer' }}
+              />
+            </label>
+            <button onClick={() => setShowDatePicker(false)}
+              style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: '#1b4332', color: '#fff', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+              ✓ Приложи
+            </button>
+            {/* Shortcuts */}
+            {([
+              { label: 'Тази сед.',  from: bgNDaysAgo(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1), to: todayBg },
+              { label: 'Този мес.',  from: todayBg.slice(0, 7) + '-01', to: todayBg },
+            ]).map(s => (
+              <button key={s.label}
+                onClick={() => { setDateFrom(s.from); setDateTo(s.to); setPage(1) }}
+                style={{ padding: '3px 9px', borderRadius: 99, fontSize: 10, fontWeight: 600, border: '1px solid #d1fae5', background: '#ecfdf5', color: '#065f46', cursor: 'pointer', fontFamily: 'inherit' }}>
+                {s.label}
+              </button>
+            ))}
+            <button onClick={() => { setDatePreset('all'); setShowDatePicker(false); setPage(1) }}
+              style={{ padding: '3px 9px', borderRadius: 99, fontSize: 10, fontWeight: 600, border: '1px solid #fee2e2', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontFamily: 'inherit' }}>
+              ✕ Изчисти
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Status filter tabs ── */}
