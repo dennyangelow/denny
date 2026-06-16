@@ -569,17 +569,21 @@ async function sendDiscordNotification(order: {
   }>
   has_upsell: boolean; has_cross_sell: boolean; currency_symbol: string
   post_purchase?: { product_name: string; unit_price: number; original_price?: number; discount_pct?: number } | null
+  // ✅ Notify endpoint-ът добавя този артикул в DB сам (supabaseAdmin) — без PATCH от браузъра
+  post_purchase_item?: { product_name: string; quantity: number; unit_price: number; total_price: number } | null
   invoice?: InvoiceData | null
   _orderId?: string
+  _force?: boolean // ✅ force=true заобикаля discord_sent check — ползва се при PP
 }) {
   try {
     const orderId = order._orderId
     if (!orderId) { console.warn('sendDiscordNotification: липсва _orderId'); return }
+    const { _force, ...payload } = order
     await fetch(`/api/orders/${orderId}/notify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       keepalive: true,
-      body: JSON.stringify(order),
+      body: JSON.stringify(_force ? { ...payload, force: true } : payload),
     })
   } catch (e) {
     console.error('Discord notify error:', e)
@@ -723,38 +727,18 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
 
   const handleAccept = async () => {
     if (!product || !variant) { onDismiss(); return }
-    // Поемаме отговорността за Discord — отменяме fallback таймера
-    onClaimDiscord()
     setAdding(true)
     try {
       const productName = `${product.name} — ${variant.label}`
-      // ── PATCH поръчката с post-purchase артикула ──────────────────────────
-      // Маркираме с [POST-PURCHASE] префикс в product_name за лесна детекция в OrderModal
-      await fetch(`/api/orders/${originalOrderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          add_items: [{
-            product_name: `[POST-PURCHASE] ${productName}`,
-            quantity: 1,
-            unit_price: discountedPrice,
-            total_price: discountedPrice,
-            offer_type: 'post_purchase',
-          }],
-          offer_type: 'post_purchase',
-          add_to_notes: '[POST-PURCHASE UPSELL]',
-          add_to_total: discountedPrice,
-        }),
-      })
-      // ── Discord: цялата поръчка + pp в едно ново съобщение ───────────────
-      // Подаваме ВСИЧКИ артикули — оригинални + новия PP артикул
-      const ppItem = {
-        product_name: `[POST-PURCHASE] ${productName}`,
-        quantity: 1,
-        unit_price: discountedPrice,
-        total_price: discountedPrice,
-        from_offer: false, // не e cart offer, е post-purchase
-      }
+
+      // ── Поемаме Discord от fallback таймера ─────────────────────────────
+      onClaimDiscord()
+
+      // ── Изпращаме към /notify с post_purchase_item ───────────────────────
+      // Notify endpoint-ът (сървър с supabaseAdmin):
+      //   1) Добавя PP артикула в DB (order_items + total update)
+      //   2) Изпраща Discord с force=true
+      // Браузърът НЕ вика PATCH директно — PATCH е protected с admin auth.
       await sendDiscordNotification({
         order_number: originalOrderNumber,
         customer_name: customerData.name,
@@ -770,7 +754,7 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
         shipping: originalShipping,
         total: originalTotal + discountedPrice,
         total_savings: originalSavings + (offer.discount_pct && variant.price > discountedPrice ? variant.price - discountedPrice : 0),
-        items: originalOrderItems, // оригиналните артикули — PP се чете от DB
+        items: originalOrderItems,
         has_upsell: originalOrderItems.some(i => i.from_offer && i.offer_type === 'cart_upsell'),
         has_cross_sell: originalOrderItems.some(i => i.from_offer && i.offer_type === 'cross_sell'),
         currency_symbol: currencySymbol,
@@ -780,10 +764,25 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
           original_price: offer.discount_pct ? variant.price : undefined,
           discount_pct: offer.discount_pct || undefined,
         },
+        // ✅ Notify-ът ще запише това в DB сам — без нужда от отделен PATCH
+        post_purchase_item: {
+          product_name: `[POST-PURCHASE] ${productName}`,
+          quantity: 1,
+          unit_price: discountedPrice,
+          total_price: discountedPrice,
+        },
         _orderId: originalOrderId,
+        _force: true,
       })
-      setDone(true); setTimeout(onAccept, 1800)
-    } catch { onDismiss() } finally { setAdding(false) }
+
+      setDone(true)
+      setTimeout(onAccept, 1800)
+    } catch (err) {
+      console.error('PP handleAccept error:', err)
+      onDismiss()
+    } finally {
+      setAdding(false)
+    }
   }
 
   return (
@@ -1071,6 +1070,11 @@ function CartDrawer({
   const [done, setDone]               = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [orderId, setOrderId]         = useState('')
+  // ✅ orderIdRef — същото ID но в ref, обновява се СИНХРОННО.
+  // useState е асинхронен → ако PostPurchaseModal се рендира преди React да е
+  // приложил новия orderId state, originalOrderId ще е '' и PATCH-ът ще гърми.
+  // Ref-ът се обновява веднага и винаги съдържа правилния ID.
+  const orderIdRef                    = useRef('')
   const [error, setError]             = useState('')
   const [postPurchaseOffer, setPostPurchaseOffer] = useState<UpsellOffer | null>(null)
   // Запазваме данните на поръчката за да ги пратим в Discord при post-purchase
@@ -1189,6 +1193,15 @@ function CartDrawer({
       const newOrderNumber = data.order_number || ''
       const newOrderId     = data.id || data.order_id || ''
       setOrderNumber(newOrderNumber); setOrderId(newOrderId)
+      // ✅ Обновяваме ref-а СИНХРОННО — веднага достъпен без чакане на React render
+      orderIdRef.current = newOrderId
+
+      // ── Snapshot ПРЕДИ изчистване на количката ────────────────────────────
+      // items и subtotal ще са [] и 0 след onClearCart() по-долу.
+      // Пазим копие в локални променливи — живеят в closure-а на функцията.
+      const itemsSnapshot    = [...items]
+      const subtotalSnapshot = subtotal
+
       // Запазваме snapshot на поръчката преди да изчистим количката
       setLastOrderItems(orderItems)
       setLastOrderSubtotal(+subtotal.toFixed(2))
@@ -1213,8 +1226,22 @@ function CartDrawer({
         _orderId: newOrderId,
       }
 
-      const hasPPOffer = ms?.post_purchase_enabled &&
-        ms.offers.some(o => o.type === 'post_purchase' && offerMatches(o, items, subtotal))
+      // ── Зареждаме маркетинг настройките ако още не са заредени ──────────
+      // ms може да е null ако потребителят е поръчал много бързо след зареждане —
+      // fetch('/api/marketing') все още не е завършил. Извикваме го синхронно тук.
+      let currentMs = ms
+      if (!currentMs) {
+        try {
+          const r = await fetch('/api/marketing', { cache: 'no-store' })
+          if (r.ok) currentMs = await r.json()
+        } catch {
+          // Ако гръмне — продължаваме без PP оферта, поръчката не е засегната
+        }
+      }
+
+      // ✅ Ползваме currentMs + itemsSnapshot (не изчистените стойности)
+      const hasPPOffer = currentMs?.post_purchase_enabled &&
+        currentMs.offers.some(o => o.type === 'post_purchase' && offerMatches(o, itemsSnapshot, subtotalSnapshot))
 
       // Отменяме евентуален предишен таймер
       if (discordPendingRef.current.timerHandle) clearTimeout(discordPendingRef.current.timerHandle)
@@ -1231,8 +1258,9 @@ function CartDrawer({
 
       // ── Post-purchase upsell ──────────────────────────────────────────────
       if (hasPPOffer) {
-        const pp = ms!.offers.filter(o => o.type === 'post_purchase' && offerMatches(o, items, subtotal))
-        if (pp.length > 0) setTimeout(() => setPostPurchaseOffer(pp[0]), Math.max(0, (ms!.post_purchase_delay ?? 2)) * 1000)
+        // ✅ currentMs + itemsSnapshot — не изчистените стойности
+        const pp = currentMs!.offers.filter(o => o.type === 'post_purchase' && offerMatches(o, itemsSnapshot, subtotalSnapshot))
+        if (pp.length > 0) setTimeout(() => setPostPurchaseOffer(pp[0]), Math.max(0, (currentMs!.post_purchase_delay ?? 2)) * 1000)
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Грешка при изпращане. Моля опитай отново.')
@@ -1398,7 +1426,7 @@ function CartDrawer({
         <PostPurchaseModal
           offer={postPurchaseOffer} products={products}
           customerData={{ name: form.name, phone: form.phone, city: econtCity, address: econtOffice, notes: form.notes, courier: 'econt' }}
-          originalOrderId={orderId} originalOrderNumber={orderNumber} currencySymbol={sym}
+          originalOrderId={orderIdRef.current} originalOrderNumber={orderNumber} currencySymbol={sym}
           onAccept={() => setPostPurchaseOffer(null)}
           onDismiss={() => {
             // Клиентът отказа — изпращаме Discord веднага (без pp)

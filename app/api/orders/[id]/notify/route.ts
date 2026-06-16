@@ -1,11 +1,8 @@
-// app/api/orders/[id]/notify/route.ts — v5 FINAL
-//
-// ✅ Всички артикули (вкл. post-purchase) се четат директно от DB order_items
-// ✅ [POST-PURCHASE] префикс → показва се в Discord като отделен embed field
-// ✅ [CART-UPSELL] и [CROSS-SELL] → показват се в "Добавени от оферта" field
-// ✅ Чист product_name (без [POST-PURCHASE] префикс) в Discord
-// ✅ discord_sent = true се записва САМО след успешно изпращане
-// ✅ force=true заобикаля already_sent check (за admin ре-изпращане)
+// app/api/orders/[id]/notify/route.ts — v6
+// ✅ post_purchase_item: браузърът изпраща PP артикула тук → сървърът го записва в DB
+//    (без нужда от PATCH /api/orders/[id] — той е protected с admin auth)
+// ✅ force=true заобикаля discord_sent check (PP винаги изпраща ново съобщение)
+// ✅ Всички артикули се четат от DB след записването → Discord е винаги точен
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -19,7 +16,7 @@ export async function POST(
     const body = await req.json().catch(() => ({}))
     const force = body.force === true
 
-    // ── 1. Вземаме поръчката от DB с всички order_items ─────────────────────
+    // ── 1. Вземаме поръчката от DB ───────────────────────────────────────────
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
       .select('*, order_items(*)')
@@ -31,86 +28,121 @@ export async function POST(
       return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
 
-    // ── 2. Already sent check (пропускаме при force=true) ────────────────────
+    // ── 2. Already sent check ────────────────────────────────────────────────
     if (!force && order.discord_sent) {
       console.log(`Discord notify: поръчка #${order.order_number} вече е изпратена — skipped`)
       return NextResponse.json({ skipped: true, reason: 'already_sent' })
     }
 
-    // ── 3. Проверяваме webhook ────────────────────────────────────────────────
+    // ── 3. ✅ PP артикул: записваме в DB преди Discord ────────────────────────
+    // Браузърът изпраща post_purchase_item вместо да вика PATCH (който е admin-only)
+    const ppItemPayload = body.post_purchase_item
+    if (ppItemPayload && ppItemPayload.product_name) {
+      // Проверяваме дали вече е добавен (prevent duplicate при retry)
+      const alreadyAdded = (order.order_items || []).some((i: any) =>
+        (i.product_name || '').startsWith('[POST-PURCHASE]')
+      )
+
+      if (!alreadyAdded) {
+        const { error: itemErr } = await supabaseAdmin
+          .from('order_items')
+          .insert({
+            order_id:     orderId,
+            product_name: ppItemPayload.product_name.startsWith('[POST-PURCHASE]')
+              ? ppItemPayload.product_name
+              : `[POST-PURCHASE] ${ppItemPayload.product_name}`,
+            quantity:    ppItemPayload.quantity    ?? 1,
+            unit_price:  ppItemPayload.unit_price  ?? 0,
+            total_price: ppItemPayload.total_price ?? ppItemPayload.unit_price ?? 0,
+          })
+
+        if (itemErr) {
+          console.error('PP item insert error:', itemErr)
+          // Не спираме — изпращаме Discord без PP ако DB гърми
+        } else {
+          // Обновяваме total + notes + has_post_purchase_upsell
+          const newTotal = (Number(order.total) || 0) + (Number(ppItemPayload.total_price) || 0)
+          const newNotes = [order.customer_notes || '', '[POST-PURCHASE UPSELL]']
+            .filter(Boolean).join(' ').trim()
+
+          await supabaseAdmin
+            .from('orders')
+            .update({
+              total:                    +newTotal.toFixed(2),
+              customer_notes:           newNotes,
+              has_post_purchase_upsell: true,
+              updated_at:               new Date().toISOString(),
+            })
+            .eq('id', orderId)
+
+          console.log(`✅ PP артикул записан за поръчка #${order.order_number}: ${ppItemPayload.product_name}`)
+        }
+      } else {
+        console.log(`PP артикул вече съществува за #${order.order_number} — skip insert`)
+      }
+    }
+
+    // ── 4. Презареждаме поръчката от DB (с новия PP артикул) ─────────────────
+    const { data: freshOrder } = await supabaseAdmin
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('id', orderId)
+      .single()
+
+    const finalOrder = freshOrder || order
+
+    // ── 5. Проверяваме webhook ────────────────────────────────────────────────
     const discordWebhook = process.env.DISCORD_WEBHOOK_URL
     if (!discordWebhook) {
       console.error('❌ DISCORD_WEBHOOK_URL не е настроен!')
-      return NextResponse.json(
-        { error: 'DISCORD_WEBHOOK_URL не е настроен. Добави го в Vercel Environment Variables.' },
-        { status: 503 }
-      )
+      return NextResponse.json({ error: 'DISCORD_WEBHOOK_URL не е настроен' }, { status: 503 })
     }
 
-    // ── 4. Форматиране ────────────────────────────────────────────────────────
+    // ── 6. Форматиране ────────────────────────────────────────────────────────
     const sym          = body.currency_symbol || '€'
     const fmt          = (n: number) => `${Number(n).toFixed(2)} ${sym}`
-    const courierLabel = order.courier === 'speedy' ? 'Спиди 🚀' : 'Еконт 📦'
+    const courierLabel = finalOrder.courier === 'speedy' ? 'Спиди 🚀' : 'Еконт 📦'
 
-    // Взимаме артикулите ОТ DB — те съдържат post-purchase артикулите след PATCH
-    const dbItems = (order.order_items || []) as any[]
+    const dbItems = (finalOrder.order_items || []) as any[]
+    const notes   = finalOrder.customer_notes || ''
 
-    // Разпределяме артикулите по тип
-    // [POST-PURCHASE] префикс = post-purchase upsell
-    // from_offer = true + offer_type = cart_upsell/cross_sell = оферта от количката
-    const postPurchaseItems = dbItems.filter((i: any) =>
-      (i.product_name || '').startsWith('[POST-PURCHASE]') ||
-      (i.product_name || '').toLowerCase().includes('(post-purchase')
-    )
-
-    // За cart upsell и cross-sell: проверяваме notes маркери + offer_type поле ако го има
-    const notes = order.customer_notes || ''
     const hasCartUpsellMarker = notes.includes('[CART-UPSELL]') || notes.includes('[HAS-OFFER]')
     const hasCrossSellMarker  = notes.includes('[CROSS-SELL]')
 
-    // От body.items вземаме from_offer флаговете (при нова поръчка)
+    // body.items → from_offer map (за cart upsell/cross-sell детекция)
     const bodyItems = Array.isArray(body.items) && body.items.length > 0 ? body.items : []
-
-    // Правим map product_name → from_offer данни от body (за нови поръчки)
     const offerMap = new Map<string, { from_offer: boolean; offer_type?: string; compare_price?: number; offer_discount_pct?: number }>()
     for (const bi of bodyItems) {
       if (bi.from_offer) {
         offerMap.set(String(bi.product_name || ''), {
-          from_offer: true,
-          offer_type: bi.offer_type,
-          compare_price: bi.compare_price,
+          from_offer:         true,
+          offer_type:         bi.offer_type,
+          compare_price:      bi.compare_price,
           offer_discount_pct: bi.offer_discount_pct,
         })
       }
     }
 
     // Разпределяме DB артикулите в 3 групи
-    const regularItems: any[]     = []
-    const cartOfferItems: any[]   = []
-    const ppItems: any[]          = []
+    const regularItems: any[]   = []
+    const cartOfferItems: any[] = []
+    const ppItems: any[]        = []
 
     for (const item of dbItems) {
       const name = item.product_name || ''
-      // Post-purchase: [POST-PURCHASE] префикс
       if (name.startsWith('[POST-PURCHASE]') || name.toLowerCase().includes('(post-purchase')) {
-        ppItems.push(item)
-        continue
+        ppItems.push(item); continue
       }
-      // Оферта от количката: from_offer в body map
       const offerInfo = offerMap.get(name)
       if (offerInfo?.from_offer) {
-        cartOfferItems.push({ ...item, ...offerInfo })
-        continue
+        cartOfferItems.push({ ...item, ...offerInfo }); continue
       }
-      // Обикновен артикул
       regularItems.push(item)
     }
 
-    // Ако нямаме from_offer данни от body, използваме heuristics
-    // (-X%) в края на имото = cross-sell; upsell в имото = cart-upsell
+    // Heuristics за cart offer ако нямаме body map
     const finalRegular: any[]   = []
     const finalCartOffer: any[] = [...cartOfferItems]
-
     for (const item of regularItems) {
       const name = item.product_name || ''
       if (hasCrossSellMarker && /\(-\d+%\)/.test(name)) {
@@ -130,14 +162,12 @@ export async function POST(
       const saving = i.compare_price && Number(i.compare_price) > price
         ? ` ~~${fmt(Number(i.compare_price) * qty)}~~` : ''
       const discBadge = i.offer_discount_pct ? ` **[-${i.offer_discount_pct}%]**` : ''
-      // Чист product_name — без [POST-PURCHASE] префикс
-      const cleanName = String(i.product_name || '').replace(/^\[POST-PURCHASE\]\s*/, '')
+      const cleanName = String(i.product_name || '').replace(/^\[POST-PURCHASE\]\s*/i, '')
       return `> 📦 **${cleanName}** — ${qty} бр.\n> 💰 ${fmt(price)} × ${qty} = **${fmt(tprice)}**${saving}${discBadge}`
     }
 
     const regularLines = finalRegular.length > 0
-      ? finalRegular.map(fmtItem).join('\n')
-      : '—'
+      ? finalRegular.map(fmtItem).join('\n') : '—'
 
     const cartOfferLines = finalCartOffer.length > 0
       ? finalCartOffer.map((i: any) => {
@@ -148,19 +178,17 @@ export async function POST(
           const saving = i.compare_price && Number(i.compare_price) > price
             ? ` ~~${fmt(Number(i.compare_price) * qty)}~~` : ''
           const discBadge = i.offer_discount_pct ? ` **[-${i.offer_discount_pct}%]**` : ''
-          const cleanName = String(i.product_name || '').replace(/^\[POST-PURCHASE\]\s*/, '')
+          const cleanName = String(i.product_name || '').replace(/^\[POST-PURCHASE\]\s*/i, '')
           return `> ✨ **${cleanName}** *(${typeLabel})* — ${qty} бр.\n> 💰 ${fmt(price)} × ${qty} = **${fmt(tprice)}**${saving}${discBadge}`
         }).join('\n')
       : null
 
-    // Post-purchase items от DB
     const ppLines = ppItems.length > 0
       ? ppItems.map((i: any) => {
           const qty    = i.quantity ?? 1
           const price  = Number(i.unit_price  ?? 0)
           const tprice = Number(i.total_price ?? price * qty)
-          const cleanName = String(i.product_name || '').replace(/^\[POST-PURCHASE\]\s*/, '')
-          // Проверяваме дали има body.post_purchase за discount info
+          const cleanName = String(i.product_name || '').replace(/^\[POST-PURCHASE\]\s*/i, '')
           const pp = body.post_purchase
           const origLine = pp?.original_price && Number(pp.original_price) > price
             ? ` ~~${fmt(Number(pp.original_price))}~~` : ''
@@ -170,24 +198,19 @@ export async function POST(
       : null
 
     // ── Финансово резюме ─────────────────────────────────────────────────────
-    const subtotal     = Number(order.subtotal ?? 0)
-    const shipping     = Number(order.shipping ?? 0)
-    const total        = Number(order.total    ?? 0)
+    const subtotal     = Number(finalOrder.subtotal ?? 0)
+    const shipping     = Number(finalOrder.shipping ?? 0)
+    const total        = Number(finalOrder.total    ?? 0)
     const totalSavings = Number(body.total_savings || 0)
 
-    // Изчисляваме PP добавката от ppItems (те са вече включени в order.total след PATCH)
     const ppTotal = ppItems.reduce((s: number, i: any) => s + Number(i.total_price ?? 0), 0)
-    // subtotal_without_pp = total - shipping - ppTotal (ако искаме да го покажем)
     const mainSubtotal = subtotal > 0 ? subtotal : (total - shipping - ppTotal)
 
     const ppSavings = body.post_purchase?.original_price && body.post_purchase.original_price > (body.post_purchase.unit_price ?? 0)
-      ? Number(body.post_purchase.original_price) - Number(body.post_purchase.unit_price ?? 0)
-      : 0
+      ? Number(body.post_purchase.original_price) - Number(body.post_purchase.unit_price ?? 0) : 0
     const totalSavingsWithPP = totalSavings + ppSavings
 
-    const sumsLines: string[] = [
-      `Продукти: **${fmt(mainSubtotal)}**`,
-    ]
+    const sumsLines: string[] = [`Продукти: **${fmt(mainSubtotal)}**`]
     if (finalCartOffer.length > 0) {
       const offerTotal = finalCartOffer.reduce((s: number, i: any) => s + Number(i.total_price ?? 0), 0)
       sumsLines.push(`✨ Оферти (cart/cross): **${fmt(offerTotal)}**`)
@@ -199,36 +222,34 @@ export async function POST(
     sumsLines.push(`✅ **ОБЩО: ${fmt(total)}**`)
     if (totalSavingsWithPP > 0) sumsLines.push(`💚 Клиентът спести общо: **${fmt(totalSavingsWithPP)}**`)
 
-    const sumsValue = sumsLines.join('\n')
-
     // ── Offer badges ─────────────────────────────────────────────────────────
     const hasUpsell    = body.has_upsell    || finalCartOffer.some((i: any) => i.offer_type === 'cart_upsell') || hasCartUpsellMarker
     const hasCrossSell = body.has_cross_sell || finalCartOffer.some((i: any) => i.offer_type === 'cross_sell') || hasCrossSellMarker
-    const hasPP        = ppItems.length > 0 || notes.includes('[POST-PURCHASE') || order.has_post_purchase_upsell
+    const hasPP        = ppItems.length > 0 || notes.includes('[POST-PURCHASE') || finalOrder.has_post_purchase_upsell
 
     const offerSummary: string[] = []
     if (hasUpsell)    offerSummary.push('⬆️ Cart-Upsell')
     if (hasCrossSell) offerSummary.push('🔀 Cross-sell')
     if (hasPP)        offerSummary.push('⚡ Post-Purchase')
 
-    // Цвят по стойност
     const color = total >= 300 ? 0xf59e0b
       : total >= 150 ? 0x16a34a
       : total >= 100 ? 0x0ea5e9
       : 0x64748b
 
-    const titleSuffix = force ? ' *(admin resend)*' : ''
+    const isPP    = !!ppItemPayload
+    const titleSuffix = isPP ? ' *(+ Post-Purchase)*' : force ? ' *(admin resend)*' : ''
 
-    // ── 5. Discord embed fields ───────────────────────────────────────────────
+    // ── 7. Discord embed ──────────────────────────────────────────────────────
     const fields: any[] = [
       {
         name: '👤 Клиент',
-        value: `**${order.customer_name}**\n📞 ${order.customer_phone}`,
+        value: `**${finalOrder.customer_name}**\n📞 ${finalOrder.customer_phone}`,
         inline: true,
       },
       {
         name: '📍 Доставка',
-        value: `${order.customer_city}\n${order.customer_address}\n${courierLabel}`,
+        value: `${finalOrder.customer_city}\n${finalOrder.customer_address}\n${courierLabel}`,
         inline: true,
       },
       {
@@ -236,35 +257,28 @@ export async function POST(
         value: `Наложен платеж 💵${offerSummary.length > 0 ? '\n' + offerSummary.join('  ·  ') : ''}`,
         inline: true,
       },
-      {
-        name: '🛒 Поръчани артикули',
-        value: regularLines,
-        inline: false,
-      },
+      { name: '🛒 Поръчани артикули', value: regularLines, inline: false },
     ]
 
     if (cartOfferLines) {
       fields.push({ name: '✨ Добавени от оферта (Ъпсел / Крос-сел)', value: cartOfferLines, inline: false })
     }
-
     if (ppLines) {
       fields.push({ name: '⚡ Post-Purchase Upsell', value: ppLines, inline: false })
     }
 
-    fields.push({ name: '💰 Финансово резюме', value: sumsValue, inline: false })
+    fields.push({ name: '💰 Финансово резюме', value: sumsLines.join('\n'), inline: false })
 
     // Бележки (без системни маркери)
     const cleanNotes = notes
-      .replace(/\[CART-UPSELL\]/g, '')
-      .replace(/\[CROSS-SELL\]/g, '')
-      .replace(/\[POST-PURCHASE[^\]]*\]/g, '')
-      .trim()
+      .replace(/\[CART-UPSELL\]/g, '').replace(/\[CROSS-SELL\]/g, '')
+      .replace(/\[POST-PURCHASE[^\]]*\]/g, '').trim()
     if (cleanNotes) {
       fields.push({ name: '💬 Бележка от клиента', value: cleanNotes, inline: false })
     }
 
-    // Фактура (от DB)
-    const invoiceData = order.invoice_data || order.invoice || body.invoice || null
+    // Фактура
+    const invoiceData = finalOrder.invoice_data || finalOrder.invoice || body.invoice || null
     if (invoiceData && invoiceData.type && invoiceData.type !== 'none') {
       let invValue = ''
       if (invoiceData.type === 'company') {
@@ -273,9 +287,9 @@ export async function POST(
           : '❌ Без ДДС регистрация'
         invValue = [
           `🏢 **${invoiceData.company_name || '—'}**`,
-          invoiceData.company_eik     ? `ЕИК: \`${invoiceData.company_eik}\``         : null,
-          invoiceData.company_mol     ? `МОЛ: ${invoiceData.company_mol}`               : null,
-          invoiceData.company_address ? `Адрес: ${invoiceData.company_address}`         : null,
+          invoiceData.company_eik     ? `ЕИК: \`${invoiceData.company_eik}\`` : null,
+          invoiceData.company_mol     ? `МОЛ: ${invoiceData.company_mol}`      : null,
+          invoiceData.company_address ? `Адрес: ${invoiceData.company_address}`: null,
           vatLine,
         ].filter(Boolean).join('\n')
       } else if (invoiceData.type === 'person') {
@@ -289,23 +303,22 @@ export async function POST(
       if (invValue) {
         fields.push({
           name: `🧾 Фактура — ${invoiceData.type === 'company' ? 'Фирма' : 'Физ. лице'}`,
-          value: invValue,
-          inline: false,
+          value: invValue, inline: false,
         })
       }
     }
 
     const embed = {
-      title: `🛒 Нова поръчка #${order.order_number}${titleSuffix}`,
+      title: `🛒 Нова поръчка #${finalOrder.order_number}${titleSuffix}`,
       color,
       fields,
       footer: {
-        text: `dennyangelow.com  •  ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}${force ? '  •  ⚠️ Admin resend' : ''}`,
+        text: `dennyangelow.com  •  ${new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}`,
       },
       timestamp: new Date().toISOString(),
     }
 
-    // ── 6. Изпращаме към Discord ──────────────────────────────────────────────
+    // ── 8. Изпращаме към Discord ──────────────────────────────────────────────
     const discordRes = await fetch(discordWebhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -314,20 +327,17 @@ export async function POST(
 
     if (!discordRes.ok) {
       const errText = await discordRes.text().catch(() => '')
-      console.error(`❌ Discord webhook грешка #${order.order_number}: HTTP ${discordRes.status} — ${errText}`)
-      return NextResponse.json(
-        { error: `Discord HTTP ${discordRes.status}: ${errText}` },
-        { status: 502 }
-      )
+      console.error(`❌ Discord webhook грешка #${finalOrder.order_number}: HTTP ${discordRes.status} — ${errText}`)
+      return NextResponse.json({ error: `Discord HTTP ${discordRes.status}` }, { status: 502 })
     }
 
-    // ── 7. Маркираме след успешно изпращане ───────────────────────────────────
+    // ── 9. Маркираме discord_sent ─────────────────────────────────────────────
     await supabaseAdmin
       .from('orders')
       .update({ discord_sent: true })
       .eq('id', orderId)
 
-    console.log(`✅ Discord изпратен за поръчка #${order.order_number}${force ? ' (admin force)' : ''}`)
+    console.log(`✅ Discord изпратен за поръчка #${finalOrder.order_number}${isPP ? ' (с Post-Purchase)' : force ? ' (admin force)' : ''}`)
     return NextResponse.json({ ok: true })
 
   } catch (error: any) {
