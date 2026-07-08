@@ -510,13 +510,23 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
                 {(Object.keys(TRIGGER_META) as UpsellOffer['trigger_type'][]).map(t => <option key={t} value={t}>{TRIGGER_META[t]}</option>)}
               </select>
             </div>
-            {offer.trigger_type !== 'always' && (
+            {offer.trigger_type !== 'always' && offer.trigger_type !== 'product_in_cart' && (
               <div>
-                <Label hint={offer.trigger_type === 'product_in_cart' ? 'product_id' : `сума в ${currencySymbol}`}>Стойност</Label>
-                <Field value={offer.trigger_value || ''} onChange={v => onUpdate({ trigger_value: v })} placeholder={offer.trigger_type === 'product_in_cart' ? 'uuid...' : '60'} />
+                <Label hint={`сума в ${currencySymbol}`}>Стойност</Label>
+                <Field value={offer.trigger_value || ''} onChange={v => onUpdate({ trigger_value: v })} placeholder="60" />
               </div>
             )}
           </div>
+          {offer.trigger_type === 'product_in_cart' && (
+            <div style={{ marginTop: 12 }}>
+              <ProductPicker
+                value={offer.trigger_value || ''}
+                onChange={v => onUpdate({ trigger_value: v })}
+                products={products}
+                currencySymbol={currencySymbol}
+              />
+            </div>
+          )}
           <div style={{ marginTop: 12 }}>
             <ProductVariantPicker
               productId={offer.offer_product_id || ''}
