@@ -19,6 +19,7 @@ export interface UpsellOffer {
   badge_color?: string
   trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
   trigger_value?: string
+  trigger_variant_id?: string
   offer_product_id?: string
   offer_variant_id?: string
   discount_pct?: number
@@ -72,7 +73,7 @@ function genId() {
 const EMPTY_OFFER = (type: UpsellOffer['type'] = 'cart_upsell', sortOrder = 0): UpsellOffer => ({
   id: genId(), type, active: true, title: '', description: '', emoji: '🌿', image_url: '',
   badge_text: '', badge_color: '#16a34a', trigger_type: 'always',
-  trigger_value: '', offer_product_id: '', offer_variant_id: '', discount_pct: 0, sort_order: sortOrder,
+  trigger_value: '', trigger_variant_id: '', offer_product_id: '', offer_variant_id: '', discount_pct: 0, sort_order: sortOrder,
 })
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
@@ -281,12 +282,15 @@ function ImageUpload({ value, onChange }: { value: string; onChange: (url: strin
 // ─── Product Picker ───────────────────────────────────────────────────────────
 
 function ProductVariantPicker({
-  productId, variantId, onProductChange, onVariantChange, products, currencySymbol = '€'
+  productId, variantId, onProductChange, onVariantChange, products, currencySymbol = '€',
+  label = 'Офериран продукт & вариант', hint = 'Клик за избор'
 }: {
   productId: string; variantId: string
   onProductChange: (id: string) => void; onVariantChange: (id: string) => void
   products: OwnProduct[]
   currencySymbol?: string
+  label?: string
+  hint?: string
 }) {
   // Fully controlled — props are the single source of truth
   const selProduct = products.find((p: OwnProduct) => p.id === productId)
@@ -306,7 +310,7 @@ function ProductVariantPicker({
 
   return (
     <div>
-      <Label hint="Клик за избор">Офериран продукт & вариант</Label>
+      <Label hint={hint}>{label}</Label>
 
       {/* Product buttons */}
       <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, marginBottom: 8 }}>
@@ -519,9 +523,13 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
           </div>
           {offer.trigger_type === 'product_in_cart' && (
             <div style={{ marginTop: 12 }}>
-              <ProductPicker
-                value={offer.trigger_value || ''}
-                onChange={v => onUpdate({ trigger_value: v })}
+              <ProductVariantPicker
+                label="Продукт в количката (тригер)"
+                hint="Избери и вариант, ако тригерът трябва да важи само за конкретни литри"
+                productId={offer.trigger_value || ''}
+                variantId={offer.trigger_variant_id || ''}
+                onProductChange={v => onUpdate({ trigger_value: v, trigger_variant_id: '' })}
+                onVariantChange={v => onUpdate({ trigger_variant_id: v })}
                 products={products}
                 currencySymbol={currencySymbol}
               />

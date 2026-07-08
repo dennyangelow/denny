@@ -141,7 +141,7 @@ interface UpsellOffer {
   title: string; description: string; emoji: string; image_url?: string
   badge_text?: string; badge_color?: string
   trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
-  trigger_value?: string; offer_product_id?: string; offer_variant_id?: string
+  trigger_value?: string; trigger_variant_id?: string; offer_product_id?: string; offer_variant_id?: string
   discount_pct?: number; sort_order: number
 }
 interface MarketingSettings {
@@ -169,6 +169,11 @@ interface CartItem {
   productId: string; variantId: string; productName: string; variantLabel: string
   price: number; comparePrice: number; qty: number; emoji: string; img: string; size_liters: number
   fromOffer?: boolean; offerType?: 'cart_upsell' | 'cross_sell'
+  // ── За авто-връщане на нормална цена, ако тригерният продукт бъде премахнат ──
+  offerId?: string
+  originalPrice?: number
+  originalComparePrice?: number
+  originalVariantLabel?: string
 }
 // ─── Фактура ──────────────────────────────────────────────────────────────────
 type InvoiceType = 'none' | 'company' | 'person'
@@ -229,10 +234,31 @@ function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): 
   if (!offer.active) return false
   switch (offer.trigger_type) {
     case 'always':          return true
-    case 'product_in_cart': return items.some(i => i.productId === offer.trigger_value)
+    case 'product_in_cart': return items.some(i =>
+      i.productId === offer.trigger_value &&
+      (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id)
+    )
     case 'cart_above':      return subtotal > Number(offer.trigger_value || 0)
     case 'cart_below':      return subtotal < Number(offer.trigger_value || 999999)
     default:                return false
+  }
+}
+
+// Връща артикула към нормалната му (недисконтирана) цена и премахва офертните флагове —
+// ползва се, когато тригерният продукт е премахнат от количката.
+function revertOfferPricing(item: CartItem): CartItem {
+  return {
+    productId: item.productId,
+    variantId: item.variantId,
+    productName: item.productName,
+    variantLabel: item.originalVariantLabel ?? item.variantLabel,
+    price: item.originalPrice ?? item.price,
+    comparePrice: item.originalComparePrice ?? item.comparePrice,
+    qty: item.qty,
+    emoji: item.emoji,
+    img: item.img,
+    size_liters: item.size_liters,
+    // fromOffer / offerType / offerId / original* умишлено НЕ се пренасят — вече е нормален артикул
   }
 }
 
@@ -672,7 +698,18 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
 
   const handleAdd = () => {
     if (!product || !variant || alreadyInCart) return
-    onAddToCart({ productId: product.id, variantId: variant.id, productName: product.name, variantLabel: variant.label + (hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''), price: discountedPrice, comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice, qty: 1, emoji: product.emoji, img: product.img || '', size_liters: variant.size_liters, fromOffer: true, offerType: offer.type === 'cross_sell' ? 'cross_sell' : 'cart_upsell' })
+    onAddToCart({
+      productId: product.id, variantId: variant.id, productName: product.name,
+      variantLabel: variant.label + (hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
+      price: discountedPrice, comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice,
+      qty: 1, emoji: product.emoji, img: product.img || '', size_liters: variant.size_liters,
+      fromOffer: true, offerType: offer.type === 'cross_sell' ? 'cross_sell' : 'cart_upsell',
+      // ── за авто-връщане на цената, ако тригерът изчезне от количката ──
+      offerId: offer.id,
+      originalPrice: variantPrice,
+      originalComparePrice: variantCompare,
+      originalVariantLabel: variant.label,
+    })
     setJustAdded(true); setTimeout(() => setJustAdded(false), 1800)
   }
 
@@ -1961,6 +1998,43 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
       return next
     })
   }, [])
+
+  // ── Авто-връщане на нормална цена, ако тригерният продукт е премахнат ──────
+  // Ако клиент вземе офертата (напр. AMINO с -38%, защото Atlas Terra е в количката),
+  // после махне Atlas Terra — AMINO вече не стои с офертна цена без основание.
+  useEffect(() => {
+    if (!marketingSettings || cartItems.length === 0) return
+
+    setCartItems(prev => {
+      let changed = false
+      const next = prev.map(item => {
+        if (!item.offerId) return item
+        const offer = marketingSettings.offers.find(o => o.id === item.offerId)
+        // Ако офертата е изтрита/деактивирана — също връщаме нормална цена
+        if (!offer || !offer.active || offer.trigger_type !== 'product_in_cart') {
+          if (!offer) {
+            changed = true
+            return revertOfferPricing(item)
+          }
+          return item
+        }
+        // Проверяваме тригера спрямо ОСТАНАЛИТЕ артикули (без самия офертен ред)
+        const otherItems = prev.filter(i => i.variantId !== item.variantId)
+        const stillValid = otherItems.some(i =>
+          i.productId === offer.trigger_value &&
+          (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id)
+        )
+        if (!stillValid) {
+          changed = true
+          return revertOfferPricing(item)
+        }
+        return item
+      })
+      if (!changed) return prev
+      saveCartToStorage(next)
+      return next
+    })
+  }, [cartItems, marketingSettings])
 
   const clearCart = useCallback(() => { setCartItems([]); clearCartStorage() }, [])
 
