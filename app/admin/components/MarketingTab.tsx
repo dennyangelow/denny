@@ -23,6 +23,8 @@ export interface UpsellOffer {
   offer_product_id?: string
   offer_variant_id?: string
   discount_pct?: number
+  bundle_price?: number   // ✅ Пакетна цена: ако е зададена (>0), взима превес над discount_pct.
+                          //    Означава крайна обща цена за тригер-варианта + офертния вариант заедно.
   sort_order: number
 }
 
@@ -462,7 +464,8 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
           <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' as const }}>
             <Chip color={meta.color} bg={meta.bg}>{meta.icon} {meta.label}</Chip>
             <Chip color="#64748b" bg="#f8fafc">{TRIGGER_META[offer.trigger_type]}{offer.trigger_value ? `: ${offer.trigger_value}` : ''}</Chip>
-            {offer.discount_pct ? <Chip color="#dc2626" bg="#fff1f2">-{offer.discount_pct}%</Chip> : null}
+            {offer.bundle_price ? <Chip color="#b45309" bg="#fefce8">🎁 Пакет {offer.bundle_price.toFixed(2)} {currencySymbol}</Chip>
+              : offer.discount_pct ? <Chip color="#dc2626" bg="#fff1f2">-{offer.discount_pct}%</Chip> : null}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -551,6 +554,45 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
             />
           </div>
           <div style={{ marginTop: 12, maxWidth: 200 }}><Label hint="0 = без отстъпка">Отстъпка %</Label><Field type="number" value={offer.discount_pct || 0} onChange={v => onUpdate({ discount_pct: Math.max(0, Math.min(100, Number(v))) })} placeholder="0" /></div>
+
+          {/* ✅ Пакетна цена (Bundle) — само за cross-sell с тригер "продукт в количката" */}
+          {offer.type === 'cross_sell' && offer.trigger_type === 'product_in_cart' && (() => {
+            const triggerProduct = products.find(p => p.id === offer.trigger_value)
+            const triggerVariant = triggerProduct?.variants?.find(v => v.id === offer.trigger_variant_id)
+            const offerProduct   = products.find(p => p.id === offer.offer_product_id)
+            const offerVariant   = offerProduct?.variants?.find(v => v.id === offer.offer_variant_id)
+            const bothPicked     = !!triggerVariant && !!offerVariant
+            const originalTotal  = (triggerVariant?.price || 0) + (offerVariant?.price || 0)
+            const bundlePrice    = offer.bundle_price || 0
+            const savings        = bundlePrice > 0 ? Math.max(0, originalTotal - bundlePrice) : 0
+            const savingsPct     = bundlePrice > 0 && originalTotal > 0 ? Math.round((savings / originalTotal) * 100) : 0
+            return (
+              <div style={{ marginTop: 16, padding: '14px 16px', background: '#fefce8', border: '1px solid #fde68a', borderRadius: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#92400e', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 }}>
+                  🎁 Пакетна цена (по избор)
+                </div>
+                {!bothPicked ? (
+                  <div style={{ fontSize: 12, color: '#b45309' }}>Избери и тригер-варианта, и офертния вариант отгоре, за да зададеш обща пакетна цена.</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: '#78350f', marginBottom: 8 }}>
+                      {triggerVariant.label} ({triggerVariant.price.toFixed(2)} {currencySymbol}) + {offerVariant.label} ({offerVariant.price.toFixed(2)} {currencySymbol}) = <strong>{originalTotal.toFixed(2)} {currencySymbol}</strong> поотделно
+                    </div>
+                    <div style={{ maxWidth: 220 }}>
+                      <Label hint="Празно/0 = без пакетна цена, взима се Отстъпка % отгоре">Обща цена на пакета</Label>
+                      <Field type="number" value={offer.bundle_price || 0} onChange={v => onUpdate({ bundle_price: Math.max(0, Number(v)) })} placeholder={originalTotal.toFixed(2)} />
+                    </div>
+                    {bundlePrice > 0 && (
+                      <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+                        <Chip color="#16a34a" bg="#f0fdf4">Спестява {savings.toFixed(2)} {currencySymbol}</Chip>
+                        <Chip color="#dc2626" bg="#fff1f2">-{savingsPct}% реална отстъпка на пакета</Chip>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )
+          })()}
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 6 }}>
               Снимка на офертата
@@ -933,7 +975,11 @@ export function MarketingTab() {
                                             📦 {selVariant.label} — {selVariant.price.toFixed(2)} {currencySymbol}
                                           </span>
                                         )}
-                                        {offer.discount_pct ? (
+                                        {offer.bundle_price ? (
+                                          <span style={{ fontSize: 11, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 8, padding: '2px 8px', color: '#b45309', fontWeight: 700 }}>
+                                            🎁 Пакет {offer.bundle_price.toFixed(2)} {currencySymbol}
+                                          </span>
+                                        ) : offer.discount_pct ? (
                                           <span style={{ fontSize: 11, background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '2px 8px', color: '#dc2626', fontWeight: 700 }}>
                                             -{offer.discount_pct}%
                                           </span>

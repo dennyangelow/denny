@@ -142,7 +142,7 @@ interface UpsellOffer {
   badge_text?: string; badge_color?: string
   trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
   trigger_value?: string; trigger_variant_id?: string; offer_product_id?: string; offer_variant_id?: string
-  discount_pct?: number; sort_order: number
+  discount_pct?: number; bundle_price?: number; sort_order: number
 }
 interface MarketingSettings {
   upsell_enabled: boolean; cross_sell_enabled: boolean; post_purchase_enabled: boolean
@@ -690,9 +690,19 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
 
   const variantPrice    = variant?.price ?? 0
   const variantCompare  = Number(variant?.compare_price ?? 0)
-  const hasPctDiscount  = !!(offer.discount_pct && offer.discount_pct > 0)
-  const discountedPrice = hasPctDiscount ? +(variantPrice * (1 - offer.discount_pct! / 100)).toFixed(2) : variantPrice
-  const oldPrice        = hasPctDiscount ? variantPrice : variantCompare > variantPrice ? variantCompare : 0
+
+  // ✅ Пакетна цена (bundle_price) — взима превес над discount_pct, ако е зададена и тригер-продуктът е в количката
+  const triggerItem = offer.trigger_type === 'product_in_cart'
+    ? cartItems.find(i => i.productId === offer.trigger_value && (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id))
+    : undefined
+  const hasBundlePrice  = !!(offer.bundle_price && offer.bundle_price > 0 && triggerItem)
+  const bundleItemPrice = hasBundlePrice ? +Math.max(0, offer.bundle_price! - triggerItem!.price).toFixed(2) : 0
+
+  const hasPctDiscount  = !hasBundlePrice && !!(offer.discount_pct && offer.discount_pct > 0)
+  const discountedPrice = hasBundlePrice ? bundleItemPrice
+    : hasPctDiscount ? +(variantPrice * (1 - offer.discount_pct! / 100)).toFixed(2) : variantPrice
+  const oldPrice        = hasBundlePrice ? variantPrice
+    : hasPctDiscount ? variantPrice : variantCompare > variantPrice ? variantCompare : 0
   const showOld         = oldPrice > discountedPrice
   const savePct         = showOld && oldPrice > 0 ? Math.round(((oldPrice - discountedPrice) / oldPrice) * 100) : 0
 
@@ -700,7 +710,7 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
     if (!product || !variant || alreadyInCart) return
     onAddToCart({
       productId: product.id, variantId: variant.id, productName: product.name,
-      variantLabel: variant.label + (hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
+      variantLabel: variant.label + (hasBundlePrice ? ' (🎁 пакет)' : hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
       price: discountedPrice, comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice,
       qty: 1, emoji: product.emoji, img: product.img || '', size_liters: variant.size_liters,
       fromOffer: true, offerType: offer.type === 'cross_sell' ? 'cross_sell' : 'cart_upsell',
@@ -731,7 +741,9 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
             <span style={{ fontSize: 12.5, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
             {showOld && <span style={{ fontSize: 10, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(oldPrice)}</span>}
             {savePct > 0 && <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 4 }}>-{savePct}%</span>}
-            {offer.badge_text && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 6px', borderRadius: 99 }}>{offer.badge_text}</span>}
+            {offer.badge_text
+              ? <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 6px', borderRadius: 99 }}>{offer.badge_text}</span>
+              : hasBundlePrice && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: '#b45309', padding: '1px 6px', borderRadius: 99 }}>🎁 Пакет</span>}
           </>}
         </div>
       </div>
