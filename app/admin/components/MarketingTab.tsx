@@ -1,7 +1,7 @@
 'use client'
 // app/admin/components/MarketingTab.tsx — v4 redesign
 
-import React, { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from 'react'
+import React, { useState, useEffect, useCallback, useRef, type ReactNode, type CSSProperties } from 'react'
 import { useCurrency } from './CurrencyContext'
 import { toast, ToastContainer } from '@/components/ui/Toast'
 
@@ -453,11 +453,21 @@ function BundleRequirementsEditor({ requirements, onChange, products, currencySy
   products: OwnProduct[]
   currencySymbol?: string
 }) {
+  // ⚠️ Fix за race condition: избор на продукт вика onProductChange() и onVariantChange('')
+  // синхронно едно след друго (виж ProductVariantPicker.pickProduct). И двете четяха
+  // стария `requirements` пропс от рендъра, затова 2-рото извикване презаписваше
+  // резултата на 1-вото и изборът на продукт никога не се задържаше.
+  // reqRef пази синхронно най-актуалния масив между двете извиквания в същия tick.
+  const reqRef = useRef(requirements)
+  reqRef.current = requirements
+
   const update = (idx: number, patch: Partial<BundleRequirement>) => {
-    onChange(requirements.map((r, i) => i === idx ? { ...r, ...patch } : r))
+    const next = reqRef.current.map((r, i) => i === idx ? { ...r, ...patch } : r)
+    reqRef.current = next
+    onChange(next)
   }
-  const remove = (idx: number) => onChange(requirements.filter((_, i) => i !== idx))
-  const add = () => onChange([...requirements, { product_id: '', variant_id: '', qty: 1 }])
+  const remove = (idx: number) => { const next = requirements.filter((_, i) => i !== idx); reqRef.current = next; onChange(next) }
+  const add = () => { const next = [...requirements, { product_id: '', variant_id: '', qty: 1 }]; reqRef.current = next; onChange(next) }
 
   return (
     <div style={{ marginTop: 12 }}>
