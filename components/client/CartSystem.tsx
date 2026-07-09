@@ -136,13 +136,16 @@ export function CartHeaderButton() {
 }
 
 // ─── Типове ───────────────────────────────────────────────────────────────────
+interface BundleRequirement { product_id: string; variant_id: string; qty: number }
 interface UpsellOffer {
-  id: string; type: 'cart_upsell' | 'cross_sell' | 'post_purchase'; active: boolean
+  id: string; type: 'cart_upsell' | 'cross_sell' | 'post_purchase' | 'bundle'; active: boolean
   title: string; description: string; emoji: string; image_url?: string
   badge_text?: string; badge_color?: string
-  trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
+  trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below' | 'bundle_requirements'
   trigger_value?: string; trigger_variant_id?: string; offer_product_id?: string; offer_variant_id?: string
   discount_pct?: number; bundle_price?: number; sort_order: number
+  bundle_requirements?: BundleRequirement[]   // ✅ Условия за bundle_requirements тригер — множество продукти+количества
+  reward_qty?: number                          // ✅ Колко бройки от offer_product_id се дават като награда (default 1)
 }
 interface MarketingSettings {
   upsell_enabled: boolean; cross_sell_enabled: boolean; post_purchase_enabled: boolean
@@ -168,7 +171,7 @@ interface AtlasProduct {
 interface CartItem {
   productId: string; variantId: string; productName: string; variantLabel: string
   price: number; comparePrice: number; qty: number; emoji: string; img: string; size_liters: number
-  fromOffer?: boolean; offerType?: 'cart_upsell' | 'cross_sell'
+  fromOffer?: boolean; offerType?: 'cart_upsell' | 'cross_sell' | 'bundle'
   // ── За авто-връщане на нормална цена, ако тригерният продукт бъде премахнат ──
   offerId?: string
   originalPrice?: number
@@ -230,6 +233,27 @@ function makeFmt(sym: string) {
     fmtLiter: (n: number) => n.toFixed(2) + ' ' + sym + '/л',
   }
 }
+// ✅ Проверява дали количката съдържа ВСИЧКИ изисквания на bundle_requirements
+// (сумира количеството по product_id+variant_id, за да работи и "5× един и същ продукт")
+function requirementsMet(reqs: BundleRequirement[] | undefined, items: CartItem[]): boolean {
+  if (!reqs || reqs.length === 0) return false
+  return reqs.every(r => {
+    const have = items
+      .filter(i => i.productId === r.product_id && (!r.variant_id || i.variantId === r.variant_id))
+      .reduce((sum, i) => sum + i.qty, 0)
+    return have >= (r.qty || 1)
+  })
+}
+
+// ✅ Bundle, чиято награда е СЪЩИЯТ продукт+вариант като едно от условията му
+// (напр. купи 5×20л → получи +1×20л подарък). За тези трябва да броим по offerId,
+// не по обикновено присъствие на варианта в количката.
+function isSelfRewardBundle(offer: UpsellOffer, variantId: string): boolean {
+  return offer.type === 'bundle' && !!offer.bundle_requirements?.some(r =>
+    r.product_id === offer.offer_product_id && (!r.variant_id || r.variant_id === variantId)
+  )
+}
+
 function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): boolean {
   if (!offer.active) return false
   switch (offer.trigger_type) {
@@ -240,6 +264,7 @@ function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): 
     )
     case 'cart_above':      return subtotal > Number(offer.trigger_value || 0)
     case 'cart_below':      return subtotal < Number(offer.trigger_value || 999999)
+    case 'bundle_requirements': return requirementsMet(offer.bundle_requirements, items)
     default:                return false
   }
 }
@@ -670,6 +695,7 @@ const OFFER_META = {
   cart_upsell:   { color: '#7c3aed', icon: '⬆️', label: 'Ъпгрейд' },
   cross_sell:    { color: '#0369a1', icon: '🔀', label: 'Добавя се с' },
   post_purchase: { color: '#dc2626', icon: '⚡', label: 'Само веднъж' },
+  bundle:        { color: '#ea580c', icon: '📦', label: 'Бонус пакет' },
 }
 
 function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
@@ -679,7 +705,11 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
   const product = products.find(p => p.id === offer.offer_product_id)
   const variant = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
   const meta = OFFER_META[offer.type]
-  const alreadyInCart = !!variant && cartItems.some(i => i.variantId === variant.id)
+  // ✅ Проверяваме дали НАГРАДАТА на ТАЗИ оферта вече е добавена — не просто дали продуктът съществува
+  //    (важно за bundle подаръци, където офертният продукт може да е СЪЩИЯТ като изискването, напр. +1×20л подарък)
+  const alreadyInCart = !!variant && (isSelfRewardBundle(offer, variant.id)
+    ? cartItems.some(i => i.variantId === variant.id && i.fromOffer && i.offerId === offer.id)
+    : cartItems.some(i => i.variantId === variant.id))
   const [justAdded, setJustAdded] = useState(false)
   const [wasAdded, setWasAdded]   = useState(false)
   const imgSrc = offer.image_url || product?.img || ''
@@ -710,10 +740,10 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
     if (!product || !variant || alreadyInCart) return
     onAddToCart({
       productId: product.id, variantId: variant.id, productName: product.name,
-      variantLabel: variant.label + (hasBundlePrice ? ' (🎁 пакет)' : hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
+      variantLabel: variant.label + (hasBundlePrice ? ' (🎁 пакет)' : discountedPrice <= 0 ? ' (🎁 подарък)' : hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
       price: discountedPrice, comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice,
-      qty: 1, emoji: product.emoji, img: product.img || '', size_liters: variant.size_liters,
-      fromOffer: true, offerType: offer.type === 'cross_sell' ? 'cross_sell' : 'cart_upsell',
+      qty: offer.reward_qty || 1, emoji: product.emoji, img: product.img || '', size_liters: variant.size_liters,
+      fromOffer: true, offerType: offer.type === 'cross_sell' ? 'cross_sell' : offer.type === 'bundle' ? 'bundle' : 'cart_upsell',
       // ── за авто-връщане на цената, ако тригерът изчезне от количката ──
       offerId: offer.id,
       originalPrice: variantPrice,
@@ -738,11 +768,12 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
           {product && variant && <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{product.name} · {variant.label}</span>}
           {variant && <>
-            <span style={{ fontSize: 12.5, fontWeight: 900, color: meta.color }}>{fmt(discountedPrice)}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 900, color: meta.color }}>{discountedPrice <= 0 ? 'БЕЗПЛАТНО' : fmt(discountedPrice)}</span>
             {showOld && <span style={{ fontSize: 10, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(oldPrice)}</span>}
-            {savePct > 0 && <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 4 }}>-{savePct}%</span>}
+            {discountedPrice > 0 && savePct > 0 && <span style={{ fontSize: 9, fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '1px 5px', borderRadius: 4 }}>-{savePct}%</span>}
             {offer.badge_text
               ? <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 6px', borderRadius: 99 }}>{offer.badge_text}</span>
+              : discountedPrice <= 0 ? <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: '#ea580c', padding: '1px 6px', borderRadius: 99 }}>🎁 Подарък</span>
               : hasBundlePrice && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: '#b45309', padding: '1px 6px', borderRadius: 99 }}>🎁 Пакет</span>}
           </>}
         </div>
@@ -752,7 +783,7 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
           <div style={{ fontSize: 10.5, fontWeight: 800, color: '#059669', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 8, padding: '5px 8px', textAlign: 'center' as const }}>✓ Добавен</div>
         ) : (
           <button onClick={handleAdd} disabled={alreadyInCart} style={{ height: 32, borderRadius: 9, border: 'none', background: alreadyInCart ? '#059669' : meta.color, color: '#fff', cursor: alreadyInCart ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '0 12px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, transition: 'all .2s', boxShadow: !alreadyInCart ? `0 2px 8px ${meta.color}45` : 'none', whiteSpace: 'nowrap' as const }}>
-            {alreadyInCart ? '✓ Добавен' : '+ Добави'}
+            {alreadyInCart ? '✓ Добавен' : (offer.reward_qty || 1) > 1 ? `+ Добави ×${offer.reward_qty}` : '+ Добави'}
           </button>
         )}
       </div>
@@ -924,11 +955,14 @@ function OffersGroup({ upsellOffers, crossSellOffers, products, onAddToCart, fmt
   if (allOffers.length === 0) return null
 
   // Намираме оферти чиито продукти НЕ са все още в количката
+  // (изключение: self-reward bundle подарък — там броим само добавеното ОТ ТАЗИ оферта)
   const activeOffers = allOffers.filter(offer => {
     const product = products.find(p => p.id === offer.offer_product_id)
     const variant  = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
     if (!variant) return false
-    return !cartItems.some(i => i.variantId === variant.id)
+    return isSelfRewardBundle(offer, variant.id)
+      ? !cartItems.some(i => i.variantId === variant.id && i.fromOffer && i.offerId === offer.id)
+      : !cartItems.some(i => i.variantId === variant.id)
   })
 
   // Всички оферти са добавени → скриваме цялата секция
@@ -1166,6 +1200,23 @@ function CartDrawer({
 
   const upsellOffers: UpsellOffer[]    = ms?.upsell_enabled    ? ms.offers.filter(o => o.type === 'cart_upsell'  && offerMatches(o, items, subtotal)) : []
   const crossSellOffers: UpsellOffer[] = ms?.cross_sell_enabled ? ms.offers.filter(o => o.type === 'cross_sell'   && offerMatches(o, items, subtotal)) : []
+  const bundleOffers: UpsellOffer[]    = ms?.cross_sell_enabled ? ms.offers.filter(o => o.type === 'bundle'       && offerMatches(o, items, subtotal)) : []
+
+  // ✅ Ако cross-sell И bundle (или два bundle-а) съвпаднат едновременно и предлагат ЕДИН И СЪЩ
+  //    продукт+вариант като награда, показваме само тази с най-висок приоритет — приоритетът е
+  //    поредната ѝ позиция в списъка с оферти в админ панела (по-нагоре = по-приоритетна).
+  const offerRank = new Map<string, number>((ms?.offers ?? []).map((o, i) => [o.id, i]))
+  function dedupeByReward(offers: UpsellOffer[]): UpsellOffer[] {
+    const winnerIdByKey = new Map<string, string>()
+    for (const o of offers) {
+      if (!o.offer_product_id) continue
+      const key = `${o.offer_product_id}::${o.offer_variant_id || ''}`
+      const curId = winnerIdByKey.get(key)
+      if (!curId || (offerRank.get(o.id) ?? 0) < (offerRank.get(curId) ?? 0)) winnerIdByKey.set(key, o.id)
+    }
+    return offers.filter(o => !o.offer_product_id || winnerIdByKey.get(`${o.offer_product_id}::${o.offer_variant_id || ''}`) === o.id)
+  }
+  const dedupedCrossAndBundle = dedupeByReward([...crossSellOffers, ...bundleOffers])
 
   const handleOrder = async () => {
     if (!form.name.trim() || !form.phone.trim()) {
@@ -1573,7 +1624,7 @@ function CartDrawer({
                     При ≥60л: congratulations banner (винаги)
                     ─────────────────────────────────────────────────────── */}
                 {/* Upsell + Cross-sell — ПЪРВО оферти, после анализ */}
-                <OffersGroup upsellOffers={upsellOffers} crossSellOffers={crossSellOffers} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={items} />
+                <OffersGroup upsellOffers={upsellOffers} crossSellOffers={dedupedCrossAndBundle} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={items} />
 
                 {/* 🔬 Анализ на почвата — СЛЕД офертите, не се мести при скриване */}
                 {totalLiters >= 60 ? (

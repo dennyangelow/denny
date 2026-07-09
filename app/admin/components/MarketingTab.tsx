@@ -7,9 +7,11 @@ import { toast, ToastContainer } from '@/components/ui/Toast'
 
 // ─── Типове ───────────────────────────────────────────────────────────────────
 
+export interface BundleRequirement { product_id: string; variant_id: string; qty: number }
+
 export interface UpsellOffer {
   id: string
-  type: 'cart_upsell' | 'cross_sell' | 'post_purchase'
+  type: 'cart_upsell' | 'cross_sell' | 'post_purchase' | 'bundle'
   active: boolean
   title: string
   description: string
@@ -17,7 +19,7 @@ export interface UpsellOffer {
   image_url?: string
   badge_text?: string
   badge_color?: string
-  trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below'
+  trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below' | 'bundle_requirements'
   trigger_value?: string
   trigger_variant_id?: string
   offer_product_id?: string
@@ -25,6 +27,8 @@ export interface UpsellOffer {
   discount_pct?: number
   bundle_price?: number   // ✅ Пакетна цена: ако е зададена (>0), взима превес над discount_pct.
                           //    Означава крайна обща цена за тригер-варианта + офертния вариант заедно.
+  bundle_requirements?: BundleRequirement[]  // ✅ За trigger_type='bundle_requirements' — множество условия (продукт+вариант+кол-во)
+  reward_qty?: number                         // ✅ Колко бройки от offer_product_id/offer_variant_id се дават (по подразбиране 1)
   sort_order: number
 }
 
@@ -57,13 +61,15 @@ const TYPE_META: Record<UpsellOffer['type'], { label: string; icon: string; colo
   cart_upsell:   { label: 'Cart Upsell',   icon: '⬆️', color: '#7c3aed', bg: '#f5f3ff', desc: 'По-голямо/по-добро от вече добавено (upgrade на съществуващ продукт)' },
   cross_sell:    { label: 'Cross-sell',    icon: '🔀', color: '#0369a1', bg: '#eff6ff', desc: 'Различен продукт, допълващ поръчката (напр. тор + биостимулатор)' },
   post_purchase: { label: 'Post-purchase', icon: '🎁', color: '#dc2626', bg: '#fff1f2', desc: 'Оферта след потвърждение — отделна поръчка' },
+  bundle:        { label: 'Bundle',        icon: '📦', color: '#ea580c', bg: '#fff7ed', desc: 'Множество продукти/количества в количката → бонус (напр. 5×20л + 1×20л подарък)' },
 }
 
 const TRIGGER_META: Record<UpsellOffer['trigger_type'], string> = {
-  always:          'Винаги',
-  product_in_cart: 'Продукт в количката',
-  cart_above:      'Количката НАД сума',
-  cart_below:      'Количката ПОД сума',
+  always:              'Винаги',
+  product_in_cart:     'Продукт в количката',
+  cart_above:          'Количката НАД сума',
+  cart_below:          'Количката ПОД сума',
+  bundle_requirements: 'Множество продукти (bundle)',
 }
 
 function genId() {
@@ -74,8 +80,9 @@ function genId() {
 
 const EMPTY_OFFER = (type: UpsellOffer['type'] = 'cart_upsell', sortOrder = 0): UpsellOffer => ({
   id: genId(), type, active: true, title: '', description: '', emoji: '🌿', image_url: '',
-  badge_text: '', badge_color: '#16a34a', trigger_type: 'always',
-  trigger_value: '', trigger_variant_id: '', offer_product_id: '', offer_variant_id: '', discount_pct: 0, sort_order: sortOrder,
+  badge_text: '', badge_color: '#16a34a', trigger_type: type === 'bundle' ? 'bundle_requirements' : 'always',
+  trigger_value: '', trigger_variant_id: '', offer_product_id: '', offer_variant_id: '', discount_pct: 0,
+  bundle_requirements: type === 'bundle' ? [{ product_id: '', variant_id: '', qty: 1 }] : [], reward_qty: 1, sort_order: sortOrder,
 })
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
@@ -137,7 +144,7 @@ function Skeleton() {
   return (
     <div style={{ padding: '8px 0' }}>
       <style>{`@keyframes sk{0%{background-position:-200% center}100%{background-position:200% center}}.sk{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);background-size:200% 100%;animation:sk 1.5s infinite;border-radius:8px}`}</style>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
         {[1,2,3].map(i => (
           <div key={i} style={{ background: '#fff', border: '1px solid #f1f5f9', borderRadius: 18, padding: '20px 22px' }}>
             <div className="sk" style={{ width: 34, height: 34, borderRadius: 10, marginBottom: 14 }} />
@@ -439,6 +446,65 @@ function ProductPicker({ value, onChange, products, currencySymbol = '€' }: { 
 }
 
 
+// ─── BundleRequirementsEditor — списък от условия (продукт+вариант+количество) ──
+function BundleRequirementsEditor({ requirements, onChange, products, currencySymbol = '€' }: {
+  requirements: BundleRequirement[]
+  onChange: (reqs: BundleRequirement[]) => void
+  products: OwnProduct[]
+  currencySymbol?: string
+}) {
+  const update = (idx: number, patch: Partial<BundleRequirement>) => {
+    onChange(requirements.map((r, i) => i === idx ? { ...r, ...patch } : r))
+  }
+  const remove = (idx: number) => onChange(requirements.filter((_, i) => i !== idx))
+  const add = () => onChange([...requirements, { product_id: '', variant_id: '', qty: 1 }])
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <Label hint="Всички условия трябва да са изпълнени едновременно в количката (или в поръчката, за post-purchase)">
+        Условия за bundle-а
+      </Label>
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+        {requirements.map((req, idx) => {
+          const product = products.find(p => p.id === req.product_id)
+          const variant = product?.variants?.find(v => v.id === req.variant_id)
+          return (
+            <div key={idx} style={{ padding: '12px 14px', background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#9a3412' }}>Условие {idx + 1}</span>
+                {requirements.length > 1 && (
+                  <button type="button" onClick={() => remove(idx)}
+                    style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}>✕ Премахни</button>
+                )}
+              </div>
+              <ProductVariantPicker
+                label="Продукт" hint="Кой продукт трябва да е в количката"
+                productId={req.product_id} variantId={req.variant_id}
+                onProductChange={v => update(idx, { product_id: v, variant_id: '' })}
+                onVariantChange={v => update(idx, { variant_id: v })}
+                products={products} currencySymbol={currencySymbol}
+              />
+              <div style={{ marginTop: 8, maxWidth: 140 }}>
+                <Label hint="минимален брой">Количество</Label>
+                <Field type="number" value={req.qty || 1} onChange={v => update(idx, { qty: Math.max(1, Number(v)) })} placeholder="1" />
+              </div>
+              {variant && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#9a3412' }}>
+                  → нужни {req.qty || 1} × {variant.label} ({(variant.price * (req.qty || 1)).toFixed(2)} {currencySymbol} общо при пълна цена)
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <button type="button" onClick={add}
+        style={{ marginTop: 10, padding: '8px 16px', background: '#fff', color: '#ea580c', border: '1.5px dashed #fdba74', borderRadius: 10, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit' }}>
+        + Добави условие (продукт)
+      </button>
+    </div>
+  )
+}
+
 // ─── OfferCard ────────────────────────────────────────────────────────────────
 
 function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, currencySymbol = '€', open, onToggleOpen }: {
@@ -463,7 +529,12 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
           </div>
           <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' as const }}>
             <Chip color={meta.color} bg={meta.bg}>{meta.icon} {meta.label}</Chip>
-            <Chip color="#64748b" bg="#f8fafc">{TRIGGER_META[offer.trigger_type]}{offer.trigger_value ? `: ${offer.trigger_value}` : ''}</Chip>
+            <Chip color="#64748b" bg="#f8fafc">
+              {TRIGGER_META[offer.trigger_type]}
+              {offer.trigger_type === 'bundle_requirements'
+                ? ` (${(offer.bundle_requirements || []).filter(r => r.product_id).length} усл.)`
+                : offer.trigger_value ? `: ${offer.trigger_value}` : ''}
+            </Chip>
             {offer.bundle_price ? <Chip color="#b45309" bg="#fefce8">🎁 Пакет {offer.bundle_price.toFixed(2)} {currencySymbol}</Chip>
               : offer.discount_pct ? <Chip color="#dc2626" bg="#fff1f2">-{offer.discount_pct}%</Chip> : null}
           </div>
@@ -517,7 +588,7 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
                 {(Object.keys(TRIGGER_META) as UpsellOffer['trigger_type'][]).map(t => <option key={t} value={t}>{TRIGGER_META[t]}</option>)}
               </select>
             </div>
-            {offer.trigger_type !== 'always' && offer.trigger_type !== 'product_in_cart' && (
+            {offer.trigger_type !== 'always' && offer.trigger_type !== 'product_in_cart' && offer.trigger_type !== 'bundle_requirements' && (
               <div>
                 <Label hint={`сума в ${currencySymbol}`}>Стойност</Label>
                 <Field value={offer.trigger_value || ''} onChange={v => onUpdate({ trigger_value: v })} placeholder="60" />
@@ -538,7 +609,20 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
               />
             </div>
           )}
+          {offer.trigger_type === 'bundle_requirements' && (
+            <BundleRequirementsEditor
+              requirements={offer.bundle_requirements || []}
+              onChange={reqs => onUpdate({ bundle_requirements: reqs })}
+              products={products}
+              currencySymbol={currencySymbol}
+            />
+          )}
           <div style={{ marginTop: 12 }}>
+            {offer.type === 'bundle' && (
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#ea580c', textTransform: 'uppercase' as const, letterSpacing: '0.07em', marginBottom: 6 }}>
+                🎁 Награда (какво получава клиентът)
+              </div>
+            )}
             <ProductVariantPicker
               productId={offer.offer_product_id || ''}
               variantId={offer.offer_variant_id || ''}
@@ -553,7 +637,18 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
               currencySymbol={currencySymbol}
             />
           </div>
-          <div style={{ marginTop: 12, maxWidth: 200 }}><Label hint="0 = без отстъпка">Отстъпка %</Label><Field type="number" value={offer.discount_pct || 0} onChange={v => onUpdate({ discount_pct: Math.max(0, Math.min(100, Number(v))) })} placeholder="0" /></div>
+          <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' as const }}>
+            <div style={{ maxWidth: 200 }}>
+              <Label hint={offer.type === 'bundle' ? '100 = напълно безплатно' : '0 = без отстъпка'}>Отстъпка %</Label>
+              <Field type="number" value={offer.discount_pct || 0} onChange={v => onUpdate({ discount_pct: Math.max(0, Math.min(100, Number(v))) })} placeholder="0" />
+            </div>
+            {offer.type === 'bundle' && (
+              <div style={{ maxWidth: 160 }}>
+                <Label hint="напр. 1 бр. подарък">Количество награда</Label>
+                <Field type="number" value={offer.reward_qty || 1} onChange={v => onUpdate({ reward_qty: Math.max(1, Number(v)) })} placeholder="1" />
+              </div>
+            )}
+          </div>
 
           {/* ✅ Пакетна цена (Bundle) — само за cross-sell с тригер "продукт в количката" */}
           {offer.type === 'cross_sell' && offer.trigger_type === 'product_in_cart' && (() => {
@@ -715,6 +810,7 @@ export function MarketingTab() {
   const g = {
     cart_upsell:   settings.offers.filter(o => o.type === 'cart_upsell'),
     cross_sell:    settings.offers.filter(o => o.type === 'cross_sell'),
+    bundle:        settings.offers.filter(o => o.type === 'bundle'),
     post_purchase: settings.offers.filter(o => o.type === 'post_purchase'),
   }
   const totalActive = settings.offers.filter(o => o.active).length
@@ -740,7 +836,7 @@ export function MarketingTab() {
         .mkt-tab:hover:not(.on) { color:#64748b; background:rgba(255,255,255,.5); }
         .mkt-tab.on { background:#fff; color:#0f172a; box-shadow:0 1px 6px rgba(0,0,0,.1),0 0 0 1px rgba(0,0,0,.04); }
 
-        .mkt-stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px; }
+        .mkt-stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
         @media(max-width:580px) { .mkt-stat-grid { grid-template-columns:1fr; } }
 
         .mkt-add-btn { padding:9px 18px; border:none; border-radius:10px; font-family:inherit; font-weight:700; font-size:12.5px; cursor:pointer; transition:all .15s; flex-shrink:0; }
@@ -815,6 +911,7 @@ export function MarketingTab() {
                 <div className="mkt-stat-grid">
                   <StatCard icon="⬆️" label="Cart Upsell"  active={g.cart_upsell.filter(o=>o.active).length}  total={g.cart_upsell.length}  color="#7c3aed" bg="#f5f3ff" onClick={() => setSection('offers')} />
                   <StatCard icon="🔀" label="Cross-sell"    active={g.cross_sell.filter(o=>o.active).length}    total={g.cross_sell.length}    color="#0369a1" bg="#eff6ff" onClick={() => setSection('offers')} />
+                  <StatCard icon="📦" label="Bundle"        active={g.bundle.filter(o=>o.active).length}        total={g.bundle.length}        color="#ea580c" bg="#fff7ed" onClick={() => setSection('offers')} />
                   <StatCard icon="🎁" label="Post-purchase" active={g.post_purchase.filter(o=>o.active).length} total={g.post_purchase.length} color="#dc2626" bg="#fff1f2" onClick={() => setSection('offers')} />
                 </div>
 
@@ -854,7 +951,7 @@ export function MarketingTab() {
             {/* ── Оферти ── */}
             {section === 'offers' && (
               <>
-                {(['cart_upsell', 'cross_sell', 'post_purchase'] as UpsellOffer['type'][]).map(type => {
+                {(['cart_upsell', 'cross_sell', 'bundle', 'post_purchase'] as UpsellOffer['type'][]).map(type => {
                   const meta = TYPE_META[type]
                   const typeOffers = settings.offers.filter(o => o.type === type)
                   return (
@@ -924,7 +1021,7 @@ export function MarketingTab() {
                 ) : (
                   <>
                     {/* Group by type */}
-                    {(['cart_upsell', 'cross_sell', 'post_purchase'] as UpsellOffer['type'][]).map(type => {
+                    {(['cart_upsell', 'cross_sell', 'bundle', 'post_purchase'] as UpsellOffer['type'][]).map(type => {
                       const typeOffers = settings.offers.filter(o => o.active && o.type === type)
                       if (typeOffers.length === 0) return null
                       const meta = TYPE_META[type]
