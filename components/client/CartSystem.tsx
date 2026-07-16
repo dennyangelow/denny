@@ -7,7 +7,7 @@
 // ✅ AtlasProduct: добавени seo_title/seo_description/image_alt за TS съвместимост
 // ✅ Всички предишни fix-ове от v12
 
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 
 // ── Детекция на мобилен (≤640px) — синхронна, без flash ──────────────────────
 function useIsMobile() {
@@ -136,13 +136,19 @@ export function CartHeaderButton() {
 }
 
 // ─── Типове ───────────────────────────────────────────────────────────────────
-interface BundleRequirement { product_id: string; variant_id: string; qty: number }
+interface BundleRequirement {
+  product_id: string; variant_id: string; qty: number
+  product_ids?: string[]   // ✅ Групово условие: сумират се количествата на ВСИЧКИ изброени продукти заедно
+  size_liters?: number     // ✅ За групово условие: филтър по литри
+}
 interface UpsellOffer {
   id: string; type: 'cart_upsell' | 'cross_sell' | 'post_purchase' | 'bundle'; active: boolean
   title: string; description: string; emoji: string; image_url?: string
   badge_text?: string; badge_color?: string
   trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below' | 'bundle_requirements'
   trigger_value?: string; trigger_variant_id?: string; offer_product_id?: string; offer_variant_id?: string
+  reward_choice_product_ids?: string[]   // ✅ Ако е зададено — клиентът избира сам измежду тези продукти
+  reward_choice_size_liters?: number     // ✅ Литри на избрания подарък
   discount_pct?: number; bundle_price?: number; sort_order: number
   bundle_requirements?: BundleRequirement[]   // ✅ Условия за bundle_requirements тригер — множество продукти+количества
   reward_qty?: number                          // ✅ Колко бройки от offer_product_id се дават като награда (default 1)
@@ -234,23 +240,33 @@ function makeFmt(sym: string) {
   }
 }
 // ✅ Проверява дали количката съдържа ВСИЧКИ изисквания на bundle_requirements
-// (сумира количеството по product_id+variant_id, за да работи и "5× един и същ продукт")
+// (сумира количеството по product_id+variant_id, за да работи и "5× един и същ продукт";
+// за групови условия — product_ids+size_liters — сумира между ВСИЧКИ изброени продукти,
+// в каквато и да е комбинация, стига размерът в литри да съвпада)
 function requirementsMet(reqs: BundleRequirement[] | undefined, items: CartItem[]): boolean {
   if (!reqs || reqs.length === 0) return false
   return reqs.every(r => {
-    const have = items
-      .filter(i => i.productId === r.product_id && (!r.variant_id || i.variantId === r.variant_id))
-      .reduce((sum, i) => sum + i.qty, 0)
+    const have = r.product_ids && r.product_ids.length > 0
+      ? items
+          .filter(i => r.product_ids!.includes(i.productId) && (!r.size_liters || Number(i.size_liters) === Number(r.size_liters)))
+          .reduce((sum, i) => sum + i.qty, 0)
+      : items
+          .filter(i => i.productId === r.product_id && (!r.variant_id || i.variantId === r.variant_id))
+          .reduce((sum, i) => sum + i.qty, 0)
     return have >= (r.qty || 1)
   })
 }
 
 // ✅ Bundle, чиято награда е СЪЩИЯТ продукт+вариант като едно от условията му
 // (напр. купи 5×20л → получи +1×20л подарък). За тези трябва да броим по offerId,
-// не по обикновено присъствие на варианта в количката.
+// не по обикновено присъствие на варианта в количката. Покрива и групови условия —
+// ако офертният продукт е сред изброените в групата, пак се брои за self-reward.
 function isSelfRewardBundle(offer: UpsellOffer, variantId: string): boolean {
-  return offer.type === 'bundle' && !!offer.bundle_requirements?.some(r =>
-    r.product_id === offer.offer_product_id && (!r.variant_id || r.variant_id === variantId)
+  if (offer.type !== 'bundle' || !offer.offer_product_id) return false
+  return !!offer.bundle_requirements?.some(r =>
+    r.product_ids && r.product_ids.length > 0
+      ? r.product_ids.includes(offer.offer_product_id!)
+      : r.product_id === offer.offer_product_id && (!r.variant_id || r.variant_id === variantId)
   )
 }
 
@@ -287,7 +303,184 @@ function revertOfferPricing(item: CartItem): CartItem {
   }
 }
 
-// ─── Еконт типове ─────────────────────────────────────────────────────────────
+// ✅ Обща логика за изчисляване на офертна цена на артикул спрямо активна оферта —
+// ползва се и в OfferCard (клик на банера), и в авто-прилагането в CartSystem
+// (когато условията вече са изпълнени, но продуктите са добавени поотделно).
+function computeOfferItemPricing(offer: UpsellOffer, variant: ProductVariant, cartItems: CartItem[]) {
+  const variantPrice   = variant.price
+  const variantCompare = Number(variant.compare_price ?? 0)
+  const triggerItem = offer.trigger_type === 'product_in_cart'
+    ? cartItems.find(i => i.productId === offer.trigger_value && (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id))
+    : undefined
+  const hasBundlePrice  = !!(offer.bundle_price && offer.bundle_price > 0 && triggerItem)
+  const bundleItemPrice = hasBundlePrice ? +Math.max(0, offer.bundle_price! - triggerItem!.price).toFixed(2) : 0
+  const hasPctDiscount  = !hasBundlePrice && !!(offer.discount_pct && offer.discount_pct > 0)
+  const discountedPrice = hasBundlePrice ? bundleItemPrice
+    : hasPctDiscount ? +(variantPrice * (1 - offer.discount_pct! / 100)).toFixed(2) : variantPrice
+  const oldPrice = hasBundlePrice ? variantPrice
+    : hasPctDiscount ? variantPrice : variantCompare > variantPrice ? variantCompare : 0
+  return { variantPrice, variantCompare, hasBundlePrice, hasPctDiscount, discountedPrice, oldPrice }
+}
+
+// ✅ При две "огледални" оферти (А тригерва отстъпка на Б, И Б тригерва отстъпка на А
+// едновременно), auto-apply ефектът в CartSystem би отстъпил и двата продукта един на
+// друг наведнъж — сметките не излизат (реален пример: 129.64€ очаквано срещу 95.18€ реално).
+// Тази функция засича такъв огледален чифт и оставя само ЕДНАТА посока да важи —
+// печели офертата с по-нисък sort_order (контролируемо от админ панела чрез стрелките
+// горе/долу на офертата), а при равен sort_order — по-малкото id (стабилно, детерминирано).
+function reciprocalOfferLoses(offer: UpsellOffer, allOffers: UpsellOffer[]): boolean {
+  if (offer.trigger_type !== 'product_in_cart' || !offer.offer_product_id) return false
+  const mirror = allOffers.find(o2 =>
+    o2.id !== offer.id && o2.active &&
+    (o2.type === 'cross_sell' || o2.type === 'bundle') &&
+    o2.trigger_type === 'product_in_cart' &&
+    o2.trigger_value === offer.offer_product_id &&
+    (!o2.trigger_variant_id || !offer.offer_variant_id || o2.trigger_variant_id === offer.offer_variant_id) &&
+    o2.offer_product_id === offer.trigger_value &&
+    (!o2.offer_variant_id || !offer.trigger_variant_id || o2.offer_variant_id === offer.trigger_variant_id)
+  )
+  if (!mirror) return false
+  if (mirror.sort_order !== offer.sort_order) return mirror.sort_order < offer.sort_order
+  return mirror.id < offer.id
+}
+
+// ✅ За всяко условие на bundle_requirements — колко има клиентът срещу колко трябват.
+// За групови условия (product_ids+size_liters) сумира между ВСИЧКИ изброени продукти.
+function computeBundleProgress(offer: UpsellOffer, items: CartItem[]): { req: BundleRequirement; have: number; need: number }[] {
+  return (offer.bundle_requirements || []).map(r => {
+    const have = r.product_ids && r.product_ids.length > 0
+      ? items.filter(i => r.product_ids!.includes(i.productId) && (!r.size_liters || Number(i.size_liters) === Number(r.size_liters))).reduce((s, i) => s + i.qty, 0)
+      : items.filter(i => i.productId === r.product_id && (!r.variant_id || i.variantId === r.variant_id)).reduce((s, i) => s + i.qty, 0)
+    return { req: r, have, need: r.qty || 1 }
+  })
+}
+// Има ли клиентът НАЧАЛО на прогрес по тази оферта (поне 1 бр. от някое условие),
+// но условията още не са напълно изпълнени — за да покажем "почти" банер, не от нулата.
+function bundleHasProgress(offer: UpsellOffer, items: CartItem[]): boolean {
+  const progress = computeBundleProgress(offer, items)
+  return progress.some(p => p.have > 0) && progress.some(p => p.have < p.need)
+}
+
+// ✅ Уникален идентификатор за РЕД в количката. Преди — цялата количка беше keyed
+// само по variantId, значи МАКСИМУМ 1 ред на вариант можеше да съществува. Затова
+// добавяне на безплатен подарък за вариант, който вече имаше платени бройки, се
+// сливаше тихо в СЪЩИЯ ред (виждаше само qty+1 на старата пълна цена — подаръкът
+// изчезваше). Сега офертен ред (за конкретна оферта) за СЪЩИЯ вариант се пази като
+// ОТДЕЛЕН ред — клиентът вижда изрично кои бройки са платени и кои са подарък, без
+// никаква блендирана/осреднена цена.
+function lineKey(item: Pick<CartItem, 'variantId' | 'fromOffer' | 'offerId'>): string {
+  return item.fromOffer ? `${item.variantId}::offer::${item.offerId || ''}` : item.variantId
+}
+// Слива редове, които (вече) споделят същия lineKey — напр. след revert на офертна
+// цена обратно към нормална, докато вече съществуваше отделен обикновен ред за
+// същия вариант. Пази данните на ПЪРВИЯ съвпадащ ред, само сумира количеството.
+function coalesceLines(items: CartItem[]): CartItem[] {
+  const map = new Map<string, CartItem>()
+  for (const it of items) {
+    const k = lineKey(it)
+    const existing = map.get(k)
+    map.set(k, existing ? { ...existing, qty: existing.qty + it.qty } : it)
+  }
+  return Array.from(map.values())
+}
+
+// ✅ Замества няколко реда (pool) с новоизчислени редове, запазвайки позицията на
+// ПЪРВИЯ съвпадащ ред в масива (вместо да ги трупа накрая) — ползва се от
+// количествено-ограниченото "чифтосване" на cross-sell офертите по-долу.
+function replacePoolLines(arr: CartItem[], pool: CartItem[], replacement: CartItem[]): CartItem[] {
+  const poolSet = new Set(pool)
+  let inserted = false
+  const result: CartItem[] = []
+  for (const item of arr) {
+    if (poolSet.has(item)) {
+      if (!inserted) { result.push(...replacement); inserted = true }
+      continue
+    }
+    result.push(item)
+  }
+  if (!inserted) result.push(...replacement)
+  return result
+}
+
+
+// ✅ Офертен продукт, който е и част от собствените си bundle_requirements условия
+// (self-reward, напр. "5×20л база → +1×20л база подарък") — на офертно ниво, без да
+// изисква конкретен variantId. Ползва се за да изключим тези оферти от "чифтосващата"
+// логика по-долу — те се дават САМО през изричен клик на банера, никога автоматично.
+function offerIsSelfRewardAtOfferLevel(offer: UpsellOffer): boolean {
+  if (!offer.offer_product_id) return false
+  return !!offer.bundle_requirements?.some(r =>
+    r.product_ids && r.product_ids.length > 0 ? r.product_ids.includes(offer.offer_product_id!) : r.product_id === offer.offer_product_id
+  )
+}
+// ✅ Офертите, които трябва да минават през количествено-ограничения "чифтосващ" ефект
+// (не през общия auto-apply/revert) — фиксирана награда (не "избери сам"), не self-reward,
+// не губеща огледален чифт, с тригер тип 'product_in_cart' ИЛИ 'bundle_requirements'.
+// Покрива и cross-sell, и bundle офертен тип — независимо кой избере админът, поведението
+// е едно и също (количествено ограничено, не "всичко или нищо").
+function isPairingManagedOffer(offer: UpsellOffer, allOffers: UpsellOffer[]): boolean {
+  return offer.active &&
+    (offer.type === 'cross_sell' || offer.type === 'bundle') &&
+    (offer.trigger_type === 'product_in_cart' || offer.trigger_type === 'bundle_requirements') &&
+    !!offer.offer_product_id &&
+    !offer.reward_choice_product_ids?.length &&
+    !offerIsSelfRewardAtOfferLevel(offer) &&
+    !reciprocalOfferLoses(offer, allOffers)
+}
+// ✅ Колко бройки от офертния продукт МОГАТ да са на офертна цена в момента, според
+// текущо изпълнените "чифтове"/комплекти на тригера:
+//  - 'product_in_cart': бройки на тригер-продукта × reward_qty
+//  - 'bundle_requirements': колко ПЪЛНИ комплекта от условията са налични (най-малкото
+//    floor(have/need) измежду всички условия) × reward_qty
+function bundleFulfillmentQty(offer: UpsellOffer, items: CartItem[]): number {
+  if (offer.trigger_type === 'product_in_cart') {
+    const triggerQty = items
+      .filter(i => i.productId === offer.trigger_value && (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id))
+      .reduce((s, i) => s + i.qty, 0)
+    return triggerQty * (offer.reward_qty || 1)
+  }
+  if (offer.trigger_type === 'bundle_requirements' && offer.bundle_requirements?.length) {
+    const progress = computeBundleProgress(offer, items)
+    const sets = Math.min(...progress.map(p => Math.floor(p.have / p.need)))
+    return isFinite(sets) && sets > 0 ? sets * (offer.reward_qty || 1) : 0
+  }
+  return 0
+}
+// ✅ За визуалния таг "🔗 Част от активна оферта" върху ОБИКНОВЕНИ (не офертни) редове,
+// които в момента действат като тригер/условие за вече активирана "чифтосваща" оферта —
+// за да е ясно на клиента кои продукти "отключват" отстъпката, не само кой е отстъпен.
+function computeActiveTriggerVariantIds(ms: MarketingSettings | null, items: CartItem[]): Set<string> {
+  const set = new Set<string>()
+  if (!ms) return set
+  for (const o of ms.offers) {
+    if (!isPairingManagedOffer(o, ms.offers)) continue
+    // ⚠️ bundleFulfillmentQty() само проверява дали ТРИГЕР условието абстрактно е
+    // изпълнено (напр. тригер продуктът присъства) — но НЕ дали офертният/наградният
+    // продукт изобщо е в количката. Затова само с тригер продукта, без наградния,
+    // тагът грешно се показваше ("Част от оферта" на AMINO, докато базата липсва).
+    // Истинският сигнал за "офертата Е активна" е дали РЕАЛНО има ред, оценен по
+    // тази оферта в момента — проверяваме директно това.
+    const hasActiveReward = items.some(i => i.fromOffer && i.offerId === o.id)
+    if (!hasActiveReward) continue
+    if (o.trigger_type === 'product_in_cart' && o.trigger_value) {
+      items.forEach(i => {
+        if (i.productId === o.trigger_value && (!o.trigger_variant_id || i.variantId === o.trigger_variant_id)) set.add(i.variantId)
+      })
+    } else if (o.trigger_type === 'bundle_requirements') {
+      for (const r of (o.bundle_requirements || [])) {
+        items.forEach(i => {
+          const match = r.product_ids && r.product_ids.length > 0
+            ? r.product_ids.includes(i.productId) && (!r.size_liters || Number(i.size_liters) === Number(r.size_liters))
+            : i.productId === r.product_id && (!r.variant_id || i.variantId === r.variant_id)
+          if (match) set.add(i.variantId)
+        })
+      }
+    }
+  }
+  return set
+}
+
+
 interface EcontCity   { id: number; name: string; postCode: string; regionName: string }
 interface EcontOffice { id: number; code: string; name: string; address: string; phones: string; workingTimeFrom: string; workingTimeTo: string }
 
@@ -702,14 +895,26 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
   offer: UpsellOffer; products: AtlasProduct[]; onAddToCart: (item: CartItem) => void
   fmt: (n: number) => string; cartItems: CartItem[]
 }) {
-  const product = products.find(p => p.id === offer.offer_product_id)
-  const variant = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
+  // ✅ "Клиентът избира сам" — вместо фиксиран offer_product_id, показваме бутони с
+  // няколко продукта и изчакваме изричен избор, преди да се знае кой е "продукт"/"вариант".
+  const isChoice = !!offer.reward_choice_product_ids?.length
+  const [chosenProductId, setChosenProductId] = useState('')
+
+  const product = isChoice
+    ? products.find(p => p.id === chosenProductId)
+    : products.find(p => p.id === offer.offer_product_id)
+  const variant = isChoice
+    ? product?.variants?.find(v => offer.reward_choice_size_liters ? v.size_liters === offer.reward_choice_size_liters : v.active !== false)
+    : product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
   const meta = OFFER_META[offer.type]
   // ✅ Проверяваме дали НАГРАДАТА на ТАЗИ оферта вече е добавена — не просто дали продуктът съществува
   //    (важно за bundle подаръци, където офертният продукт може да е СЪЩИЯТ като изискването, напр. +1×20л подарък)
-  const alreadyInCart = !!variant && (isSelfRewardBundle(offer, variant.id)
-    ? cartItems.some(i => i.variantId === variant.id && i.fromOffer && i.offerId === offer.id)
-    : cartItems.some(i => i.variantId === variant.id))
+  //    За "избери сам" — наградата е "взета", ако тази оферта вече е добавила КАКЪВТО И ДА Е избран артикул.
+  const alreadyInCart = isChoice
+    ? cartItems.some(i => i.fromOffer && i.offerId === offer.id)
+    : !!variant && (isSelfRewardBundle(offer, variant.id)
+        ? cartItems.some(i => i.variantId === variant.id && i.fromOffer && i.offerId === offer.id)
+        : cartItems.some(i => i.variantId === variant.id))
   const [justAdded, setJustAdded] = useState(false)
   const [wasAdded, setWasAdded]   = useState(false)
   const imgSrc = offer.image_url || product?.img || ''
@@ -721,23 +926,18 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
   const variantPrice    = variant?.price ?? 0
   const variantCompare  = Number(variant?.compare_price ?? 0)
 
-  // ✅ Пакетна цена (bundle_price) — взима превес над discount_pct, ако е зададена и тригер-продуктът е в количката
-  const triggerItem = offer.trigger_type === 'product_in_cart'
-    ? cartItems.find(i => i.productId === offer.trigger_value && (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id))
-    : undefined
-  const hasBundlePrice  = !!(offer.bundle_price && offer.bundle_price > 0 && triggerItem)
-  const bundleItemPrice = hasBundlePrice ? +Math.max(0, offer.bundle_price! - triggerItem!.price).toFixed(2) : 0
-
-  const hasPctDiscount  = !hasBundlePrice && !!(offer.discount_pct && offer.discount_pct > 0)
-  const discountedPrice = hasBundlePrice ? bundleItemPrice
-    : hasPctDiscount ? +(variantPrice * (1 - offer.discount_pct! / 100)).toFixed(2) : variantPrice
-  const oldPrice        = hasBundlePrice ? variantPrice
-    : hasPctDiscount ? variantPrice : variantCompare > variantPrice ? variantCompare : 0
+  // ✅ Ценова логика (bundle_price / discount_pct) — споделена с авто-прилагането в CartSystem
+  const pricing = variant ? computeOfferItemPricing(offer, variant, cartItems) : null
+  const hasBundlePrice  = pricing?.hasBundlePrice ?? false
+  const hasPctDiscount  = pricing?.hasPctDiscount ?? false
+  const discountedPrice = pricing?.discountedPrice ?? variantPrice
+  const oldPrice         = pricing?.oldPrice ?? 0
   const showOld         = oldPrice > discountedPrice
   const savePct         = showOld && oldPrice > 0 ? Math.round(((oldPrice - discountedPrice) / oldPrice) * 100) : 0
 
   const handleAdd = () => {
     if (!product || !variant || alreadyInCart) return
+    if (isChoice && !chosenProductId) return // изчакваме изричен избор
     onAddToCart({
       productId: product.id, variantId: variant.id, productName: product.name,
       variantLabel: variant.label + (hasBundlePrice ? ' (🎁 пакет)' : discountedPrice <= 0 ? ' (🎁 подарък)' : hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
@@ -755,8 +955,10 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
 
   if (wasAdded && alreadyInCart) return null
 
+  const choiceCandidates = isChoice ? (offer.reward_choice_product_ids || []).map(pid => products.find(p => p.id === pid)).filter((p): p is AtlasProduct => !!p) : []
+
   return (
-    <div className="offer-card-wrap" style={{ background: '#fff', border: `1.5px solid ${meta.color}22`, borderLeft: `3px solid ${meta.color}`, borderRadius: 11, display: 'flex', gap: 9, alignItems: 'center' }}>
+    <div className="offer-card-wrap" style={{ background: '#fff', border: `1.5px solid ${meta.color}22`, borderLeft: `3px solid ${meta.color}`, borderRadius: 11, display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' as const }}>
       <div style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, overflow: 'hidden', background: `${meta.color}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, border: `1px solid ${meta.color}20` }}>
         {imgSrc ? <img src={imgSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} /> : <span>{offer.emoji || meta.icon}</span>}
       </div>
@@ -767,6 +969,7 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
           {product && variant && <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{product.name} · {variant.label}</span>}
+          {isChoice && !product && <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>Избери подарък отдолу ↓</span>}
           {variant && <>
             <span style={{ fontSize: 12.5, fontWeight: 900, color: meta.color }}>{discountedPrice <= 0 ? 'БЕЗПЛАТНО' : fmt(discountedPrice)}</span>
             {showOld && <span style={{ fontSize: 10, color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(oldPrice)}</span>}
@@ -777,12 +980,32 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
               : hasBundlePrice && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: '#b45309', padding: '1px 6px', borderRadius: 99 }}>🎁 Пакет</span>}
           </>}
         </div>
+        {/* ✅ "Избери сам" — бутони с кандидат-продукти, показват се докато наградата не е взета */}
+        {isChoice && !alreadyInCart && choiceCandidates.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5, marginTop: 6 }}>
+            {choiceCandidates.map(p => {
+              const selected = chosenProductId === p.id
+              return (
+                <button key={p.id} type="button" onClick={() => setChosenProductId(p.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 8,
+                    border: selected ? `1.5px solid ${meta.color}` : '1.5px solid #e2e8f0',
+                    background: selected ? `${meta.color}14` : '#fff',
+                    fontSize: 10.5, fontWeight: 700, color: selected ? meta.color : '#475569',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}>
+                  {selected ? '✓ ' : ''}{p.emoji}{p.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
       <div style={{ flexShrink: 0, alignSelf: 'center', minWidth: 64, paddingRight: 8 }}>
         {justAdded ? (
           <div style={{ fontSize: 10.5, fontWeight: 800, color: '#059669', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 8, padding: '5px 8px', textAlign: 'center' as const }}>✓ Добавен</div>
         ) : (
-          <button onClick={handleAdd} disabled={alreadyInCart} style={{ height: 32, borderRadius: 9, border: 'none', background: alreadyInCart ? '#059669' : meta.color, color: '#fff', cursor: alreadyInCart ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '0 12px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, transition: 'all .2s', boxShadow: !alreadyInCart ? `0 2px 8px ${meta.color}45` : 'none', whiteSpace: 'nowrap' as const }}>
+          <button onClick={handleAdd} disabled={alreadyInCart || (isChoice && !chosenProductId)} style={{ height: 32, borderRadius: 9, border: 'none', background: alreadyInCart ? '#059669' : (isChoice && !chosenProductId) ? '#cbd5e1' : meta.color, color: '#fff', cursor: alreadyInCart || (isChoice && !chosenProductId) ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, padding: '0 12px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, transition: 'all .2s', boxShadow: !alreadyInCart && !(isChoice && !chosenProductId) ? `0 2px 8px ${meta.color}45` : 'none', whiteSpace: 'nowrap' as const }}>
             {alreadyInCart ? '✓ Добавен' : (offer.reward_qty || 1) > 1 ? `+ Добави ×${offer.reward_qty}` : '+ Добави'}
           </button>
         )}
@@ -791,7 +1014,49 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
   )
 }
 
-// ─── Post-purchase Modal ──────────────────────────────────────────────────────
+// ─── Bundle Progress Card ───────────────────────────────────────────────────
+// Показва се, когато клиентът е добавил НЯКОЛКО от условията на bundle-а, но още не
+// достатъчно — напр. "Имаш 2 от 5 20л туби (Atlas Terra/AMINO/NITRO) — добави още 3".
+function BundleProgressCard({ offer, products, cartItems }: {
+  offer: UpsellOffer; products: AtlasProduct[]; cartItems: CartItem[]
+}) {
+  const progress = computeBundleProgress(offer, cartItems)
+  const unmet = progress.filter(p => p.have < p.need)
+  if (unmet.length === 0) return null
+  // Показваме условието с НАЙ-МАЛКА липса — най-близо до отключване
+  const primary = unmet.reduce((best, p) => (p.need - p.have) < (best.need - best.have) ? p : best)
+  const missing = primary.need - primary.have
+  const pct = Math.min(100, Math.round((primary.have / primary.need) * 100))
+
+  let label: string
+  if (primary.req.product_ids && primary.req.product_ids.length > 0) {
+    const names = primary.req.product_ids.map(id => products.find(p => p.id === id)?.name).filter(Boolean)
+    label = `${primary.req.size_liters ? primary.req.size_liters + 'л туби' : 'бройки'}${names.length ? ' от ' + names.join(' / ') : ''} (в каквато и да е комбинация)`
+  } else {
+    const p = products.find(pp => pp.id === primary.req.product_id)
+    const v = p?.variants?.find(vv => vv.id === primary.req.variant_id)
+    label = v ? `${p?.name || ''} · ${v.label}` : (p?.name || 'продукта')
+  }
+
+  return (
+    <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 11, padding: '10px 12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 800, color: '#9a3412', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span>{offer.emoji || '🎁'}</span>{offer.title}
+        </span>
+        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#c2410c', flexShrink: 0 }}>{primary.have}/{primary.need}</span>
+      </div>
+      <div style={{ background: '#fed7aa88', borderRadius: 99, height: 6, overflow: 'hidden', marginBottom: 6 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: '#ea580c', borderRadius: 99, transition: 'width .4s ease' }} />
+      </div>
+      <div style={{ fontSize: 11, color: '#9a3412', fontWeight: 600, lineHeight: 1.35 }}>
+        Добави още <strong>{missing}</strong> × {label} и получаваш подаръка!
+      </div>
+    </div>
+  )
+}
+
+
 function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData, originalOrderId, originalOrderNumber, currencySymbol, fmt, originalOrderItems, originalSubtotal, originalShipping, originalTotal, originalSavings, onClaimDiscord }: {
   offer: UpsellOffer; products: AtlasProduct[]; onAccept: () => void; onDismiss: () => void
   customerData: { name: string; phone: string; city: string; address: string; notes: string; courier: string }
@@ -910,8 +1175,9 @@ function PostPurchaseModal({ offer, products, onAccept, onDismiss, customerData,
 }
 
 // ─── Cart Item Row ────────────────────────────────────────────────────────────
-function CartItemRow({ item, onUpdateQty, onRemove, fmt }: {
-  item: CartItem; onUpdateQty: (id: string, qty: number) => void; onRemove: (id: string) => void; fmt: (n: number) => string
+function CartItemRow({ item, onUpdateQty, onRemove, fmt, isActiveTrigger }: {
+  item: CartItem; onUpdateQty: (lineKey: string, qty: number) => void; onRemove: (lineKey: string) => void; fmt: (n: number) => string
+  isActiveTrigger?: boolean
 }) {
   const saving = item.comparePrice > item.price ? (item.comparePrice - item.price) * item.qty : 0
   return (
@@ -923,7 +1189,15 @@ function CartItemRow({ item, onUpdateQty, onRemove, fmt }: {
         <div style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{item.productName}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, flexWrap: 'wrap' as const }}>
           <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 500 }}>{item.variantLabel}</span>
-          {item.fromOffer && <span style={{ fontSize: 9.5, fontWeight: 800, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ede9fe', padding: '1px 7px', borderRadius: 99 }}>✨ Оферта</span>}
+          {item.fromOffer && (item.price <= 0
+            ? <span style={{ fontSize: 9.5, fontWeight: 800, color: '#b45309', background: '#fff7ed', border: '1px solid #fed7aa', padding: '1px 7px', borderRadius: 99 }}>🎁 Подарък</span>
+            : <span style={{ fontSize: 9.5, fontWeight: 800, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ede9fe', padding: '1px 7px', borderRadius: 99 }}>✨ Оферта</span>)}
+          {/* ✅ Обикновен ред, който в момента "отключва" активна чифтосана оферта за
+              друг продукт — показваме дискретен таг, за да е ясно, че точно тази бройка
+              участва в комбото (не само отстъпеният ред трябва да изглежда "офертен"). */}
+          {!item.fromOffer && isActiveTrigger && (
+            <span style={{ fontSize: 9.5, fontWeight: 800, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '1px 7px', borderRadius: 99 }}>🔗 Част от оферта</span>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
           <span style={{ fontSize: 15, fontWeight: 900, color: '#16a34a' }}>{fmt(item.price * item.qty)}</span>
@@ -935,12 +1209,23 @@ function CartItemRow({ item, onUpdateQty, onRemove, fmt }: {
         {saving > 0 && <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 700, marginTop: 2 }}>🏷 Спестяваш {fmt(saving)}</div>}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 5, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: 11, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-          <button onClick={() => onUpdateQty(item.variantId, item.qty - 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' }}>−</button>
-          <span style={{ fontSize: 14, fontWeight: 800, minWidth: 26, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
-          <button onClick={() => onUpdateQty(item.variantId, item.qty + 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' }}>+</button>
-        </div>
-        <button onClick={() => onRemove(item.variantId)} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '3px 7px', borderRadius: 5, WebkitTapHighlightColor: 'transparent' }}>🗑</button>
+        {/* ⚠️ Офертни/подарък редове НЕ се вдигат ръчно с "+" — количеството е фиксирано
+            от офертата (reward_qty) и се променя само чрез повторно изпълнение на
+            условието (напр. пак 5 бр.), не чрез стъпера. Позволено е само премахване. */}
+        {item.fromOffer ? (
+          <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: 11, overflow: 'hidden', border: '1px solid #e2e8f0', opacity: 0.6 }}>
+            <button disabled title="Количеството на подарък/офертен ред не се променя ръчно" style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'not-allowed', fontSize: 18, color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+            <span style={{ fontSize: 14, fontWeight: 800, minWidth: 26, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
+            <button disabled title="Количеството на подарък/офертен ред не се променя ръчно" style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'not-allowed', fontSize: 18, color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: 11, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+            <button onClick={() => onUpdateQty(lineKey(item), item.qty - 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' }}>−</button>
+            <span style={{ fontSize: 14, fontWeight: 800, minWidth: 26, textAlign: 'center' as const, color: '#0f172a' }}>{item.qty}</span>
+            <button onClick={() => onUpdateQty(lineKey(item), item.qty + 1)} style={{ width: 36, height: 36, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' }}>+</button>
+          </div>
+        )}
+        <button onClick={() => onRemove(lineKey(item))} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '3px 7px', borderRadius: 5, WebkitTapHighlightColor: 'transparent' }}>🗑</button>
       </div>
     </div>
   )
@@ -956,7 +1241,14 @@ function OffersGroup({ upsellOffers, crossSellOffers, products, onAddToCart, fmt
 
   // Намираме оферти чиито продукти НЕ са все още в количката
   // (изключение: self-reward bundle подарък — там броим само добавеното ОТ ТАЗИ оферта)
+  // ⚠️ ПОПРАВКА: "Клиентът избира сам" офертите нямат offer_product_id (той е празен —
+  // изборът е измежду няколко продукта), затова product/variant тук винаги излизаше
+  // undefined и офертата грешно отпадаше от activeOffers — а ако беше единствената
+  // активна оферта, ЦЯЛАТА секция се скриваше, въпреки че условието е изпълнено.
   const activeOffers = allOffers.filter(offer => {
+    if (offer.reward_choice_product_ids?.length) {
+      return !cartItems.some(i => i.fromOffer && i.offerId === offer.id)
+    }
     const product = products.find(p => p.id === offer.offer_product_id)
     const variant  = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
     if (!variant) return false
@@ -1153,6 +1445,9 @@ function CartDrawer({
   const [done, setDone]               = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [orderId, setOrderId]         = useState('')
+  // ✅ За визуалния "🔗 Част от оферта" таг върху обикновени редове, които в момента
+  // действат като тригер за активна чифтосана оферта (виж computeActiveTriggerVariantIds)
+  const activeTriggerVariantIds = useMemo(() => computeActiveTriggerVariantIds(marketingSettings, items), [marketingSettings, items])
   // ✅ orderIdRef — същото ID но в ref, обновява се СИНХРОННО.
   // useState е асинхронен → ако PostPurchaseModal се рендира преди React да е
   // приложил новия orderId state, originalOrderId ще е '' и PATCH-ът ще гърми.
@@ -1201,6 +1496,11 @@ function CartDrawer({
   const upsellOffers: UpsellOffer[]    = ms?.upsell_enabled    ? ms.offers.filter(o => o.type === 'cart_upsell'  && offerMatches(o, items, subtotal)) : []
   const crossSellOffers: UpsellOffer[] = ms?.cross_sell_enabled ? ms.offers.filter(o => o.type === 'cross_sell'   && offerMatches(o, items, subtotal)) : []
   const bundleOffers: UpsellOffer[]    = ms?.cross_sell_enabled ? ms.offers.filter(o => o.type === 'bundle'       && offerMatches(o, items, subtotal)) : []
+  // ✅ Bundle-и, чиито условия още НЕ са напълно изпълнени, но клиентът вече е започнал
+  // (напр. има 2 от 5 нужни 20л туби) — показваме прогрес банер, не пълната оферта.
+  const bundleProgressOffers: UpsellOffer[] = ms?.cross_sell_enabled
+    ? ms.offers.filter(o => o.type === 'bundle' && o.active && o.trigger_type === 'bundle_requirements' && !offerMatches(o, items, subtotal) && bundleHasProgress(o, items))
+    : []
 
   // ✅ Ако cross-sell И bundle (или два bundle-а) съвпаднат едновременно и предлагат ЕДИН И СЪЩ
   //    продукт+вариант като награда, показваме само тази с най-висок приоритет — приоритетът е
@@ -1611,7 +1911,7 @@ function CartDrawer({
                   <div style={{ fontSize: 13, color: '#94a3b8' }}>Разгледай продуктите и добави нещо</div>
                 </div>
               ) : items.map(item => (
-                <CartItemRow key={item.variantId} item={item} onUpdateQty={onUpdateQty} onRemove={onRemove} fmt={fmt} />
+                <CartItemRow key={lineKey(item)} item={item} onUpdateQty={onUpdateQty} onRemove={onRemove} fmt={fmt} isActiveTrigger={activeTriggerVariantIds.has(item.variantId)} />
               ))}
             </div>
 
@@ -1624,6 +1924,11 @@ function CartDrawer({
                     При ≥60л: congratulations banner (винаги)
                     ─────────────────────────────────────────────────────── */}
                 {/* Upsell + Cross-sell — ПЪРВО оферти, после анализ */}
+                {bundleProgressOffers.length > 0 && (
+                  <div style={{ marginBottom: 6, display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                    {bundleProgressOffers.map(o => <BundleProgressCard key={o.id} offer={o} products={products} cartItems={items} />)}
+                  </div>
+                )}
                 <OffersGroup upsellOffers={upsellOffers} crossSellOffers={dedupedCrossAndBundle} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={items} />
 
                 {/* 🔬 Анализ на почвата — СЛЕД офертите, не се мести при скриване */}
@@ -1954,7 +2259,7 @@ function CartDrawer({
                 </div>
                 <div style={{ padding: '9px 15px' }}>
                   {items.map((i, idx) => (
-                    <div key={i.variantId} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: idx < items.length - 1 ? 9 : 0, marginBottom: idx < items.length - 1 ? 9 : 0, borderBottom: idx < items.length - 1 ? '1px solid #edf0f4' : 'none' }}>
+                    <div key={lineKey(i)} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: idx < items.length - 1 ? 9 : 0, marginBottom: idx < items.length - 1 ? 9 : 0, borderBottom: idx < items.length - 1 ? '1px solid #edf0f4' : 'none' }}>
                       <div style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 9, overflow: 'hidden', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0' }}>
                         {i.img ? <img src={i.img} alt={i.productName} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} /> : <span style={{ fontSize: 18 }}>{i.emoji}</span>}
                       </div>
@@ -2034,9 +2339,13 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
 
   const addToCart = useCallback((item: CartItem) => {
     setCartItems(prev => {
-      const existing = prev.find(i => i.variantId === item.variantId)
+      // ✅ Само редове със СЪЩИЯ lineKey (вариант + конкретна оферта/обикновена
+      // покупка) се сливат по количество. Платен ред и офертен подарък за СЪЩИЯ
+      // вариант вече остават два отделни, ясно видими реда — без блендирана цена.
+      const key = lineKey(item)
+      const existing = prev.find(i => lineKey(i) === key)
       const next = existing
-        ? prev.map(i => i.variantId === item.variantId ? { ...i, qty: i.qty + 1 } : i)
+        ? prev.map(i => lineKey(i) === key ? { ...i, qty: i.qty + item.qty } : i)
         : [...prev, item]
       saveCartToStorage(next)
       return next
@@ -2044,27 +2353,34 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
     setDrawerOpen(true)
   }, [])
 
-  const updateQty = useCallback((variantId: string, qty: number) => {
+  // ⚠️ Параметърът е lineKey(item), НЕ голият variantId — иначе +/− или премахване
+  // на единия ред (напр. платените бройки) би засегнало и другия ред на СЪЩИЯ
+  // вариант (напр. подаръчния), щом вече могат да съществуват 2 отделни реда.
+  const updateQty = useCallback((key: string, qty: number) => {
     setCartItems(prev => {
       const next = qty <= 0
-        ? prev.filter(i => i.variantId !== variantId)
-        : prev.map(i => i.variantId === variantId ? { ...i, qty } : i)
+        ? prev.filter(i => lineKey(i) !== key)
+        // ⚠️ Защита на ниво state (не само UI): офертен/подарък ред не може да се
+        // вдига ръчно над количеството, което вече е отпуснато от офертата —
+        // само премахване (qty<=0) е позволено за такива редове.
+        : prev.map(i => lineKey(i) === key ? (i.fromOffer ? i : { ...i, qty }) : i)
       saveCartToStorage(next)
       return next
     })
   }, [])
 
-  const removeItem = useCallback((variantId: string) => {
+  const removeItem = useCallback((key: string) => {
     setCartItems(prev => {
-      const next = prev.filter(i => i.variantId !== variantId)
+      const next = prev.filter(i => lineKey(i) !== key)
       saveCartToStorage(next)
       return next
     })
   }, [])
 
-  // ── Авто-връщане на нормална цена, ако тригерният продукт е премахнат ──────
+  // ── Авто-връщане на нормална цена, ако тригерът/условията вече не са изпълнени ──
   // Ако клиент вземе офертата (напр. AMINO с -38%, защото Atlas Terra е в количката),
   // после махне Atlas Terra — AMINO вече не стои с офертна цена без основание.
+  // Покрива и 'product_in_cart', и 'bundle_requirements' тригери (чрез offerMatches).
   useEffect(() => {
     if (!marketingSettings || cartItems.length === 0) return
 
@@ -2073,31 +2389,208 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
       const next = prev.map(item => {
         if (!item.offerId) return item
         const offer = marketingSettings.offers.find(o => o.id === item.offerId)
-        // Ако офертата е изтрита/деактивирана — също връщаме нормална цена
-        if (!offer || !offer.active || offer.trigger_type !== 'product_in_cart') {
-          if (!offer) {
-            changed = true
-            return revertOfferPricing(item)
-          }
-          return item
+        // Ако офертата е изтрита/деактивирана — връщаме нормална цена
+        if (!offer || !offer.active) {
+          changed = true
+          return revertOfferPricing(item)
         }
-        // Проверяваме тригера спрямо ОСТАНАЛИТЕ артикули (без самия офертен ред)
-        const otherItems = prev.filter(i => i.variantId !== item.variantId)
-        const stillValid = otherItems.some(i =>
-          i.productId === offer.trigger_value &&
-          (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id)
-        )
-        if (!stillValid) {
+        // ✅ Всички "чифтосвано-управлявани" оферти (виж isPairingManagedOffer) вече се
+        // управляват изцяло от количествено-ограничения ефект по-долу (той решава и
+        // колко бройки да са на офертна цена, И кога да върне към нормална) — покрива
+        // и cross_sell+product_in_cart, И bundle+bundle_requirements с фиксирана награда.
+        // Пропускаме ги тук, за да няма двойна/конфликтна обработка на същия ред.
+        if (isPairingManagedOffer(offer, marketingSettings.offers)) return item
+        if (offer.trigger_type !== 'product_in_cart' && offer.trigger_type !== 'bundle_requirements') return item
+        // Проверяваме тригера/условията спрямо ОСТАНАЛИТЕ артикули (без самия офертен ред).
+        // ⚠️ Изключваме по lineKey, НЕ по гол variantId — иначе за self-reward bundle-и
+        // (напр. "5×20л база → +1×20л база подарък"), проверката би изключила и
+        // ПЛАТЕНИЯ ред на същия вариант (не само подарък-реда), условието изведнъж
+        // изглежда неизпълнено → подаръкът моментално се връща обратно и се слива
+        // като поредната платена бройка — точно "мигва и изчезва" бъгът.
+        const otherItems    = prev.filter(i => lineKey(i) !== lineKey(item))
+        const otherSubtotal = otherItems.reduce((s, i) => s + i.price * i.qty, 0)
+        if (!offerMatches(offer, otherItems, otherSubtotal)) {
           changed = true
           return revertOfferPricing(item)
         }
         return item
       })
       if (!changed) return prev
-      saveCartToStorage(next)
-      return next
+      // ✅ Ако reverted-ия ред вече съвпада по lineKey с друг съществуващ ред
+      // (напр. подарък-ред се връща на нормална цена, а вече имаше отделен обикновен
+      // ред за същия вариант) — сливаме ги обратно в един ред, вместо да останат
+      // два дублирани реда за едно и също нещо.
+      const merged = coalesceLines(next)
+      saveCartToStorage(merged)
+      return merged
     })
   }, [cartItems, marketingSettings])
+
+  // ── Авто-прилагане на офертна цена, ако условията вече са изпълнени ────────
+  // вече е изпълнено в количката — прилагаме офертната цена автоматично, вместо
+  // клиентът да плаща пълна цена само защото не е натиснал точно бутона на банера.
+  useEffect(() => {
+    if (!marketingSettings || cartItems.length === 0) return
+    if (!marketingSettings.cross_sell_enabled) return
+
+    setCartItems(prev => {
+      let changed = false
+      const claimedOfferIds = new Set<string>() // 1 оферта → най-много 1 засегнат ред наведнъж
+      const next = prev.map(item => {
+        // Пипаме само "чисти" редове — вече офертни редове не се пипат повторно
+        if (item.fromOffer) return item
+
+        const product = atlasProducts.find(p => p.id === item.productId)
+        const variant = product?.variants?.find(v => v.id === item.variantId)
+        if (!product || !variant) return item
+
+        // ⚠️ Изключваме по lineKey (не variantId) — за консистентност с revert ефекта:
+        // ако вече има отделен подарък-ред за същия вариант, той не бива изключен тук.
+        const otherItems    = prev.filter(i => lineKey(i) !== lineKey(item))
+        const otherSubtotal = otherItems.reduce((s, i) => s + i.price * i.qty, 0)
+
+        const matchingOffer = marketingSettings.offers.find(o =>
+          o.active &&
+          (o.type === 'cross_sell' || o.type === 'bundle') &&
+          // ✅ Всички "чифтосвано-управлявани" оферти (cross_sell+product_in_cart, И
+          // bundle+bundle_requirements с фиксирана награда) вече се обработват изцяло
+          // от количествено-ограничения ефект по-долу — пропускаме тук, за да не се
+          // конвертира ЦЕЛИЯТ ред без ограничение (старият бъг: всяка нова добавена
+          // бройка веднага ставаше "оферта", независимо от bundle тип).
+          !isPairingManagedOffer(o, marketingSettings.offers) &&
+          o.offer_product_id === item.productId &&
+          (!o.offer_variant_id || o.offer_variant_id === item.variantId) &&
+          !claimedOfferIds.has(o.id) &&
+          !isSelfRewardBundle(o, item.variantId) &&      // "купи 5 → +1 подарък" се дава само през банера
+          !o.reward_choice_product_ids?.length &&        // "клиентът избира сам" изисква изричен избор, не тихо превключване
+          !reciprocalOfferLoses(o, marketingSettings.offers) && // не позволяваме огледални А↔Б чифтове да се отстъпват взаимно
+          offerMatches(o, otherItems, otherSubtotal)
+        )
+        if (!matchingOffer) return item
+
+        const { discountedPrice, oldPrice, hasBundlePrice, hasPctDiscount } = computeOfferItemPricing(matchingOffer, variant, prev)
+        // Ако офертната цена не излиза по-изгодна от текущата — не пипаме реда
+        if (discountedPrice >= item.price && !hasBundlePrice) return item
+
+        claimedOfferIds.add(matchingOffer.id)
+        changed = true
+        return {
+          ...item,
+          price: discountedPrice,
+          comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice,
+          variantLabel: (item.originalVariantLabel ?? item.variantLabel)
+            + (hasBundlePrice ? ' (🎁 пакет)' : discountedPrice <= 0 ? ' (🎁 подарък)' : hasPctDiscount ? ` (-${matchingOffer.discount_pct}%)` : ''),
+          fromOffer: true,
+          offerType: (matchingOffer.type === 'cross_sell' ? 'cross_sell' : 'bundle') as CartItem['offerType'],
+          offerId: matchingOffer.id,
+          originalPrice: item.originalPrice ?? variant.price,
+          originalComparePrice: item.originalComparePrice ?? Number(variant.compare_price ?? 0),
+          originalVariantLabel: item.originalVariantLabel ?? item.variantLabel,
+        }
+      })
+      if (!changed) return prev
+      // ✅ FIX: без това, всеки нов "чист" ред, който бива конвертиран в офертен
+      // тук, може да получи lineKey, който вече съвпада с друг, вече конвертиран
+      // ред на СЪЩИЯ вариант+оферта (напр. при повторни добавяния след изчистване
+      // на количката) — оставаха 2+ дублирани реда вместо сливане на количествата,
+      // а removeItem/updateQty (които филтрират по lineKey) after засягаха всички
+      // дубликати наведнъж — точно бъгът "трия и се чупи количката".
+      const merged = coalesceLines(next)
+      saveCartToStorage(merged)
+      return merged
+    })
+  }, [cartItems, marketingSettings, atlasProducts])
+
+  // ── Количествено-ограничено "чифтосване" за cross-sell/bundle офертите ──────────
+  // СТАРИЯТ проблем: щом тригер-условието беше изпълнено (напр. Atlas Terra в количката,
+  // или bundle_requirements изпълнени), ЦЕЛИЯТ ред на офертния продукт (напр. AMINO) се
+  // конвертираше на офертна цена — без ограничение в количество. Резултат: добавиш ли
+  // тригер продукта още веднъж, вече съществуващия офертен ред просто растеше; а ако
+  // добавиш офертния продукт без достатъчно тригер бройки, той пак ставаше "оферта" —
+  // грешно. Освен това това важеше САМО за cross_sell+product_in_cart — ако същата -21%
+  // оферта беше направена като bundle+bundle_requirements (единично условие), изобщо не
+  // минаваше през тази защита и продължаваше да се "хваща" при всяка нова бройка.
+  //
+  // НОВА логика: офертна цена важи само за min(bundleFulfillmentQty(), налични бройки на
+  // офертния продукт) бройки — обобщено за И двата тригер типа чрез bundleFulfillmentQty()
+  // (виж isPairingManagedOffer). Останалите бройки остават на нормална цена като отделен
+  // ред. Ефектът прекомпютира при ВСЯКА промяна в количката — независимо дали продуктите
+  // са добавени един по един от началната страница, през банера, или в произволен ред —
+  // и работи и в двете посоки (конвертира при качване на бройки, връща обратно при
+  // сваляне/премахване), затова заменя изцяло старата логика за ВСИЧКИ pairing-managed
+  // оферти (вж. изключенията по-горе в двата общи ефекта).
+  useEffect(() => {
+    if (!marketingSettings || cartItems.length === 0) return
+    if (!marketingSettings.cross_sell_enabled) return
+
+    const pairingOffers = marketingSettings.offers.filter(o => isPairingManagedOffer(o, marketingSettings.offers))
+    if (pairingOffers.length === 0) return
+
+    setCartItems(prev => {
+      let working = prev
+      let changed = false
+
+      for (const offer of pairingOffers) {
+        // ✅ Обобщено за 'product_in_cart' (бройки тригер × reward_qty) И
+        // 'bundle_requirements' (колко пълни комплекта от условията са налични × reward_qty)
+        const targetOfferedQtyRaw = bundleFulfillmentQty(offer, working)
+
+        // "Пул" от редове, които МОГАТ да принадлежат на тази оферта: обикновени
+        // редове на офертния продукт + вече офертни редове от ТАЗИ оферта. Редове,
+        // офертирани от ДРУГА оферта, не се пипат (за да няма конфликт между офертите).
+        const poolLines = working.filter(i =>
+          i.productId === offer.offer_product_id &&
+          (!offer.offer_variant_id || i.variantId === offer.offer_variant_id) &&
+          (!i.fromOffer || i.offerId === offer.id)
+        )
+        const totalQty = poolLines.reduce((s, i) => s + i.qty, 0)
+        if (totalQty === 0) continue
+
+        const targetOfferedQty  = Math.min(targetOfferedQtyRaw, totalQty)
+        const currentOfferedQty = poolLines.filter(i => i.fromOffer).reduce((s, i) => s + i.qty, 0)
+        // Очакван брой редове: 1 офертен (ако targetOfferedQty>0) + 1 нормален (ако
+        // остава плейн количество) — ако вече точно това имаме, няма какво да правим.
+        const expectedLineCount = (targetOfferedQty > 0 ? 1 : 0) + (totalQty - targetOfferedQty > 0 ? 1 : 0)
+        if (targetOfferedQty === currentOfferedQty && poolLines.length === expectedLineCount) continue
+
+        const product = atlasProducts.find(p => p.id === offer.offer_product_id)
+        const variant = product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
+        if (!product || !variant) continue
+
+        const baseLine = poolLines[0]
+        const cleanLabel = baseLine.originalVariantLabel ?? baseLine.variantLabel
+        const { discountedPrice, oldPrice, hasBundlePrice, hasPctDiscount } = computeOfferItemPricing(offer, variant, working)
+
+        const replacement: CartItem[] = []
+        if (targetOfferedQty > 0) {
+          replacement.push({
+            productId: product.id, variantId: variant.id, productName: baseLine.productName,
+            variantLabel: cleanLabel + (hasBundlePrice ? ' (🎁 пакет)' : discountedPrice <= 0 ? ' (🎁 подарък)' : hasPctDiscount ? ` (-${offer.discount_pct}%)` : ''),
+            price: discountedPrice, comparePrice: oldPrice > discountedPrice ? oldPrice : discountedPrice,
+            qty: targetOfferedQty, emoji: baseLine.emoji, img: baseLine.img, size_liters: variant.size_liters,
+            fromOffer: true, offerType: 'cross_sell', offerId: offer.id,
+            originalPrice: variant.price, originalComparePrice: Number(variant.compare_price ?? 0),
+            originalVariantLabel: cleanLabel,
+          })
+        }
+        const plainQty = totalQty - targetOfferedQty
+        if (plainQty > 0) {
+          replacement.push({
+            productId: product.id, variantId: variant.id, productName: baseLine.productName,
+            variantLabel: cleanLabel, price: variant.price, comparePrice: Number(variant.compare_price ?? 0),
+            qty: plainQty, emoji: baseLine.emoji, img: baseLine.img, size_liters: variant.size_liters,
+          })
+        }
+
+        working = replacePoolLines(working, poolLines, replacement)
+        changed = true
+      }
+
+      if (!changed) return prev
+      saveCartToStorage(working)
+      return working
+    })
+  }, [cartItems, marketingSettings, atlasProducts])
 
   const clearCart = useCallback(() => { setCartItems([]); clearCartStorage() }, [])
 

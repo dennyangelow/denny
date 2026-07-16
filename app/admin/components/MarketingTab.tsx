@@ -7,7 +7,14 @@ import { toast, ToastContainer } from '@/components/ui/Toast'
 
 // ─── Типове ───────────────────────────────────────────────────────────────────
 
-export interface BundleRequirement { product_id: string; variant_id: string; qty: number }
+export interface BundleRequirement {
+  product_id: string
+  variant_id: string
+  qty: number
+  product_ids?: string[]   // ✅ Групово условие: сумират се количествата на ВСИЧКИ изброени продукти заедно
+                            //    (напр. "който и да е от Atlas Terra/AMINO/NITRO, стига да е 20л")
+  size_liters?: number     // ✅ За групово условие: филтър по литри (напр. 20 = "който и да е 20л вариант")
+}
 
 export interface UpsellOffer {
   id: string
@@ -24,6 +31,8 @@ export interface UpsellOffer {
   trigger_variant_id?: string
   offer_product_id?: string
   offer_variant_id?: string
+  reward_choice_product_ids?: string[]  // ✅ Ако е зададено — клиентът избира САМ измежду тези продукти коя е наградата
+  reward_choice_size_liters?: number    // ✅ Литри на варианта, който клиентът получава от избрания продукт
   discount_pct?: number
   bundle_price?: number   // ✅ Пакетна цена: ако е зададена (>0), взима превес над discount_pct.
                           //    Означава крайна обща цена за тригер-варианта + офертния вариант заедно.
@@ -469,6 +478,14 @@ function BundleRequirementsEditor({ requirements, onChange, products, currencySy
   const remove = (idx: number) => { const next = requirements.filter((_, i) => i !== idx); reqRef.current = next; onChange(next) }
   const add = () => { const next = [...requirements, { product_id: '', variant_id: '', qty: 1 }]; reqRef.current = next; onChange(next) }
 
+  const chipStyle = (active: boolean, color = '#ea580c') => ({
+    display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 9,
+    border: active ? `1.5px solid ${color}` : '1.5px solid #e2e8f0',
+    background: active ? `${color}12` : '#fff',
+    fontSize: 12, fontWeight: 700, color: active ? color : '#475569',
+    cursor: 'pointer', fontFamily: 'inherit',
+  })
+
   return (
     <div style={{ marginTop: 12 }}>
       <Label hint="Всички условия трябва да са изпълнени едновременно в количката (или в поръчката, за post-purchase)">
@@ -476,6 +493,7 @@ function BundleRequirementsEditor({ requirements, onChange, products, currencySy
       </Label>
       <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
         {requirements.map((req, idx) => {
+          const isGroup = Array.isArray(req.product_ids)
           const product = products.find(p => p.id === req.product_id)
           const variant = product?.variants?.find(v => v.id === req.variant_id)
           return (
@@ -487,21 +505,79 @@ function BundleRequirementsEditor({ requirements, onChange, products, currencySy
                     style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}>✕ Премахни</button>
                 )}
               </div>
-              <ProductVariantPicker
-                label="Продукт" hint="Кой продукт трябва да е в количката"
-                productId={req.product_id} variantId={req.variant_id}
-                onProductChange={v => update(idx, { product_id: v, variant_id: '' })}
-                onVariantChange={v => update(idx, { variant_id: v })}
-                products={products} currencySymbol={currencySymbol}
-              />
-              <div style={{ marginTop: 8, maxWidth: 140 }}>
-                <Label hint="минимален брой">Количество</Label>
-                <Field type="number" value={req.qty || 1} onChange={v => update(idx, { qty: Math.max(1, Number(v)) })} placeholder="1" />
+
+              {/* ✅ Режим: конкретен продукт vs. група продукти (сумират се заедно) */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                <button type="button" onClick={() => update(idx, { product_ids: undefined, size_liters: undefined })}
+                  style={chipStyle(!isGroup)}>Конкретен продукт</button>
+                <button type="button" onClick={() => update(idx, { product_id: '', variant_id: '', product_ids: req.product_ids || [], size_liters: req.size_liters || 20 })}
+                  style={chipStyle(isGroup)}>Група продукти (кой да е)</button>
               </div>
-              {variant && (
-                <div style={{ marginTop: 6, fontSize: 11, color: '#9a3412' }}>
-                  → нужни {req.qty || 1} × {variant.label} ({(variant.price * (req.qty || 1)).toFixed(2)} {currencySymbol} общо при пълна цена)
-                </div>
+
+              {isGroup ? (
+                <>
+                  <Label hint="Сумират се количествата на ВСИЧКИ избрани продукти заедно, независимо в каква комбинация">
+                    Кои продукти да се броят заедно
+                  </Label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 10 }}>
+                    {products.map(p => {
+                      const checked = (req.product_ids || []).includes(p.id)
+                      return (
+                        <button key={p.id} type="button"
+                          onClick={() => {
+                            const cur = req.product_ids || []
+                            const next = checked ? cur.filter(id => id !== p.id) : [...cur, p.id]
+                            update(idx, { product_ids: next })
+                          }}
+                          style={chipStyle(checked)}>
+                          {checked ? '✓ ' : ''}{p.emoji || '🌿'} {p.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const }}>
+                    <div style={{ maxWidth: 140 }}>
+                      <Label hint="напр. 20 за 20-литрови туби">Литри (размер на варианта)</Label>
+                      <Field type="number" value={req.size_liters || 0} onChange={v => update(idx, { size_liters: Math.max(0, Number(v)) })} placeholder="20" />
+                    </div>
+                    <div style={{ maxWidth: 140 }}>
+                      <Label hint="общо, сумирано между продуктите">Количество</Label>
+                      <Field type="number" value={req.qty || 1} onChange={v => update(idx, { qty: Math.max(1, Number(v)) })} placeholder="5" />
+                    </div>
+                  </div>
+                  {(req.product_ids?.length || 0) === 0 ? (
+                    <div style={{ marginTop: 8, fontSize: 11.5, color: '#dc2626', fontWeight: 700, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 10px' }}>
+                      ⚠️ Не е чекнат нито един продукт по-горе — условието НЯМА да проработи. Чекни поне 2 продукта.
+                    </div>
+                  ) : (req.size_liters || 0) === 0 ? (
+                    <div style={{ marginTop: 8, fontSize: 11.5, color: '#dc2626', fontWeight: 700, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 10px' }}>
+                      ⚠️ Литрите са 0 — задай реалния размер (напр. 20), иначе условието не филтрира по вариант правилно.
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 6, fontSize: 11, color: '#9a3412' }}>
+                      → нужни общо {req.qty || 1} × {req.size_liters}л туби, сумирано между: {(req.product_ids || []).map(id => products.find(p => p.id === id)?.name || '?').join(' + ')}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <ProductVariantPicker
+                    label="Продукт" hint="Кой продукт трябва да е в количката"
+                    productId={req.product_id} variantId={req.variant_id}
+                    onProductChange={v => update(idx, { product_id: v, variant_id: '' })}
+                    onVariantChange={v => update(idx, { variant_id: v })}
+                    products={products} currencySymbol={currencySymbol}
+                  />
+                  <div style={{ marginTop: 8, maxWidth: 140 }}>
+                    <Label hint="минимален брой">Количество</Label>
+                    <Field type="number" value={req.qty || 1} onChange={v => update(idx, { qty: Math.max(1, Number(v)) })} placeholder="1" />
+                  </div>
+                  {variant && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: '#9a3412' }}>
+                      → нужни {req.qty || 1} × {variant.label} ({(variant.price * (req.qty || 1)).toFixed(2)} {currencySymbol} общо при пълна цена)
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )
@@ -570,7 +646,10 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginTop: 16 }}>
             <div>
               <Label>Тип оферта</Label>
-              <select value={offer.type} onChange={e => onUpdate({ type: e.target.value as UpsellOffer['type'] })}
+              <select value={offer.type} onChange={e => {
+                const nextType = e.target.value as UpsellOffer['type']
+                onUpdate(nextType === 'bundle' ? { type: nextType } : { type: nextType, reward_choice_product_ids: undefined, reward_choice_size_liters: undefined })
+              }}
                 style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #e2e8f0', borderRadius: 12, fontFamily: 'inherit', fontSize: 13, background: '#fff', color: '#0f172a', outline: 'none' }}>
                 {(Object.keys(TYPE_META) as UpsellOffer['type'][]).map(t => <option key={t} value={t}>{TYPE_META[t].icon} {TYPE_META[t].label}</option>)}
               </select>
@@ -633,19 +712,71 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
                 🎁 Награда (какво получава клиентът)
               </div>
             )}
-            <ProductVariantPicker
-              productId={offer.offer_product_id || ''}
-              variantId={offer.offer_variant_id || ''}
-              onProductChange={v => {
-                // Авто-копира снимката на продукта в офертата
-                const selProd = products.find((p: OwnProduct) => p.id === v)
-                const autoImg = selProd?.image_url || ''
-                onUpdate({ offer_product_id: v, offer_variant_id: '', image_url: autoImg || offer.image_url })
-              }}
-              onVariantChange={v => onUpdate({ offer_variant_id: v })}
-              products={products}
-              currencySymbol={currencySymbol}
-            />
+            {offer.type === 'bundle' && (() => {
+              const isChoice = !!offer.reward_choice_product_ids
+              const chip = (active: boolean) => ({
+                display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 9,
+                border: active ? '1.5px solid #ea580c' : '1.5px solid #e2e8f0',
+                background: active ? '#fff7ed' : '#fff',
+                fontSize: 12, fontWeight: 700, color: active ? '#9a3412' : '#475569',
+                cursor: 'pointer', fontFamily: 'inherit',
+              })
+              return (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                  <button type="button" onClick={() => onUpdate({ reward_choice_product_ids: undefined, reward_choice_size_liters: undefined })}
+                    style={chip(!isChoice)}>Фиксиран продукт</button>
+                  <button type="button" onClick={() => onUpdate({ reward_choice_product_ids: offer.reward_choice_product_ids || [], reward_choice_size_liters: offer.reward_choice_size_liters || 20, offer_product_id: '', offer_variant_id: '' })}
+                    style={chip(isChoice)}>Клиентът избира сам</button>
+                </div>
+              )
+            })()}
+            {offer.type === 'bundle' && offer.reward_choice_product_ids ? (
+              <>
+                <Label hint="Клиентът ще види бутони с тези продукти и сам ще посочи кой иска като подарък">
+                  Измежду кои продукти да избира
+                </Label>
+                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 10 }}>
+                  {products.map(p => {
+                    const checked = (offer.reward_choice_product_ids || []).includes(p.id)
+                    return (
+                      <button key={p.id} type="button"
+                        onClick={() => {
+                          const cur = offer.reward_choice_product_ids || []
+                          const next = checked ? cur.filter(id => id !== p.id) : [...cur, p.id]
+                          onUpdate({ reward_choice_product_ids: next })
+                        }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 9,
+                          border: checked ? '1.5px solid #ea580c' : '1.5px solid #e2e8f0',
+                          background: checked ? '#fff7ed' : '#fff',
+                          fontSize: 12, fontWeight: 700, color: checked ? '#9a3412' : '#475569',
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}>
+                        {checked ? '✓ ' : ''}{p.emoji || '🌿'} {p.name}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div style={{ maxWidth: 140 }}>
+                  <Label hint="кой вариант (по литри) получава клиентът, независимо кой продукт избере">Литри на подаръка</Label>
+                  <Field type="number" value={offer.reward_choice_size_liters || 0} onChange={v => onUpdate({ reward_choice_size_liters: Math.max(0, Number(v)) })} placeholder="20" />
+                </div>
+              </>
+            ) : (
+              <ProductVariantPicker
+                productId={offer.offer_product_id || ''}
+                variantId={offer.offer_variant_id || ''}
+                onProductChange={v => {
+                  // Авто-копира снимката на продукта в офертата
+                  const selProd = products.find((p: OwnProduct) => p.id === v)
+                  const autoImg = selProd?.image_url || ''
+                  onUpdate({ offer_product_id: v, offer_variant_id: '', image_url: autoImg || offer.image_url })
+                }}
+                onVariantChange={v => onUpdate({ offer_variant_id: v })}
+                products={products}
+                currencySymbol={currencySymbol}
+              />
+            )}
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' as const }}>
             <div style={{ maxWidth: 200 }}>
