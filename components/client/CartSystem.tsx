@@ -1326,9 +1326,7 @@ function CartDrawer({
   const totalSavings      = items.reduce((s, i) => i.comparePrice > i.price ? s + (i.comparePrice - i.price) * i.qty : s, 0)
   const shipping          = subtotal >= freeShippingAbove ? 0 : shippingPrice
   const total             = subtotal + shipping
-  const totalLiters       = items.reduce((s, i) => s + i.size_liters * i.qty, 0)
   const ms                = marketingSettings
-  const hasOfferItem      = items.some(i => i.fromOffer)
 
   // ── Тежки пратки: >1 бр. × 20л канистра → предупреждение ──────────────────
   const heavyItemsQty   = items.filter(i => i.size_liters >= 20).reduce((s, i) => s + i.qty, 0)
@@ -1658,8 +1656,6 @@ function CartDrawer({
           .cart-city-addr .cart-input { margin-bottom: 7px }
           /* Потискаме mob-nav (z-index:199) — overlay-ът е z-index:999998 */
           /* Двата елемента вече са под overlay автоматично — без нужда от override */
-          /* Soil analysis — скрива се ако НЯМА офертен артикул */
-          .soil-analysis-hide-mobile { display: none !important; }
         }
       `}</style>
 
@@ -1758,37 +1754,13 @@ function CartDrawer({
 
             {items.length > 0 && (
               <div className="cart-footer">
-                {/* ── 🔬 Анализ на почвата ─────────────────────────────────
-                    Десктоп:  винаги видим (ако има литри)
-                    Мобилни:  видим САМО ако hasOfferItem = true
-                              Скрива се с CSS клас .soil-analysis-hide-mobile
-                    При ≥60л: congratulations banner (винаги)
-                    ─────────────────────────────────────────────────────── */}
-                {/* Upsell + Cross-sell — ПЪРВО оферти, после анализ */}
+                {/* Upsell + Cross-sell */}
                 {bundleProgressOffers.length > 0 && (
                   <div style={{ marginBottom: 6, display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
                     {bundleProgressOffers.map(o => <BundleProgressCard key={o.id} offer={o} products={products} cartItems={items} />)}
                   </div>
                 )}
                 <OffersGroup upsellOffers={upsellOffers} crossSellOffers={dedupedCrossAndBundle} products={products} onAddToCart={onAddToCart} fmt={fmt} cartItems={items} />
-
-                {/* 🔬 Анализ на почвата — СЛЕД офертите, не се мести при скриване */}
-                {totalLiters >= 60 ? (
-                  <div style={{ background: 'linear-gradient(135deg,#14532d,#166534)', borderRadius: 11, padding: '11px 14px', marginBottom: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 20, flexShrink: 0 }}>🔬</span>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: '#86efac', marginBottom: 2 }}>БЕЗПЛАТЕН АНАЛИЗ НА ПОЧВАТА!</div>
-                      <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,.85)', lineHeight: 1.45 }}>С тази поръчка ({totalLiters}л) получаваш безплатен почвен, листен и воден анализ.</div>
-                    </div>
-                  </div>
-                ) : totalLiters > 0 ? (
-                  <div className={hasOfferItem ? '' : 'soil-analysis-hide-mobile'} style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 11, padding: '10px 13px', marginBottom: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span style={{ fontSize: 17, flexShrink: 0 }}>🔬</span>
-                    <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.45 }}>
-                      Добави още <strong>{60 - totalLiters}л</strong> и получи <strong>безплатен анализ на почвата</strong>!
-                    </div>
-                  </div>
-                ) : null}
 
                 {/* Ценово резюме */}
                 <div style={{ background: '#f8fafc', borderRadius: 14, padding: '13px 15px', marginBottom: 13, border: '1px solid #f1f5f9' }}>
