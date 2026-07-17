@@ -17,6 +17,7 @@ import { FadeIn } from '@/components/marketing/FadeIn'
 import { SafeImg } from '@/components/client/SafeImg'
 import { AffiliateSection, CategoryLinksSection } from '@/components/client/AffiliateSection'
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
+import OffersShowcase from '@/components/marketing/OffersShowcase'
 import './homepage.css'
 
 // ✅ ISR: 5 минути. Данните се обновяват на фона — не при всяка заявка.
@@ -1037,6 +1038,19 @@ export default async function HomePage() {
                 sitePhone={settings.site_phone}
               />
             </div>
+
+            {/* 🎁 Активни оферти и пакети — обща витрина, извън drawer-а на количката */}
+            {atlasProducts.length > 0 && (
+              <FadeIn>
+                <div className="atlas-offers-wrap">
+                  <OffersShowcase
+                    products={atlasProducts}
+                    context="homepage"
+                    currencySymbol={settings.currency_symbol}
+                  />
+                </div>
+              </FadeIn>
+            )}
 
             {atlasProducts.length > 0 && (
               <FadeIn>

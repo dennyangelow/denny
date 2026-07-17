@@ -136,32 +136,20 @@ export function CartHeaderButton() {
 }
 
 // ─── Типове ───────────────────────────────────────────────────────────────────
-interface BundleRequirement {
-  product_id: string; variant_id: string; qty: number
-  product_ids?: string[]   // ✅ Групово условие: сумират се количествата на ВСИЧКИ изброени продукти заедно
-  size_liters?: number     // ✅ За групово условие: филтър по литри
-}
-interface UpsellOffer {
-  id: string; type: 'cart_upsell' | 'cross_sell' | 'post_purchase' | 'bundle'; active: boolean
-  title: string; description: string; emoji: string; image_url?: string
-  badge_text?: string; badge_color?: string
-  trigger_type: 'always' | 'product_in_cart' | 'cart_above' | 'cart_below' | 'bundle_requirements'
-  trigger_value?: string; trigger_variant_id?: string; offer_product_id?: string; offer_variant_id?: string
-  reward_choice_product_ids?: string[]   // ✅ Ако е зададено — клиентът избира сам измежду тези продукти
-  reward_choice_size_liters?: number     // ✅ Литри на избрания подарък
-  discount_pct?: number; bundle_price?: number; sort_order: number
-  bundle_requirements?: BundleRequirement[]   // ✅ Условия за bundle_requirements тригер — множество продукти+количества
-  reward_qty?: number                          // ✅ Колко бройки от offer_product_id се дават като награда (default 1)
-}
-interface MarketingSettings {
-  upsell_enabled: boolean; cross_sell_enabled: boolean; post_purchase_enabled: boolean
-  progress_bar_enabled: boolean; progress_goal_amount: number; progress_goal_label: string
-  post_purchase_delay: number; offers: UpsellOffer[]
-}
-interface ProductVariant {
-  id: string; product_id: string; label: string; size_liters: number
-  price: number; compare_price: number; price_per_liter: number; stock: number; active: boolean
-}
+// ✅ BundleRequirement / UpsellOffer / MarketingSettings и цялата чиста match-ваща
+// логика (offerMatches, computeBundleProgress, isPairingManagedOffer...) вече
+// живеят в lib/offers.ts — единствен източник на истина, споделен и с
+// OffersShowcase.tsx (homepage + продуктова страница), за да не се разминава
+// поведението между количката и промо секциите на страниците.
+import type {
+  BundleRequirement, UpsellOffer, MarketingSettings,
+  OfferVariantLike as ProductVariant,
+} from '@/lib/offers'
+import {
+  requirementsMet, offerMatches, isSelfRewardBundle, reciprocalOfferLoses,
+  computeBundleProgress, bundleHasProgress, offerIsSelfRewardAtOfferLevel,
+  isPairingManagedOffer, bundleFulfillmentQty, computeOfferItemPricing,
+} from '@/lib/offers'
 interface AtlasProduct {
   id: string; slug: string; name: string; subtitle: string; desc: string; badge: string; emoji: string; img: string
   price: number; comparePrice: number; priceLabel: string; features: string[]; variants?: ProductVariant[]
@@ -239,52 +227,6 @@ function makeFmt(sym: string) {
     fmtLiter: (n: number) => n.toFixed(2) + ' ' + sym + '/л',
   }
 }
-// ✅ Проверява дали количката съдържа ВСИЧКИ изисквания на bundle_requirements
-// (сумира количеството по product_id+variant_id, за да работи и "5× един и същ продукт";
-// за групови условия — product_ids+size_liters — сумира между ВСИЧКИ изброени продукти,
-// в каквато и да е комбинация, стига размерът в литри да съвпада)
-function requirementsMet(reqs: BundleRequirement[] | undefined, items: CartItem[]): boolean {
-  if (!reqs || reqs.length === 0) return false
-  return reqs.every(r => {
-    const have = r.product_ids && r.product_ids.length > 0
-      ? items
-          .filter(i => r.product_ids!.includes(i.productId) && (!r.size_liters || Number(i.size_liters) === Number(r.size_liters)))
-          .reduce((sum, i) => sum + i.qty, 0)
-      : items
-          .filter(i => i.productId === r.product_id && (!r.variant_id || i.variantId === r.variant_id))
-          .reduce((sum, i) => sum + i.qty, 0)
-    return have >= (r.qty || 1)
-  })
-}
-
-// ✅ Bundle, чиято награда е СЪЩИЯТ продукт+вариант като едно от условията му
-// (напр. купи 5×20л → получи +1×20л подарък). За тези трябва да броим по offerId,
-// не по обикновено присъствие на варианта в количката. Покрива и групови условия —
-// ако офертният продукт е сред изброените в групата, пак се брои за self-reward.
-function isSelfRewardBundle(offer: UpsellOffer, variantId: string): boolean {
-  if (offer.type !== 'bundle' || !offer.offer_product_id) return false
-  return !!offer.bundle_requirements?.some(r =>
-    r.product_ids && r.product_ids.length > 0
-      ? r.product_ids.includes(offer.offer_product_id!)
-      : r.product_id === offer.offer_product_id && (!r.variant_id || r.variant_id === variantId)
-  )
-}
-
-function offerMatches(offer: UpsellOffer, items: CartItem[], subtotal: number): boolean {
-  if (!offer.active) return false
-  switch (offer.trigger_type) {
-    case 'always':          return true
-    case 'product_in_cart': return items.some(i =>
-      i.productId === offer.trigger_value &&
-      (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id)
-    )
-    case 'cart_above':      return subtotal > Number(offer.trigger_value || 0)
-    case 'cart_below':      return subtotal < Number(offer.trigger_value || 999999)
-    case 'bundle_requirements': return requirementsMet(offer.bundle_requirements, items)
-    default:                return false
-  }
-}
-
 // Връща артикула към нормалната му (недисконтирана) цена и премахва офертните флагове —
 // ползва се, когато тригерният продукт е премахнат от количката.
 function revertOfferPricing(item: CartItem): CartItem {
@@ -301,64 +243,6 @@ function revertOfferPricing(item: CartItem): CartItem {
     size_liters: item.size_liters,
     // fromOffer / offerType / offerId / original* умишлено НЕ се пренасят — вече е нормален артикул
   }
-}
-
-// ✅ Обща логика за изчисляване на офертна цена на артикул спрямо активна оферта —
-// ползва се и в OfferCard (клик на банера), и в авто-прилагането в CartSystem
-// (когато условията вече са изпълнени, но продуктите са добавени поотделно).
-function computeOfferItemPricing(offer: UpsellOffer, variant: ProductVariant, cartItems: CartItem[]) {
-  const variantPrice   = variant.price
-  const variantCompare = Number(variant.compare_price ?? 0)
-  const triggerItem = offer.trigger_type === 'product_in_cart'
-    ? cartItems.find(i => i.productId === offer.trigger_value && (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id))
-    : undefined
-  const hasBundlePrice  = !!(offer.bundle_price && offer.bundle_price > 0 && triggerItem)
-  const bundleItemPrice = hasBundlePrice ? +Math.max(0, offer.bundle_price! - triggerItem!.price).toFixed(2) : 0
-  const hasPctDiscount  = !hasBundlePrice && !!(offer.discount_pct && offer.discount_pct > 0)
-  const discountedPrice = hasBundlePrice ? bundleItemPrice
-    : hasPctDiscount ? +(variantPrice * (1 - offer.discount_pct! / 100)).toFixed(2) : variantPrice
-  const oldPrice = hasBundlePrice ? variantPrice
-    : hasPctDiscount ? variantPrice : variantCompare > variantPrice ? variantCompare : 0
-  return { variantPrice, variantCompare, hasBundlePrice, hasPctDiscount, discountedPrice, oldPrice }
-}
-
-// ✅ При две "огледални" оферти (А тригерва отстъпка на Б, И Б тригерва отстъпка на А
-// едновременно), auto-apply ефектът в CartSystem би отстъпил и двата продукта един на
-// друг наведнъж — сметките не излизат (реален пример: 129.64€ очаквано срещу 95.18€ реално).
-// Тази функция засича такъв огледален чифт и оставя само ЕДНАТА посока да важи —
-// печели офертата с по-нисък sort_order (контролируемо от админ панела чрез стрелките
-// горе/долу на офертата), а при равен sort_order — по-малкото id (стабилно, детерминирано).
-function reciprocalOfferLoses(offer: UpsellOffer, allOffers: UpsellOffer[]): boolean {
-  if (offer.trigger_type !== 'product_in_cart' || !offer.offer_product_id) return false
-  const mirror = allOffers.find(o2 =>
-    o2.id !== offer.id && o2.active &&
-    (o2.type === 'cross_sell' || o2.type === 'bundle') &&
-    o2.trigger_type === 'product_in_cart' &&
-    o2.trigger_value === offer.offer_product_id &&
-    (!o2.trigger_variant_id || !offer.offer_variant_id || o2.trigger_variant_id === offer.offer_variant_id) &&
-    o2.offer_product_id === offer.trigger_value &&
-    (!o2.offer_variant_id || !offer.trigger_variant_id || o2.offer_variant_id === offer.trigger_variant_id)
-  )
-  if (!mirror) return false
-  if (mirror.sort_order !== offer.sort_order) return mirror.sort_order < offer.sort_order
-  return mirror.id < offer.id
-}
-
-// ✅ За всяко условие на bundle_requirements — колко има клиентът срещу колко трябват.
-// За групови условия (product_ids+size_liters) сумира между ВСИЧКИ изброени продукти.
-function computeBundleProgress(offer: UpsellOffer, items: CartItem[]): { req: BundleRequirement; have: number; need: number }[] {
-  return (offer.bundle_requirements || []).map(r => {
-    const have = r.product_ids && r.product_ids.length > 0
-      ? items.filter(i => r.product_ids!.includes(i.productId) && (!r.size_liters || Number(i.size_liters) === Number(r.size_liters))).reduce((s, i) => s + i.qty, 0)
-      : items.filter(i => i.productId === r.product_id && (!r.variant_id || i.variantId === r.variant_id)).reduce((s, i) => s + i.qty, 0)
-    return { req: r, have, need: r.qty || 1 }
-  })
-}
-// Има ли клиентът НАЧАЛО на прогрес по тази оферта (поне 1 бр. от някое условие),
-// но условията още не са напълно изпълнени — за да покажем "почти" банер, не от нулата.
-function bundleHasProgress(offer: UpsellOffer, items: CartItem[]): boolean {
-  const progress = computeBundleProgress(offer, items)
-  return progress.some(p => p.have > 0) && progress.some(p => p.have < p.need)
 }
 
 // ✅ Уникален идентификатор за РЕД в количката. Преди — цялата количка беше keyed
@@ -403,49 +287,6 @@ function replacePoolLines(arr: CartItem[], pool: CartItem[], replacement: CartIt
 }
 
 
-// ✅ Офертен продукт, който е и част от собствените си bundle_requirements условия
-// (self-reward, напр. "5×20л база → +1×20л база подарък") — на офертно ниво, без да
-// изисква конкретен variantId. Ползва се за да изключим тези оферти от "чифтосващата"
-// логика по-долу — те се дават САМО през изричен клик на банера, никога автоматично.
-function offerIsSelfRewardAtOfferLevel(offer: UpsellOffer): boolean {
-  if (!offer.offer_product_id) return false
-  return !!offer.bundle_requirements?.some(r =>
-    r.product_ids && r.product_ids.length > 0 ? r.product_ids.includes(offer.offer_product_id!) : r.product_id === offer.offer_product_id
-  )
-}
-// ✅ Офертите, които трябва да минават през количествено-ограничения "чифтосващ" ефект
-// (не през общия auto-apply/revert) — фиксирана награда (не "избери сам"), не self-reward,
-// не губеща огледален чифт, с тригер тип 'product_in_cart' ИЛИ 'bundle_requirements'.
-// Покрива и cross-sell, и bundle офертен тип — независимо кой избере админът, поведението
-// е едно и също (количествено ограничено, не "всичко или нищо").
-function isPairingManagedOffer(offer: UpsellOffer, allOffers: UpsellOffer[]): boolean {
-  return offer.active &&
-    (offer.type === 'cross_sell' || offer.type === 'bundle') &&
-    (offer.trigger_type === 'product_in_cart' || offer.trigger_type === 'bundle_requirements') &&
-    !!offer.offer_product_id &&
-    !offer.reward_choice_product_ids?.length &&
-    !offerIsSelfRewardAtOfferLevel(offer) &&
-    !reciprocalOfferLoses(offer, allOffers)
-}
-// ✅ Колко бройки от офертния продукт МОГАТ да са на офертна цена в момента, според
-// текущо изпълнените "чифтове"/комплекти на тригера:
-//  - 'product_in_cart': бройки на тригер-продукта × reward_qty
-//  - 'bundle_requirements': колко ПЪЛНИ комплекта от условията са налични (най-малкото
-//    floor(have/need) измежду всички условия) × reward_qty
-function bundleFulfillmentQty(offer: UpsellOffer, items: CartItem[]): number {
-  if (offer.trigger_type === 'product_in_cart') {
-    const triggerQty = items
-      .filter(i => i.productId === offer.trigger_value && (!offer.trigger_variant_id || i.variantId === offer.trigger_variant_id))
-      .reduce((s, i) => s + i.qty, 0)
-    return triggerQty * (offer.reward_qty || 1)
-  }
-  if (offer.trigger_type === 'bundle_requirements' && offer.bundle_requirements?.length) {
-    const progress = computeBundleProgress(offer, items)
-    const sets = Math.min(...progress.map(p => Math.floor(p.have / p.need)))
-    return isFinite(sets) && sets > 0 ? sets * (offer.reward_qty || 1) : 0
-  }
-  return 0
-}
 // ✅ За визуалния таг "🔗 Част от активна оферта" върху ОБИКНОВЕНИ (не офертни) редове,
 // които в момента действат като тригер/условие за вече активирана "чифтосваща" оферта —
 // за да е ясно на клиента кои продукти "отключват" отстъпката, не само кой е отстъпен.
@@ -2629,6 +2470,13 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('cart:count', { detail: totalItems }))
   }, [totalItems])
+
+  // ✅ Broadcast на пълния масив от артикули — OffersShowcase (на homepage и на
+  // продуктовата страница) слуша това, за да показва bundle прогрес ("имаш 3 от 5")
+  // синхронно с реалната количка, без да се налага да отваря drawer-а.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('cart:items', { detail: cartItems }))
+  }, [cartItems])
 
   if (!hydrated) return (
     hideProductGrid ? null : (

@@ -12,12 +12,14 @@
 //     продуктите само за нуждите на drawer-а (ъпсели, cross-sell, post-purchase).
 //   - Всички v15 подобрения запазени.
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { HeaderClient } from '@/components/client/HeaderClient'
 import { CartSystem }   from '@/components/client/CartSystem'
 import SiteFooter       from '@/components/layout/SiteFooter'
+import OffersShowcase   from '@/components/marketing/OffersShowcase'
+import type { MarketingSettings } from '@/lib/offers'
 import './own-produkt.css'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -243,6 +245,18 @@ export default function OwnProduktClient({
   )
   const [added,     setAdded]     = useState(false)
 
+  // ✅ Маркетинг офертите (cross-sell/bundle) за секцията "Още по-изгодно" —
+  // сам route, който вече ползва CartSystem, за да остане в синхрон с drawer-а.
+  const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/marketing', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled && data) setMarketingSettings(data) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   const settings     = initialSettings
   const sym          = settings.currency_symbol
   const fmtFn        = (n: number) => fmt(n, sym)
@@ -276,6 +290,8 @@ export default function OwnProduktClient({
     setAdded(true)
     setTimeout(() => setAdded(false), 2500)
   }, [variant, isOOS, product])
+
+  const atlasProducts = [normalizeToAtlasProduct(product), ...related.map(normalizeToAtlasProduct)]
 
   const usageLines = (product.usage_notes || '')
     .split(/\.\s*/).map(s => s.replace(/^[^:]+:\s*/, '').trim()).filter(Boolean)
@@ -319,7 +335,7 @@ export default function OwnProduktClient({
       />
 
       <CartSystem
-        atlasProducts={[normalizeToAtlasProduct(product), ...related.map(normalizeToAtlasProduct)]}
+        atlasProducts={atlasProducts}
         shippingPrice={shippingMin}
         freeShippingAbove={freeAbove}
         siteEmail={settings.site_email}
@@ -518,6 +534,20 @@ export default function OwnProduktClient({
               </div>
             </div>
           </div>{/* /op-grid */}
+
+          {/* 🎁 Активни оферти/пакети за ТОЗИ продукт — на цяла ширина, под грида */}
+          {marketingSettings && (
+            <div style={{ marginBottom: 32 }}>
+              <OffersShowcase
+                offers={marketingSettings.offers}
+                products={atlasProducts}
+                context="product"
+                currentProductId={product.id}
+                currentVariantId={selVariant?.id}
+                currencySymbol={sym}
+              />
+            </div>
+          )}
 
           {/* ══ SEO CONTENT СЕКЦИИ ══ */}
           <div className="op-content">

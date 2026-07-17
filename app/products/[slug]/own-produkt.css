@@ -779,3 +779,185 @@
   .op-grid { grid-template-columns: 1fr; }
   .op-sticky { position: static; }
 }
+
+/* ══ MARKETING OFFERS SHOWCASE (споделено с homepage.css) ═══════════════════ */
+/* Компактни, хоризонтални карти — бял фон + цветна лява рамка (в тон с
+   OfferCard-а вътре в количката), НЕ голяма плътна зелена кутия — за да не
+   "разтяга" страницата и да остане четимо на бърз поглед. */
+.op-page .mk-offers { margin: 4px 0 0; }
+.op-page .mk-offers--product {
+  background: var(--card-bg);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-md);
+}
+.op-page .mk-offers-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.op-page .mk-offers-head-emoji { font-size: 17px; }
+.op-page .mk-offers-head-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-dark);
+  letter-spacing: -.01em;
+  text-transform: uppercase;
+}
+.op-page .mk-offers-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Карта: бял фон, цветна лява рамка, компактен вътрешен spacing ── */
+.op-page .mk-offer-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: #fff;
+  border: 1.5px solid var(--border-soft);
+  border-left: 3px solid var(--green);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.op-page .mk-offer-main {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.op-page .mk-offer-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.op-page .mk-offer-emoji { font-size: 15px; line-height: 1; }
+.op-page .mk-offer-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-dark);
+  line-height: 1.3;
+}
+.op-page .mk-offer-type {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 99px;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+.op-page .mk-offer-badge {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.op-page .mk-offer-desc {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-soft);
+  line-height: 1.4;
+}
+.op-page .mk-offer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.op-page .mk-offer-products { display: flex; gap: 4px; }
+.op-page .mk-offer-product {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.op-page .mk-offer-product-img { width: 100%; height: 100%; object-fit: contain; padding: 2px; }
+.op-page .mk-offer-product-emoji { font-size: 13px; }
+.op-page .mk-offer-progress { display: flex; flex-direction: column; gap: 3px; min-width: 90px; }
+.op-page .mk-offer-progress-row {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--text-soft); font-weight: 700;
+}
+.op-page .mk-offer-progress-bar {
+  width: 60px; height: 5px; border-radius: 99px;
+  background: rgba(0,0,0,.07); overflow: hidden;
+}
+.op-page .mk-offer-progress-fill {
+  height: 100%; background: var(--green); border-radius: 99px;
+  transition: width .3s ease;
+}
+.op-page .mk-offer-unlocked {
+  font-size: 11px; font-weight: 800; color: var(--green-dark);
+}
+.op-page .mk-offer-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.op-page .mk-offer-price {
+  font-size: 12px; font-weight: 800; color: #b45309;
+  white-space: nowrap;
+}
+.op-page .mk-offer-btn {
+  background: var(--green-dark);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter .15s ease, transform .15s ease;
+}
+.op-page .mk-offer-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.op-page .mk-offer-btn:disabled { background: var(--green); cursor: default; transform: none; filter: none; }
+
+@media (max-width: 640px) {
+  .op-page .mk-offers--product { padding: 14px 14px; }
+  .op-page .mk-offer-card { padding: 9px 10px; }
+  .op-page .mk-offer-action { margin-left: 0; width: 100%; justify-content: space-between; }
+  .op-page .mk-offer-btn { flex: 1; }
+}
+
+/* ── Интерактивен избор (степъри) за bundle оферти с групово условие ── */
+.op-page .mk-offer-picker { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
+.op-page .mk-offer-pick-row { display: flex; align-items: center; gap: 8px; }
+.op-page .mk-offer-pick-img,
+.op-page .mk-offer-pick-emoji { width: 24px; height: 24px; border-radius: 6px; object-fit: contain; flex-shrink: 0; }
+.op-page .mk-offer-pick-emoji { display: flex; align-items: center; justify-content: center; font-size: 13px; background: var(--bg); border: 1px solid var(--border-soft); }
+.op-page .mk-offer-pick-name { font-size: 11px; font-weight: 700; color: var(--text-dark); }
+.op-page .mk-offer-pick-info { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.op-page .mk-offer-pick-ppl { font-size: 9.5px; color: var(--text-soft); font-weight: 600; }
+.op-page .mk-offer-pick-save { color: var(--green-dark); font-weight: 800; }
+.op-page .mk-offer-pick-price { font-size: 10.5px; color: var(--text-soft); font-weight: 700; white-space: nowrap; }
+.op-page .mk-offer-pick-stepper { display: flex; align-items: center; gap: 6px; }
+.op-page .mk-offer-pick-stepper button {
+  width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--border-soft);
+  background: #fff; font-weight: 800; cursor: pointer; line-height: 1; font-size: 12px;
+  transition: background .15s ease, border-color .15s ease;
+}
+.op-page .mk-offer-pick-stepper button:not(:disabled):hover { background: var(--bg); border-color: var(--green); }
+.op-page .mk-offer-pick-stepper button:disabled { opacity: .35; cursor: default; }
+.op-page .mk-offer-pick-stepper span { min-width: 16px; text-align: center; font-weight: 800; font-size: 11.5px; }
+.op-page .mk-offer-pick-total {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+  font-size: 11px; font-weight: 800; color: var(--green-dark); margin-top: 2px;
+  padding-top: 6px; border-top: 1px dashed var(--border-soft);
+}
+.op-page .mk-offer-pick-subtotal { font-size: 11px; font-weight: 700; color: var(--text-dark); }
+.op-page .mk-offer-pick-gift { font-size: 11px; font-weight: 800; color: #b45309; }
