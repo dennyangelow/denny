@@ -19,6 +19,7 @@ interface Props {
   onClose: () => void
   onStatusChange:  (id: string, status: string) => Promise<void>
   onPaymentChange: (id: string, ps: string) => Promise<void>
+  onOpenCustomer?: (phone: string) => void
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -110,7 +111,7 @@ function StatusTimeline({ currentStatus }: { currentStatus: string }) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: Props) {
+export function OrderModal({ order, onClose, onStatusChange, onPaymentChange, onOpenCustomer }: Props) {
   const { fmt: formatPrice } = useCurrency()
   const [savingStatus,   setSavingStatus]   = useState(false)
   const [savingPayment,  setSavingPayment]  = useState(false)
@@ -314,6 +315,9 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange }: 
               </div>
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                {onOpenCustomer && (
+                  <button className="act" onClick={() => onOpenCustomer(order.customer_phone)} style={{ background: '#faf5ff', color: '#7c3aed', borderColor: '#ede9fe' }} title="Клиентски профил">👤 Клиент</button>
+                )}
                 <button className="act" onClick={handlePrint} style={{ background: '#f9fafb', color: '#374151', borderColor: '#e5e7eb' }}>🖨</button>
                 <button className="act" onClick={() => { window.location.href = `tel:${order.customer_phone}` }} style={{ background: '#f0fdf4', color: '#16a34a', borderColor: '#bbf7d0' }}>📞</button>
                 <button className="act" onClick={copyAddress} style={{ background: '#f0f9ff', color: '#0ea5e9', borderColor: '#bae6fd' }}>📋 Адрес</button>

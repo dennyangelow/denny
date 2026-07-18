@@ -10,7 +10,7 @@
 //   - Revenue chart: по часове за range=1
 //   - Сигнатура на функциите — без (as any), пълни типове
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line,
@@ -35,6 +35,7 @@ interface Props {
   pageViews:    PageViewStats | null
   onRefresh:    () => void
   onViewOrder:  (o: Order) => void
+  onOpenCustomer?: (phone: string) => void
   onTabChange?: (tab: string) => void
   loading?:     boolean
 }
@@ -149,6 +150,73 @@ function StatusBreakdown({ orders }: { orders: Order[] }) {
   )
 }
 
+// ── "За звънене днес" опашка от напомняния — най-спешното, отгоре на всичко ──
+interface CallQueueEntry {
+  customer_id: string; name: string | null; phone_raw: string
+  next_contact_date: string; days_overdue: number; last_note: string | null
+}
+
+function CallQueueCard({ onOpenCustomer }: { onOpenCustomer?: (phone: string) => void }) {
+  const [queue, setQueue]   = useState<CallQueueEntry[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/customers/call-queue')
+      .then(r => r.json())
+      .then(d => setQueue(d.queue || []))
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [])
+
+  if (!loaded || queue.length === 0) return null
+
+  const overdueCount = queue.filter(c => c.days_overdue > 0).length
+
+  return (
+    <div className="d-card" style={{ marginBottom: 14, borderColor: overdueCount ? '#fecaca' : '#fde68a' }}>
+      <div className="d-card-head" style={{ background: overdueCount ? '#fef2f2' : '#fffbeb' }}>
+        <h3 style={{ color: overdueCount ? '#991b1b' : '#92400e' }}>
+          📞 За звънене днес ({queue.length})
+          {overdueCount > 0 && <span style={{ marginLeft: 8, fontWeight: 700 }}>· {overdueCount} просрочени</span>}
+        </h3>
+        {onOpenCustomer === undefined ? null : null}
+      </div>
+      <div className="d-card-body" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {queue.slice(0, 5).map(c => (
+          <div key={c.customer_id} onClick={() => onOpenCustomer?.(c.phone_raw)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', border: '1px solid #f0f0f0', borderRadius: 10, padding: '8px 12px', cursor: onOpenCustomer ? 'pointer' : 'default' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{c.name || 'Клиент'}</span>
+                <span style={{ fontSize: 11.5, color: '#94a3b8', fontFamily: 'monospace' }}>{c.phone_raw}</span>
+                {c.days_overdue > 0 && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderRadius: 99, padding: '1px 7px' }}>
+                    просрочено {c.days_overdue}д
+                  </span>
+                )}
+              </div>
+              {c.last_note && (
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                  {c.last_note}
+                </div>
+              )}
+            </div>
+            <a href={`tel:${c.phone_raw}`} onClick={e => e.stopPropagation()}
+              style={{ fontSize: 12, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 9px', textDecoration: 'none', fontWeight: 700, flexShrink: 0 }}>
+              📞
+            </a>
+          </div>
+        ))}
+        {queue.length > 5 && (
+          <div style={{ fontSize: 11.5, color: '#94a3b8', textAlign: 'center' as const, marginTop: 2 }}>
+            +{queue.length - 5} още — виж всички в Поръчки
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildSparkline(orders: Order[], days: number) {
@@ -227,7 +295,7 @@ function getAffClicksForRange(analytics: AffiliateAnalytics|null, range: Range):
 
 export function DashboardTab({
   stats, orders, leads, analytics, pageViews,
-  onRefresh, onViewOrder, onTabChange, loading=false,
+  onRefresh, onViewOrder, onOpenCustomer, onTabChange, loading=false,
 }: Props) {
   const { fmt: formatPrice } = useCurrency()
   const [hovered, setHovered] = useState<string|null>(null)
@@ -397,6 +465,9 @@ export function DashboardTab({
           <button className="refresh-btn" onClick={onRefresh}>🔄 Обнови</button>
         </div>
       </div>
+
+      {/* ── За звънене днес (напомняния) — най-спешното, преди всичко останало ── */}
+      <CallQueueCard onOpenCustomer={onOpenCustomer} />
 
       {/* ── Quick Stats Bar ── */}
       <div className="quick-row">

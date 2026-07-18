@@ -1,5 +1,6 @@
 'use client'
-// app/admin/page.tsx — v6 + FAQ + Testimonials tabs
+// app/admin/page.tsx — v7
+// ✅ v7: onOpenCustomer от DashboardTab → превключва на Поръчки и отваря CustomerProfileModal
 
 import { useState, useEffect, useCallback } from 'react'
 import { Sidebar }            from './components/Sidebar'
@@ -96,6 +97,7 @@ export default function AdminPage() {
   const [tab, setTab]               = useState<TabId>('dashboard')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [viewOrder, setViewOrder]   = useState<Order | null>(null)
+  const [viewCustomerPhone, setViewCustomerPhone] = useState<string | null>(null)
 
   const {
     orders, setOrders, leads, analytics, pageViews, stats,
@@ -103,7 +105,7 @@ export default function AdminPage() {
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
 
-  // Auto-refresh every 5 minutes
+  // Auto-refresh every 5 минути
   useEffect(() => {
     const timer = setInterval(fetchAll, AUTO_REFRESH_MS)
     return () => clearInterval(timer)
@@ -114,6 +116,12 @@ export default function AdminPage() {
 
   const handleViewOrder = useCallback((o: Order) => {
     setViewOrder(o)
+    setTab('orders')
+  }, [])
+
+  // ✅ От Dashboard (или откъдето и да е) → отваря клиентския профил в таб Поръчки
+  const handleOpenCustomer = useCallback((phone: string) => {
+    setViewCustomerPhone(phone)
     setTab('orders')
   }, [])
 
@@ -144,6 +152,8 @@ export default function AdminPage() {
               pageViews={pageViews}
               onRefresh={fetchAll}
               onViewOrder={handleViewOrder}
+              onOpenCustomer={handleOpenCustomer}
+              onTabChange={(t) => setTab(t as TabId)}
             />
           )}
 
@@ -152,8 +162,9 @@ export default function AdminPage() {
               orders={orders}
               onStatusChange={updateOrderStatus}
               onPaymentChange={updatePaymentStatus}
-              setOrders={setOrders}   // ← само това се добавя
+              setOrders={setOrders}
               initialOrder={viewOrder}
+              initialCustomerPhone={viewCustomerPhone}
             />
           )}
 

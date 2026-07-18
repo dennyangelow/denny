@@ -15,6 +15,8 @@ import { OrderModal } from './OrderModal'
 import { toast } from '@/components/ui/Toast'
 import { toBulgarianDateStr } from './rangeUtils'
 import { ProductStatsSection } from './ProductStatsSection'
+import { CustomerProfileModal } from './CustomerProfileModal'
+import { normalizeBgPhone } from './customerUtils'
 
 const PAGE_SIZE = 15
 
@@ -88,6 +90,7 @@ interface Props {
   onStatusChange:  (id: string, status: string) => Promise<void>
   onPaymentChange: (id: string, payment_status: string) => Promise<void>
   initialOrder?:   Order | null
+  initialCustomerPhone?: string | null
   setOrders?:      React.Dispatch<React.SetStateAction<Order[]>>
 }
 
@@ -187,9 +190,11 @@ function DiscordDot({ sent }: { sent: boolean }) {
 }
 
 // ─── Mobile order card ────────────────────────────────────────────────────────
-function OrderCard({ o, onOpen, formatPrice }: {
+function OrderCard({ o, onOpen, onOpenCustomer, orderCount, formatPrice }: {
   o: Order & { discord_sent?: boolean }
   onOpen: () => void
+  onOpenCustomer: () => void
+  orderCount: number
   formatPrice: (n: number) => string
 }) {
   const offerTypes  = getOfferTypes(o)
@@ -224,9 +229,19 @@ function OrderCard({ o, onOpen, formatPrice }: {
         </span>
       </div>
 
-      {/* Row 2: name + phone */}
+      {/* Row 2: name (кликаемо → клиентски профил) + phone */}
       <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>{o.customer_name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span onClick={e => { e.stopPropagation(); onOpenCustomer() }}
+            style={{ fontSize: 14, fontWeight: 700, color: '#111', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#e5e7eb', textUnderlineOffset: 2 }}>
+            {o.customer_name}
+          </span>
+          {orderCount > 1 && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#1b4332', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 99, padding: '1px 7px' }}>
+              ×{orderCount}
+            </span>
+          )}
+        </div>
         <div style={{ fontSize: 12, color: '#6b7280' }}>{o.customer_phone} · {o.customer_city}</div>
       </div>
 
@@ -263,7 +278,7 @@ function OrderCard({ o, onOpen, formatPrice }: {
 }
 
 // ─── MAIN OrdersTab ───────────────────────────────────────────────────────────
-export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrder, setOrders }: Props) {
+export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrder, initialCustomerPhone, setOrders }: Props) {
   const { fmt: formatPrice }           = useCurrency()
   const [filter, setFilter]            = useState<OrderStatus>('all')
   const [offerFilter, setOfferFilter]  = useState<'all' | 'has_offer' | 'post_purchase' | 'cart_upsell' | 'cross_sell'>('all')
@@ -271,6 +286,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   const [search, setSearch]            = useState('')
   const [page, setPage]                = useState(1)
   const [selected, setSelected]        = useState<Order | null>(null)
+  const [customerPhone, setCustomerPhone] = useState<string | null>(null)
   const [checked, setChecked]          = useState<Set<string>>(new Set())
   const [bulkStatus, setBulkStatus]    = useState('')
   const [bulkLoading, setBulkLoading]  = useState(false)
@@ -279,6 +295,24 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   const [density, setDensity]          = useState<'comfortable' | 'compact'>('comfortable')
   const [isMobile, setIsMobile]        = useState(false)
   const [sendingMissed, setSendingMissed] = useState(false)
+
+  // ── "За звънене днес" опашка от напомняния ───────────────────────────────
+  const [callQueue, setCallQueue]         = useState<{
+    customer_id: string; name: string | null; phone_raw: string
+    next_contact_date: string; days_overdue: number; last_note: string | null
+  }[]>([])
+  const [callQueueOpen, setCallQueueOpen] = useState(false)
+
+  const loadCallQueue = useCallback(() => {
+    fetch('/api/customers/call-queue')
+      .then(r => r.json())
+      .then(d => setCallQueue(d.queue || []))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { loadCallQueue() }, [loadCallQueue])
+  // Опашката може да се е променила, докато е бил отворен клиентски профил
+  useEffect(() => { if (!customerPhone) loadCallQueue() }, [customerPhone, loadCallQueue])
 
   // ── Date range filter за таблицата ────────────────────────────────────────
   type DatePreset = 'all' | 'today' | '7d' | '30d' | '90d' | 'custom'
@@ -314,11 +348,24 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   }, [])
 
   useEffect(() => { if (initialOrder) setSelected(initialOrder) }, [initialOrder])
+  useEffect(() => { if (initialCustomerPhone) setCustomerPhone(initialCustomerPhone) }, [initialCustomerPhone])
 
   const handleSort = (field: SortField) => {
     if (sort === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSort(field); setSortDir('desc') }
   }
+
+  // ── Брой поръчки по клиент (нормализиран телефон) — за баджа до името ──────
+  const orderCountByPhone = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const o of orders) {
+      const key = normalizeBgPhone(o.customer_phone) ?? o.customer_phone
+      map.set(key, (map.get(key) || 0) + 1)
+    }
+    return map
+  }, [orders])
+
+  const getOrderCount = (phone: string) => orderCountByPhone.get(normalizeBgPhone(phone) ?? phone) || 1
 
   // ── Discord stats ──────────────────────────────────────────────────────────
   const discordStats = useMemo(() => {
@@ -602,6 +649,54 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </div>
       )}
 
+      {/* ── "За звънене днес" опашка от напомняния ── */}
+      {callQueue.length > 0 && (
+        <div style={{ marginBottom: 16, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, overflow: 'hidden' }}>
+          <button onClick={() => setCallQueueOpen(v => !v)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' as const }}>
+            <span style={{ fontSize: 18 }}>📞</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: '#92400e', flex: 1 }}>
+              За звънене днес ({callQueue.length})
+              {callQueue.some(c => c.days_overdue > 0) && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#991b1b' }}>
+                  · {callQueue.filter(c => c.days_overdue > 0).length} просрочени
+                </span>
+              )}
+            </span>
+            <span style={{ fontSize: 12, color: '#b45309' }}>{callQueueOpen ? '▲' : '▼'}</span>
+          </button>
+          {callQueueOpen && (
+            <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {callQueue.map(c => (
+                <div key={c.customer_id} onClick={() => setCustomerPhone(c.phone_raw)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #fde68a', borderRadius: 10, padding: '9px 12px', cursor: 'pointer' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{c.name || 'Клиент'}</span>
+                      <span style={{ fontSize: 12, color: '#6b7280', fontFamily: 'monospace' }}>{c.phone_raw}</span>
+                      {c.days_overdue > 0 && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderRadius: 99, padding: '1px 7px' }}>
+                          просрочено {c.days_overdue}д
+                        </span>
+                      )}
+                    </div>
+                    {c.last_note && (
+                      <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                        {c.last_note}
+                      </div>
+                    )}
+                  </div>
+                  <a href={`tel:${c.phone_raw}`} onClick={e => e.stopPropagation()}
+                    style={{ fontSize: 13, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 10px', textDecoration: 'none', fontWeight: 700, flexShrink: 0 }}>
+                    📞
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Product / volume stats — с date picker ── */}
       <ProductStatsSection orders={orders} formatPrice={formatPrice} />
 
@@ -829,7 +924,10 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
           </div>
         )}
         {paginated.map(o => (
-          <OrderCard key={o.id} o={o as any} onOpen={() => setSelected(o)} formatPrice={formatPrice} />
+          <OrderCard key={o.id} o={o as any} onOpen={() => setSelected(o)}
+            onOpenCustomer={() => setCustomerPhone(o.customer_phone)}
+            orderCount={getOrderCount(o.customer_phone)}
+            formatPrice={formatPrice} />
         ))}
       </div>
 
@@ -878,9 +976,20 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
                         )}
                       </div>
                     </td>
-                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }} onClick={() => setSelected(o)}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{o.customer_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{o.customer_phone}</div>
+                    <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                        <span onClick={e => { e.stopPropagation(); setCustomerPhone(o.customer_phone) }}
+                          title="Виж клиентски профил"
+                          style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#e5e7eb', textUnderlineOffset: 2 }}>
+                          {o.customer_name}
+                        </span>
+                        {getOrderCount(o.customer_phone) > 1 && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#1b4332', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 99, padding: '0px 6px' }}>
+                            ×{getOrderCount(o.customer_phone)}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }} onClick={() => setSelected(o)}>{o.customer_phone}</div>
                     </td>
                     <td style={{ padding: rowPad, borderBottom: '1px solid #f5f5f5', fontSize: 12, color: '#6b7280' }} onClick={() => setSelected(o)}>
                       {o.courier ? COURIER_LABELS[o.courier]?.label : 'Еконт'}
@@ -977,6 +1086,15 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
             await onPaymentChange(id, ps)
             setSelected(prev => prev ? { ...prev, payment_status: ps as Order['payment_status'] } : null)
           }}
+          onOpenCustomer={(phone) => setCustomerPhone(phone)}
+        />
+      )}
+
+      {customerPhone && (
+        <CustomerProfileModal
+          phone={customerPhone}
+          onClose={() => setCustomerPhone(null)}
+          onOpenOrder={(order) => setSelected(order)}
         />
       )}
     </div>
