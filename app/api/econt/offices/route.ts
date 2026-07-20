@@ -12,6 +12,41 @@ const ECONT_API  = IS_DEMO
 
 export const revalidate = 3600
 
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
+// ✅ НОВО: обвивка с автоматичен retry — Econt понякога връща временна грешка
+// (напр. 502/timeout) за отделен град, дори когато API-то като цяло работи
+// нормално (видяно на живо: Варна получи 502 еднократно, докато София,
+// Пловдив, Бургас, Петрич минаха без проблем в същата секунда). Вместо да
+// показваме грешка на клиента заради еднократен "хълцук" от тяхна страна,
+// опитваме до 3 пъти с кратко изчакване между опитите.
+async function fetchOfficesWithRetry(url: string, auth: string, body: any, maxAttempts = 3): Promise<{ res: Response; rawText: string } | null> {
+  let lastErr: any = null
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${auth}`,
+        },
+        body: JSON.stringify(body),
+        next: { revalidate: 3600 },
+      })
+      const rawText = await res.text()
+      if (res.ok) return { res, rawText }
+      // Неуспешен опит — пазим последния резултат, пробваме пак (освен на последния опит)
+      lastErr = { res, rawText }
+      if (attempt < maxAttempts) await sleep(300 * attempt) // 300ms, после 600ms
+    } catch (e) {
+      lastErr = e
+      if (attempt < maxAttempts) await sleep(300 * attempt)
+    }
+  }
+  // Всички опити неуспешни — връщаме последния резултат (ако е Response) или null (мрежова грешка)
+  return lastErr?.res ? lastErr : null
+}
+
 export async function GET(req: NextRequest) {
   const cityId   = req.nextUrl.searchParams.get('cityId')
   const cityName = req.nextUrl.searchParams.get('cityName')
@@ -23,26 +58,21 @@ export async function GET(req: NextRequest) {
   const auth = Buffer.from(`${ECONT_USER}:${ECONT_PASS}`).toString('base64')
   const url  = `${ECONT_API}/NomenclaturesService.getOffices.json`
 
-  // ✅ Правилният формат според официалната документация на Еконт:
-  // { countryCode: "BGR", cityID: "123" }
   const body: any = { countryCode: 'BGR' }
-  if (cityId) body.cityID = cityId  // стринг, не число — така е в документацията
+  if (cityId) body.cityID = cityId
 
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${auth}`,
-      },
-      body: JSON.stringify(body),
-      next: { revalidate: 3600 },
-    })
+    const result = await fetchOfficesWithRetry(url, auth, body)
 
-    const rawText = await res.text()
+    if (!result) {
+      console.error(`[econt/offices] All retry attempts failed (network error) for cityId=${cityId}`)
+      return NextResponse.json({ error: 'Econt API unreachable after retries' }, { status: 502 })
+    }
+
+    const { res, rawText } = result
 
     if (!res.ok) {
-      console.error(`[econt/offices] HTTP ${res.status}:`, rawText.slice(0, 500))
+      console.error(`[econt/offices] HTTP ${res.status} after retries for cityId=${cityId}:`, rawText.slice(0, 500))
       return NextResponse.json({ error: `Econt API returned ${res.status}` }, { status: 502 })
     }
 
@@ -64,23 +94,17 @@ export async function GET(req: NextRequest) {
       .filter((o: any) => {
         if (o.isActive === false) return false
 
-        // Филтър по точен град — изключва офиси от други градове в региона
         if (requestedCityId) {
           const officeCityId: number | null =
             o.address?.city?.id ??
             o.cityID ??
             o.city?.id ??
             null
-          if (officeCityId !== null && officeCityId !== requestedCityId) return false
+          if (officeCityId !== null && Number(officeCityId) !== requestedCityId) return false
         }
 
-        // Само кирилски имена — изключва ACS Гърция, DHL и др.
         const name: string = o.name || ''
         if (name && !/^[\u0400-\u04FF\s\-\.()0-9\/,]+$/.test(name)) return false
-
-        // Изключваме Еконтомати (автоматични станции) ако искаш само офиси
-        // Разкоментирай следното ако не искаш Еконтомати:
-        // if (o.isAPS === true || o.isMPS === true) return false
 
         return true
       })
@@ -99,7 +123,7 @@ export async function GET(req: NextRequest) {
           phones:          Array.isArray(o.phones) ? o.phones.join(', ') : (o.phones || ''),
           workingTimeFrom: o.workingTimeFrom || '',
           workingTimeTo:   o.workingTimeTo   || '',
-          isAPS:           o.isAPS || false,  // true = Еконтомат (24/7)
+          isAPS:           o.isAPS || false,
         }
       })
       .filter((o: any) => o.id && o.name)

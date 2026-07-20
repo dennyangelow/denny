@@ -24,7 +24,6 @@ export async function GET() {
         'Content-Type': 'application/json',
         'Authorization': `Basic ${auth}`,
       },
-      // ✅ Правилният параметър според документацията — само България
       body: JSON.stringify({ countryCode: 'BGR' }),
       next: { revalidate: 21600 },
     })
@@ -70,7 +69,14 @@ export async function GET() {
         regionName: c.regionName || c.region || '',
       }))
       .filter((c: any) => c.id && c.name)
-      .sort((a: any, b: any) => a.name.localeCompare(b.name, 'bg'))
+      .sort((a: any, b: any) => {
+        // Първо по име, а при еднакво име (напр. двете "Добрич" — град и село
+        // в Силистренска област) — по пощ. код, за да е стабилен и предвидим
+        // редът в dropdown-а и потребителят/фронтендът да може да ги различи.
+        const byName = a.name.localeCompare(b.name, 'bg')
+        if (byName !== 0) return byName
+        return String(a.postCode).localeCompare(String(b.postCode))
+      })
 
     return NextResponse.json({ cities, count: cities.length }, {
       headers: {
