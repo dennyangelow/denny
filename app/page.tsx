@@ -85,6 +85,8 @@ interface AffiliateProduct {
   seo_title?: string; seo_description?: string; seo_keywords?: string
   price?: number | string
   price_currency?: string
+  featured_home?: boolean
+  home_order?:    number | null
 }
 
 interface CategoryLink {
@@ -355,6 +357,8 @@ async function getPageData() {
       seo_keywords:   p.seo_keywords    ? String(p.seo_keywords)    : undefined,
       price:          p.price != null ? (Number(p.price) || undefined) : undefined,
       price_currency: String(p.price_currency || 'EUR'),
+      featured_home:  Boolean(p.featured_home),
+      home_order:     p.home_order != null ? Number(p.home_order) : null,
     }))
 
     // ── Top affiliate products by click count (от SQL GROUP BY) ──────────────
@@ -374,7 +378,51 @@ async function getPageData() {
       const cb = clickCountMap[b.slug] || 0
       return cb - ca
     })
-    const top6AffiliateProducts = affiliateProductsSortedByClicks.slice(0, 6)
+
+    // ✅ Топ 6 на началната страница — ръчно управляем от админ панела.
+    // home_order определя ТОЧНАТА позиция (1..6) на маркирания продукт,
+    // не просто приоритет. Празните слотове се пълнят автоматично от
+    // най-кликваните продукти (fallback — не се чупи нищо, ако не пипаш).
+    const top6Slots: (AffiliateProduct | null)[] = Array(6).fill(null)
+    const usedSlugs = new Set<string>()
+
+    // 1) Продукти с валидна позиция (1–6) заемат точния си слот.
+    //    При сблъсък (две продукта с еднакъв home_order) печели по-кликвания.
+    affiliateProducts
+      .filter(p => p.featured_home && p.home_order && p.home_order >= 1 && p.home_order <= 6)
+      .sort((a, b) =>
+        (a.home_order! - b.home_order!) ||
+        ((clickCountMap[b.slug] || 0) - (clickCountMap[a.slug] || 0))
+      )
+      .forEach(p => {
+        const idx = p.home_order! - 1
+        if (!top6Slots[idx] && !usedSlugs.has(p.slug)) {
+          top6Slots[idx] = p
+          usedSlugs.add(p.slug)
+        }
+      })
+
+    // 2) Маркирани продукти без валидна позиция (0, >6, или празно) —
+    //    заемат следващия свободен слот, в реда по home_order.
+    affiliateProducts
+      .filter(p => p.featured_home && !usedSlugs.has(p.slug))
+      .sort((a, b) => (a.home_order ?? 999) - (b.home_order ?? 999))
+      .forEach(p => {
+        const emptyIdx = top6Slots.findIndex(x => x === null)
+        if (emptyIdx !== -1 && !usedSlugs.has(p.slug)) {
+          top6Slots[emptyIdx] = p
+          usedSlugs.add(p.slug)
+        }
+      })
+
+    // 3) Останалите празни слотове — най-кликваните продукти (старото поведение).
+    const fillIns = affiliateProductsSortedByClicks.filter(p => !usedSlugs.has(p.slug))
+    let fillIdx = 0
+    for (let i = 0; i < 6; i++) {
+      if (!top6Slots[i]) top6Slots[i] = fillIns[fillIdx++] ?? null
+    }
+
+    const top6AffiliateProducts = top6Slots.filter((p): p is AffiliateProduct => p !== null)
 
     // ── Category links ────────────────────────────────────────────────────────
     const categoryLinks: CategoryLink[] = (categoryRows || []).map((c: Record<string, unknown>) => ({

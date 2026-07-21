@@ -92,6 +92,11 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'sort_order',     label: 'Ред (sort)',               type: 'number',   placeholder: '0' },
       { key: 'active',         label: 'Активен',                  type: 'checkbox' },
 
+      // ── Начална страница ────────────────────────────────────────────────────
+      { key: '_home_divider',  label: '🏠 Начална страница',      type: 'seo_section' },
+      { key: 'featured_home',  label: 'Покажи на началната страница', type: 'checkbox' },
+      { key: 'home_order',     label: 'Ред на началната (1 = първи от 6)', type: 'number', placeholder: '1' },
+
       // ── Рейтинг ─────────────────────────────────────────────────────────────
       { key: '_rating_divider', label: '⭐ Рейтинг и отзиви',     type: 'seo_section' },
       { key: 'rating',         label: 'Рейтинг (1.0 – 5.0)',      type: 'number',   placeholder: '4.9' },
@@ -865,6 +870,10 @@ export function ContentTab() {
                       {/* Warnings badge */}
                       {subTab === 'affiliate' && Array.isArray(item.warnings) && item.warnings.length > 0 && (
                         <span style={{ color: '#dc2626', fontSize: 11, flexShrink: 0, background: '#fee2e2', padding: '1px 6px', borderRadius: 99 }}>⚠️ {item.warnings.length}</span>
+                      )}
+                      {/* Featured on homepage badge */}
+                      {subTab === 'affiliate' && item.featured_home && (
+                        <span style={{ color: '#166534', fontSize: 11, flexShrink: 0, background: '#dcfce7', padding: '1px 6px', borderRadius: 99, fontWeight: 700 }}>🏠 #{item.home_order ?? '?'}</span>
                       )}
 
                       {subTab === 'links' && item.slug && item.slug !== '-' && (
