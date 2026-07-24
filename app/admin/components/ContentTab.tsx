@@ -33,13 +33,14 @@ type NaruchnikMode = 'list' | 'seo'
 interface BaseItem { id: string; [key: string]: any }
 
 // ✅ Типове полета (включва нови v8 типове)
-type FieldType = 'text' | 'textarea' | 'url' | 'number' | 'color' | 'checkbox' | 'bullets' | 'seo_section' | 'faq_editor' | 'dose_table_editor' | 'vs_editor' | 'warnings_editor' | 'howto_editor'
+type FieldType = 'text' | 'textarea' | 'url' | 'number' | 'color' | 'checkbox' | 'bullets' | 'seo_section' | 'faq_editor' | 'dose_table_editor' | 'vs_editor' | 'warnings_editor' | 'howto_editor' | 'multiselect'
 
 interface FieldDef {
   key:          string
   label:        string
   type:         FieldType
   placeholder?: string
+  options?:     string[]  // за type: 'multiselect' — фиксираният списък от чекбокс опции
 }
 
 interface TabConfig {
@@ -78,6 +79,19 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'slug',           label: 'Slug',                      type: 'text',     placeholder: 'kristalon' },
       { key: 'subtitle',       label: 'Подзаглавие',               type: 'text',     placeholder: 'NPK тор с микроелементи' },
       { key: 'category_label', label: 'Категория (под снимката)',  type: 'text',     placeholder: 'Биостимулатор на корените' },
+
+      // ── Филтри в /produkti ─────────────────────────────────────────────────
+      // ✅ Управлява в кои филтър-чипа ("Фунгициди", "Инсектициди" и т.н.)
+      // ще се показва продуктът горе в /produkti. Може да маркираш повече от
+      // една — важно за 3-в-1/комбинирани продукти. Ако не маркираш нищо,
+      // сайтът пада обратно на автоматично разпознаване по категорията.
+      { key: '_filter_divider', label: '🏷️ Филтри в каталога (/produkti)', type: 'seo_section' },
+      {
+        key: 'filter_groups',
+        label: 'Показвай в тези филтри',
+        type: 'multiselect',
+        options: ['Фунгициди', 'Инсектициди и Акарициди', 'Хербициди', 'Торове', 'Биостимулатори', 'Комбинирани 3-в-1'],
+      },
       { key: 'description',    label: 'Кратко описание (курсив)',  type: 'textarea', placeholder: 'Описание...' },
       { key: 'image_alt',      label: 'Image Alt текст (SEO)',     type: 'text',     placeholder: 'Кристалон Зелен — NPK тор с микроелементи' },
       { key: 'emoji',          label: 'Emoji',                     type: 'text',     placeholder: '🌿' },
@@ -620,6 +634,7 @@ export function ContentTab() {
       else if (f.type === 'number')   defaults[f.key] = 0
       else if (f.type === 'color')    defaults[f.key] = '#16a34a'
       else if (f.type === 'bullets')  defaults[f.key] = []
+      else if (f.type === 'multiselect') defaults[f.key] = []
       else defaults[f.key] = ''
     })
     if (cfg.imageField) defaults[cfg.imageField] = ''
@@ -1111,6 +1126,38 @@ export function ContentTab() {
                             style={{ width: 16, height: 16, accentColor: '#2d6a4f' }} />
                           {f.label}
                         </label>
+
+                      ) : f.type === 'multiselect' ? (
+                        <div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {(f.options || []).map(opt => {
+                              const current: string[] = Array.isArray(editing[f.key]) ? editing[f.key] : []
+                              const on = current.includes(opt)
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => set(f.key, on ? current.filter(v => v !== opt) : [...current, opt])}
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: 100,
+                                    border: on ? '1.5px solid #16a34a' : '1.5px solid #e5e7eb',
+                                    background: on ? '#f0fdf4' : '#fff',
+                                    color: on ? '#166534' : '#6b7280',
+                                    fontSize: 12.5,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {on ? '✓ ' : ''}{opt}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                            Ако не маркираш нищо, продуктът пада автоматично в подходящ филтър по категорията.
+                          </div>
+                        </div>
 
                       ) : f.type === 'color' ? (
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

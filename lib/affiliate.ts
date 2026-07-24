@@ -42,6 +42,10 @@ export interface AffiliateProduct {
   color?:          string
   badge_color?:    string
   category_label?: string
+  // ✅ Ръчно избрани филтър-групи от админ панела (/produkti чипове).
+  // Ако е празно/липсва, клиентският код пада обратно на автоматично
+  // картиране по category_label — виж CATEGORY_GROUPS в ProduktCatalogClient.tsx
+  filter_groups?:  string[]
   affiliate_url:   string
   partner:         string
   section?:        string
