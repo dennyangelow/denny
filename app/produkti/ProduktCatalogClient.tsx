@@ -24,6 +24,61 @@ interface Props {
   initialSort?:    SortMode
 }
 
+// ✅ Групиране на тесните SEO категории в 6 разбираеми "чадър" филтъра.
+// category_label си остава детайлен (за SEO/картата), но филтърът горе
+// показва само тези групи — иначе 28 чипа с count=1 задръстват страницата.
+const CATEGORY_GROUPS: Record<string, string> = {
+  'Системен фунгицид':                 'Фунгициди',
+  'Меден фунгицид':                    'Фунгициди',
+  'Системен фунгицид за почва':        'Фунгициди',
+  'Комбиниран фунгицид':               'Фунгициди',
+  'Широкоспектърен фунгицид':          'Фунгициди',
+  'Комбиниран фунгицид за овощни':     'Фунгициди',
+  'Комбиниран фунгицид за лозя':       'Фунгициди',
+  'Системен DMI фунгицид':             'Фунгициди',
+  'Комбиниран SDHI + QoI фунгицид':    'Фунгициди',
+  'Комбиниран системен фунгицид':      'Фунгициди',
+  'Комбиниран ботрицид':               'Фунгициди',
+  'Комбиниран мулти-сайт фунгицид':    'Фунгициди',
+  'Контактен био фунгицид':            'Фунгициди',
+
+  'Биологичен инсектицид':             'Инсектициди и Акарициди',
+  'Системен инсектицид':               'Инсектициди и Акарициди',
+  'Акарицид и инсектицид':             'Инсектициди и Акарициди',
+
+  'Тотален хербицид':                  'Хербициди',
+  'Селективен хербицид':               'Хербициди',
+
+  'NPK тор с микроелементи':           'Торове',
+  'Органичен биотор':                  'Торове',
+  'Органичен течен тор':               'Торове',
+  'Фосфитен тор':                      'Торове',
+  'Гранулиран NPK тор':                'Торове',
+  'PK тор за качество на плода':       'Торове',
+
+  'Биостимулатор за имунитет':         'Биостимулатори',
+  'Калциев биостимулатор':             'Биостимулатори',
+  'Биостимулатор от водорасли':        'Биостимулатори',
+
+  'Био защита на растенията':          'Комбинирани 3-в-1',
+}
+
+const GROUP_ICONS: Record<string, string> = {
+  'Фунгициди':                 '🍄',
+  'Инсектициди и Акарициди':   '🐛',
+  'Хербициди':                 '🌾',
+  'Торове':                    '⭐',
+  'Биостимулатори':            '🌿',
+  'Комбинирани 3-в-1':         '🛡️',
+  'Други':                     '📦',
+}
+
+function getCategoryGroup(label?: string | null): string {
+  if (!label) return 'Други'
+  return CATEGORY_GROUPS[label] || 'Други'
+}
+
+// CAT_ICONS — детайлни икони, показвани на самата карта (не във филтъра)
 const CAT_ICONS: Record<string, string> = {
   'Биостимулатор':               '🌿',
   'Биостимулатор за имунитет':   '🌿',
@@ -160,7 +215,6 @@ export function ProduktCatalogClient({
   const [visible,      setVisible]      = useState(initialVisible)
   const [loading,      setLoading]      = useState(false)
 
-  const sentinelRef  = useRef<HTMLDivElement>(null)
   const searchRef    = useRef<HTMLInputElement>(null)
   const dropdownRef  = useRef<HTMLDivElement>(null)
 
@@ -184,6 +238,15 @@ export function ProduktCatalogClient({
     document.addEventListener('mousedown', fn)
     return () => document.removeEventListener('mousedown', fn)
   }, [])
+
+  // ── Групирани категории (6 чадър-филтъра вместо 28 тесни) ────────────────
+  const groupedCategories = useMemo(() => {
+    const set = new Set<string>()
+    products.forEach(p => set.add(getCategoryGroup(p.category_label)))
+    // Фиксиран, логичен ред вместо случаен от Set-а
+    const order = ['Фунгициди', 'Инсектициди и Акарициди', 'Хербициди', 'Торове', 'Биостимулатори', 'Комбинирани 3-в-1', 'Други']
+    return order.filter(g => set.has(g))
+  }, [products])
 
   // ── Базов списък спрямо sort mode ────────────────────────────────────────
   const baseList = useMemo(() => {
@@ -209,7 +272,7 @@ export function ProduktCatalogClient({
   const filtered = useMemo(() => {
     let list = baseList
     if (activeFilter !== 'all') {
-      list = list.filter(p => p.category_label === activeFilter)
+      list = list.filter(p => getCategoryGroup(p.category_label) === activeFilter)
     }
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -235,27 +298,47 @@ export function ProduktCatalogClient({
     setVisible(v => v + BATCH)
   }, [])
 
-  useEffect(() => {
-    const el = sentinelRef.current
-    if (!el) return
-    const observer = new IntersectionObserver(
-      entries => {
-        if (!entries[0].isIntersecting) return
-        setLoading(true)
-        requestAnimationFrame(() => {
-          loadMore()
-          requestAnimationFrame(() => setLoading(false))
-        })
-      },
-      { rootMargin: '0px', threshold: 0 }
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [loadMore])
-
   const visibleCards  = filtered.slice(0, visible)
   const hasMore       = visible < filtered.length
   const skeletonCount = hasMore ? Math.min(BATCH, filtered.length - visible) : 0
+
+  // ✅ ПРЕМАХНАТ IntersectionObserver изцяло — заменен с обикновен scroll
+  // listener + getBoundingClientRect(). По-примитивно, но не зависи от
+  // observer semantics/browser quirks — сработва навсякъде без изключение.
+  const sentinelElRef   = useRef<HTMLDivElement>(null)
+  const loadingGuardRef = useRef(false)
+
+  useEffect(() => {
+    if (!hasMore) return
+
+    const checkScroll = () => {
+      if (loadingGuardRef.current) return
+      const el = sentinelElRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      // Зарежда, когато sentinel-ът е на разстояние ≤500px от долния край на екрана
+      if (rect.top <= window.innerHeight + 500) {
+        loadingGuardRef.current = true
+        setLoading(true)
+        requestAnimationFrame(() => {
+          loadMore()
+          requestAnimationFrame(() => {
+            setLoading(false)
+            loadingGuardRef.current = false
+          })
+        })
+      }
+    }
+
+    window.addEventListener('scroll', checkScroll, { passive: true })
+    window.addEventListener('resize', checkScroll)
+    checkScroll()  // веднага при mount — за къси списъци, вече видими без скрол
+
+    return () => {
+      window.removeEventListener('scroll', checkScroll)
+      window.removeEventListener('resize', checkScroll)
+    }
+  }, [hasMore, loadMore])
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleFilter = useCallback((cat: string) => {
@@ -424,15 +507,15 @@ export function ProduktCatalogClient({
           >
             🌱 Всички <span className="pk-chip-n">{products.length}</span>
           </button>
-          {categories.map(cat => {
-            const count = products.filter(p => p.category_label === cat).length
+          {groupedCategories.map(cat => {
+            const count = products.filter(p => getCategoryGroup(p.category_label) === cat).length
             return (
               <button
                 key={cat}
                 className={`pk-chip${activeFilter === cat ? ' pk-chip--on' : ''}`}
                 onClick={() => handleFilter(cat)}
               >
-                {CAT_ICONS[cat] || '🌿'} {cat}
+                {GROUP_ICONS[cat] || '🌿'} {cat}
                 <span className="pk-chip-n">{count}</span>
               </button>
             )
@@ -469,7 +552,6 @@ export function ProduktCatalogClient({
                 const color    = p.color || '#16a34a'
                 const rating   = getRating(p)
                 const pageUrl  = `/produkt/${p.slug}`
-                const clicks   = clickCounts[p.slug] || 0
                 const bullets  = Array.isArray(p.bullets) && p.bullets.length
                   ? p.bullets
                   : Array.isArray(p.features) ? p.features : []
@@ -488,24 +570,6 @@ export function ProduktCatalogClient({
                       {p.tag_text && (
                         <span className="pk-tag">
                           {p.emoji} {p.tag_text}
-                        </span>
-                      )}
-                      {/* ✅ Click badge — само ако > 0 */}
-                      {clicks > 0 && (
-                        <span style={{
-                          position: 'absolute',
-                          bottom: 10, right: 10,
-                          background: 'rgba(0,0,0,.55)',
-                          color: '#fff',
-                          fontSize: 9.5,
-                          fontWeight: 800,
-                          padding: '3px 8px',
-                          borderRadius: 20,
-                          backdropFilter: 'blur(4px)',
-                          letterSpacing: '.03em',
-                          zIndex: 2,
-                        }}>
-                          🔥 {clicks} {clicks === 1 ? 'клик' : 'клика'}
                         </span>
                       )}
                       {p.image_url ? (
@@ -611,7 +675,7 @@ export function ProduktCatalogClient({
               ))}
 
               {hasMore && (
-                <div ref={sentinelRef} className="pk-sentinel" aria-hidden="true" style={{ gridColumn:'1/-1' }} />
+                <div ref={sentinelElRef} className="pk-sentinel" aria-hidden="true" style={{ gridColumn:'1/-1' }} />
               )}
             </div>
 
