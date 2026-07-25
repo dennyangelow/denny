@@ -8,7 +8,7 @@ import { notFound }           from 'next/navigation'
 import { supabaseAdmin }      from '@/lib/supabase'
 import AffiliateProduktClient from './AffiliateProduktClient'
 import type { AffiliateProduct } from '@/lib/affiliate'
-import { getRating, parseHowToUse } from '@/lib/affiliate'
+import { getRating, parseHowToUse, getAllImages } from '@/lib/affiliate'
 
 export const revalidate = 300
 
@@ -79,7 +79,8 @@ export async function generateMetadata(
     || `${product.name} — ${product.subtitle || 'продукт за здрави растения'}. Препоръчан от агро консултант Denny Angelow.`
 
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
-  const ogImage      = product.image_url || FALLBACK_OG
+  const allImages     = getAllImages(product)
+  const ogImage       = allImages[0]?.url || FALLBACK_OG
 
   const keywords = [
     product.name,
@@ -107,12 +108,9 @@ export async function generateMetadata(
       siteName: 'Denny Angelow',
       locale:   'bg_BG',
       type:     'article',
-      images: [{
-        url:    ogImage,
-        width:  1200,
-        height: 630,
-        alt:    product.image_alt || product.name,
-      }],
+      images: allImages.length > 0
+        ? allImages.map(img => ({ url: img.url, width: 1200, height: 630, alt: img.alt }))
+        : [{ url: ogImage, width: 1200, height: 630, alt: product.name }],
     },
     twitter: {
       card:        'summary_large_image',
@@ -147,7 +145,8 @@ export default async function ProduktPage({
   const avgRating    = getRating(product)
   const reviewCount  = product.review_count || 847
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
-  const ogImage      = product.image_url || FALLBACK_OG
+  const allImages     = getAllImages(product)
+  const ogImage       = allImages[0]?.url || FALLBACK_OG
 
   // ✅ Използва споделения helper от affiliate.ts — без дублиране
   const howToSteps   = parseHowToUse(product.how_to_use)
@@ -160,7 +159,9 @@ export default async function ProduktPage({
     '@type':    'Product',
     name:        product.name,
     description: product.description || product.subtitle,
-    image:       ogImage,
+    // ✅ Google Merchant/Product rich results предпочитат масив от снимки —
+    //    подобрява шанса точно твоята снимка (не конкурентска) да излезе
+    image:       allImages.length > 0 ? allImages.map(img => img.url) : ogImage,
     url:         canonicalUrl,
     sku:         product.slug,
     brand:       { '@type': 'Brand', name: product.partner || 'AgroApteki' },
@@ -191,7 +192,7 @@ export default async function ProduktPage({
     '@type':      'Article',
     headline:      product.seo_title || product.name,
     description:   product.seo_description || product.description,
-    image:         ogImage,
+    image:         allImages.length > 0 ? allImages.map(img => img.url) : ogImage,
     url:           canonicalUrl,
     datePublished: product.date_published || product.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
     dateModified:  product.updated_at?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -296,6 +297,7 @@ export default async function ProduktPage({
         related={related}
         avgRating={avgRating}
         reviewCount={reviewCount}
+        images={allImages}
       />
     </>
   )

@@ -38,6 +38,11 @@ export interface AffiliateProduct {
   bullets?:        string[]
   image_url?:      string
   image_alt?:      string
+  // ✅ Допълнителни снимки (галерия) — image_url остава главна/hero снимка.
+  // Всеки елемент може да е обикновен string URL (стар формат) или обект
+  // {url, alt} с ръчен alt текст. Ако alt липсва/е празен, се генерира
+  // автоматично в getAllImages().
+  gallery_urls?:   (string | { url: string; alt?: string })[]
   emoji?:          string
   color?:          string
   badge_color?:    string
@@ -107,6 +112,37 @@ export function parseHowToUse(raw?: string): string[] {
   } catch {}
   // Fallback: newline-разделен текст
   return raw.split('\n').map(s => s.trim()).filter(Boolean)
+}
+
+// ── Helper: обединява главната снимка + галерията в един уникален списък ──
+// ✅ image_url винаги е images[0] (hero/OG/schema fallback), gallery_urls се
+//    добавят след нея. Дублирани URL-и се премахват. Всяка снимка получава
+//    собствен, уникален alt текст — важно за SEO класиране в Google Images
+//    (еднакъв alt на няколко снимки обърква Google кой резултат да покаже).
+export interface ProductImage { url: string; alt: string }
+
+export function getAllImages(product: AffiliateProduct): ProductImage[] {
+  const seen = new Set<string>()
+  const images: ProductImage[] = []
+  const baseAlt = product.image_alt || product.name
+
+  if (product.image_url && !seen.has(product.image_url)) {
+    seen.add(product.image_url)
+    images.push({ url: product.image_url, alt: baseAlt })
+  }
+
+  const gallery = Array.isArray(product.gallery_urls) ? product.gallery_urls : []
+  for (const entry of gallery) {
+    const url       = typeof entry === 'string' ? entry : entry?.url
+    const customAlt = typeof entry === 'string' ? undefined : entry?.alt
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    // ✅ Ръчен alt текст ако е въведен и не е празен, иначе автоматично
+    const autoAlt = `${baseAlt} — снимка ${images.length + 1}`
+    images.push({ url, alt: customAlt && customAlt.trim() ? customAlt.trim() : autoAlt })
+  }
+
+  return images
 }
 
 // ── Helper: извлича embed URL от всякакъв YouTube формат ──────────────────

@@ -15,6 +15,8 @@ interface SlugRow {
   updated_at:     string | null
   cover_image_url?: string | null
   image_url?:     string | null
+  image_alt?:     string | null
+  gallery_urls?:  (string | { url: string; alt?: string })[] | null
   title?:         string | null
   name?:          string | null
 }
@@ -54,7 +56,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .order('sort_order'),
     supabaseAdmin
       .from('affiliate_products')
-      .select('slug, updated_at, image_url, name')
+      .select('slug, updated_at, image_url, image_alt, gallery_urls, name')
       .eq('active', true)
       .order('sort_order'),
     supabaseAdmin
@@ -87,15 +89,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // ── 4. Affiliate продукти — priority 0.72 ────────────────────────────────
   let affiliatePages: MetadataRoute.Sitemap = []
   if (affiliateResult.status === 'fulfilled' && affiliateResult.value.data) {
-    affiliatePages = affiliateResult.value.data.map((p: SlugRow) => ({
-      url:             `${BASE_URL}/produkt/${p.slug}`,
-      lastModified:    safeDate(p.updated_at),
-      changeFrequency: 'monthly' as const,
-      priority:         0.72,
-      ...(p.image_url ? {
-        images: [{ url: p.image_url, title: p.name || p.slug }]
-      } : {}),
-    }))
+    affiliatePages = affiliateResult.value.data.map((p: SlugRow) => {
+      // ✅ Всички снимки на продукта (главна + галерия). Ако снимка има
+      //    ръчен alt текст, той се ползва като title в sitemap-а; иначе —
+      //    автоматично генериран, страницата пак работи пълноценно.
+      const gallery = Array.isArray(p.gallery_urls) ? p.gallery_urls : []
+      const entries = [
+        ...(p.image_url ? [{ url: p.image_url, alt: p.image_alt || undefined }] : []),
+        ...gallery.map(e => typeof e === 'string' ? { url: e, alt: undefined } : { url: e.url, alt: e.alt }),
+      ].filter(e => !!e.url)
+
+      return {
+        url:             `${BASE_URL}/produkt/${p.slug}`,
+        lastModified:    safeDate(p.updated_at),
+        changeFrequency: 'monthly' as const,
+        priority:         0.72,
+        ...(entries.length > 0 ? {
+          images: entries.map((e, i) => ({
+            url:   e.url,
+            title: e.alt?.trim() || (i === 0 ? (p.name || p.slug) : `${p.name || p.slug} — снимка ${i + 1}`),
+          }))
+        } : {}),
+      }
+    })
   } else {
     console.error('[sitemap] Грешка affiliate продукти:',
       affiliateResult.status === 'rejected'

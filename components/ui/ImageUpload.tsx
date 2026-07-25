@@ -1,5 +1,8 @@
 'use client'
 // components/ui/ImageUpload.tsx — Drag & Drop + File picker + URL fallback
+// ✅ Добавено: клиентска компресия/resize преди качване — по-малки файлове,
+//    по-бърз сайт, по-малко storage. Работи automatично навсякъде, където
+//    се ползва компонентът (главна снимка, галерия, наръчници и т.н.)
 
 import { useState, useRef, useCallback } from 'react'
 
@@ -9,9 +12,59 @@ interface Props {
   folder?: string
   label?: string
   height?: number
+  // ✅ Продуктово име/slug — прави файловото име описателно за SEO
+  //    (armonika-pk-25-32-a1b2c.webp вместо случайни символи)
+  nameHint?: string
 }
 
-export function ImageUpload({ value, onChange, folder = 'products', label = 'Снимка', height = 160 }: Props) {
+const MAX_RAW_MB   = 15   // лимит за оригиналния файл, преди компресия
+const MAX_DIMENSION = 1600 // px по дългата страна след resize
+const WEBP_QUALITY   = 0.82
+
+// ── Смалява/компресира снимка чрез <canvas>, връща нов File (WebP) ─────────
+// GIF-ове (могат да са анимирани) се качват без промяна — canvas ще ги "убие"
+function compressImage(file: File): Promise<File> {
+  return new Promise((resolve) => {
+    if (file.type === 'image/gif') { resolve(file); return }
+
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+
+      let { width, height } = img
+      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        const scale = MAX_DIMENSION / Math.max(width, height)
+        width  = Math.round(width * scale)
+        height = Math.round(height * scale)
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { resolve(file); return }
+      ctx.drawImage(img, 0, 0, width, height)
+
+      canvas.toBlob(
+        blob => {
+          if (!blob) { resolve(file); return }
+          // Ако компресията не помага (малка снимка вече), пази оригинала
+          if (blob.size >= file.size) { resolve(file); return }
+          const newName = file.name.replace(/\.[^.]+$/, '') + '.webp'
+          resolve(new File([blob], newName, { type: 'image/webp' }))
+        },
+        'image/webp',
+        WEBP_QUALITY
+      )
+    }
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file) }
+    img.src = objectUrl
+  })
+}
+
+export function ImageUpload({ value, onChange, folder = 'products', label = 'Снимка', height = 160, nameHint }: Props) {
   const [uploading, setUploading] = useState(false)
   const [error, setError]         = useState('')
   const [dragging, setDragging]   = useState(false)
@@ -23,13 +76,18 @@ export function ImageUpload({ value, onChange, folder = 'products', label = 'С�
     setError('')
     setProgress(10)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('folder', folder)
-
+      setProgress(20)
+      const compressed = await compressImage(file)
       setProgress(40)
+
+      const fd = new FormData()
+      fd.append('file', compressed)
+      fd.append('folder', folder)
+      if (nameHint) fd.append('nameHint', nameHint)
+
+      setProgress(55)
       const res  = await fetch('/api/uploads', { method: 'POST', body: fd })
-      setProgress(80)
+      setProgress(85)
       const data = await res.json()
 
       if (!res.ok) throw new Error(data.error || 'Upload грешка')
@@ -41,12 +99,12 @@ export function ImageUpload({ value, onChange, folder = 'products', label = 'С�
       setUploading(false)
       setTimeout(() => setProgress(0), 500)
     }
-  }, [folder, onChange])
+  }, [folder, onChange, nameHint])
 
   const handleFile = (file: File | null | undefined) => {
     if (!file) return
     if (!file.type.startsWith('image/')) { setError('Само изображения (JPEG, PNG, WebP, GIF)'); return }
-    if (file.size > 5 * 1024 * 1024)    { setError('Максимален размер: 5MB'); return }
+    if (file.size > MAX_RAW_MB * 1024 * 1024) { setError(`Максимален размер: ${MAX_RAW_MB}MB`); return }
     upload(file)
   }
 
@@ -124,7 +182,7 @@ export function ImageUpload({ value, onChange, folder = 'products', label = 'С�
             <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
               Кликни или плъзни снимка тук
             </div>
-            <div style={{ fontSize: 11, color: '#9ca3af' }}>JPEG, PNG, WebP, GIF · до 5MB</div>
+            <div style={{ fontSize: 11, color: '#9ca3af' }}>JPEG, PNG, WebP, GIF · до {MAX_RAW_MB}MB · автоматично се смалява</div>
           </div>
         )}
       </div>

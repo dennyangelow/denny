@@ -5,7 +5,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { uploadImage } from '@/lib/storage'
 
 const ALLOWED_TYPES  = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
-const MAX_SIZE       = 5 * 1024 * 1024 // 5MB
+// ✅ JPEG/PNG/WebP идват вече компресирани от клиента (ImageUpload.tsx смалява
+//    до 1600px WebP), но анимираните GIF-ове минават непроменени — затова
+//    лимитът тук е малко над старите 5MB, като буфер за тях.
+const MAX_SIZE       = 8 * 1024 * 1024 // 8MB
 const VALID_FOLDERS  = ['products', 'testimonials', 'settings', 'handbooks', 'marketing',
                         'banners', 'misc', 'affiliate', 'naruchnici', 'special-sections']
 
@@ -14,6 +17,7 @@ export async function POST(req: NextRequest) {
     const formData  = await req.formData()
     const file      = formData.get('file') as File | null
     const rawFolder = (formData.get('folder') as string) || 'products'
+    const nameHint  = (formData.get('nameHint') as string) || undefined
     const folder    = VALID_FOLDERS.includes(rawFolder) ? rawFolder : 'misc'
 
     if (!file) {
@@ -27,13 +31,13 @@ export async function POST(req: NextRequest) {
     }
     if (file.size > MAX_SIZE) {
       return NextResponse.json(
-        { error: 'Файлът е твърде голям (макс 5MB)' },
+        { error: 'Файлът е твърде голям (макс 8MB)' },
         { status: 400 }
       )
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const result = await uploadImage(buffer, file.name, folder)
+    const result = await uploadImage(buffer, file.name, folder, nameHint)
 
     console.log(`[upload] ✓ ${result.provider} → ${result.url}`)
     return NextResponse.json({ url: result.url, provider: result.provider })

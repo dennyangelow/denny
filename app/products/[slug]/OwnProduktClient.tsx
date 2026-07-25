@@ -20,6 +20,7 @@ import { CartSystem }   from '@/components/client/CartSystem'
 import SiteFooter       from '@/components/layout/SiteFooter'
 import OffersShowcase   from '@/components/marketing/OffersShowcase'
 import type { MarketingSettings } from '@/lib/offers'
+import { buildImageList } from '@/lib/images'
 import './own-produkt.css'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -57,6 +58,8 @@ interface CompItem     { name: string; value: string; pct?: number; note?: strin
 interface OwnProduct {
   id: string; slug: string; name: string; subtitle?: string; description?: string
   badge?: string; emoji?: string; image_url?: string; image_alt?: string
+  // ✅ Допълнителни снимки (галерия) — image_url остава главна/hero снимка
+  gallery_urls?: (string | { url: string; alt?: string })[]
   features?: string[]; usage_notes?: string; category?: string
   seo_title?: string; seo_description?: string; seo_keywords?: string
   stock: number; active: boolean; variants?: ProductVariant[]
@@ -157,12 +160,16 @@ function ProductSchema({
     typeof product.review_count === 'number' && product.review_count > 0 &&
     typeof product.avg_rating   === 'number' && product.avg_rating   > 0
 
+  const allImages = buildImageList(product.image_url, product.image_alt, product.gallery_urls, product.name)
+
   const schema = {
     '@context': 'https://schema.org',
     '@type':    'Product',
     name:        product.name,
     description: product.description || '',
-    image:       product.image_url ? [product.image_url] : [],
+    // ✅ Масив от всички снимки (главна + галерия) — по-добър шанс твоята
+    //    снимка (не конкурентска) да излезе в Google rich results
+    image:       allImages.map(img => img.url),
     brand:       { '@type': 'Brand', name: 'Atlas Terra' },
     ...(product.seo_keywords ? { keywords: product.seo_keywords } : {}),
     offers: {
@@ -244,6 +251,11 @@ export default function OwnProduktClient({
     activeVariants.find(v => v.stock > 0) || activeVariants[0] || null
   )
   const [added,     setAdded]     = useState(false)
+
+  // ── Галерия ────────────────────────────────────────────────────────────
+  const allImages = buildImageList(product.image_url, product.image_alt, product.gallery_urls, product.name)
+  const [activeImgIdx, setActiveImgIdx] = useState(0)
+  const currentImg = allImages[Math.min(activeImgIdx, Math.max(allImages.length - 1, 0))]
 
   // ✅ Маркетинг офертите (cross-sell/bundle) за секцията "Още по-изгодно" —
   // сам route, който вече ползва CartSystem, за да остане в синхрон с drawer-а.
@@ -366,14 +378,15 @@ export default function OwnProduktClient({
                   <div className="op-img-badge">{product.emoji} {product.badge}</div>
                 )}
                 <div className="op-img-wrap op-img-wrap--loaded">
-                  {product.image_url ? (
+                  {currentImg ? (
                     <Image
-                      src={product.image_url}
-                      alt={product.image_alt || product.name}
+                      key={currentImg.url}
+                      src={currentImg.url}
+                      alt={currentImg.alt}
                       className="op-img"
                       width={500}
                       height={500}
-                      priority
+                      priority={activeImgIdx === 0}
                       quality={85}
                       sizes="(max-width: 860px) calc(100vw - 40px), 360px"
                       style={{ objectFit: 'contain', width: '100%', height: 'auto' }}
@@ -382,6 +395,31 @@ export default function OwnProduktClient({
                     <div className="op-img-placeholder">{product.emoji || '🌱'}</div>
                   )}
                 </div>
+
+                {/* Лента с миниатюри — само ако има повече от 1 снимка */}
+                {allImages.length > 1 && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto', paddingBottom: 2 }} role="tablist" aria-label="Снимки на продукта">
+                    {allImages.map((img, i) => (
+                      <button
+                        key={img.url}
+                        type="button"
+                        role="tab"
+                        aria-selected={i === activeImgIdx}
+                        aria-label={img.alt}
+                        onClick={() => setActiveImgIdx(i)}
+                        style={{
+                          flexShrink: 0, width: 52, height: 52, borderRadius: 9, padding: 0,
+                          overflow: 'hidden', background: '#fff', cursor: 'pointer',
+                          border: i === activeImgIdx ? '2px solid #16a34a' : '2px solid #e5e7eb',
+                          transition: 'border-color .15s',
+                        }}
+                      >
+                        <img src={img.url} alt="" loading="lazy" width={52} height={52}
+                          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {ecoBadges.length > 0 && (
                   <div className="op-eco-badges">

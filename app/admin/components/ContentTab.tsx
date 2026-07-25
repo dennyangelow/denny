@@ -51,6 +51,9 @@ interface TabConfig {
   logoField?:   string
   pdfField?:    string
   imageFolder?: string
+  // ✅ Галерия от допълнителни снимки (масив от URL-и), извън главната imageField
+  galleryField?: string
+  galleryMax?:   number
   fields:       FieldDef[]
 }
 
@@ -73,6 +76,7 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
   affiliate: {
     label: 'Афилиейт продукти', api: '/api/affiliate-products', responseKey: 'products',
     imageField: 'image_url', imageFolder: 'affiliate',
+    galleryField: 'gallery_urls', galleryMax: 4,
     fields: [
       // ── Основна информация ──────────────────────────────────────────────────
       { key: 'name',           label: 'Наименование',              type: 'text',     placeholder: 'Кристалон Зелен 18-18-18' },
@@ -168,10 +172,12 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
   own: {
     label: 'Собствени продукти', api: '/api/own-products', responseKey: 'products',
     imageField: 'image_url', imageFolder: 'products',
+    galleryField: 'gallery_urls', galleryMax: 4,
     fields: [
       { key: 'name',          label: 'Наименование',   type: 'text',     placeholder: 'Atlas Terra' },
       { key: 'slug',          label: 'Slug',           type: 'text',     placeholder: 'atlas-terra' },
       { key: 'subtitle',      label: 'Подзаглавие',    type: 'text',     placeholder: 'Биостимулант...' },
+      { key: 'image_alt',     label: 'Image Alt текст (SEO)', type: 'text', placeholder: 'Atlas Terra — биостимулант за домати' },
       { key: 'badge',         label: 'Badge',          type: 'text',     placeholder: 'Хит' },
       { key: 'emoji',         label: 'Emoji',          type: 'text',     placeholder: '🌿' },
       { key: 'description',   label: 'Описание',       type: 'textarea', placeholder: 'Описание...' },
@@ -637,9 +643,10 @@ export function ContentTab() {
       else if (f.type === 'multiselect') defaults[f.key] = []
       else defaults[f.key] = ''
     })
-    if (cfg.imageField) defaults[cfg.imageField] = ''
-    if (cfg.logoField)  defaults[cfg.logoField]  = ''
-    if (cfg.pdfField)   defaults[cfg.pdfField]   = ''
+    if (cfg.imageField)   defaults[cfg.imageField]   = ''
+    if (cfg.logoField)    defaults[cfg.logoField]    = ''
+    if (cfg.pdfField)     defaults[cfg.pdfField]     = ''
+    if (cfg.galleryField) defaults[cfg.galleryField] = []
     setEditing(defaults)
   }
 
@@ -955,6 +962,7 @@ export function ContentTab() {
                     folder={cfg.imageFolder || 'uploads'}
                     label={cfg.logoField ? 'Главна снимка (вдясно в секцията)' : 'Снимка'}
                     height={160}
+                    nameHint={editing.slug || editing.name || editing.title}
                   />
                 )}
 
@@ -968,6 +976,69 @@ export function ContentTab() {
                     height={90}
                   />
                 )}
+
+                {/* Галерия (допълнителни снимки) */}
+                {cfg.galleryField && (() => {
+                  const galleryKey = cfg.galleryField!
+                  const max: number = cfg.galleryMax ?? 4
+                  const raw: any[] = Array.isArray(editing[galleryKey]) ? editing[galleryKey] : []
+                  // ✅ нормализираме към {url, alt} — толерантно към стар string[] формат
+                  const items: { url: string; alt: string }[] = raw.map(entry =>
+                    typeof entry === 'string' ? { url: entry, alt: '' } : { url: entry.url, alt: entry.alt || '' }
+                  )
+                  const addUrl    = (url: string)         => set(galleryKey, [...items, { url, alt: '' }])
+                  const removeAt  = (i: number)            => set(galleryKey, items.filter((_, idx) => idx !== i))
+                  const updateAlt = (i: number, alt: string) => set(galleryKey, items.map((it, idx) => idx === i ? { ...it, alt } : it))
+                  const mainAltHint = editing.image_alt || editing.name || editing.title || 'продукт'
+                  return (
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+                        Допълнителни снимки ({items.length}/{max})
+                      </label>
+                      {items.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                          {items.map((it, i) => (
+                            <div key={it.url + i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <div style={{ width: 52, height: 52, borderRadius: 8, overflow: 'hidden', border: '1px solid #e5e7eb', flexShrink: 0, background: '#fafaf8' }}>
+                                <img src={it.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                              </div>
+                              <input
+                                type="text"
+                                value={it.alt}
+                                onChange={e => updateAlt(i, e.target.value)}
+                                placeholder={`Alt текст (по избор — иначе автоматично "${mainAltHint} — снимка ${i + 2}")`}
+                                style={{ flex: 1, minWidth: 0, padding: '7px 10px', border: '1.5px solid #e5e7eb', borderRadius: 7, fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#111', background: '#fff' }}
+                                onFocus={focusGreen} onBlur={blurGray}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeAt(i)}
+                                aria-label="Премахни снимка"
+                                style={{ width: 26, height: 26, borderRadius: '50%', border: 'none', background: '#fee2e2', color: '#991b1b', fontSize: 13, cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              >✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {items.length < max ? (
+                        <ImageUpload
+                          key={items.length /* нулира компонента след всяко добавяне */}
+                          value=""
+                          onChange={addUrl}
+                          folder={cfg.imageFolder || 'uploads'}
+                          label={`Добави снимка №${items.length + 2}`}
+                          height={100}
+                          nameHint={editing.slug || editing.name || editing.title}
+                        />
+                      ) : (
+                        <div style={{ fontSize: 11, color: '#9ca3af' }}>Достигнат е максимумът от {max} допълнителни снимки.</div>
+                      )}
+                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                        Alt текстът е по избор — опиши конкретно какво се вижда (напр. „етикет с активното вещество", „опаковката отзад"). Празно поле = автоматичен alt, страницата пак работи нормално.
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {/* PDF upload (само за наръчници) */}
                 {cfg.pdfField && (

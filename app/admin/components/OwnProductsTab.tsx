@@ -95,6 +95,8 @@ interface OwnProduct {
   emoji?: string
   image_url?: string
   image_alt?: string
+  // ✅ Допълнителни снимки (галерия) — image_url остава главна/hero снимка
+  gallery_urls?: (string | { url: string; alt?: string })[]
   price?: number
   compare_price?: number
   unit?: string
@@ -578,7 +580,7 @@ export function OwnProductsTab() {
     setActiveTab('basic')
     setEditing({
       id: '', name: '', slug: '', subtitle: '', description: '',
-      badge: 'Хит', emoji: '🌿', image_url: '', image_alt: '',
+      badge: 'Хит', emoji: '🌿', image_url: '', image_alt: '', gallery_urls: [],
       price: 0, compare_price: 0, unit: 'л.', stock: 100,
       sort_order: 0, active: true, features: [], category: 'atlas',
       usage_notes: 'Листно: 150-500 мл/дка. Почвено: 200-500 мл/дка. Семена: 25-50 мл/100 кг.',
@@ -764,7 +766,64 @@ export function OwnProductsTab() {
                   folder="products"
                   label="Снимка на продукта"
                   height={160}
+                  nameHint={editing.slug || editing.name}
                 />
+
+                {/* Галерия (допълнителни снимки) */}
+                {(() => {
+                  const max = 4
+                  const raw: any[] = Array.isArray(editing.gallery_urls) ? editing.gallery_urls : []
+                  const items: { url: string; alt: string }[] = raw.map(entry =>
+                    typeof entry === 'string' ? { url: entry, alt: '' } : { url: entry.url, alt: entry.alt || '' }
+                  )
+                  const addUrl    = (url: string)         => set('gallery_urls', [...items, { url, alt: '' }])
+                  const removeAt  = (i: number)            => set('gallery_urls', items.filter((_, idx) => idx !== i))
+                  const updateAlt = (i: number, alt: string) => set('gallery_urls', items.map((it, idx) => idx === i ? { ...it, alt } : it))
+                  const mainAltHint = editing.image_alt || editing.name || 'продукт'
+                  return (
+                    <div>
+                      <Label>Допълнителни снимки ({items.length}/{max})</Label>
+                      {items.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                          {items.map((it, i) => (
+                            <div key={it.url + i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <div style={{ width: 52, height: 52, borderRadius: 8, overflow: 'hidden', border: '1px solid #e5e7eb', flexShrink: 0, background: '#fafaf8' }}>
+                                <img src={it.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                              </div>
+                              <input
+                                type="text"
+                                value={it.alt}
+                                onChange={e => updateAlt(i, e.target.value)}
+                                placeholder={`Alt текст (по избор — иначе автоматично "${mainAltHint} — снимка ${i + 2}")`}
+                                style={{ flex: 1, minWidth: 0, padding: '7px 10px', border: '1.5px solid #e5e7eb', borderRadius: 7, fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#111', background: '#fff' }}
+                                onFocus={focusGreen} onBlur={blurGray}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeAt(i)}
+                                aria-label="Премахни снимка"
+                                style={{ width: 26, height: 26, borderRadius: '50%', border: 'none', background: '#fee2e2', color: '#991b1b', fontSize: 13, cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              >✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {items.length < max ? (
+                        <ImageUpload
+                          key={items.length}
+                          value=""
+                          onChange={addUrl}
+                          folder="products"
+                          label={`Добави снимка №${items.length + 2}`}
+                          height={100}
+                          nameHint={editing.slug || editing.name}
+                        />
+                      ) : (
+                        <div style={{ fontSize: 11, color: '#9ca3af' }}>Достигнат е максимумът от {max} допълнителни снимки.</div>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {[
                   { key: 'name',      label: 'Наименование',  placeholder: 'Atlas Terra Nitro' },

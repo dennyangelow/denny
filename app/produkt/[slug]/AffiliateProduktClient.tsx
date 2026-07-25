@@ -13,14 +13,16 @@
 //  10. useRef за dialog (правилен API)
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import type { AffiliateProduct } from '@/lib/affiliate'
-import { getRating, parseHowToUse, parseYouTubeEmbed } from '@/lib/affiliate'
+import type { AffiliateProduct, ProductImage } from '@/lib/affiliate'
+import { getRating, parseHowToUse, parseYouTubeEmbed, getAllImages } from '@/lib/affiliate'
 
 interface Props {
   product:     AffiliateProduct
   related:     AffiliateProduct[]
   avgRating:   number
   reviewCount: number
+  // ✅ По желание — ако не е подадено (напр. стар caller), се извежда от product
+  images?:     ProductImage[]
 }
 
 type TabId = 'about' | 'howto' | 'tech' | 'faq'
@@ -92,17 +94,27 @@ function formatBgDate(dateStr?: string): string | null {
   } catch { return null }
 }
 
-export default function AffiliateProduktClient({ product, related, avgRating, reviewCount }: Props) {
+export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, images }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('about')
   const [openFaq,   setOpenFaq]   = useState<number | null>(null)
   const [scrollPct, setScrollPct] = useState(0)
-  const [imgError,  setImgError]  = useState(false)
   const [bought,    setBought]    = useState(false)
   const [mobMenu,   setMobMenu]   = useState(false)
   const [scrolled,  setScrolled]  = useState(false)
   const [pulse,     setPulse]     = useState(false)   // ✅ #3
   const [lightbox,  setLightbox]  = useState(false)   // ✅ #5
   const dialogRef = useRef<HTMLDialogElement>(null)    // ✅ #10
+
+  // ── Галерия ────────────────────────────────────────────────────────────
+  const allGalleryImages = useMemo(() => images ?? getAllImages(product), [images, product])
+  const [brokenUrls, setBrokenUrls] = useState<Set<string>>(new Set())
+  const gallery = allGalleryImages.filter(img => !brokenUrls.has(img.url))
+  const [activeIdx, setActiveIdx] = useState(0)
+  const currentIdx = Math.min(activeIdx, Math.max(gallery.length - 1, 0))
+  const current    = gallery[currentIdx]
+
+  const markBroken = (url: string) =>
+    setBrokenUrls(prev => new Set(prev).add(url))
 
   const color = product.color || '#16a34a'
 
@@ -300,6 +312,15 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .af-lightbox-img{max-width:calc(90vw - 32px);max-height:calc(90vh - 60px);object-fit:contain;display:block;border-radius:10px;margin:0 auto}
         .af-lightbox-close{position:absolute;top:10px;right:12px;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:18px;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;font-family:inherit}
         .af-lightbox-close:hover{background:rgba(255,255,255,.25)}
+        .af-lightbox-nav{position:absolute;bottom:-42px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:16px;color:#fff;font-size:12px;font-weight:700}
+        .af-lightbox-nav button{background:rgba(255,255,255,.12);border:none;color:#fff;font-size:20px;width:34px;height:34px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;font-family:inherit;line-height:1}
+        .af-lightbox-nav button:hover{background:rgba(255,255,255,.25)}
+        .af-thumb-strip{display:flex;gap:8px;margin-top:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+        .af-thumb-strip::-webkit-scrollbar{display:none}
+        .af-thumb{flex-shrink:0;width:52px;height:52px;border-radius:9px;padding:0;overflow:hidden;background:#fff;border:2px solid #e5e7eb;cursor:pointer;transition:border-color .15s,transform .15s}
+        .af-thumb:hover{border-color:var(--tc,#16a34a);transform:translateY(-1px)}
+        .af-thumb.active{border-color:var(--tc,#16a34a);box-shadow:0 0 0 2px var(--tc,#16a34a)22}
+        .af-thumb img{width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply;display:block}
         .af-related-mobile{display:none}
         .af-pill-season-full{}
         @media(max-width:820px){
@@ -376,13 +397,25 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
       {/* Progress bar */}
       <div aria-hidden style={{ position:'fixed',top:0,left:0,height:3,zIndex:200,width:`${scrollPct}%`,background:`linear-gradient(90deg,${color},#4ade80)`,transition:'width .1s linear' }} />
 
-      {/* ✅ #5 Lightbox dialog */}
-      {product.image_url && !imgError && (
+      {/* ✅ #5 Lightbox dialog — с навигация ако има повече от 1 снимка */}
+      {current && (
         <dialog ref={dialogRef} className="af-lightbox"
           onClick={e => { if (e.target === dialogRef.current) setLightbox(false) }}
-          onKeyDown={e => { if (e.key === 'Escape') setLightbox(false) }}>
+          onKeyDown={e => {
+            if (e.key === 'Escape') setLightbox(false)
+            if (e.key === 'ArrowRight') setActiveIdx(i => (i + 1) % gallery.length)
+            if (e.key === 'ArrowLeft')  setActiveIdx(i => (i - 1 + gallery.length) % gallery.length)
+          }}>
           <button className="af-lightbox-close" onClick={() => setLightbox(false)} aria-label="Затвори">✕</button>
-          <img className="af-lightbox-img" src={product.image_url} alt={product.image_alt || product.name} />
+          <img className="af-lightbox-img" src={current.url} alt={current.alt}
+            onError={() => markBroken(current.url)} />
+          {gallery.length > 1 && (
+            <div className="af-lightbox-nav">
+              <button aria-label="Предишна снимка" onClick={() => setActiveIdx(i => (i - 1 + gallery.length) % gallery.length)}>‹</button>
+              <span>{currentIdx + 1} / {gallery.length}</span>
+              <button aria-label="Следваща снимка" onClick={() => setActiveIdx(i => (i + 1) % gallery.length)}>›</button>
+            </div>
+          )}
         </dialog>
       )}
 
@@ -451,16 +484,17 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 </div>
               )}
               {/* ✅ #5 Zoom hint */}
-              {product.image_url && !imgError && (
+              {current && (
                 <div aria-hidden style={{ position:'absolute',bottom:8,right:8,zIndex:2,background:'rgba(0,0,0,.42)',color:'#fff',fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,backdropFilter:'blur(4px)',pointerEvents:'none' }}>
                   🔍 Увеличи
                 </div>
               )}
-              {product.image_url && !imgError ? (
+              {current ? (
                 <img
-                  src={product.image_url}
-                  alt={product.image_alt || product.name}
-                  onError={() => setImgError(true)}
+                  key={current.url}
+                  src={current.url}
+                  alt={current.alt}
+                  onError={() => markBroken(current.url)}
                   loading="eager"
                   width={300} height={300}
                   onClick={() => setLightbox(true)}
@@ -472,6 +506,26 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 </div>
               )}
             </div>
+
+            {/* Thumbnail strip — само ако има повече от 1 снимка */}
+            {gallery.length > 1 && (
+              <div className="af-thumb-strip" role="tablist" aria-label="Снимки на продукта">
+                {gallery.map((img, i) => (
+                  <button
+                    key={img.url}
+                    type="button"
+                    role="tab"
+                    aria-selected={i === currentIdx}
+                    aria-label={img.alt}
+                    onClick={() => setActiveIdx(i)}
+                    className={`af-thumb${i === currentIdx ? ' active' : ''}`}
+                    style={{ '--tc': color } as React.CSSProperties}
+                  >
+                    <img src={img.url} alt="" loading="lazy" width={52} height={52} />
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Stat pills */}
             {(product.volume || product.quarantine_days !== undefined || product.season) && (() => {

@@ -13,7 +13,7 @@
 //   R2_BUCKET_NAME
 //   R2_PUBLIC_URL   ← https://pub-XXX.r2.dev
 
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { supabaseAdmin } from '@/lib/supabase'
 import { extname } from 'path'
 
@@ -29,6 +29,26 @@ export interface UploadResult {
 export function getActiveProvider(): StorageProvider {
   const p = process.env.STORAGE_PROVIDER?.toLowerCase()
   return p === 'r2' ? 'r2' : 'supabase'
+}
+
+// ── Транслитерация (кирилица → латиница) + slugify за SEO файлови имена ────
+const CYRILLIC_MAP: Record<string, string> = {
+  а:'a', б:'b', в:'v', г:'g', д:'d', е:'e', ж:'zh', з:'z', и:'i', й:'y',
+  к:'k', л:'l', м:'m', н:'n', о:'o', п:'p', р:'r', с:'s', т:'t', у:'u',
+  ф:'f', х:'h', ц:'ts', ч:'ch', ш:'sh', щ:'sht', ъ:'a', ь:'', ю:'yu', я:'ya',
+}
+
+export function slugify(text: string): string {
+  const translit = text
+    .toLowerCase()
+    .split('')
+    .map(ch => CYRILLIC_MAP[ch] ?? ch)
+    .join('')
+  return translit
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '') // маха accents от латиница
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
 }
 
 // ── Content-type helper ───────────────────────────────────────────────────────
@@ -133,6 +153,26 @@ async function uploadToR2(
 }
 
 // ── PDF upload към R2 ─────────────────────────────────────────────────────────
+// ── Преименуване на обект в R2 (copy + delete) ─────────────────────────────
+// ✅ Използва се от еднократния migration скрипт (scripts/migrate-image-names.ts),
+//    за да преименува вече качени снимки с описателни SEO имена, без да минава
+//    през браузъра — директно вътре в R2.
+export async function renameR2Object(oldKey: string, newKey: string): Promise<void> {
+  const bucket = process.env.R2_BUCKET_NAME
+  if (!bucket) throw new Error('Липсва R2_BUCKET_NAME')
+
+  const r2 = getR2Client()
+  const encodedSource = oldKey.split('/').map(encodeURIComponent).join('/')
+
+  await r2.send(new CopyObjectCommand({
+    Bucket:            bucket,
+    CopySource:        `${bucket}/${encodedSource}`,
+    Key:                newKey,
+    MetadataDirective: 'COPY',
+  }))
+  await r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: oldKey }))
+}
+
 async function uploadPdfToR2(
   buffer: Buffer,
   filename: string,
@@ -163,14 +203,19 @@ async function uploadPdfToR2(
 /**
  * Качва изображение на активния провайдър.
  * Използва се от /api/upload/route.ts
+ * ✅ nameHint (напр. slug-а или името на продукта) прави файловото име
+ *    описателно за SEO: armonika-pk-25-32-a1b2c.webp вместо случайни символи.
  */
 export async function uploadImage(
   buffer: Buffer,
   originalFilename: string,
-  folder: string
+  folder: string,
+  nameHint?: string
 ): Promise<UploadResult> {
   const ext      = extname(originalFilename).toLowerCase() || '.jpg'
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}${ext}`
+  const rand     = Math.random().toString(36).slice(2, 7)
+  const base     = nameHint ? slugify(nameHint) : ''
+  const filename = base ? `${base}-${rand}${ext}` : `${Date.now()}-${rand}${ext}`
   const ct       = getContentType(filename)
   const provider = getActiveProvider()
 
