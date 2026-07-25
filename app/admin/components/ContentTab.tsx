@@ -61,11 +61,13 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
   naruchnici: {
     label: 'Наръчници', api: '/api/naruchnici', responseKey: 'naruchnici',
     imageField: 'cover_image_url', imageFolder: 'naruchnici',
+    galleryField: 'gallery_urls', galleryMax: 4,
     pdfField: 'pdf_url',
     fields: [
       { key: 'title',       label: 'Заглавие',    type: 'text',     placeholder: 'Тайните на едрите домати' },
       { key: 'subtitle',    label: 'Подзаглавие', type: 'text',     placeholder: 'Пълен наръчник за...' },
       { key: 'slug',        label: 'Slug (URL)',   type: 'text',     placeholder: 'super-domati' },
+      { key: 'image_alt',   label: 'Image Alt текст (SEO)', type: 'text', placeholder: 'Наръчник за отглеждане на едри домати' },
       { key: 'description', label: 'Описание',    type: 'textarea', placeholder: 'Описание...' },
       { key: 'category',    label: 'Категория',   type: 'text',     placeholder: 'domati' },
       { key: 'sort_order',  label: 'Ред',         type: 'number',   placeholder: '0' },

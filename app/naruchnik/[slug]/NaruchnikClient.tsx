@@ -17,6 +17,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 import type { Naruchnik } from './page'
+import type { ResolvedImage } from '@/lib/images'
+import { buildImageList } from '@/lib/images'
 import SiteHeader from '@/components/layout/SiteHeader'
 import SiteFooter from '@/components/layout/SiteFooter'
 
@@ -26,6 +28,8 @@ export interface Testimonial { name: string; location: string; text: string; sta
 interface Props {
   nar: Naruchnik; others: Naruchnik[]; faqEntries: FaqEntry[]
   testimonials: Testimonial[]; downloadsCount: number; avgRating: number; reviewsCount: number
+  // ✅ По желание — ако не е подадено, се извежда от nar директно
+  images?: ResolvedImage[]
 }
 
 const CAT_EMOJI: Record<string, string> = {
@@ -49,10 +53,15 @@ const FALLBACK_FAQ: FaqEntry[] = [
 ]
 
 export default function NaruchnikClient({
-  nar, others, faqEntries, testimonials, downloadsCount, avgRating, reviewsCount,
+  nar, others, faqEntries, testimonials, downloadsCount, avgRating, reviewsCount, images,
 }: Props) {
   const emoji  = catEmoji(nar.category)
   const pdfUrl = nar.pdf_url || '#'
+
+  // ── Галерия ────────────────────────────────────────────────────────────
+  const gallery = images ?? buildImageList(nar.cover_image_url, nar.image_alt, nar.gallery_urls, `${nar.title} — PDF наръчник`)
+  const [activeImgIdx, setActiveImgIdx] = useState(0)
+  const currentImg = gallery[Math.min(activeImgIdx, Math.max(gallery.length - 1, 0))]
 
   // Ако БД е върнала празни масиви — използваме fallback съдържание
   const activeFaq          = faqEntries.length > 0 ? faqEntries : FALLBACK_FAQ
@@ -628,10 +637,11 @@ export default function NaruchnikClient({
       <div className="nh-header">
         <div className="nh-inner">
           <div className="nh-img-wrap">
-            {nar.cover_image_url ? (
+            {currentImg ? (
               <img
-                src={nar.cover_image_url}
-                alt={`${nar.title} — PDF наръчник`}
+                key={currentImg.url}
+                src={currentImg.url}
+                alt={currentImg.alt}
                 className="nh-img"
                 loading="eager"
                 fetchPriority="high"
@@ -640,6 +650,31 @@ export default function NaruchnikClient({
               <div className="nh-img-ph">{emoji}</div>
             )}
             <span className="nh-free">БЕЗПЛАТНО</span>
+
+            {/* Лента с миниатюри — само ако има повече от 1 снимка */}
+            {gallery.length > 1 && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }} role="tablist" aria-label="Снимки на наръчника">
+                {gallery.map((img, i) => (
+                  <button
+                    key={img.url}
+                    type="button"
+                    role="tab"
+                    aria-selected={i === activeImgIdx}
+                    aria-label={img.alt}
+                    onClick={() => setActiveImgIdx(i)}
+                    style={{
+                      flexShrink: 0, width: 44, height: 44, borderRadius: 8, padding: 0,
+                      overflow: 'hidden', background: '#fff', cursor: 'pointer',
+                      border: i === activeImgIdx ? '2px solid #16a34a' : '2px solid #e5e7eb',
+                      transition: 'border-color .15s',
+                    }}
+                  >
+                    <img src={img.url} alt="" loading="lazy" width={44} height={44}
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="nh-meta">
             {(nar.category || true) && (

@@ -10,6 +10,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from '@/components/ui/Toast'
 
+export interface FaqItem { q: string; a: string }
+
 export interface TestimonialItem {
   name: string
   location: string
@@ -25,6 +27,10 @@ interface NaruchnikSeo {
   active: boolean
   meta_title?: string
   meta_description?: string
+  // ✅ Неограничен брой FAQ въпроси — заменя фиксираните faq_q1-3 полета.
+  //    Старите полета остават за обратна съвместимост, но новите записи се
+  //    пазят тук.
+  faq?: FaqItem[]
   faq_q1?: string; faq_a1?: string
   faq_q2?: string; faq_a2?: string
   faq_q3?: string; faq_a3?: string
@@ -58,9 +64,23 @@ function normalizeTestimonials(raw: unknown): TestimonialItem[] {
   return []
 }
 
-/** Normalize целия наръчник — testimonials винаги е масив */
+/** Нормализира faq — гарантира, че е масив от {q,a} обекти */
+function normalizeFaq(raw: unknown): FaqItem[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) {
+    return raw.filter(
+      (f): f is FaqItem => typeof f === 'object' && f !== null && 'q' in f && 'a' in f
+    )
+  }
+  if (typeof raw === 'string') {
+    try { return normalizeFaq(JSON.parse(raw)) } catch { return [] }
+  }
+  return []
+}
+
+/** Normalize целия наръчник — testimonials и faq винаги са масиви */
 function normalize(n: NaruchnikSeo): NaruchnikSeo {
-  return { ...n, testimonials: normalizeTestimonials(n.testimonials) }
+  return { ...n, testimonials: normalizeTestimonials(n.testimonials), faq: normalizeFaq(n.faq) }
 }
 
 const inp: React.CSSProperties = {
@@ -188,7 +208,7 @@ export function NaruchnikSeoTab() {
     }
   }, [selected, naruchnici])
 
-  const update = (key: keyof NaruchnikSeo, value: string | number | TestimonialItem[]) => {
+  const update = (key: keyof NaruchnikSeo, value: string | number | TestimonialItem[] | FaqItem[]) => {
     setForm(f => ({ ...f, [key]: value }))
     setDirty(true)
   }
@@ -200,6 +220,10 @@ export function NaruchnikSeoTab() {
       const payload = {
         meta_title:       form.meta_title       || null,
         meta_description: form.meta_description || null,
+        // ✅ Неограничен FAQ списък — новото поле
+        faq: normalizeFaq(form.faq),
+        // Старите фиксирани полета остават null веднъж мигрирали към faq[] —
+        // но не ги трием насила, ако все още имат стойност от преди
         faq_q1: form.faq_q1 || null, faq_a1: form.faq_a1 || null,
         faq_q2: form.faq_q2 || null, faq_a2: form.faq_a2 || null,
         faq_q3: form.faq_q3 || null, faq_a3: form.faq_a3 || null,
@@ -396,38 +420,60 @@ export function NaruchnikSeoTab() {
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 20 }}>
               <SectionTitle>❓ FAQ въпроси (видими на страницата + Google featured snippets)</SectionTitle>
 
-              {([1, 2, 3] as const).map(n => (
-                <div key={n} style={{ marginBottom: 16, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #f3f4f6' }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', marginBottom: 10, letterSpacing: '.05em', textTransform: 'uppercase' }}>
-                    Въпрос {n}
+              {(form.faq ?? []).map((item, i) => (
+                <div key={i} style={{ marginBottom: 16, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #f3f4f6', position: 'relative' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', letterSpacing: '.05em', textTransform: 'uppercase' }}>
+                      Въпрос {i + 1}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = (form.faq ?? []).filter((_, idx) => idx !== i)
+                        update('faq', next)
+                      }}
+                      aria-label="Премахни въпрос"
+                      style={{ width: 24, height: 24, borderRadius: '50%', border: 'none', background: '#fee2e2', color: '#991b1b', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >✕</button>
                   </div>
                   <FieldGroup>
                     <Label>Въпрос</Label>
                     <input
                       style={inp}
-                      value={(form[`faq_q${n}` as keyof NaruchnikSeo] as string) || ''}
-                      onChange={e => update(`faq_q${n}` as keyof NaruchnikSeo, e.target.value)}
+                      value={item.q}
+                      onChange={e => {
+                        const next = (form.faq ?? []).map((f, idx) => idx === i ? { ...f, q: e.target.value } : f)
+                        update('faq', next)
+                      }}
                       onFocus={onFocus} onBlur={onBlur}
-                      placeholder={
-                        n === 1 ? `Наистина ли е безплатен "${currentNar.title}"?`
-                        : n === 2 ? `Какво съдържа "${currentNar.title}"?`
-                        : 'Кога да приложа съветите от наръчника?'
-                      }
+                      placeholder={`Наистина ли е безплатен "${currentNar.title}"?`}
                     />
                   </FieldGroup>
                   <FieldGroup>
                     <Label>Отговор</Label>
                     <textarea
                       style={{ ...inp, minHeight: 70, resize: 'vertical' }}
-                      value={(form[`faq_a${n}` as keyof NaruchnikSeo] as string) || ''}
-                      onChange={e => update(`faq_a${n}` as keyof NaruchnikSeo, e.target.value)}
+                      value={item.a}
+                      onChange={e => {
+                        const next = (form.faq ?? []).map((f, idx) => idx === i ? { ...f, a: e.target.value } : f)
+                        update('faq', next)
+                      }}
                       onFocus={onFocus} onBlur={onBlur}
                       placeholder="Пълен отговор — Google ще го показва директно в резултатите..."
                     />
                   </FieldGroup>
                 </div>
               ))}
-              <Hint>💡 FAQ въпросите се показват на страницата като accordion И в Google като "featured snippets" — директен отговор преди другите резултати.</Hint>
+
+              <button
+                type="button"
+                onClick={() => update('faq', [...(form.faq ?? []), { q: '', a: '' }])}
+                style={{ padding: '8px 16px', background: '#f0fdf4', border: '1.5px dashed #86efac', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#16a34a', fontFamily: 'inherit', width: '100%', marginBottom: 10 }}
+              >
+                + Добави въпрос
+              </button>
+
+              <Hint>💡 FAQ въпросите се показват на страницата като accordion И в Google като "featured snippets" — директен отговор преди другите резултати. Няма лимит на броя въпроси.</Hint>
             </div>
 
             {/* Content Body */}
@@ -616,14 +662,9 @@ export function NaruchnikSeoTab() {
                   hint: form.meta_description ? `${form.meta_description.length} симв.` : 'не е попълнена',
                 },
                 {
-                  label: 'FAQ въпрос 1 + отговор',
-                  ok: !!(form.faq_q1 && form.faq_a1),
-                  hint: '',
-                },
-                {
-                  label: 'FAQ въпрос 2 + отговор',
-                  ok: !!(form.faq_q2 && form.faq_a2),
-                  hint: '',
+                  label: 'Поне 3 FAQ въпроса с отговор',
+                  ok: (form.faq ?? []).filter(f => f.q?.trim() && f.a?.trim()).length >= 3,
+                  hint: `${(form.faq ?? []).filter(f => f.q?.trim() && f.a?.trim()).length} въпроса`,
                 },
                 {
                   label: 'SEO текст (500+ символа)',
@@ -663,13 +704,12 @@ export function NaruchnikSeoTab() {
                 <strong>Score:</strong> {[
                   !!(form.meta_title && form.meta_title.length >= 50 && form.meta_title.length <= 60),
                   !!(form.meta_description && form.meta_description.length >= 140 && form.meta_description.length <= 160),
-                  !!(form.faq_q1 && form.faq_a1),
-                  !!(form.faq_q2 && form.faq_a2),
+                  (form.faq ?? []).filter(f => f.q?.trim() && f.a?.trim()).length >= 3,
                   (form.content_body?.length || 0) >= 500,
                   !!(form.author_bio && form.author_bio.length >= 50),
                   !!(form.downloads_count && form.downloads_count > 0),
                   (form.testimonials?.length ?? 0) > 0,
-                ].filter(Boolean).length} / 8
+                ].filter(Boolean).length} / 7
               </div>
             </div>
 

@@ -13,6 +13,7 @@ import { notFound }      from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
 import NaruchnikClient   from './NaruchnikClient'
 import type { Testimonial } from './NaruchnikClient'
+import { buildImageList } from '@/lib/images'
 
 export const revalidate = 3600
 
@@ -23,6 +24,9 @@ export interface Naruchnik {
   subtitle?:     string
   description?:  string
   cover_image_url?: string
+  image_alt?:    string
+  // ✅ Допълнителни снимки (галерия) — cover_image_url остава главна/hero снимка
+  gallery_urls?: (string | { url: string; alt?: string })[]
   pdf_url?:      string
   category?:     string
   active:        boolean
@@ -31,6 +35,8 @@ export interface Naruchnik {
   faq_q1?: string; faq_a1?: string
   faq_q2?: string; faq_a2?: string
   faq_q3?: string; faq_a3?: string
+  // ✅ Неограничен FAQ списък — приоритетен пред старите faq_q1-3 полета
+  faq?: { q: string; a: string }[]
   content_body?: string
   author_bio?:   string
   reviews_count?: number
@@ -80,8 +86,9 @@ export async function generateMetadata(
   const description = nar.meta_description || nar.description
     || `Изтегли безплатно "${nar.title}" — практично ръководство за по-здрави растения и рекордна реколта. Над ${nar.downloads_count || 6000} фермери вече го изтеглиха.`
   const canonicalUrl = `${BASE_URL}/naruchnik/${nar.slug}`
+  const allImages = buildImageList(nar.cover_image_url, nar.image_alt, nar.gallery_urls, `${nar.title} — PDF наръчник`)
   // ✅ Fallback OG image — никога нямаме празен images[]
-  const ogImage = nar.cover_image_url || FALLBACK_OG
+  const ogImage = allImages[0]?.url || FALLBACK_OG
 
   const keywords = [
     nar.title,
@@ -113,12 +120,9 @@ export async function generateMetadata(
       siteName:      'Denny Angelow',
       locale:        'bg_BG',
       type:          'article',
-      images: [{
-        url:    ogImage,
-        width:  1200,
-        height: 630,
-        alt:    `${nar.title} — PDF наръчник`,
-      }],
+      images: allImages.length > 0
+        ? allImages.map(img => ({ url: img.url, width: 1200, height: 630, alt: img.alt }))
+        : [{ url: ogImage, width: 1200, height: 630, alt: `${nar.title} — PDF наръчник` }],
       publishedTime,
       authors: [BASE_URL],
     },
@@ -157,7 +161,8 @@ export default async function NaruchnikPage({
   const downloadsCount = nar.downloads_count || 6000
   const avgRating      = nar.avg_rating      || 4.9
   const reviewsCount   = nar.reviews_count   || 847
-  const ogImage        = nar.cover_image_url || `${BASE_URL}/og-image.jpg`
+  const allImages       = buildImageList(nar.cover_image_url, nar.image_alt, nar.gallery_urls, `${nar.title} — PDF наръчник`)
+  const ogImage         = allImages[0]?.url || `${BASE_URL}/og-image.jpg`
 
   const datePublished = nar.created_at
     ? new Date(nar.created_at).toISOString().split('T')[0]
@@ -166,11 +171,15 @@ export default async function NaruchnikPage({
     ? new Date(nar.updated_at).toISOString().split('T')[0]
     : datePublished
 
-  const faqEntries = [
+  const legacyFaq = [
     ...(nar.faq_q1 && nar.faq_a1 ? [{ q: nar.faq_q1, a: nar.faq_a1 }] : []),
     ...(nar.faq_q2 && nar.faq_a2 ? [{ q: nar.faq_q2, a: nar.faq_a2 }] : []),
     ...(nar.faq_q3 && nar.faq_a3 ? [{ q: nar.faq_q3, a: nar.faq_a3 }] : []),
   ]
+  const newFaq = Array.isArray(nar.faq) ? nar.faq.filter(f => f.q?.trim() && f.a?.trim()) : []
+  // ✅ Новият списък е приоритетен; старите въпроси се добавят само ако не са дублирани
+  const seenQ = new Set(newFaq.map(f => f.q.trim()))
+  const faqEntries = [...newFaq, ...legacyFaq.filter(f => !seenQ.has(f.q.trim()))]
 
   const testimonials: Testimonial[] = Array.isArray(nar.testimonials) ? nar.testimonials : []
 
@@ -181,7 +190,7 @@ export default async function NaruchnikPage({
     name:        nar.title,
     description: nar.description || nar.subtitle,
     url:         canonicalUrl,
-    image:       ogImage,
+    image:       allImages.length > 0 ? allImages.map(img => img.url) : ogImage,
     inLanguage:  'bg',
     isAccessibleForFree: true,
     genre:       'Agriculture / Gardening',
@@ -226,7 +235,7 @@ export default async function NaruchnikPage({
     '@type':      'Article',
     headline:      nar.meta_title || nar.title,
     description:   nar.meta_description || nar.description,
-    image:         ogImage,
+    image:         allImages.length > 0 ? allImages.map(img => img.url) : ogImage,
     url:           canonicalUrl,
     inLanguage:   'bg-BG',
     datePublished,
@@ -303,6 +312,7 @@ export default async function NaruchnikPage({
         downloadsCount={downloadsCount}
         avgRating={avgRating}
         reviewsCount={reviewsCount}
+        images={allImages}
       />
     </>
   )
