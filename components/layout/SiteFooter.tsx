@@ -1,10 +1,44 @@
 'use client'
-// components/layout/SiteFooter.tsx — v2
-// ПОПРАВКА: 'use client' + suppressHydrationWarning → fix React hydration error
+// components/layout/SiteFooter.tsx — v3
+// ✅ ПОПРАВКА спрямо v2:
+//   - Наръчниците вече се теглят динамично от /api/naruchnici вместо твърдо
+//     закодирани линкове — старата версия сочеше към грешен slug
+//     (krastavici-visoki-dobivy вместо реалния krastavici-naruchnik) и щеше
+//     да продължи да се чупи всеки път, щом добавиш/преименуваш наръчник.
+//     Сега футерът навсякъде показва точно каквото е в базата — не може да
+//     остане разсинхронизиран.
+
+import { useState, useEffect } from 'react'
 
 const AFF = 'ref=dennyangelow'
 
+interface NaruchnikLink { slug: string; title: string; category?: string }
+
+const CATEGORY_EMOJI: Record<string, string> = {
+  'Домати':      '🍅',
+  'Краставици':  '🥒',
+}
+
+function emojiFor(category?: string): string {
+  return (category && CATEGORY_EMOJI[category]) || '📗'
+}
+
 export default function SiteFooter() {
+  const [naruchnici, setNaruchnici] = useState<NaruchnikLink[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/naruchnici')
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled) return
+        const list = Array.isArray(data?.naruchnici) ? data.naruchnici : []
+        setNaruchnici(list.map((n: any) => ({ slug: n.slug, title: n.title, category: n.category })))
+      })
+      .catch(() => {}) // ✅ тих fail — footer-ът просто показва секцията без линкове
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <footer suppressHydrationWarning style={{
       background: 'linear-gradient(180deg, #0a1f12 0%, #051a0d 100%)',
@@ -70,8 +104,12 @@ export default function SiteFooter() {
 
           <div>
             <div className="sf-col-title">Наръчници</div>
-            <a href="/naruchnik/super-domati" className="sf-link">🍅 Тайните на Едрите Домати</a>
-            <a href="/naruchnik/krastavici-visoki-dobivy" className="sf-link">🥒 Краставици за Реколта</a>
+            {/* ✅ Динамично от базата — никога не сочи към грешен/остарял slug */}
+            {naruchnici.map(n => (
+              <a key={n.slug} href={`/naruchnik/${n.slug}`} className="sf-link">
+                {emojiFor(n.category)} {n.title}
+              </a>
+            ))}
             <div style={{ height: 10 }} />
             <div className="sf-col-title">Бързи линкове</div>
             <a href="/#produkti" className="sf-link">Atlas Terra продукти</a>

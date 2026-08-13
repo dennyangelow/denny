@@ -144,4 +144,4 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...naruchnikPages,
     ...affiliatePages,
   ]
-}
+} 

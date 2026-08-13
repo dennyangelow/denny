@@ -1,5 +1,9 @@
 'use client'
-// app/admin/components/DashboardTab.tsx — v14
+// app/admin/components/DashboardTab.tsx — v15
+// ✅ ПОДОБРЕНИЯ v15 (спрямо v14):
+//   - CallQueueCard е изнесена в общ shared компонент (./CallQueueCard) —
+//     вече има snooze (+3д/+7д) и готово (✓) бутони, плюс collapse с
+//     запомнено състояние. Премахната локалната дефиниция тук.
 // ✅ ПОДОБРЕНИЯ v14 (спрямо v13):
 //   - Quick Stats Bar: компактен ред отгоре с бързи числа (нови поръчки, чакат плащане, приход днес/седмица)
 //   - Посещения: 5 клетки (Днес/7д/30д/90д/Всичко) — правилен highlight за ВСЕКИ range
@@ -10,7 +14,7 @@
 //   - Revenue chart: по часове за range=1
 //   - Сигнатура на функциите — без (as any), пълни типове
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line,
@@ -18,6 +22,7 @@ import {
 } from 'recharts'
 import type { AdminStats, PageViewStats } from '@/hooks/useAdminData'
 import type { Order, Lead, AffiliateAnalytics } from '@/lib/supabase'
+import { CallQueueCard } from './CallQueueCard'
 import { STATUS_LABELS } from '@/lib/constants'
 import { useCurrency } from './CurrencyContext'
 import { RangePicker } from './AnalyticsTab'
@@ -146,73 +151,6 @@ function StatusBreakdown({ orders }: { orders: Order[] }) {
           </span>
         )
       })}
-    </div>
-  )
-}
-
-// ── "За звънене днес" опашка от напомняния — най-спешното, отгоре на всичко ──
-interface CallQueueEntry {
-  customer_id: string; name: string | null; phone_raw: string
-  next_contact_date: string; days_overdue: number; last_note: string | null
-}
-
-function CallQueueCard({ onOpenCustomer }: { onOpenCustomer?: (phone: string) => void }) {
-  const [queue, setQueue]   = useState<CallQueueEntry[]>([])
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/customers/call-queue')
-      .then(r => r.json())
-      .then(d => setQueue(d.queue || []))
-      .catch(() => {})
-      .finally(() => setLoaded(true))
-  }, [])
-
-  if (!loaded || queue.length === 0) return null
-
-  const overdueCount = queue.filter(c => c.days_overdue > 0).length
-
-  return (
-    <div className="d-card" style={{ marginBottom: 14, borderColor: overdueCount ? '#fecaca' : '#fde68a' }}>
-      <div className="d-card-head" style={{ background: overdueCount ? '#fef2f2' : '#fffbeb' }}>
-        <h3 style={{ color: overdueCount ? '#991b1b' : '#92400e' }}>
-          📞 За звънене днес ({queue.length})
-          {overdueCount > 0 && <span style={{ marginLeft: 8, fontWeight: 700 }}>· {overdueCount} просрочени</span>}
-        </h3>
-        {onOpenCustomer === undefined ? null : null}
-      </div>
-      <div className="d-card-body" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {queue.slice(0, 5).map(c => (
-          <div key={c.customer_id} onClick={() => onOpenCustomer?.(c.phone_raw)}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', border: '1px solid #f0f0f0', borderRadius: 10, padding: '8px 12px', cursor: onOpenCustomer ? 'pointer' : 'default' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{c.name || 'Клиент'}</span>
-                <span style={{ fontSize: 11.5, color: '#94a3b8', fontFamily: 'monospace' }}>{c.phone_raw}</span>
-                {c.days_overdue > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderRadius: 99, padding: '1px 7px' }}>
-                    просрочено {c.days_overdue}д
-                  </span>
-                )}
-              </div>
-              {c.last_note && (
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-                  {c.last_note}
-                </div>
-              )}
-            </div>
-            <a href={`tel:${c.phone_raw}`} onClick={e => e.stopPropagation()}
-              style={{ fontSize: 12, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 9px', textDecoration: 'none', fontWeight: 700, flexShrink: 0 }}>
-              📞
-            </a>
-          </div>
-        ))}
-        {queue.length > 5 && (
-          <div style={{ fontSize: 11.5, color: '#94a3b8', textAlign: 'center' as const, marginTop: 2 }}>
-            +{queue.length - 5} още — виж всички в Поръчки
-          </div>
-        )}
-      </div>
     </div>
   )
 }

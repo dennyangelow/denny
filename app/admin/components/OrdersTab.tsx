@@ -1,5 +1,7 @@
 'use client'
-// app/admin/components/OrdersTab.tsx — v9
+// app/admin/components/OrdersTab.tsx — v10
+// ✅ v10: Инлайн call-queue блокът е заменен с общ shared <CallQueueCard>
+//    (./CallQueueCard) — вече има snooze (+3д/+7д) и готово (✓) бутони.
 // ✅ v9: Date range filter за таблицата с поръчки (preset + custom от/до)
 // ✅ Заменен productStats блок с <ProductStatsSection> (с собствен date picker)
 // ✅ Discord статус индикатор (discord_sent колона)
@@ -17,6 +19,7 @@ import { toBulgarianDateStr } from './rangeUtils'
 import { ProductStatsSection } from './ProductStatsSection'
 import { CustomerProfileModal } from './CustomerProfileModal'
 import { normalizeBgPhone } from './customerUtils'
+import { CallQueueCard } from './CallQueueCard'
 
 const PAGE_SIZE = 15
 
@@ -295,24 +298,6 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   const [density, setDensity]          = useState<'comfortable' | 'compact'>('comfortable')
   const [isMobile, setIsMobile]        = useState(false)
   const [sendingMissed, setSendingMissed] = useState(false)
-
-  // ── "За звънене днес" опашка от напомняния ───────────────────────────────
-  const [callQueue, setCallQueue]         = useState<{
-    customer_id: string; name: string | null; phone_raw: string
-    next_contact_date: string; days_overdue: number; last_note: string | null
-  }[]>([])
-  const [callQueueOpen, setCallQueueOpen] = useState(false)
-
-  const loadCallQueue = useCallback(() => {
-    fetch('/api/customers/call-queue')
-      .then(r => r.json())
-      .then(d => setCallQueue(d.queue || []))
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => { loadCallQueue() }, [loadCallQueue])
-  // Опашката може да се е променила, докато е бил отворен клиентски профил
-  useEffect(() => { if (!customerPhone) loadCallQueue() }, [customerPhone, loadCallQueue])
 
   // ── Date range filter за таблицата ────────────────────────────────────────
   type DatePreset = 'all' | 'today' | '7d' | '30d' | '90d' | 'custom'
@@ -649,53 +634,8 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
         </div>
       )}
 
-      {/* ── "За звънене днес" опашка от напомняния ── */}
-      {callQueue.length > 0 && (
-        <div style={{ marginBottom: 16, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, overflow: 'hidden' }}>
-          <button onClick={() => setCallQueueOpen(v => !v)}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' as const }}>
-            <span style={{ fontSize: 18 }}>📞</span>
-            <span style={{ fontSize: 14, fontWeight: 800, color: '#92400e', flex: 1 }}>
-              За звънене днес ({callQueue.length})
-              {callQueue.some(c => c.days_overdue > 0) && (
-                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#991b1b' }}>
-                  · {callQueue.filter(c => c.days_overdue > 0).length} просрочени
-                </span>
-              )}
-            </span>
-            <span style={{ fontSize: 12, color: '#b45309' }}>{callQueueOpen ? '▲' : '▼'}</span>
-          </button>
-          {callQueueOpen && (
-            <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {callQueue.map(c => (
-                <div key={c.customer_id} onClick={() => setCustomerPhone(c.phone_raw)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #fde68a', borderRadius: 10, padding: '9px 12px', cursor: 'pointer' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{c.name || 'Клиент'}</span>
-                      <span style={{ fontSize: 12, color: '#6b7280', fontFamily: 'monospace' }}>{c.phone_raw}</span>
-                      {c.days_overdue > 0 && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#991b1b', background: '#fee2e2', borderRadius: 99, padding: '1px 7px' }}>
-                          просрочено {c.days_overdue}д
-                        </span>
-                      )}
-                    </div>
-                    {c.last_note && (
-                      <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-                        {c.last_note}
-                      </div>
-                    )}
-                  </div>
-                  <a href={`tel:${c.phone_raw}`} onClick={e => e.stopPropagation()}
-                    style={{ fontSize: 13, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 10px', textDecoration: 'none', fontWeight: 700, flexShrink: 0 }}>
-                    📞
-                  </a>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* ── "За звънене днес" опашка от напомняния (общ компонент, показва всички) ── */}
+      <CallQueueCard onOpenCustomer={(phone) => setCustomerPhone(phone)} maxVisible={undefined} />
 
       {/* ── Product / volume stats — с date picker ── */}
       <ProductStatsSection orders={orders} formatPrice={formatPrice} />

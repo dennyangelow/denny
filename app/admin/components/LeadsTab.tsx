@@ -6,7 +6,7 @@
 //   3. handleBulkSync: прогресът брои synced+invalid+failed (не само synced+invalid)
 //   4. (от v8) resetedIds, invalid modal, inline email edit
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, Fragment } from 'react'
 import type { Lead } from '@/lib/supabase'
 import { toast } from '@/components/ui/Toast'
 
@@ -845,8 +845,8 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                     const isMulti   = multiEmails.has(l.email)
 
                     return (
-                      <>
-                        <tr key={l.id} className="lead-row" onClick={()=>setExpandedId(expanded?null:l.id)}>
+                      <Fragment key={l.id}>
+                        <tr className="lead-row" onClick={()=>setExpandedId(expanded?null:l.id)}>
                           {/* Email / Name */}
                           <td style={{ padding:'11px 14px', borderBottom:'1px solid #f5f5f5' }}>
                             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -965,7 +965,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     )
                   })}
                 </tbody>

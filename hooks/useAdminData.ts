@@ -1,5 +1,10 @@
 'use client'
-// hooks/useAdminData.ts — v15
+// hooks/useAdminData.ts — v16
+// ✅ ПОПРАВКИ v16 (спрямо v15):
+//   - fetchAllOrders(): нова пагинирана функция (по модел на fetchAllLeads)
+//     → Преди: единичен fetch('/api/orders?limit=2000'), но route.ts кепва
+//       limit-а до 1000 (Math.min(1000, ...)) → поръчките винаги забиваха на 1000
+//     → Сега: тегли по 1000 наведнъж и продължава докато изчерпи total от API-то
 // ✅ ПОПРАВКИ v15 (спрямо v14):
 //   - PageViewStats: добавени topPages90/topReferrers90, topPages365/topReferrers365, last365
 //     → Съвпада с новия API v10 отговор
@@ -109,6 +114,35 @@ async function fetchAllLeads(): Promise<Lead[]> {
   return all
 }
 
+// ── ✅ v16: Зарежда ВСИЧКИ orders чрез пагинация ─────────────────────────────
+// app/api/orders/route.ts кепва limit-а до 1000 (Math.min(1000, ...)) — това е
+// нарочно като batch size, но трябва да пейджваме, за да вземем всичко.
+async function fetchAllOrders(): Promise<Order[]> {
+  const PAGE_SIZE = 1000
+  let page = 1
+  let all: Order[] = []
+
+  while (true) {
+    const r = await fetch(`/api/orders?limit=${PAGE_SIZE}&page=${page}`)
+    if (!r.ok) throw new Error(`orders ${r.status}`)
+    const data = await r.json()
+
+    const batch: Order[] = data.orders || []
+    all = [...all, ...batch]
+
+    const total = data.total ?? null
+    if (batch.length < PAGE_SIZE) break
+    if (total !== null && all.length >= total) break
+
+    page++
+
+    // Safety: максимум 50 страници (50 000 поръчки) за да не се зациклим
+    if (page > 50) break
+  }
+
+  return all
+}
+
 export function useAdminData() {
   const [orders, setOrders]       = useState<Order[]>([])
   const [leads, setLeads]         = useState<Lead[]>([])
@@ -128,11 +162,8 @@ export function useAdminData() {
     setError(null)
     try {
       const [ordRes, leadRes, affRes, pvRes] = await Promise.allSettled([
-        // ✅ Orders: limit=2000 (достатъчно за повечето сайтове)
-        fetch('/api/orders?limit=2000').then(r => {
-          if (!r.ok) throw new Error(`orders ${r.status}`)
-          return r.json()
-        }),
+        // ✅ v16: fetchAllOrders() — пагинирано, без таван от 1000
+        fetchAllOrders(),
         // ✅ v14: fetchAllLeads() — пагинирано, без таван от 1000
         fetchAllLeads(),
         fetch('/api/analytics/affiliate-click').then(r => r.ok ? r.json() : null),
@@ -145,7 +176,8 @@ export function useAdminData() {
         }),
       ])
 
-      const orderList: Order[] = ordRes.status  === 'fulfilled' ? (ordRes.value?.orders || []) : []
+      // ✅ v16: ordRes.value е директно Order[] (не обект с .orders)
+      const orderList: Order[] = ordRes.status  === 'fulfilled' ? (ordRes.value || []) : []
       // ✅ v14: leadRes.value е директно Lead[] (не обект с .leads)
       const leadList:  Lead[]  = leadRes.status === 'fulfilled' ? (leadRes.value || []) : []
       const affData            = affRes.status  === 'fulfilled' ? affRes.value  : null
