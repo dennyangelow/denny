@@ -34,7 +34,7 @@ export function Sidebar({ tab, setTab, newOrders, mobileOpen, setMobileOpen }: P
         .sidebar-logo strong{display:block;color:#fff;font-size:14px;font-weight:600;letter-spacing:-.01em}
         .sidebar-logo small{color:rgba(255,255,255,.35);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
         .sidebar-nav{flex:1;padding:14px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
-        .nav-item{width:100%;display:flex;align-items:center;gap:10px;padding:9px 10px;border:none;background:none;color:rgba(255,255,255,.45);font-family:'DM Sans',sans-serif;font-size:13.5px;border-radius:7px;cursor:pointer;transition:all .15s;text-align:left;position:relative}
+        .nav-item{width:100%;display:flex;align-items:center;gap:10px;padding:9px 10px;border:none;background:none;color:rgba(255,255,255,.45);font-family:var(--font-dm-sans),sans-serif;font-size:13.5px;border-radius:7px;cursor:pointer;transition:all .15s;text-align:left;position:relative}
         .nav-item:hover{background:rgba(255,255,255,.06);color:rgba(255,255,255,.8)}
         .nav-item--active{background:rgba(45,106,79,.35);color:#4ade80}
         .nav-item--active::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:18px;background:#4ade80;border-radius:0 3px 3px 0}

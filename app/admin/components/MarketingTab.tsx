@@ -962,7 +962,7 @@ export function MarketingTab() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
 
-        .mkt { font-family: 'Outfit','DM Sans',sans-serif; padding: 32px 36px; max-width: 960px; }
+        .mkt { font-family: var(--font-outfit),var(--font-dm-sans),sans-serif; padding: 32px 36px; max-width: 960px; }
         @media(max-width:768px) { .mkt { padding: 20px 16px; } }
 
         .mkt-card { background:#fff; border:1px solid #f1f5f9; border-radius:20px; padding:24px 28px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.03); transition:box-shadow .2s; }

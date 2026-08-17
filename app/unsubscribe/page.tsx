@@ -24,7 +24,7 @@ function UnsubscribeContent() {
   }
 
   return (
-    <div style={{ minHeight:'100vh', background:'#f9fafb', display:'flex', alignItems:'center', justifyContent:'center', padding:24, fontFamily:"'DM Sans',sans-serif" }}>
+    <div style={{ minHeight:'100vh', background:'#f9fafb', display:'flex', alignItems:'center', justifyContent:'center', padding:24, fontFamily:"var(--font-dm-sans),sans-serif" }}>
       <div style={{ background:'#fff', borderRadius:20, padding:'40px 36px', maxWidth:440, width:'100%', textAlign:'center', boxShadow:'0 8px 40px rgba(0,0,0,.08)' }}>
         {status === 'done' ? (
           <>

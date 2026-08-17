@@ -1022,7 +1022,7 @@ export default async function HomePage() {
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a', display: 'inline-block', animation: 'pulse 2s infinite' }} />
                   Директно от производителя
                 </div>
-                <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(32px, 4.5vw, 52px)', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: 16 }}>
+                <h2 style={{ fontFamily: "var(--font-cormorant), serif", fontSize: 'clamp(32px, 4.5vw, 52px)', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: 16 }}>
                   Atlas Terra — Професионална Серия
                 </h2>
                 <p style={{ fontSize: 16, color: '#4b5563', maxWidth: 600, margin: '0 auto 24px', lineHeight: 1.7 }}>
@@ -1219,7 +1219,7 @@ export default async function HomePage() {
                       {sec.badge_text}
                     </span>
                   )}
-                  <h2 style={{ fontFamily: "'Cormorant Garamond', serif", color: '#fff', fontSize: 'clamp(26px, 3.5vw, 38px)', margin: '0 0 14px', fontWeight: 800, lineHeight: 1.15 }}>
+                  <h2 style={{ fontFamily: "var(--font-cormorant), serif", color: '#fff', fontSize: 'clamp(26px, 3.5vw, 38px)', margin: '0 0 14px', fontWeight: 800, lineHeight: 1.15 }}>
                     {sec.title}
                   </h2>
                   {sec.subtitle && (
@@ -1365,7 +1365,7 @@ export default async function HomePage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 28, marginBottom: 36, textAlign: 'left' }}>
             <div>
               <div style={{ fontSize: 26, marginBottom: 8 }}>🍅</div>
-              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 19, color: '#fff', fontWeight: 700, marginBottom: 4 }}>Denny Angelow</div>
+              <div style={{ fontFamily: "var(--font-cormorant), serif", fontSize: 19, color: '#fff', fontWeight: 700, marginBottom: 4 }}>Denny Angelow</div>
               <div style={{ fontSize: 10, color: '#86efac', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Агро Консултант</div>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>{settings.footer_about_text}</p>
             </div>

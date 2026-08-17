@@ -16,6 +16,11 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import type { AffiliateProduct, ProductImage } from '@/lib/affiliate'
 import { getRating, parseHowToUse, parseYouTubeEmbed, getAllImages } from '@/lib/affiliate'
 
+// ✅ ФИКС: DM Sans и Cormorant Garamond вече се зареждат ВЕДНЪЖ, глобално, в
+//    app/layout.tsx чрез next/font/google — приложени като CSS променливи
+//    (--font-dm-sans / --font-cormorant) върху <html>. Тук просто ги ползваме
+//    с var(...) — регистрирането им пак тук би заредило шрифтовете двойно.
+
 interface Props {
   product:     AffiliateProduct
   related:     AffiliateProduct[]
@@ -223,10 +228,9 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   return (
     <div className="af-page-root">
       <style suppressHydrationWarning>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap');
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
         html{scroll-behavior:smooth;overflow-x:hidden;max-width:100vw}
-        body{font-family:'DM Sans',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;background:#fafaf8;color:#1a1a1a;overflow-x:hidden;max-width:100vw;width:100%}
+        body{font-family:var(--font-dm-sans),-apple-system,sans-serif;-webkit-font-smoothing:antialiased;background:#fafaf8;color:#1a1a1a;overflow-x:hidden;max-width:100vw;width:100%}
         .af-page-root{width:100%;max-width:100vw;overflow-x:hidden;position:relative}
         @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
         @keyframes tabIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -237,7 +241,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .site-header{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border-bottom:1px solid #e5e7eb;padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:60px;box-shadow:0 1px 8px rgba(0,0,0,.04);transition:all .3s;gap:14px}
         .site-header.scrolled{box-shadow:0 4px 24px rgba(0,0,0,.08)}
         .header-logo{display:flex;align-items:center;gap:9px;flex-shrink:0;text-decoration:none}
-        .logo-name{font-weight:700;font-size:17px;font-family:'Cormorant Garamond',serif;color:#1a1a1a;line-height:1}
+        .logo-name{font-weight:700;font-size:17px;font-family:var(--font-cormorant),serif;color:#1a1a1a;line-height:1}
         .logo-sub{font-size:9px;color:#16a34a;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
         .header-nav{display:flex;gap:2px;align-items:center}
         .nav-link{color:#374151;text-decoration:none;font-size:13px;font-weight:600;padding:5px 11px;border-radius:8px;transition:all .2s;white-space:nowrap}
@@ -263,7 +267,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .af-sec{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;gap:8px;margin-bottom:12px}
         .af-sec::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,#e2e8f0,transparent)}
         .af-h2-seo{font-size:14px;font-weight:700;color:#1e293b;margin-bottom:12px;margin-top:4px;line-height:1.4}
-        .af-btn-buy{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:16px 22px;border:none;border-radius:14px;font-size:15.5px;font-weight:800;font-family:'DM Sans',sans-serif;cursor:pointer;letter-spacing:-.01em;color:#fff;transition:all .22s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
+        .af-btn-buy{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:16px 22px;border:none;border-radius:14px;font-size:15.5px;font-weight:800;font-family:var(--font-dm-sans),sans-serif;cursor:pointer;letter-spacing:-.01em;color:#fff;transition:all .22s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
         .af-btn-buy::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.15) 0%,transparent 55%);pointer-events:none}
         .af-btn-buy:hover{transform:translateY(-2px);filter:brightness(1.06)}
         .af-btn-buy:active{transform:translateY(0);filter:brightness(.96)}
@@ -272,7 +276,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .af-tab-badge{display:inline-flex;align-items:center;justify-content:center;background:rgba(22,163,74,.15);color:#166534;border-radius:20px;font-size:9px;font-weight:800;padding:1px 6px;margin-left:3px;line-height:1.4}
         .af-tab.active .af-tab-badge{background:rgba(20,83,45,.2);color:#14532d}
         .af-tabs-bar{display:flex;background:#fff;border-radius:18px 18px 0 0;overflow:hidden;border:1px solid rgba(0,0,0,.07);border-bottom:none;box-shadow:0 1px 3px rgba(0,0,0,.04),0 6px 24px rgba(0,0,0,.05)}
-        .af-tab{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:13px 8px;font-size:12.5px;font-weight:700;font-family:'DM Sans',sans-serif;background:none;border:none;cursor:pointer;transition:all .18s;color:#94a3b8;white-space:nowrap;border-bottom:2.5px solid transparent}
+        .af-tab{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:13px 8px;font-size:12.5px;font-weight:700;font-family:var(--font-dm-sans),sans-serif;background:none;border:none;cursor:pointer;transition:all .18s;color:#94a3b8;white-space:nowrap;border-bottom:2.5px solid transparent}
         .af-tab:hover{color:#374151;background:#fafaf8}
         .af-tab.active{color:#14532d;background:#f0fdf4;border-bottom-color:#16a34a}
         .af-tab-icon{font-size:14px}
@@ -293,7 +297,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .af-vs-table th{padding:10px 14px;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;text-align:left}
         .af-vs-table td{padding:10px 14px;border-top:1px solid #f1f5f9;vertical-align:top;line-height:1.5}
         .af-faq-item{border-bottom:1px solid #f4f4f0}.af-faq-item:last-child{border-bottom:none}
-        .af-faq-btn{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;text-align:left;font-size:13.5px;font-weight:600;color:#1e293b;transition:color .15s}
+        .af-faq-btn{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;background:none;border:none;cursor:pointer;font-family:var(--font-dm-sans),sans-serif;text-align:left;font-size:13.5px;font-weight:600;color:#1e293b;transition:color .15s}
         .af-faq-btn:hover{color:#16a34a}
         .af-faq-icon{width:24px;height:24px;border-radius:50%;flex-shrink:0;background:#f0fdf4;border:1.5px solid #d1fae5;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#16a34a;transition:transform .25s,background .2s}
         .af-faq-icon.open{transform:rotate(45deg);background:#16a34a;color:#fff;border-color:#16a34a}
@@ -578,7 +582,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
             {product.price && (
               <div style={{ marginBottom:4 }}>
                 <div style={{ display:'flex',alignItems:'baseline',gap:6 }}>
-                  <span style={{ fontFamily:"'Cormorant Garamond',serif",fontSize:38,fontWeight:700,color:'#0a0a0a',letterSpacing:'-.03em',lineHeight:1 }}>
+                  <span style={{ fontFamily:"var(--font-cormorant),serif",fontSize:38,fontWeight:700,color:'#0a0a0a',letterSpacing:'-.03em',lineHeight:1 }}>
                     {Number(product.price).toFixed(2)}
                   </span>
                   <span style={{ fontSize:16,fontWeight:700,color:'#374151' }}>{product.price_currency || 'EUR'}</span>
@@ -632,7 +636,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
             <div style={{ display:'flex',alignItems:'center',gap:11 }}>
               <div style={{ width:42,height:42,borderRadius:'50%',flexShrink:0,background:'linear-gradient(135deg,#052e16,#16a34a)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:19,border:'2px solid rgba(22,163,74,.25)' }}>🌱</div>
               <div>
-                <div style={{ fontFamily:"'Cormorant Garamond',serif",fontWeight:700,fontSize:16,color:'#0f172a',lineHeight:1 }}>Denny Angelow</div>
+                <div style={{ fontFamily:"var(--font-cormorant),serif",fontWeight:700,fontSize:16,color:'#0f172a',lineHeight:1 }}>Denny Angelow</div>
                 <div style={{ fontSize:9,color:'#16a34a',fontWeight:800,textTransform:'uppercase',letterSpacing:'.1em',marginTop:3 }}>Агро Консултант</div>
               </div>
               <div style={{ marginLeft:'auto',textAlign:'right' }}>
@@ -661,7 +665,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
 
           {/* Title card */}
           <div className="af-title-card">
-            <h1 style={{ fontFamily:"'Cormorant Garamond',serif",fontSize:'clamp(26px,3.5vw,40px)',fontWeight:700,color:'#0a0a0a',lineHeight:1.1,letterSpacing:'-.02em',marginBottom:product.subtitle?7:0 }}>
+            <h1 style={{ fontFamily:"var(--font-cormorant),serif",fontSize:'clamp(26px,3.5vw,40px)',fontWeight:700,color:'#0a0a0a',lineHeight:1.1,letterSpacing:'-.02em',marginBottom:product.subtitle?7:0 }}>
               {product.name}
             </h1>
             {product.subtitle && (
@@ -901,7 +905,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           {/* Final CTA */}
           <div className="af-final-cta" style={{ background:`linear-gradient(135deg,${color}0e,#fafaf8)`, border:`1.5px solid ${color}20` }}>
             <div style={{ fontSize:38,marginBottom:8,filter:'drop-shadow(0 3px 6px rgba(0,0,0,.12))' }}>{product.emoji || '🌿'}</div>
-            <h3 style={{ fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:'#0a0a0a',marginBottom:7,lineHeight:1.15 }}>
+            <h3 style={{ fontFamily:"var(--font-cormorant),serif",fontSize:22,fontWeight:700,color:'#0a0a0a',marginBottom:7,lineHeight:1.15 }}>
               Готов да опиташ {product.name}?
             </h3>
             <p style={{ fontSize:13.5,color:'#64748b',lineHeight:1.65,marginBottom:18,maxWidth:380,margin:'0 auto 18px' }}>

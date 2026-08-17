@@ -81,7 +81,7 @@ export default function SiteHeader({ variant = 'light' }: Props) {
         <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flexShrink: 0 }} aria-label="Denny Angelow">
           <span style={{ fontSize: 22 }}>🍅</span>
           <div>
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 700, color: logoColor, lineHeight: 1, transition: 'color .2s' }}>
+            <div style={{ fontFamily: "var(--font-cormorant), serif", fontSize: 18, fontWeight: 700, color: logoColor, lineHeight: 1, transition: 'color .2s' }}>
               Denny Angelow
             </div>
             <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: subColor, transition: 'color .2s' }}>

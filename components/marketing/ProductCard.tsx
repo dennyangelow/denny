@@ -191,7 +191,7 @@ export function ProductCard({ p, idx }: Props) {
         }
 
         .product-title {
-          font-family: 'Cormorant Garamond', serif;
+          font-family: var(--font-cormorant), serif;
           font-size: 22px;
           font-weight: 800;
           margin: 0 0 12px;

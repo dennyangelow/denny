@@ -30,8 +30,8 @@
   --radius-sm:   10px;
   --radius-md:   16px;
   --radius-lg:   22px;
-  --font-body:   'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-serif:  'Cormorant Garamond', Georgia, serif;
+  --font-body:   var(--font-dm-sans), -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif:  var(--font-cormorant), Georgia, serif;
 }
 
 /* ══ RESET ══════════════════════════════════════════════════════════ */

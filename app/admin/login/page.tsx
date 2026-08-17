@@ -67,7 +67,7 @@ function LoginContent() {
   }
 
   if (noSecret) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0f1f16', fontFamily: "'DM Sans',sans-serif" }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0f1f16', fontFamily: "var(--font-dm-sans),sans-serif" }}>
       <div style={{ color: '#86efac', fontSize: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ width: 24, height: 24, border: '3px solid rgba(134,239,172,0.3)', borderTopColor: '#86efac', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
         Пренасочване...
@@ -78,7 +78,7 @@ function LoginContent() {
   const isDisabled = !password.trim() || loading || lockout > 0
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'linear-gradient(135deg,#0c3a1c,#0f1f16)', fontFamily: "'DM Sans',sans-serif", padding: 20 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'linear-gradient(135deg,#0c3a1c,#0f1f16)', fontFamily: "var(--font-dm-sans),sans-serif", padding: 20 }}>
       <div style={{ background: '#fff', borderRadius: 24, padding: '44px 40px', width: '100%', maxWidth: 400, textAlign: 'center', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ fontSize: 44, marginBottom: 12 }}>🍅</div>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111', letterSpacing: '-.02em', marginBottom: 4 }}>Denny Angelow</h1>

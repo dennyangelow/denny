@@ -6,11 +6,35 @@
 
 import type { Metadata } from 'next'
 import { Suspense }      from 'react'
+import { DM_Sans, Cormorant_Garamond } from 'next/font/google'
 import { PageViewTracker }    from '@/components/analytics/PageViewTracker'
 import { GoogleAnalytics }    from '@/components/analytics/GoogleAnalytics'
 import { AffiliatePreloader } from '@/components/AffiliatePreloader'
 
 const BASE_URL = 'https://dennyangelow.com'
+
+// ✅ ФИКС: next/font/google self-host-ва и preload-ва шрифтовете при build,
+//    вместо синхронен <link rel="stylesheet" href="fonts.googleapis.com...">,
+//    който беше render-blocking на ВСЯКА страница (виж PageSpeed Insights —
+//    "Render-blocking requests", ~1650ms на мобилно). Регистрирани тук веднъж,
+//    на ниво root layout — важат за целия сайт, включително produkt страниците,
+//    така че AffiliateProduktClient.tsx вече не зарежда собствено копие.
+//    Имената на CSS променливите (--font-dm-sans, --font-cormorant) трябва да
+//    съвпадат навсякъде, където се ползва var(--font-dm-sans)/var(--font-cormorant).
+const dmSans = DM_Sans({
+  subsets:  ['latin', 'latin-ext'],
+  weight:   ['300', '400', '500', '600', '700', '800', '900'],
+  style:    ['normal', 'italic'],
+  variable: '--font-dm-sans',
+  display:  'swap',
+})
+
+const cormorant = Cormorant_Garamond({
+  subsets:  ['latin'],
+  weight:   ['600', '700'],
+  variable: '--font-cormorant',
+  display:  'swap',
+})
 
 // ── Споделени константи — промяна на 1 място, важи навсякъде ────────────────
 const AUTHOR = {
@@ -226,7 +250,7 @@ const websiteSchema = {
 // ─── Root Layout ──────────────────────────────────────────────────────────────
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="bg">
+    <html lang="bg" className={`${dmSans.variable} ${cormorant.variable}`}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -242,17 +266,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* DNS prefetch */}
         <link rel="dns-prefetch" href="https://d1yei2z3i6k35z.cloudfront.net" />
-        <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
-        <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
         <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
 
-        {/* Шрифтове */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=Cormorant+Garamond:wght@600;700;800&display=swap"
-          rel="stylesheet"
-        />
+        {/* ✅ Шрифтовете се self-host-ват през next/font/google (виж горе) —
+            предпазната мрежа (старата <link rel="stylesheet"> заявка) е
+            махната, след като homepage, produkt, produkti, products,
+            naruchnik и admin панелът бяха проверени и мигрирани към
+            var(--font-dm-sans)/var(--font-cormorant)/var(--font-syne)/
+            var(--font-lora). Няма нужда от preconnect/dns-prefetch към
+            fonts.googleapis.com/fonts.gstatic.com. */}
 
         {/* Schema.org: Person */}
         <script

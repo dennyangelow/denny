@@ -3,6 +3,7 @@
 // ✅ v7: onOpenCustomer от DashboardTab → превключва на Поръчки и отваря CustomerProfileModal
 
 import { useState, useEffect, useCallback } from 'react'
+import { Outfit } from 'next/font/google'
 import { Sidebar }            from './components/Sidebar'
 import { DashboardTab }       from './components/DashboardTab'
 import { OrdersTab }          from './components/OrdersTab'
@@ -18,6 +19,16 @@ import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
 import type { Order }         from '@/lib/supabase'
 
+// ✅ ФИКС: MarketingTab.tsx използва 'Outfit' за таба .mkt — регистриран тук,
+//    защото Outfit не е глобален (само CartSystem.tsx и сега admin панела го
+//    ползват). DM Sans/Cormorant Garamond вече са глобални от app/layout.tsx.
+const outfit = Outfit({
+  subsets:  ['latin'],
+  weight:   ['400', '600', '700', '800', '900'],
+  variable: '--font-outfit',
+  display:  'swap',
+})
+
 
 const AUTO_REFRESH_MS = 30 * 60 * 1000 // 30 мин — не прекъсва sync
 
@@ -27,7 +38,7 @@ function LoadingScreen() {
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', height: '100vh', gap: 16,
-      fontFamily: "'DM Sans',sans-serif", color: '#6b7280', background: '#f4f6f8',
+      fontFamily: "var(--font-dm-sans),sans-serif", color: '#6b7280', background: '#f4f6f8',
     }}>
       <div style={{
         width: 40, height: 40, border: '3px solid #e5e7eb',
@@ -48,7 +59,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry: () => voi
       background: '#fef3c7', borderBottom: '2px solid #fde68a',
       padding: '10px 24px', display: 'flex', alignItems: 'center',
       justifyContent: 'space-between', gap: 16,
-      fontFamily: "'DM Sans',sans-serif", fontSize: 14,
+      fontFamily: "var(--font-dm-sans),sans-serif", fontSize: 14,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#92400e' }}>
         <span>⚠️</span>
@@ -77,7 +88,7 @@ const GLOBAL_CSS = `
     --muted: #6b7280;
     --border:#e5e7eb;
     --bg:    #f4f6f8;
-    --font:  'DM Sans', system-ui, sans-serif;
+    --font:  var(--font-dm-sans), system-ui, sans-serif;
   }
   html, body { height: 100%; background: var(--bg) }
   body { font-family: var(--font); color: var(--text); -webkit-font-smoothing: antialiased }
@@ -133,7 +144,7 @@ export default function AdminPage() {
 
       {error && <ErrorBanner message={error} onRetry={fetchAll} />}
 
-      <div className="admin-layout" style={{ paddingTop: error ? 48 : 0 }}>
+      <div className={`admin-layout ${outfit.variable}`} style={{ paddingTop: error ? 48 : 0 }}>
         <Sidebar
           tab={tab}
           setTab={setTab}

@@ -180,7 +180,7 @@ function SearchDropdown({
             borderBottom: '1px solid #f1f5f9',
             cursor: 'pointer',
             textAlign: 'left',
-            fontFamily: "'DM Sans', sans-serif",
+            fontFamily: "var(--font-dm-sans), sans-serif",
             transition: 'background .12s',
           }}
           onMouseEnter={e => (e.currentTarget.style.background = '#f0fdf4')}
@@ -375,7 +375,7 @@ export function ProduktCatalogClient({
   /* ══════════════════════════════════════════════════════════════════════════ */
   return (
     <div style={{
-      fontFamily: "'DM Sans',-apple-system,sans-serif",
+      fontFamily: "var(--font-dm-sans),-apple-system,sans-serif",
       background: '#fafaf8',
       minHeight:  '100vh',
       overflowX:  'hidden',
@@ -489,7 +489,7 @@ export function ProduktCatalogClient({
                 border: '1.5px solid #e2e8f0',
                 borderRadius: 14,
                 fontSize: 13.5,
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "var(--font-dm-sans), sans-serif",
                 fontWeight: 600,
                 color: '#374151',
                 background: '#fff',
@@ -658,7 +658,7 @@ export function ProduktCatalogClient({
 
                       {p.price && (
                         <div style={{ display:'flex', alignItems:'baseline', gap:4, margin:'6px 0 2px' }}>
-                          <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:26, fontWeight:700, color:'#0f172a', lineHeight:1 }}>
+                          <span style={{ fontFamily:"var(--font-cormorant),serif", fontSize:26, fontWeight:700, color:'#0f172a', lineHeight:1 }}>
                             {Number(p.price).toFixed(2)}
                           </span>
                           <span style={{ fontSize:13, fontWeight:700, color:'#374151' }}>
@@ -702,6 +702,30 @@ export function ProduktCatalogClient({
               </p>
             )}
           </>
+        )}
+
+        {/* ── Пълен списък — винаги в SSR HTML ─────────────────────────────
+            ✅ ДОБАВЕНО: за разлика от .pk-grid по-горе (който показва само
+            {initialVisible} продукта, докато остатъкът се разкрива при scroll/
+            IntersectionObserver), този блок рендира РЕАЛЕН <a href> към ВСЕКИ
+            продукт, независимо от filter/sort/visible състоянието. Google не
+            скролва при обхождане — с този блок вече не разчита само на
+            JSON-LD ItemList schema, за да намери линк тежест от /produkti към
+            всяка от 81-те produkt страници. Полезен е и за реални
+            потребители, които предпочитат бърз азбучен преглед. ── */}
+        {products.length > 0 && (
+          <div className="pk-all-links">
+            <h2 className="pk-all-links-title">Всички продукти (А-Я)</h2>
+            <div className="pk-all-links-grid">
+              {[...products]
+                .sort((a, b) => a.name.localeCompare(b.name, 'bg'))
+                .map(p => (
+                  <a key={p.id} href={`/produkt/${p.slug}`} className="pk-all-links-item">
+                    {p.name}
+                  </a>
+                ))}
+            </div>
+          </div>
         )}
 
         {/* ── Bottom CTA ── */}

@@ -213,7 +213,7 @@ export default async function ProduktiPage() {
         sortedByClicks={sortedByClicks}  // ✅ наредени по кликове — за "Популярни"
         clickCounts={clickCounts}        // ✅ за показване на badge с брой кликове
         categories={categories}
-        initialVisible={6}
+        initialVisible={12}
         initialSort="popular"            // ✅ default: популярни
       />
     </>

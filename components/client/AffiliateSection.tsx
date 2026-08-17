@@ -182,7 +182,7 @@ export function AffiliateSection({ products, allProducts }: Props) {
                   {/* Цена */}
                   {p.price && (
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, margin: '4px 0 8px' }}>
-                      <span style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 26, fontWeight: 700, color: '#0f172a', lineHeight: 1 }}>
+                      <span style={{ fontFamily: "var(--font-cormorant),serif", fontSize: 26, fontWeight: 700, color: '#0f172a', lineHeight: 1 }}>
                         {Number(p.price).toFixed(2)}
                       </span>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>

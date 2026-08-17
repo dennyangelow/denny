@@ -44,7 +44,7 @@ export default function SiteFooter() {
       background: 'linear-gradient(180deg, #0a1f12 0%, #051a0d 100%)',
       color: 'rgba(255,255,255,0.5)',
       padding: '56px 24px 32px',
-      fontFamily: "'DM Sans', sans-serif",
+      fontFamily: "var(--font-dm-sans), sans-serif",
     }}>
       <style suppressHydrationWarning>{`
         .sf-inner { max-width: 1060px; margin: 0 auto; }
@@ -85,7 +85,7 @@ export default function SiteFooter() {
         <div className="sf-grid">
           <div>
             <div style={{ fontSize: 28, marginBottom: 10 }}>🍅</div>
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: '#fff', fontWeight: 700, marginBottom: 3, lineHeight: 1.2 }}>Denny Angelow</div>
+            <div style={{ fontFamily: "var(--font-cormorant), serif", fontSize: 20, color: '#fff', fontWeight: 700, marginBottom: 3, lineHeight: 1.2 }}>Denny Angelow</div>
             <div style={{ fontSize: 9.5, color: '#86efac', fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', marginBottom: 12 }}>Агро Консултант</div>
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,.42)', lineHeight: 1.7, maxWidth: 240, marginBottom: 18 }}>
               Помагам на фермери да отглеждат по-здрави растения с проверени органични методи и правилна защита.

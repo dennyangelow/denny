@@ -14,7 +14,7 @@ export default function OwnProduktLoading() {
 
   return (
     <div style={{
-      fontFamily: "'DM Sans', sans-serif",
+      fontFamily: "var(--font-dm-sans), sans-serif",
       background: '#f6f8fa',
       minHeight: '100vh',
       paddingBottom: 100,

@@ -50,7 +50,7 @@ export function ToastContainer() {
     <>
       <style>{`
         .toast-wrap{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
-        .toast{display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;pointer-events:auto;animation:toast-in .25s cubic-bezier(.34,1.56,.64,1);max-width:340px;box-shadow:0 4px 20px rgba(0,0,0,.15)}
+        .toast{display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:10px;font-family:var(--font-dm-sans),sans-serif;font-size:14px;font-weight:500;pointer-events:auto;animation:toast-in .25s cubic-bezier(.34,1.56,.64,1);max-width:340px;box-shadow:0 4px 20px rgba(0,0,0,.15)}
         .toast-success{background:#065f46;color:#d1fae5}
         .toast-error{background:#991b1b;color:#fee2e2}
         .toast-info{background:#1e3a5f;color:#dbeafe}

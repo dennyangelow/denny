@@ -15,12 +15,34 @@
 //   ✅ suppressHydrationWarning навсякъде
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { Syne, Lora } from 'next/font/google'
 import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 import type { Naruchnik } from './page'
 import type { ResolvedImage } from '@/lib/images'
 import { buildImageList } from '@/lib/images'
 import SiteHeader from '@/components/layout/SiteHeader'
 import SiteFooter from '@/components/layout/SiteFooter'
+
+// ✅ ФИКС: тези 2 шрифта се зареждаха през render-blocking @import вътре в
+//    inline <style> по-долу (~1650ms загуба, същия проблем като на produkt
+//    страниците). Регистрирани тук чрез next/font/google — self-hosted,
+//    preload-нати, не блокират рендъра. Само на naruchnik страниците, защото
+//    Syne/Lora не се ползват другаде в сайта (DM Sans вече е глобален от
+//    app/layout.tsx — не се регистрира втори път тук).
+const syne = Syne({
+  subsets:  ['latin'],
+  weight:   ['600', '700', '800'],
+  variable: '--font-syne',
+  display:  'swap',
+})
+
+const lora = Lora({
+  subsets:  ['latin'],
+  weight:   ['400', '600'],
+  style:    ['italic'],
+  variable: '--font-lora',
+  display:  'swap',
+})
 
 export interface FaqEntry   { q: string; a: string }
 export interface Testimonial { name: string; location: string; text: string; stars?: number }
@@ -169,7 +191,7 @@ export default function NaruchnikClient({
       {done ? (
         <div className="n-success" role="alert">
           <div style={{ fontSize: 56, marginBottom: 12 }}>🎉</div>
-          <h3 className="n-f-title" style={{ color: '#111', marginBottom: 8, fontFamily: "'Syne', sans-serif" }}>Свалянето започна!</h3>
+          <h3 className="n-f-title" style={{ color: '#111', marginBottom: 8, fontFamily: "var(--font-syne), sans-serif" }}>Свалянето започна!</h3>
           <p style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.7, marginBottom: 6 }}>
             Провери папката <strong>Изтегляния</strong> на устройството си.
           </p>
@@ -269,10 +291,9 @@ export default function NaruchnikClient({
   return (
     <>
       <style suppressHydrationWarning>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Lora:ital,wght@1,400;1,600&family=DM+Sans:wght@400;500;600;700&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html { scroll-behavior: smooth; }
-        body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antialiased; background: #f8fafc; }
+        body { font-family: var(--font-dm-sans), sans-serif; -webkit-font-smoothing: antialiased; background: #f8fafc; }
 
         @keyframes up    { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
         @keyframes float { 0%,100%{transform:translateY(0) rotate(-1deg)} 50%{transform:translateY(-6px) rotate(1deg)} }
@@ -344,7 +365,7 @@ export default function NaruchnikClient({
           letter-spacing: .09em; text-transform: uppercase; margin-bottom: 10px;
         }
         .nh-title {
-          font-family: 'Syne', sans-serif; font-size: clamp(20px, 2.8vw, 32px);
+          font-family: var(--font-syne), sans-serif; font-size: clamp(20px, 2.8vw, 32px);
           font-weight: 800; color: #fff; line-height: 1.15; letter-spacing: -.025em; margin-bottom: 10px;
         }
         .nh-desc { font-size: 14px; color: rgba(255,255,255,.65); line-height: 1.7; margin-bottom: 16px; max-width: 520px; }
@@ -432,12 +453,12 @@ export default function NaruchnikClient({
 
         /* ── Testimonials ── */
         .n-testi-quote {
-          font-family: 'Lora', serif; font-size: 15px; font-style: italic; color: #374151;
+          font-family: var(--font-lora), serif; font-size: 15px; font-style: italic; color: #374151;
           line-height: 1.85; margin-bottom: 16px; position: relative; padding-left: 22px;
         }
         .n-testi-quote::before {
           content: '"'; position: absolute; left: 0; top: -6px;
-          font-size: 42px; color: #d1fae5; line-height: 1; font-family: 'Lora', serif;
+          font-size: 42px; color: #d1fae5; line-height: 1; font-family: var(--font-lora), serif;
         }
         .n-testi-author { display: flex; align-items: center; gap: 11px; }
         .n-testi-avatar {
@@ -509,7 +530,7 @@ export default function NaruchnikClient({
           background: linear-gradient(90deg, transparent, rgba(255,255,255,.04), transparent);
           animation: shine 3s ease-in-out infinite;
         }
-        .n-f-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; margin-bottom: 5px; position: relative; }
+        .n-f-title { font-family: var(--font-syne), sans-serif; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; margin-bottom: 5px; position: relative; }
         .n-f-sub   { font-size: 12px; color: rgba(255,255,255,.55); line-height: 1.65; position: relative; }
         .n-f-sub strong { color: #4ade80; }
         .n-urgency {
@@ -621,7 +642,8 @@ export default function NaruchnikClient({
       `}</style>
 
       {/* Progress bar */}
-      <div className="n-progress" style={{ width: `${scrollPct}%` }} aria-hidden="true" />
+      <div className={`${syne.variable} ${lora.variable}`}>
+        <div className="n-progress" style={{ width: `${scrollPct}%` }} aria-hidden="true" />
 
       <SiteHeader variant="light" />
 
@@ -855,6 +877,7 @@ export default function NaruchnikClient({
       )}
 
       <SiteFooter />
+      </div>
     </>
   )
 }

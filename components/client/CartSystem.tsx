@@ -8,6 +8,19 @@
 // ✅ Всички предишни fix-ове от v12
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { Outfit } from 'next/font/google'
+
+// ✅ ФИКС: 'Outfit' се зареждаше през render-blocking @import в inline <style>
+//    вътре в CartDrawer (~1650ms загуба, същият проблем както другаде в сайта).
+//    Регистриран тук чрез next/font/google — self-hosted, не блокира рендъра.
+//    Само за CartDrawer, защото Outfit не се ползва другаде в сайта. DM Sans/
+//    Cormorant Garamond вече са глобални от app/layout.tsx — не се дублират.
+const outfit = Outfit({
+  subsets:  ['latin'],
+  weight:   ['400', '600', '700', '800', '900'],
+  variable: '--font-outfit',
+  display:  'swap',
+})
 
 // ── Детекция на мобилен (≤640px) — синхронна, без flash ──────────────────────
 function useIsMobile() {
@@ -1154,7 +1167,7 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
       {/* Долна секция */}
       <div style={{ padding: '20px 22px 22px', flex: 1, display: 'flex', flexDirection: 'column' }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: isOutOfStock ? '#9ca3af' : '#16a34a', letterSpacing: '0.07em', textTransform: 'uppercase' as const, marginBottom: 6 }}>{product.emoji} {product.subtitle}</div>
-        <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 800, color: '#111', margin: '0 0 10px', lineHeight: 1.2 }}>{product.name}</h3>
+        <h3 style={{ fontFamily: "var(--font-cormorant), serif", fontSize: 22, fontWeight: 800, color: '#111', margin: '0 0 10px', lineHeight: 1.2 }}>{product.name}</h3>
         <p style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.65, marginBottom: 16 }}>{product.desc}</p>
         {product.features?.length > 0 && (
           <ul style={{ margin: '0 0 18px', padding: 0, listStyle: 'none' }}>
@@ -1509,7 +1522,6 @@ function CartDrawer({
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
 
         /* ══ OVERLAY ══════════════════════════════════════════════ */
         .cart-overlay {
@@ -1527,7 +1539,7 @@ function CartDrawer({
           display: flex; flex-direction: column;
           box-shadow: -20px 0 60px rgba(0,0,0,.18);
           animation: cartSlideIn .28s cubic-bezier(.4,0,.2,1);
-          font-family: 'Outfit', 'DM Sans', sans-serif;
+          font-family: var(--font-outfit), var(--font-dm-sans), sans-serif;
           overflow: hidden; border-radius: 0 0 0 14px;
           /* ✅ FIX: Гарантираме drawer да не излиза от viewport */
           max-height: calc(100vh - 60px);
@@ -1695,7 +1707,7 @@ function CartDrawer({
           - Мобилни (≤640px): top:0, цял екран — НЕ следва urgency bar / header
           - Десктоп: top = headerBottom (под sticky header + urgency bar)
       */}
-      <div className="cart-drawer" role="dialog" aria-modal="true" aria-label="Количка"
+      <div className={`cart-drawer ${outfit.variable}`} role="dialog" aria-modal="true" aria-label="Количка"
         style={
           isMobile
             ? { top: 0, maxHeight: '100dvh' } as React.CSSProperties
@@ -1731,7 +1743,7 @@ function CartDrawer({
         {done ? (
           <div className="cart-inner" style={{ textAlign: 'center', paddingTop: 52 }}>
             <div style={{ fontSize: 68, marginBottom: 14 }}>🎉</div>
-            <h2 style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 26, fontWeight: 800, marginBottom: 10, color: '#111' }}>Благодаря!</h2>
+            <h2 style={{ fontFamily: "var(--font-cormorant),serif", fontSize: 26, fontWeight: 800, marginBottom: 10, color: '#111' }}>Благодаря!</h2>
             {orderNumber && <div style={{ display: 'inline-block', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '8px 18px', marginBottom: 14, fontSize: 13, fontWeight: 700, color: '#166534' }}>Поръчка №{orderNumber}</div>}
             <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.7, marginBottom: 20 }}>Поръчката ти е получена. Ще се свържем с теб скоро за потвърждение.</p>
             <p style={{ fontSize: 14, color: '#374151' }}>📞 При въпроси: <a href={`tel:${sitePhone}`} style={{ color: '#16a34a', fontWeight: 700 }}>{sitePhone}</a></p>
