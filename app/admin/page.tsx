@@ -3,7 +3,6 @@
 // ✅ v7: onOpenCustomer от DashboardTab → превключва на Поръчки и отваря CustomerProfileModal
 
 import { useState, useEffect, useCallback } from 'react'
-import { Outfit } from 'next/font/google'
 import { Sidebar }            from './components/Sidebar'
 import { DashboardTab }       from './components/DashboardTab'
 import { OrdersTab }          from './components/OrdersTab'
@@ -18,17 +17,6 @@ import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
 import type { Order }         from '@/lib/supabase'
-
-// ✅ ФИКС: MarketingTab.tsx използва 'Outfit' за таба .mkt — регистриран тук,
-//    защото Outfit не е глобален (само CartSystem.tsx и сега admin панела го
-//    ползват). DM Sans/Cormorant Garamond вече са глобални от app/layout.tsx.
-const outfit = Outfit({
-  subsets:  ['latin'],
-  weight:   ['400', '600', '700', '800', '900'],
-  variable: '--font-outfit',
-  display:  'swap',
-})
-
 
 const AUTO_REFRESH_MS = 30 * 60 * 1000 // 30 мин — не прекъсва sync
 
@@ -144,7 +132,7 @@ export default function AdminPage() {
 
       {error && <ErrorBanner message={error} onRetry={fetchAll} />}
 
-      <div className={`admin-layout ${outfit.variable}`} style={{ paddingTop: error ? 48 : 0 }}>
+      <div className="admin-layout" style={{ paddingTop: error ? 48 : 0 }}>
         <Sidebar
           tab={tab}
           setTab={setTab}

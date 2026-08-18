@@ -8,19 +8,13 @@
 // ✅ Всички предишни fix-ове от v12
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Outfit } from 'next/font/google'
 
-// ✅ ФИКС: 'Outfit' се зареждаше през render-blocking @import в inline <style>
-//    вътре в CartDrawer (~1650ms загуба, същият проблем както другаде в сайта).
-//    Регистриран тук чрез next/font/google — self-hosted, не блокира рендъра.
-//    Само за CartDrawer, защото Outfit не се ползва другаде в сайта. DM Sans/
-//    Cormorant Garamond вече са глобални от app/layout.tsx — не се дублират.
-const outfit = Outfit({
-  subsets:  ['latin'],
-  weight:   ['400', '600', '700', '800', '900'],
-  variable: '--font-outfit',
-  display:  'swap',
-})
+// ✅ ФИКС: 'Outfit' беше регистриран тук, но CartHeaderButton (винаги видим в
+//    header-а на ВСЯКА страница) живее в същия модул — затова Outfit се
+//    зареждаше сайтово, дори количката да не е отворена. Мрежовата диагностика
+//    показа 718ms critical path latency заради това (шрифтов файл, чакащ зад
+//    отделен CSS chunk). Понеже Outfit беше само козметичен избор за drawer-а,
+//    маха се изцяло — .cart-drawer вече ползва вече глобално наличния DM Sans.
 
 // ── Детекция на мобилен (≤640px) — синхронна, без flash ──────────────────────
 function useIsMobile() {
@@ -1539,7 +1533,7 @@ function CartDrawer({
           display: flex; flex-direction: column;
           box-shadow: -20px 0 60px rgba(0,0,0,.18);
           animation: cartSlideIn .28s cubic-bezier(.4,0,.2,1);
-          font-family: var(--font-outfit), var(--font-dm-sans), sans-serif;
+          font-family: var(--font-dm-sans), sans-serif;
           overflow: hidden; border-radius: 0 0 0 14px;
           /* ✅ FIX: Гарантираме drawer да не излиза от viewport */
           max-height: calc(100vh - 60px);
@@ -1707,7 +1701,7 @@ function CartDrawer({
           - Мобилни (≤640px): top:0, цял екран — НЕ следва urgency bar / header
           - Десктоп: top = headerBottom (под sticky header + urgency bar)
       */}
-      <div className={`cart-drawer ${outfit.variable}`} role="dialog" aria-modal="true" aria-label="Количка"
+      <div className="cart-drawer" role="dialog" aria-modal="true" aria-label="Количка"
         style={
           isMobile
             ? { top: 0, maxHeight: '100dvh' } as React.CSSProperties
