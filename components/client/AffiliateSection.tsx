@@ -106,6 +106,8 @@ export function AffiliateSection({ products, allProducts }: Props) {
                     alt={p.image_alt || p.name}
                     fallbackEmoji={p.emoji || '🌿'}
                     className="pk-card-img"
+                    width={144}
+                    height={193}
                   />
                 </a>
 

@@ -3,6 +3,7 @@
 // components/client/HandbooksPanel.tsx
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 
 interface Handbook {
   slug: string; title: string; subtitle: string
@@ -181,7 +182,7 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#f0fdf4', border: `1.5px solid ${hb.color}44`, borderRadius: 14, padding: '10px 12px', marginBottom: 16 }}>
                 <div style={{ width: 50, height: 68, flexShrink: 0, borderRadius: 10, overflow: 'hidden', background: `${hb.color}18`, boxShadow: `0 4px 16px ${hb.color}33` }}>
                   {hb.image_url
-                    ? <img src={hb.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: 10 }} />
+                    ? <Image src={hb.image_url} alt="" width={50} height={68} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: 10 }} />
                     : <span style={{ fontSize: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>{hb.emoji}</span>
                   }
                 </div>
@@ -329,9 +330,11 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                 borderRadius: '14px 0 0 14px',
               }}>
                 {hb.image_url ? (
-                  <img
+                  <Image
                     src={hb.image_url}
                     alt={hb.title}
+                    width={82}
+                    height={108}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     onError={(e) => {
                       e.currentTarget.style.display = 'none'

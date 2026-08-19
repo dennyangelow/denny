@@ -8,6 +8,7 @@
 // ✅ Всички предишни fix-ове от v12
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import Image from 'next/image'
 
 // ✅ ФИКС: 'Outfit' беше регистриран тук, но CartHeaderButton (винаги видим в
 //    header-а на ВСЯКА страница) живее в същия модул — затова Outfit се
@@ -1154,7 +1155,7 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
         }
         {discount > 0 && !isOutOfStock && <div style={{ position: 'absolute', top: 14, right: 14, background: '#dc2626', color: '#fff', fontSize: 12, fontWeight: 900, padding: '4px 10px', borderRadius: 30 }}>-{discount}%</div>}
         {product.img
-          ? <img src={product.img} alt={product.name} style={{ maxHeight: 160, maxWidth: '100%', objectFit: 'contain', filter: isOutOfStock ? 'grayscale(35%)' : 'none', transition: 'filter .2s' }} />
+          ? <Image src={product.img} alt={product.name} width={280} height={280} style={{ maxHeight: 160, maxWidth: '100%', height: 'auto', objectFit: 'contain', filter: isOutOfStock ? 'grayscale(35%)' : 'none', transition: 'filter .2s' }} />
           : <span style={{ fontSize: 72, filter: isOutOfStock ? 'grayscale(50%)' : 'none' }}>{product.emoji}</span>
         }
       </div>

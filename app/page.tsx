@@ -7,6 +7,7 @@
 //   ✅ Всички SEO подобрения от v3 запазени непроменени
 
 import { Metadata } from 'next'
+import Image from 'next/image'
 import { CDN, AFF } from '@/lib/marketing-data'
 import { supabaseAdmin } from '@/lib/supabase'
 import { HeaderClient } from '@/components/client/HeaderClient'
@@ -886,6 +887,8 @@ export default async function HomePage() {
                   alt={`${authorName} — агро консултант с 8+ години опит`}
                   className="tb-avatar-img"
                   fallbackEmoji="🌿"
+                  width={34}
+                  height={34}
                 />
                 <div className="tb-avatar-fallback">DA</div>
                 <div>
@@ -1255,10 +1258,12 @@ export default async function HomePage() {
                 <div className="ginegar-img-wrap">
                   <div style={{ position: 'absolute', inset: -24, background: 'radial-gradient(circle, rgba(22,163,74,0.18), transparent 70%)', borderRadius: '50%', zIndex: 0, pointerEvents: 'none' }} />
                   {sec.image_url && sec.image_url.startsWith('http') && (
-                    <img
+                    <Image
                       src={sec.image_url}
                       alt={sec.image_alt || sec.title}
-                      style={{ width: '100%', maxWidth: 260, borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1, display: 'block', objectFit: 'contain' }}
+                      width={260}
+                      height={346}
+                      style={{ width: '100%', maxWidth: 260, height: 'auto', borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1, display: 'block', objectFit: 'contain' }}
                     />
                   )}
                   {sec.logo_url && sec.logo_url.startsWith('http') && (
@@ -1267,6 +1272,8 @@ export default async function HomePage() {
                         src={sec.logo_url}
                         alt={sec.logo_alt || `${sec.title} лого`}
                         fallbackEmoji=""
+                        width={180}
+                        height={52}
                         style={{ height: 52, width: 'auto', maxWidth: 180, objectFit: 'contain', display: 'block' }}
                       />
                     </div>
@@ -1332,7 +1339,7 @@ export default async function HomePage() {
                       )}
                       <div className="testimonial-author">
                         {t.avatar_url ? (
-                          <img src={t.avatar_url} alt={`${t.name} — отзив за Denny Angelow`} className="testimonial-avatar" loading="lazy" />
+                          <Image src={t.avatar_url} alt={`${t.name} — отзив за Denny Angelow`} className="testimonial-avatar" width={40} height={40} loading="lazy" />
                         ) : (
                           <div className="testimonial-avatar-fallback" style={{ background: avatarBg }}>
                             {firstLetter || '?'}
