@@ -402,16 +402,13 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
 
   return (
     <>
-      {/* ✅ LCP PRELOAD — браузърът открива снимката при HTML парсване, без да чака JS */}
-      {/* Критично за мобилни устройства — намалява LCP с 0.3–0.5 сек */}
-      {product.image_url && (
-        <link
-          rel="preload"
-          as="image"
-          href={product.image_url}
-          fetchPriority="high"
-        />
-      )}
+      {/* ⚠️ ПРЕМАХНАТ ръчен <link rel="preload"> — сочеше към суровия
+          оригинален image_url, различен от оптимизирания /_next/image?...
+          URL, който OwnProduktClient.tsx реално рендира през <Image
+          priority={activeImgIdx === 0}>. Next/Image САМ инжектира правилния
+          preload за оптимизираната версия, когато priority е true — ръчният
+          тук просто караше браузъра да тегли ДВА варианта на снимката
+          едновременно (суров + оптимизиран), хабейки bandwidth на LCP пътя. */}
 
       {productSchema && (
         <script type="application/ld+json"
