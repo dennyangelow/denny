@@ -335,6 +335,12 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                     alt={hb.title}
                     width={82}
                     height={108}
+                    // ✅ ФИКС LCP: PageSpeed маркира тази картинка (първата карта в hero)
+                    // като LCP елемент на мобилно (3.2s). Next/Image по подразбиране
+                    // слага loading="lazy", което пречи на браузъра да я открие рано.
+                    // priority на idx===0 → loading="eager" + fetchpriority="high",
+                    // само за първата карта — останалите остават lazy (правилно).
+                    priority={idx === 0}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     onError={(e) => {
                       e.currentTarget.style.display = 'none'
