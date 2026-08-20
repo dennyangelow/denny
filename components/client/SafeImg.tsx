@@ -1,16 +1,18 @@
 'use client'
 
-// components/client/SafeImg.tsx — v2
-// ✅ ФИКС: смени обикновен <img> с next/image — снимки от r2.dev/cloudfront/
-//    supabase вече минават през вградения Next.js Image Optimizer (автоматично
-//    смаляване + WebP/AVIF конверсия), вместо да се теглят в оригиналния,
-//    често 3-4х по-голям от нужното, размер (виж PageSpeed "Improve image
-//    delivery" — над 1MB спестявания установени). width/height подаваш от
-//    извикващия компонент — те определят каква резолюция генерира Next.js,
-//    реалният visual размер продължава да се управлява от style/className,
-//    точно както преди.
-// ✅ Fallback при грешка вече е през React state вместо императивна DOM
-//    манипулация — по-чисто и съвместимо с hydration.
+// components/client/SafeImg.tsx — v3
+// ✅ ФИКС спрямо v2: добавен `priority` prop — БЕЗ него Next.js third-parties
+//    всяка снимка (вкл. hero/LCP изображението) като lazy-loaded, което бави
+//    Largest Contentful Paint. Извикващият компонент трябва да подаде
+//    priority={true} САМО за снимката, която е видима над первия fold
+//    (напр. главната продуктова снимка на hero секцията) — за всичко друго
+//    (продуктови карти надолу по страницата, галерии) priority остава false
+//    по подразбиране, за да не пречи на lazy loading там, където е полезно.
+// ✅ ФИКС: добавен `sizes` prop — позволява на Next.js Image Optimizer да
+//    генерира по-прецизен srcset спрямо реалния viewport, вместо по-тежкия
+//    default. Ако не подадеш sizes, поведението е same as v2 (fallback към
+//    ширината в px), значи backward-compatible.
+// ✅ Запазено от v2: next/image конверсия, React state fallback при грешка.
 
 import { useState } from 'react'
 import Image from 'next/image'
@@ -24,6 +26,19 @@ interface Props {
   /** Хинт за Next.js Image Optimizer какъв размер да генерира. По подразбиране 300x300. */
   width?: number
   height?: number
+  /**
+   * Сложи true САМО за снимката, която е LCP елементът на страницата
+   * (напр. главната hero/продуктова снимка над fold-а). Preaload-ва я и
+   * я маха от lazy-loading опашката — не слагай true навсякъде, ще
+   * навреди на performance вместо да помогне.
+   */
+  priority?: boolean
+  /**
+   * Responsive size hint за по-прецизен srcset избор от браузъра.
+   * Пример: "(max-width: 768px) 100vw, 300px"
+   * Ако не подадеш нищо, Next.js ползва фиксирания width за изчисление.
+   */
+  sizes?: string
 }
 
 export function SafeImg({
@@ -34,6 +49,8 @@ export function SafeImg({
   className,
   width = 300,
   height = 300,
+  priority = false,
+  sizes,
 }: Props) {
   const [errored, setErrored] = useState(false)
 
@@ -63,6 +80,8 @@ export function SafeImg({
       height={height}
       style={style}
       className={className}
+      priority={priority}
+      sizes={sizes}
       onError={() => setErrored(true)}
     />
   )

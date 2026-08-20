@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { SafeImg } from '@/components/client/SafeImg'
 import {
   offersForProduct, offersForHomepage, computeBundleProgress,
   offerRelatedProductIds,
@@ -270,7 +271,7 @@ function OfferPromoCard({
               return (
                 <div key={product.id} className="mk-offer-pick-row">
                   {product.img
-                    ? <img src={product.img} alt={product.name} className="mk-offer-pick-img" loading="lazy" />
+                    ? <SafeImg src={product.img} alt={product.name} className="mk-offer-pick-img" width={28} height={28} />
                     : <span className="mk-offer-pick-emoji">{product.emoji}</span>}
                   <div className="mk-offer-pick-info">
                     <span className="mk-offer-pick-name">{product.name}</span>
@@ -316,7 +317,7 @@ function OfferPromoCard({
                 {involvedProducts.slice(0, 4).map(p => (
                   <Link key={p.id} href={`/products/${p.slug}`} className="mk-offer-product" title={p.name}>
                     {p.img
-                      ? <img src={p.img} alt={p.name} className="mk-offer-product-img" loading="lazy" />
+                      ? <SafeImg src={p.img} alt={p.name} className="mk-offer-product-img" width={32} height={32} />
                       : <span className="mk-offer-product-emoji">{p.emoji}</span>}
                   </Link>
                 ))}

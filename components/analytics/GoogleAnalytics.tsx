@@ -12,16 +12,24 @@ export function GoogleAnalytics() {
 
   return (
     <>
-      <Script
-        src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
-        strategy="afterInteractive"
-      />
-      <Script id="google-analytics" strategy="afterInteractive">
+      {/* Инициализира dataLayer + gtag() веднага (0 мрежови заявки) — така
+          ранни извиквания на window.gtag(...) (напр. от PageViewTracker при
+          route промяна преди gtag.js да се е заредил) се опашкуват коректно
+          вместо да хвърлят грешка. */}
+      <Script id="google-analytics-init" strategy="beforeInteractive">
         {`
           window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-          gtag('config', '${GA_ID}', {
+          window.gtag = window.gtag || function(){ window.dataLayer.push(arguments); };
+          window.gtag('js', new Date());
+        `}
+      </Script>
+      <Script
+        src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+        strategy="lazyOnload"
+      />
+      <Script id="google-analytics-config" strategy="lazyOnload">
+        {`
+          window.gtag('config', '${GA_ID}', {
             page_path: window.location.pathname,
           });
         `}
