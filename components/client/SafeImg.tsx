@@ -39,6 +39,12 @@ interface Props {
    * Ако не подадеш нищо, Next.js ползва фиксирания width за изчисление.
    */
   sizes?: string
+  /**
+   * Компресия 1-100. По подразбиране 75 (Next.js default). За малки
+   * thumbnail/card снимки, където детайлът не се вижда, спокойно може
+   * да се свали до 60-70 без забележима загуба на качество.
+   */
+  quality?: number
 }
 
 export function SafeImg({
@@ -51,6 +57,7 @@ export function SafeImg({
   height = 300,
   priority = false,
   sizes,
+  quality,
 }: Props) {
   const [errored, setErrored] = useState(false)
 
@@ -82,6 +89,7 @@ export function SafeImg({
       className={className}
       priority={priority}
       sizes={sizes}
+      quality={quality}
       onError={() => setErrored(true)}
     />
   )

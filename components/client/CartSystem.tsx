@@ -1155,7 +1155,20 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
         }
         {discount > 0 && !isOutOfStock && <div style={{ position: 'absolute', top: 14, right: 14, background: '#dc2626', color: '#fff', fontSize: 12, fontWeight: 900, padding: '4px 10px', borderRadius: 30 }}>-{discount}%</div>}
         {product.img
-          ? <Image src={product.img} alt={product.name} width={280} height={280} style={{ maxHeight: 160, maxWidth: '100%', height: 'auto', objectFit: 'contain', filter: isOutOfStock ? 'grayscale(35%)' : 'none', transition: 'filter .2s' }} />
+          ? <Image
+              src={product.img}
+              alt={product.name}
+              width={280}
+              height={280}
+              // ✅ ФИКС "Improve image delivery": CSS-ът показва снимката с
+              // maxHeight:160 (реален render ~160px), но без sizes Next/Image
+              // генерира srcset базиран на intrinsic width={280} — теглейки
+              // 600x600 вариант вместо нужния. sizes="160px" казва точния
+              // реален размер, quality={70} маха допълнителен waste.
+              sizes="160px"
+              quality={70}
+              style={{ maxHeight: 160, maxWidth: '100%', height: 'auto', objectFit: 'contain', filter: isOutOfStock ? 'grayscale(35%)' : 'none', transition: 'filter .2s' }}
+            />
           : <span style={{ fontSize: 72, filter: isOutOfStock ? 'grayscale(50%)' : 'none' }}>{product.emoji}</span>
         }
       </div>

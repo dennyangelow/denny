@@ -108,6 +108,11 @@ export function AffiliateSection({ products, allProducts }: Props) {
                     className="pk-card-img"
                     width={144}
                     height={193}
+                    // ✅ ФИКС "Improve image delivery": на мобилно .pk-card-img-wrap
+                    // е 110px (виж homepage.css @media max-width:640px), не 144px.
+                    // sizes казва точния размер на всеки breakpoint.
+                    sizes="(max-width: 640px) 110px, 144px"
+                    quality={70}
                   />
                 </a>
 

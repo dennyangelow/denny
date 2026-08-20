@@ -1263,6 +1263,11 @@ export default async function HomePage() {
                       alt={sec.image_alt || sec.title}
                       width={260}
                       height={346}
+                      // ✅ ФИКС "Improve image delivery" — без sizes, Next/Image
+                      // приема 260px за всички viewport-и и сервира по-голям
+                      // вариант отколкото реалния render на мобилно.
+                      sizes="(max-width: 768px) 45vw, 260px"
+                      quality={70}
                       style={{ width: '100%', maxWidth: 260, height: 'auto', borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1, display: 'block', objectFit: 'contain' }}
                     />
                   )}
@@ -1339,7 +1344,7 @@ export default async function HomePage() {
                       )}
                       <div className="testimonial-author">
                         {t.avatar_url ? (
-                          <Image src={t.avatar_url} alt={`${t.name} — отзив за Denny Angelow`} className="testimonial-avatar" width={40} height={40} loading="lazy" />
+                          <Image src={t.avatar_url} alt={`${t.name} — отзив за Denny Angelow`} className="testimonial-avatar" width={40} height={40} sizes="40px" quality={60} loading="lazy" />
                         ) : (
                           <div className="testimonial-avatar-fallback" style={{ background: avatarBg }}>
                             {firstLetter || '?'}
