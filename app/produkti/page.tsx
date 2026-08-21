@@ -10,12 +10,7 @@ import { Metadata }              from 'next'
 import { supabaseAdmin }         from '@/lib/supabase'
 import type { AffiliateProduct } from '@/lib/affiliate'
 import { ProduktCatalogClient }  from './ProduktCatalogClient'
-import { DeferredStylesheet }    from '@/components/client/DeferredStylesheet'
 import '../homepage.css'
-// ✅ produkti.css вече съдържа само hero/search/filters/grid/card/skeleton
-//    (critical). Долната част (A-Я списък, bottom CTA, load-more, empty
-//    state) е в public/css/produkti-deferred.css — зарежда се асинхронно
-//    по-долу, не блокира render-а.
 import './produkti.css'
 
 export const revalidate = 300
@@ -204,9 +199,6 @@ export default async function ProduktiPage() {
 
   return (
     <>
-      {/* ── Deferred (below-the-fold) CSS — не блокира LCP/FCP ── */}
-      <DeferredStylesheet href="/css/produkti-deferred.css" />
-
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildBreadcrumb()) }} />
       <script type="application/ld+json"
