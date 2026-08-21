@@ -19,6 +19,12 @@ import { SafeImg } from '@/components/client/SafeImg'
 import { AffiliateSection, CategoryLinksSection } from '@/components/client/AffiliateSection'
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import OffersShowcase from '@/components/marketing/OffersShowcase'
+import { DeferredStylesheet } from '@/components/client/DeferredStylesheet'
+// ✅ ФИКС render-blocking CSS: homepage.css вече съдържа САМО above-the-fold
+//    стиловете (hero/header/handbooks-panel/trust-strip). Всичко под тях е
+//    в public/css/homepage-deferred.css и се зарежда асинхронно чрез
+//    <DeferredStylesheet/> по-долу — вижда PageSpeed "Render-blocking
+//    requests" / LCP audit-а за причината.
 import './homepage.css'
 
 // ✅ ISR: 5 минути. Данните се обновяват на фона — не при всяка заявка.
@@ -841,6 +847,9 @@ export default async function HomePage() {
 
   return (
     <>
+      {/* ── Deferred (below-the-fold) CSS — не блокира LCP/FCP ── */}
+      <DeferredStylesheet href="/css/homepage-deferred.css" />
+
       {/* ── SEO Schema Scripts ── */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionPageSchema) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(naruchnikListSchema) }} />
