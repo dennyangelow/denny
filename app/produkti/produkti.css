@@ -1,10 +1,17 @@
-/* app/produkti/produkti.css — v3
-   Добавено спрямо v2:
+/* app/produkti/produkti.css — v4 (CRITICAL — само above-the-fold стилове)
+   ⚠️ Зарежда се render-blocking (нормален import в page.tsx), затова
+   съдържа само hero/search/filters/grid/card/skeleton — всичко нужно за
+   първите видими продукти. Долната част на страницата (A-Я списък, bottom
+   CTA, load-more/sentinel, empty state) е в produkti-deferred.css и се
+   зарежда асинхронно чрез <DeferredStylesheet href="/css/produkti-deferred.css" />.
+   Ако добавяш нов клас: ако се вижда БЕЗ scroll в началния grid → тук;
+   иначе → produkti-deferred.css.
+
+   Промени спрямо v3:
    ─ .pk-skeleton, .pk-skel-img, .pk-skel-line  (skeleton loader)
-   ─ .pk-sentinel                                (lazy load trigger)
-   ─ .pk-load-info, .pk-load-more-btn           (прогрес / ръчно зареждане)
+   ─ .pk-sentinel, .pk-load-info, .pk-load-more-btn, .pk-empty*,
+     .pk-all-links*, .pk-bottom-cta* → преместени в produkti-deferred.css
    ─ content-visibility: auto на .pk-card       (GPU offload за off-screen карти)
-   Всичко от v2 е запазено непроменено.
 */
 
 /* ══ HERO ══════════════════════════════════════════════════════════ */
@@ -183,10 +190,8 @@
   display: flex;
   flex-direction: column;
   transition: transform .22s, box-shadow .22s, border-color .22s;
-  /* ✅ ПОПРАВКА: @supports НЕ се слага вътре в CSS rule! Преместен долу. */
 }
 
-/* ✅ ПОПРАВКА: content-visibility извън .pk-card блока */
 @supports (content-visibility: auto) {
   .pk-card {
     content-visibility: auto;
@@ -331,148 +336,10 @@ a:hover .pk-card-title { color: #16a34a; }
   animation: pk-shimmer 1.4s infinite linear;
 }
 
-/* ══ SENTINEL + LOAD INFO ══════════════════════════════════════════ */
-/* Невидим div в дъното на grid-а — тригерира IntersectionObserver */
-.pk-sentinel {
-  height: 1px;
-  margin-top: 20px;
-  grid-column: 1 / -1;  /* span всички колони */
-}
-
-.pk-load-info {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  margin-top: 20px;
-  font-size: 13px;
-  color: #9ca3af;
-  font-weight: 500;
-}
-
-/* Ръчен бутон "Зареди още" — резервен при бавен scroll */
-.pk-load-more-btn {
-  background: none;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 100px;
-  padding: 7px 16px;
-  font-size: 12px;
-  font-weight: 700;
-  font-family: var(--font-dm-sans), sans-serif;
-  color: #374151;
-  cursor: pointer;
-  transition: all .18s;
-}
-.pk-load-more-btn:hover {
-  border-color: #16a34a;
-  color: #16a34a;
-  background: #f0fdf4;
-}
-
-/* ══ EMPTY STATE ════════════════════════════════════════════════════ */
-.pk-empty {
-  text-align: center;
-  padding: 60px 24px;
-}
-.pk-empty-btn {
-  background: #16a34a; color: #fff; border: none;
-  border-radius: 10px; padding: 11px 24px;
-  font-size: 14px; font-weight: 700;
-  cursor: pointer; font-family: var(--font-dm-sans), sans-serif;
-  transition: all .18s;
-}
-.pk-empty-btn:hover { background: #15803d; transform: translateY(-1px); }
-
-/* ══ ALL-PRODUCTS A-Я LINK LIST ═══════════════════════════════════════
-   ✅ Винаги в SSR HTML — виж бележката в ProduktCatalogClient.tsx.
-   Компактен, дискретен блок — не се конкурира визуално с главния grid. */
-.pk-all-links {
-  margin-top: 48px;
-  padding: 26px 28px;
-  background: #fff;
-  border: 1.5px solid #f0f0f0;
-  border-radius: 18px;
-}
-.pk-all-links-title {
-  font-family: var(--font-cormorant), Georgia, serif;
-  font-size: 19px;
-  font-weight: 700;
-  color: #0f172a;
-  margin: 0 0 14px;
-}
-.pk-all-links-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 4px 16px;
-}
-.pk-all-links-item {
-  font-size: 13px;
-  color: #6b7280;
-  text-decoration: none;
-  padding: 4px 0;
-  border-bottom: 1px solid transparent;
-  transition: color .15s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pk-all-links-item:hover {
-  color: #16a34a;
-  text-decoration: underline;
-}
-@media (max-width: 640px) {
-  .pk-all-links { padding: 20px 16px; margin-top: 32px; }
-  .pk-all-links-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
-}
-
-/* ══ BOTTOM CTA ═════════════════════════════════════════════════════ */
-.pk-bottom-cta {
-  margin-top: 60px;
-  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
-  border: 1.5px solid #a7f3d0;
-  border-radius: 20px;
-  padding: 40px 32px;
-  text-align: center;
-}
-.pk-bottom-title {
-  font-family: var(--font-cormorant), Georgia, serif;
-  font-size: clamp(22px, 3vw, 32px);
-  font-weight: 700; color: #0a0a0a;
-  line-height: 1.2; margin: 0 0 10px;
-}
-.pk-bottom-desc {
-  font-size: 14.5px; color: #4b5563;
-  line-height: 1.7; margin: 0 0 22px;
-  max-width: 480px; margin-left: auto; margin-right: auto;
-}
-.pk-bottom-btns {
-  display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
-}
-.pk-bottom-btn-primary {
-  padding: 13px 24px; border-radius: 13px;
-  background: linear-gradient(135deg, #16a34a, #15803d);
-  color: #fff; font-size: 14.5px; font-weight: 800;
-  text-decoration: none;
-  box-shadow: 0 6px 20px rgba(22,163,74,.35);
-  transition: all .2s;
-}
-.pk-bottom-btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 28px rgba(22,163,74,.45);
-}
-.pk-bottom-btn-ghost {
-  padding: 13px 24px; border-radius: 13px;
-  background: #fff; color: #374151;
-  border: 1.5px solid #e2e8f0;
-  font-size: 14.5px; font-weight: 700;
-  text-decoration: none; transition: all .2s;
-}
-.pk-bottom-btn-ghost:hover { border-color: #16a34a; color: #16a34a; }
-
 /* Mobile-only badge/tag row — скрит на desktop */
 .pk-mobile-badges { display: none; }
 
-/* ══ RESPONSIVE ════════════════════════════════════════════════════ */
+/* ══ RESPONSIVE (само critical части) ═════════════════════════════ */
 @media (max-width: 960px) {
   .pk-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
 }
@@ -494,11 +361,6 @@ a:hover .pk-card-title { color: #16a34a; }
   }
   .pk-filters::-webkit-scrollbar { display: none; }
   .pk-chip { flex-shrink: 0; }
-
-  .pk-bottom-cta  { padding: 28px 18px; margin-top: 40px; }
-  .pk-bottom-btns { flex-direction: column; align-items: stretch; }
-  .pk-bottom-btn-primary,
-  .pk-bottom-btn-ghost { text-align: center; }
 
   /* Картата хоризонтална на мобилно — снимка вляво */
   .pk-card {
@@ -547,9 +409,6 @@ a:hover .pk-card-title { color: #16a34a; }
     padding: 3px 8px; border-radius: 20px;
     display: inline-flex; align-items: center; gap: 3px;
   }
-
-  /* Load info на мобилно */
-  .pk-load-info { flex-direction: column; gap: 8px; }
 }
 
 @media (max-width: 400px) {
