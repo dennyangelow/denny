@@ -21,15 +21,15 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: true },
   eslint:     { ignoreDuringBuilds: true },
 
-  // ✅ ФИКС render-blocking CSS (PageSpeed: "Render-blocking requests" — 500ms
-  // на мобилно, за homepage.css → 10.3 KiB).
-  // optimizeCss автоматично инлайн-ва critical CSS в <head> и зарежда
-  // останалото async, вместо блокиращ <link rel="stylesheet">.
-  // ⚠️ Изисква инсталиран пакет "critters": npm install critters --save-dev
-  // ⚠️ ПРОВЕРИ след build дали реално инлайн-ва — виж инструкциите по-долу.
-  experimental: {
-    optimizeCss: true,
-  },
+  // ❌ ПРЕМАХНАТО (v6): experimental.optimizeCss / critters.
+  //    Доказано от PageSpeed network trace, че никога не е инлайн-вал
+  //    homepage.css реално (продължаваше да излиза като нормален
+  //    render-blocking <link>) — точно предупреждението в стария коментар
+  //    ("ПРОВЕРИ след build дали реално инлайн-ва") се сбъдна. Вместо това
+  //    критичният CSS вече се чете с fs.readFileSync и се инжектира ръчно
+  //    като <style> директно в app/page.tsx — 100% гарантирано инлайн,
+  //    без зависимост от build-time heuristic. Маха се и build dependency-то
+  //    "critters", което е нестабилно в по-новите Next версии.
 }
 
 module.exports = nextConfig

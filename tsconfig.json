@@ -1,6 +1,13 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    // ⚠️ ВАЖНО: смяната тук помага само за type-checking консистентност.
+    //    Реалният JS output (и оттам "Legacy JavaScript"/полифили в бъндъла)
+    //    се определя от Next.js/SWC на база "browserslist" в package.json,
+    //    НЕ от tsconfig target. Ако нямаш browserslist поле в package.json,
+    //    прати ми го — трябва да добавим нещо от рода на:
+    //      "browserslist": ["chrome >= 91","edge >= 91","firefox >= 90","safari >= 15"]
+    //    за да спре SWC да инжектира полифили за отдавна-поддържани фийчъри.
+    "target": "ES2022",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,

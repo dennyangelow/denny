@@ -20,14 +20,33 @@
 // този href (Next.js сервира /public/* от root).
 
 export function DeferredStylesheet({ href }: { href: string }) {
+  // ✅ ФИКС v3: чакаме window 'load' вместо да инжектираме <link> веднага.
+  //    Преди: скриптът се изпълняваше в мига, в който парсерът стигне до него
+  //    (той е близо до върха на <body>) — това стартираше fetch на
+  //    homepage-deferred.css В СЪЩИЯ МОМЕНТ като критичния homepage.css и
+  //    next/font CSS-а/woff2, и трите се биеха за bandwidth на throttled
+  //    мобилна връзка (виж PageSpeed "Render-blocking requests" / "Network
+  //    dependency tree" — homepage-deferred.css отнемаше 600-1000ms+ само
+  //    защото делеше честотната лента с критичните ресурси).
+  //    Сега: чакаме документа + всички критични ресурси (CSS, шрифтове,
+  //    LCP картинка) да приключат зареждане (window.load), и чак тогава
+  //    искаме deferred CSS-а. Това освобождава пълния bandwidth за
+  //    критичния render path и реално прави файла "deferred".
   const js = `
     (function(){
-      if (document.querySelector('link[data-deferred-css="${href}"]')) return;
-      var l = document.createElement('link');
-      l.rel = 'stylesheet';
-      l.href = '${href}';
-      l.setAttribute('data-deferred-css', '${href}');
-      document.head.appendChild(l);
+      function loadDeferredCss(){
+        if (document.querySelector('link[data-deferred-css="${href}"]')) return;
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = '${href}';
+        l.setAttribute('data-deferred-css', '${href}');
+        document.head.appendChild(l);
+      }
+      if (document.readyState === 'complete') {
+        loadDeferredCss();
+      } else {
+        window.addEventListener('load', loadDeferredCss, { once: true });
+      }
     })();
   `
 

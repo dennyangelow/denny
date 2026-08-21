@@ -29,11 +29,25 @@ const dmSans = DM_Sans({
   display:  'swap',
 })
 
+// ✅ ФИКС CLS: hero-title (.hero-title, clamp 32-52px, font-weight 700)
+//    ползва Cormorant Garamond и преди беше display:'swap'. На throttled
+//    мобилна мрежа шрифтът пристигаше чак след 600-1000ms+, браузърът
+//    рендваше H1 с fallback serif, после swap-ваше → голям reflow на
+//    цялата .hero секция (виж PageSpeed "Layout shift culprits" —
+//    body > section.hero > div.hero-grain, score 0.477). Cormorant е
+//    достатъчно различен от generic "serif" fallback-а, за да е видим
+//    shift-ът дори с Next.js-натa автоматична size-adjusted fallback.
+//    display:'optional' → браузърът чака мъничко (~100ms/от кеш), и ако
+//    шрифтът не е готов навреме, изобщо НЕ прави swap за тази навигация
+//    (fallback си остава до следващо зареждане, когато вече е кеширан).
+//    Нула CLS от този шрифт, цената е че на много бавна мрежа при първо
+//    посещение H1-ката ще е с fallback serif вместо Cormorant.
 const cormorant = Cormorant_Garamond({
   subsets:  ['latin'],
   weight:   ['600', '700'],
   variable: '--font-cormorant',
-  display:  'swap',
+  display:  'optional',
+  fallback: ['Georgia', 'Times New Roman', 'serif'],
 })
 
 // ── Споделени константи — промяна на 1 място, важи навсякъде ────────────────
