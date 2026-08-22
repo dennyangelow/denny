@@ -335,12 +335,14 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                     alt={hb.title}
                     width={82}
                     height={108}
-                    // ✅ ФИКС LCP: PageSpeed маркира тази картинка (първата карта в hero)
-                    // като LCP елемент на мобилно (3.2s). Next/Image по подразбиране
-                    // слага loading="lazy", което пречи на браузъра да я открие рано.
-                    // priority на idx===0 → loading="eager" + fetchpriority="high",
-                    // само за първата карта — останалите остават lazy (правилно).
-                    priority={idx === 0}
+                    // ✅ ФИКС LCP (v2): PageSpeed маркира ту първата, ту ВТОРАТА карта
+                    // (Наръчник за Краставици) като реален LCP елемент — зависи от
+                    // viewport/скрол позиция при мобилно измерване. priority={idx===0}
+                    // покриваше само първата и оставяше втората с loading="lazy" →
+                    // element render delay 2.2-2.3s (виж PageSpeed "LCP breakdown").
+                    // Затова priority сега на първите 2 карти — и двете са над сгъва
+                    // във hero-right, независимо коя точно избере browser-ът за LCP.
+                    priority={idx < 2}
                     // ✅ ФИКС "Improve image delivery" — 50 KiB спестявания.
                     // Без sizes, Next/Image избира следващия наличен bucket от
                     // imageSizes (256px) за реален displayed размер ~144-164px
