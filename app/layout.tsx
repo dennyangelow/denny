@@ -13,6 +13,28 @@ import { AffiliatePreloader } from '@/components/AffiliatePreloader'
 
 const BASE_URL = 'https://dennyangelow.com'
 
+// ⚠️ ФИКС (LCP contention, потвърдено от Chrome DevTools Performance trace):
+//    LCP елементът на страницата е `h1.hero-title` (ТЕКСТ, не картинка!).
+//    Trace-ът показа шрифтовия файл за Cormorant 700 да тръгва да се тегли
+//    ~1170ms по-късно от останалите шрифтове/картинки — твърде много файлове
+//    с еднакъв приоритет се борят едновременно за bandwidth на throttled
+//    мрежа, а точно критичният за LCP файл чака на опашката.
+//    Направени 3 неща:
+//    1) Cormorant вече е ДЕКЛАРИРАН ПРЪВ (преди DM Sans) — next/font слага
+//       preload <link> таговете в реда на декларация в кода, значи
+//       единственият Cormorant файл вече излиза преди 7-те DM Sans файла
+//       в <head>, вместо след тях.
+//    2) grep из ЦЕЛИЯ проект показа var(--font-cormorant) да се ползва
+//       ЕДИНСТВЕНО с font-weight:700 — тегло 600 премахнато изцяло
+//       (никога не се рендва никъде).
+//    3) display:'swap' (виж коментара по-долу за desktop "дебел шрифт" бъга).
+const cormorant = Cormorant_Garamond({
+  subsets:  ['latin'],
+  weight:   ['700'],
+  variable: '--font-cormorant',
+  display:  'swap',
+})
+
 // ✅ ФИКС: next/font/google self-host-ва и preload-ва шрифтовете при build,
 //    вместо синхронен <link rel="stylesheet" href="fonts.googleapis.com...">,
 //    който беше render-blocking на ВСЯКА страница (виж PageSpeed Insights —
@@ -24,7 +46,13 @@ const BASE_URL = 'https://dennyangelow.com'
 const dmSans = DM_Sans({
   subsets:  ['latin', 'latin-ext'],
   weight:   ['300', '400', '500', '600', '700', '800', '900'],
-  style:    ['normal', 'italic'],
+  // ⚠️ ФИКС (LCP contention): 'italic' махнат — grep из целия проект показва,
+  // че font-style:italic се ползва САМО за .pk-card-desc (цитат в продуктова
+  // карта, под сгъва, не е критично). С italic включен, next/font генерира
+  // ДВОЕН брой .woff2 файлове (normal+italic × 7 тегла = до 14 файла),
+  // всичките се борят за bandwidth в първите ~300ms на throttled мрежа.
+  // Само 'normal' намалява файловете наполовина.
+  style:    ['normal'],
   variable: '--font-dm-sans',
   display:  'swap',
 })
@@ -48,12 +76,6 @@ const dmSans = DM_Sans({
 //    за да проработи автоматичният metric-matched fallback на next/font.
 //    Шрифтът вече винаги ще се смени коректно, а CLS остава минимален
 //    благодарение на автоматично изчислените fallback метрики.
-const cormorant = Cormorant_Garamond({
-  subsets:  ['latin'],
-  weight:   ['600', '700'],
-  variable: '--font-cormorant',
-  display:  'swap',
-})
 
 // ── Споделени константи — промяна на 1 място, важи навсякъде ────────────────
 const AUTHOR = {

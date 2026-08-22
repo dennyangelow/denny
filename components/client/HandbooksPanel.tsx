@@ -335,14 +335,16 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                     alt={hb.title}
                     width={82}
                     height={108}
-                    // ✅ ФИКС LCP (v2): PageSpeed маркира ту първата, ту ВТОРАТА карта
-                    // (Наръчник за Краставици) като реален LCP елемент — зависи от
-                    // viewport/скрол позиция при мобилно измерване. priority={idx===0}
-                    // покриваше само първата и оставяше втората с loading="lazy" →
-                    // element render delay 2.2-2.3s (виж PageSpeed "LCP breakdown").
-                    // Затова priority сега на първите 2 карти — и двете са над сгъва
-                    // във hero-right, независимо коя точно избере browser-ът за LCP.
-                    priority={idx < 2}
+                    // ✅ ФИКС LCP (v3): Chrome DevTools Performance trace потвърди
+                    // реалния LCP елемент — `h1.hero-title` (ТЕКСТ, не картинка!).
+                    // priority={idx<2} държеше 2 картинки на fetchpriority="high",
+                    // които на throttled мрежа се бореха за bandwidth точно с
+                    // Cormorant шрифта на H1-ката (виж layout.tsx) — trace-ът показа
+                    // 1170ms закъснение точно заради тази конкуренция. priority само
+                    // на idx===0 пази картинката discoverable (Next/Image best
+                    // practice за над-сгъва съдържание), без да троши bandwidth-а,
+                    // от който реално се нуждае LCP текстът.
+                    priority={idx === 0}
                     // ✅ ФИКС "Improve image delivery" — 50 KiB спестявания.
                     // Без sizes, Next/Image избира следващия наличен bucket от
                     // imageSizes (256px) за реален displayed размер ~144-164px
