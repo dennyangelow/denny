@@ -319,6 +319,31 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="theme-color" content="#1b4332" />
 
         {/* DNS prefetch */}
+        {/* ⚠️ ФИКС (LCP, потвърдено с 2 отделни trace анализа): next/font
+            автоматично preload-ва DM Sans (isLinkPreload:true, тръгва ~600ms),
+            но НЕ preload-ва Cormorant Garamond (isLinkPreload:false, открива
+            се едва на ~1330ms — 730ms по-късно — през нормален CSS parse).
+            Опитахме да "убедим" next/font с cormorant.className на <html> —
+            НЕ помогна (виж 2-рия trace, все още false). Затова тук ръчен
+            preload на точния файл — гарантирано работи, не зависи от
+            next/font-ови heuristics.
+            ⚠️ ВАЖНО за поддръжка: хешът в href-а (025300517b6a8ae5) е
+            build-специфичен content hash. Остана ИДЕНТИЧЕН между последните
+            2 build-а, защото Cormorant конфигурацията (subsets/weight) не се
+            е променяла — но ако някога промениш weight/subsets на Cormorant
+            в layout.tsx, или ъпгрейднеш Next.js, хешът ще се смени и този
+            preload линк ще сочи към несъществуващ файл (тихо се проваля —
+            не чупи страницата, просто губиш оптимизацията). След такава
+            промяна: build, отвори DevTools→Network, филтрирай по "woff2",
+            намери новия Cormorant файл, обнови href-а тук. */}
+        <link
+          rel="preload"
+          href="/_next/static/media/025300517b6a8ae5-s.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+
         <link rel="dns-prefetch" href="https://d1yei2z3i6k35z.cloudfront.net" />
         <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
 
