@@ -416,27 +416,3 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
   .trust-item{white-space:nowrap}
   .trust-item-label,.trust-item-sub{white-space:nowrap}
 }
-
-/* ── content-visibility за below-the-fold секции ──────────────────────
-   ⚠️ ФИКС (LCP root cause #2, потвърдено от Chrome Performance trace):
-   Единичен Layout task от 804ms (!) минаваше през ВСИЧКИ 1775 DOM обекта
-   на цялата страница (dirtyObjects:1775, totalObjects:1775, partialLayout:
-   false) — включително testimonials, FAQ, Ginegar, Atlas Terra секциите,
-   които са далеч под сгъва и невидими при първия paint. Под 4x CPU
-   throttling (реалистична мобилна симулация) този единичен layout task
-   директно ядеше по-голямата част от gap-а между FCP и H1 LCP paint-а.
-   content-visibility:auto казва на браузъра да ПРОПУСНЕ layout/paint
-   работата за тия секции, докато не се доближат до viewport-а — рязко
-   намалява броя обекти, участващи в първоначалния layout pass.
-   contain-intrinsic-size е грубо приближение на реалната височина, за да
-   няма скок на скрола при първо навлизане в секцията.
-   ⚠️ ВАЖНО: тук в CRITICAL CSS (inline), НЕ в homepage-deferred.css —
-   deferred се зарежда чак след window.load, дотогава скъпият layout вече
-   ще се е случил и оптимизацията ще е закъсняла. */
-.section-wrap,
-.atlas-section-wrap,
-.ginegar-section,
-.testimonials-section{
-  content-visibility:auto;
-  contain-intrinsic-size:0 700px;
-}
