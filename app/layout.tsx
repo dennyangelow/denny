@@ -291,7 +291,20 @@ const websiteSchema = {
 // ─── Root Layout ──────────────────────────────────────────────────────────────
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="bg" className={`${dmSans.variable} ${cormorant.variable}`}>
+    // ⚠️ ФИКС (LCP root cause, потвърдено с точни данни от Performance trace):
+    // LCP елементът е H1.hero-title, paint-ва се едва на 2204.7ms. Причината:
+    // Cormorant Garamond файлът (025300517b6a8ae5-s.woff2) НЕ се preload-ва
+    // от next/font (isLinkPreload:false), за разлика от DM Sans файловете
+    // (isLinkPreload:true, тръгват на ~617ms). Cormorant се "открива" едва
+    // на 1364.9ms — 746ms по-късно — през нормалния CSS parse на @font-face
+    // правилото, вместо през preload hint в <head>.
+    // Причина: next/font автоматично preload-ва само шрифт, чиято `.className`
+    // РЕАЛНО е приложена някъде в JSX. В целия codebase се ползва само
+    // `cormorant.variable` (CSS custom property) — никъде `.className` —
+    // затова next/font не го засича като "използван" за auto-preload.
+    // Добавяме `cormorant.className` тук, за да даде на next/font недвусмислено
+    // доказателство за употреба → би трябвало да генерира preload link.
+    <html lang="bg" className={`${dmSans.variable} ${cormorant.variable} ${cormorant.className}`}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
