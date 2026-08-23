@@ -10,6 +10,12 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import type { AffiliateProduct } from '@/lib/affiliate'
 import { getRating } from '@/lib/affiliate'
+// ⚠️ ФИКС (LCP 3.9s / PageSpeed Insights, produkti mobile): картите тук
+// ползваха суров <img>, не SafeImg → нула next/image оптимизация (без
+// WebP/AVIF, без srcset) на РЕАЛНИЯ каталог с продукти. Homepage вече
+// мина на SafeImg по-рано — produkti изостана. Виж коментарите долу при
+// рендъра на картата за пълния разбор.
+import { SafeImg } from '@/components/client/SafeImg'
 
 const BATCH = 6
 
@@ -585,7 +591,18 @@ export function ProduktCatalogClient({
                 const bullets  = Array.isArray(p.bullets) && p.bullets.length
                   ? p.bullets
                   : Array.isArray(p.features) ? p.features : []
-                const imgLoading = idx < initialVisible ? 'eager' : 'lazy'
+                // ⚠️ ФИКС (LCP 3.9s срещу FCP 1.8s — 2.1s разлика, класически
+                // "eager overload" симптом): преди ВСИЧКИТЕ initialVisible (12!)
+                // карти зареждаха с loading="eager" + decoding="sync"
+                // ЕДНОВРЕМЕННО. На throttled мрежа (PageSpeed тества Slow 4G)
+                // 12 неоптимизирани CloudFront снимки се борят за bandwidth в
+                // първите секунди — точно снимката, която РЕАЛНО е LCP
+                // елементът (първата карта, горе-ляво), стои на опашка зад
+                // другите 11. Сега само idx===0 получава priority (виж SafeImg
+                // по-долу) — това е единствената снимка, видима над fold-а на
+                // мобилно (виж PageSpeed filmstrip: 1 карта на ред). Останалите
+                // от батча зареждат нормално, без изкуствен "eager" натиск.
+                const isLCPImage = idx === 0
 
                 return (
                   <div key={p.id} className="pk-card" role="listitem">
@@ -603,14 +620,24 @@ export function ProduktCatalogClient({
                         </span>
                       )}
                       {p.image_url ? (
-                        <img
+                        <SafeImg
                           src={p.image_url}
                           alt={p.image_alt || p.name}
-                          loading={imgLoading}
-                          decoding={idx < initialVisible ? 'sync' : 'async'}
-                          width={220} height={180}
+                          width={220}
+                          height={180}
                           className="pk-card-img"
-                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                          fallbackEmoji={p.emoji || '🌿'}
+                          // ✅ priority=true САМО на първата карта (LCP елементът,
+                          // потвърдено от filmstrip-а) — preload-ва я и я маха от
+                          // browser-ната lazy queue, без да пипа приоритета на
+                          // останалите 11.
+                          priority={isLCPImage}
+                          // ✅ next/image вече избира WebP/AVIF + точния размер
+                          // спрямо grid breakpoint-овете в produkti.css (3 колони
+                          // desktop / 2 tablet / 1 mobile-хоризонтална карта) —
+                          // вместо суровия, пълноразмерен CloudFront JPG.
+                          sizes="(max-width: 640px) 130px, (max-width: 960px) 45vw, 300px"
+                          quality={idx < 3 ? 80 : 70}
                         />
                       ) : (
                         <span style={{ fontSize:64 }} aria-hidden="true">{p.emoji || '🌿'}</span>
