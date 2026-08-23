@@ -131,7 +131,12 @@ function Stars({ rating }: { rating: number }) {
 
 function SkeletonCard() {
   return (
-    <div className="pk-card pk-skeleton" aria-hidden="true">
+    // ⚠️ ФИКС (Agentic Browsing "Accessibility tree is not well-formed"):
+    // Родителят .pk-grid е role="list" — ARIA спецификацията изисква ВСИЧКИ
+    // директни деца да са role="listitem" (или <li>). SkeletonCard е обикновен
+    // div без роля → невалидна parent-child ARIA връзка. role="presentation"
+    // маха елемента от изискването, без да пипа визуалното поведение.
+    <div className="pk-card pk-skeleton" role="presentation" aria-hidden="true">
       <div className="pk-skel-img" />
       <div className="pk-card-body" style={{ gap:8 }}>
         <div className="pk-skel-line" style={{ width:'40%', height:10 }} />
@@ -687,7 +692,9 @@ export function ProduktCatalogClient({
               ))}
 
               {hasMore && (
-                <div ref={sentinelElRef} className="pk-sentinel" aria-hidden="true" style={{ gridColumn:'1/-1' }} />
+                // ⚠️ ФИКС (Agentic Browsing): вижте коментара при SkeletonCard —
+                // същото нарушение, същият фикс.
+                <div ref={sentinelElRef} className="pk-sentinel" role="presentation" aria-hidden="true" style={{ gridColumn:'1/-1' }} />
               )}
             </div>
 
