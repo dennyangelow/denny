@@ -159,7 +159,11 @@ function SearchDropdown({
 }) {
   if (results.length === 0) return null
   return (
-    <div style={{
+    <div
+      id="pk-search-listbox"
+      role="listbox"
+      aria-label="Резултати от търсенето"
+      style={{
       position: 'absolute',
       top: 'calc(100% + 6px)',
       left: 0, right: 0,
@@ -173,6 +177,7 @@ function SearchDropdown({
       {results.map(p => (
         <button
           key={p.id}
+          role="option"
           onClick={() => onSelect(p)}
           style={{
             display: 'flex',
@@ -465,6 +470,14 @@ export function ProduktCatalogClient({
                 if (e.key === 'Enter')  { setSearchFocus(false) }
               }}
               aria-label="Търсене в продуктите"
+              // ⚠️ ФИКС (Agentic Browsing "Elements must only use supported
+              // ARIA attributes"): aria-expanded/aria-autocomplete не са
+              // поддържани за обикновен <input type="search"> (implicit role
+              // "searchbox") — валидни са само за role="combobox". Добавени
+              // role="combobox" + aria-controls, сочещ към listbox-а с
+              // резултатите (виж SearchDropdown по-долу).
+              role="combobox"
+              aria-controls="pk-search-listbox"
               aria-autocomplete="list"
               aria-expanded={showDropdown}
               autoComplete="off"
@@ -575,7 +588,7 @@ export function ProduktCatalogClient({
                 const imgLoading = idx < initialVisible ? 'eager' : 'lazy'
 
                 return (
-                  <article key={p.id} className="pk-card" role="listitem">
+                  <div key={p.id} className="pk-card" role="listitem">
 
                     {/* Снимка */}
                     <a href={pageUrl} className="pk-card-img-wrap" tabIndex={-1} aria-hidden="true">
@@ -683,7 +696,7 @@ export function ProduktCatalogClient({
                         Прочети повече →
                       </a>
                     </div>
-                  </article>
+                  </div>
                 )
               })}
 
