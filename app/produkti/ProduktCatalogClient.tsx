@@ -632,11 +632,26 @@ export function ProduktCatalogClient({
                           // browser-ната lazy queue, без да пипа приоритета на
                           // останалите 11.
                           priority={isLCPImage}
-                          // ✅ next/image вече избира WebP/AVIF + точния размер
-                          // спрямо grid breakpoint-овете в produkti.css (3 колони
-                          // desktop / 2 tablet / 1 mobile-хоризонтална карта) —
-                          // вместо суровия, пълноразмерен CloudFront JPG.
-                          sizes="(max-width: 640px) 130px, (max-width: 960px) 45vw, 300px"
+                          // ⚠️ ФИКС v2 (PageSpeed "Improve image delivery" —
+                          // след деплой на v1 фикса PageSpeed показа ново нещо:
+                          // "image file larger than needed (230x400) for its
+                          // displayed dimensions (63x110)" — 16.4 от 17.8 KiB
+                          // отиват на вятъра, ПОВТОРЕНО на всяка карта).
+                          // Причина: sizes="130px" разчиташе на ШИРИНАТА на
+                          // .pk-card-img-wrap контейнера, но снимките са
+                          // object-fit:contain И повечето продукти (бутилки/
+                          // пакети) са портретни — реалната рендната ширина е
+                          // ограничена от max-height (110px мобилно / 180px
+                          // desktop), не от контейнерната ширина, и излиза
+                          // ~0.55-0.6× по-тясна. next/image генерира srcset
+                          // спрямо sizes, без да знае за object-fit/aspect
+                          // ratio-то на конкретния файл → взима 2-3× по-голяма
+                          // ширина от нужната за ВСЕКИ портретен продукт.
+                          // Стойностите тук са смъкнати спрямо реалния maxHeight
+                          // × типично aspect ratio (~0.6), с малко запас за
+                          // по-широки/квадратни продукти, вместо спрямо
+                          // wrapper-a.
+                          sizes="(max-width: 640px) 90px, (max-width: 960px) 150px, 190px"
                           quality={idx < 3 ? 80 : 70}
                         />
                       ) : (
