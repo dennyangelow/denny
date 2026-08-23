@@ -304,7 +304,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // затова next/font не го засича като "използван" за auto-preload.
     // Добавяме `cormorant.className` тук, за да даде на next/font недвусмислено
     // доказателство за употреба → би трябвало да генерира preload link.
-    <html lang="bg" className={`${dmSans.variable} ${cormorant.variable} ${cormorant.className}`}>
+    // ⚠️ ФИКС (regression): махнат cormorant.className, който бяхме добавили
+    // в опит next/font да преload-не сам Cormorant — не проработи (виж
+    // коментара по-горе), но затова пък .className носи и font-weight:700,
+    // приложено директно на <html> → наследяваше се от ВСЕКИ текстов
+    // елемент без собствено изрично зададено тегло (описания, параграфи
+    // навсякъде по сайта станаха удебелени). Реалният preload фикс е
+    // ръчният <link rel="preload"> по-долу — той не зависи от .className,
+    // затова спокойно махаме само .variable за двата шрифта тук.
+    <html lang="bg" className={`${dmSans.variable} ${cormorant.variable}`}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
