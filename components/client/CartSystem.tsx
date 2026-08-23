@@ -8,6 +8,7 @@
 // ✅ Всички предишни fix-ове от v12
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import Image from 'next/image'
 
 // ✅ ФИКС: 'Outfit' беше регистриран тук, но CartHeaderButton (винаги видим в
@@ -1355,6 +1356,20 @@ function CartDrawer({
   const isMobile     = useIsMobile()
   useLockBodyScroll(true)
 
+  // ✅ ФИКС: рендваме overlay+drawer през React Portal директно в
+  //    document.body, вместо на мястото им в JSX дървото (вътре в секция
+  //    "atlas", вложена дълбоко в страницата). Причина: position:fixed
+  //    спира да работи спрямо viewport-а, ако КОЙТО И ДА Е родител по веригата
+  //    носи transform/filter/perspective/will-change:transform/contain —
+  //    такъв родител може да бъде вкаран от browser extension, GTM тагове,
+  //    A/B testing скриптове и т.н., извън нашия контрол. Portal напълно
+  //    заобикаля риска, защото overlay+drawer вече не са DOM descendant-и
+  //    на нищо от съдържанието на страницата.
+  //    mounted guard: document.body съществува само client-side — изчакваме
+  //    mount, за да няма hydration mismatch при евентуален SSR render.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -1547,7 +1562,11 @@ function CartDrawer({
     } finally { setSubmitting(false) }
   }
 
-  return (
+  // Преди mount (или при евентуален SSR pass) няма document.body → нищо
+  // не рендваме, вместо да гърми createPortal(..., undefined).
+  if (!mounted) return null
+
+  return createPortal(
     <>
       <style>{`
 
@@ -2166,7 +2185,8 @@ function CartDrawer({
           </>
         )}
       </div>
-    </>
+    </>,
+    document.body
   )
 }
 
