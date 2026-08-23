@@ -1746,14 +1746,13 @@ function CartDrawer({
         />
       )}
 
-      {/* Overlay покрива от top:0 на мобилни, от headerBottom на десктоп */}
+      {/* Overlay/Drawer: top:0 на мобилни (цял екран), headerBottom на десктоп.
+          На мобилни header-ът минава ВИЗУАЛНО отгоре чрез по-висок z-index
+          (виж .site-header в CSS media query) — количката остава top:0, но
+          горната ѝ част се скрива зад менюто. */}
       <div className="cart-overlay" onClick={onClose}
         style={isMobile ? undefined : { top: Math.max(48, headerBottom) } as React.CSSProperties} />
 
-      {/* Drawer:
-          - Мобилни (≤640px): top:0, цял екран — НЕ следва urgency bar / header
-          - Десктоп: top = headerBottom (под sticky header + urgency bar)
-      */}
       <div className="cart-drawer" role="dialog" aria-modal="true" aria-label="Количка"
         style={
           isMobile

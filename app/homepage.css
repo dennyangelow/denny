@@ -60,7 +60,7 @@ input:-webkit-autofill{-webkit-box-shadow:0 0 0 30px #fff inset!important;-webki
 .cart-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(22,163,74,.25)}
 @media(max-width:640px){
   .cart-btn{padding:6px 11px;font-size:12.5px;border-radius:9px}
-  .site-header{padding:0 14px;gap:8px}
+  .site-header{padding:0 14px;gap:8px;z-index:1000000}
 }
 .mob-btn{display:none;background:#f4f4f4;border:none;border-radius:9px;width:38px;height:38px;font-size:19px;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
 .mob-nav{position:sticky;top:60px;z-index:100;background:#fff;border-bottom:1px solid #e5e7eb;padding:10px 22px;display:flex;flex-direction:column;gap:3px;box-shadow:0 8px 24px rgba(0,0,0,.08);animation:slideRight .25s ease}
