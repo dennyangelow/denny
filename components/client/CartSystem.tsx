@@ -685,23 +685,43 @@ async function sendDiscordNotification(order: {
 
 
 // ─── Body scroll lock ─────────────────────────────────────────────────────────
+// ✅ ФИКС ("количката спира да работи" бъг): ако lock-ът по някаква причина
+// (бърз двоен клик, прекъснато unmount, странна навигация) не се отключи
+// коректно, body оставаше ЗАКЛЕЩЕН в position:fixed/overflow:hidden ТРАЙНО,
+// без изобщо да има отворена количка — страницата изглеждаше "замръзнала",
+// кликове не работеха никъде. Причината: старата версия пазеше оригиналните
+// overflow/position стойности в closure (`ov`, `op`) — ако някога втори lock
+// стартираше, докато първият вече беше приложил 'hidden'/'fixed', вторият
+// щеше да "запомни" ТЕЗИ вече заключени стойности като "оригинал" и да ги
+// възстанови обратно като заключени при затваряне.
+// Ново: data атрибут на body пази дали lock вече е активен (guard срещу
+// вложени/презастъпващи locks), плюс защитен fallback — ако нещо се обърка,
+// винаги връщаме към '' (напълно отключено), никога към заключено състояние.
 function useLockBodyScroll(lock: boolean) {
   useEffect(() => {
     if (!lock) return
-    const ov = document.body.style.overflow, op = document.body.style.position
+    const body = document.body
+    const alreadyLocked = body.dataset.cartLockActive === '1'
+    if (alreadyLocked) return // друг lock вече активен — не презаписваме оригинала
+
+    const ov = body.style.overflow, op = body.style.position
     const scrollY = window.scrollY
-    document.body.style.overflow = 'hidden'
-    document.body.style.position = 'fixed'
-    document.body.style.top = `-${scrollY}px`
-    document.body.style.width = '100%'
+    body.dataset.cartLockActive = '1'
+    body.style.overflow = 'hidden'
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.width = '100%'
+
     return () => {
-      // Четем scrollY от top стила на body — по-надежден от closure при StrictMode
-      const savedTop = parseInt(document.body.style.top || '0', 10)
+      const savedTop = parseInt(body.style.top || '0', 10)
       const restoreY = isNaN(savedTop) ? scrollY : -savedTop
-      document.body.style.overflow = ov
-      document.body.style.position = op
-      document.body.style.top = ''
-      document.body.style.width = ''
+      delete body.dataset.cartLockActive
+      // Никога не връщаме 'hidden'/'fixed' обратно — ако оригиналните
+      // стойности по някаква причина вече бяха заключени, просто отключваме.
+      body.style.overflow = ov === 'hidden' ? '' : ov
+      body.style.position = op === 'fixed' ? '' : op
+      body.style.top = ''
+      body.style.width = ''
       window.scrollTo({ top: restoreY, behavior: 'instant' as ScrollBehavior })
     }
   }, [lock])
@@ -2161,6 +2181,18 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
     const saved = loadCartFromStorage()
     if (saved.length > 0) setCartItems(saved)
     setHydrated(true)
+    // ✅ Защитен reset: ако body е останал заключен (position:fixed/
+    // overflow:hidden) от предишна "заклещена" сесия — напр. презареждане
+    // точно докато lock-ът е бил активен, или стар бъг преди фикса на
+    // useLockBodyScroll по-горе — тук, при пресен mount на CartSystem
+    // (drawerOpen винаги стартира false), винаги го разключваме наново.
+    if (document.body.dataset.cartLockActive === '1') {
+      delete document.body.dataset.cartLockActive
+      document.body.style.overflow = ''
+      document.body.style.position = ''
+      document.body.style.top = ''
+      document.body.style.width = ''
+    }
   }, [])
 
   useEffect(() => {
