@@ -1033,20 +1033,7 @@ export default async function HomePage() {
       )}
 
       {/* ══ ATLAS TERRA ════════════════════════════════════════════════════════ */}
-      {/* ⚠️ ФИКС ("количката не отваря" бъг): преди цялата секция — ВКЛ.
-          <CartSystem> вътре в нея — беше зад `{atlasProducts.length > 0 && (...)}`.
-          CartSystem е ЕДИНСТВЕНИЯТ owner на drawer state-а и единственият, който
-          слуша 'cart:open' на цялата начална страница (HeaderClient само праща
-          събитието). getPageData() има общ try/catch, който при ЛЮБОЙ fatal error
-          някъде в него (не само в продуктовата заявка) fallback-ва към
-          atlasProducts:[] — секцията изчезва мълчаливо, количката спира да
-          отваря, бутонът в header-а си стои видим, но никой не слуша събитието.
-          Сега секцията (и CartSystem вътре в нея) се рендва ВИНАГИ; само
-          декоративното съдържание, което реално се нуждае от продукти
-          (заглавие/чипове по-долу вече не зависи от atlasProducts, а
-          OffersShowcase/atlas-learn-row вече си имат СОБСТВЕНИ `atlasProducts.length>0`
-          guard-ове по-долу — непроменени). На CartSystem е добавен
-          `hideProductGrid`, за да не показва празен грид, когато няма продукти. */}
+      {atlasProducts.length > 0 && (
         <section id="atlas" className="atlas-section-wrap" style={{ background: 'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(circle, rgba(22,163,74,.04) 1px, transparent 1px)', backgroundSize: '32px 32px', pointerEvents: 'none' }} />
 
@@ -1119,10 +1106,6 @@ export default async function HomePage() {
                 freeShippingAbove={settings.free_shipping_above}
                 siteEmail={settings.site_email}
                 sitePhone={settings.site_phone}
-                // ✅ Секцията вече се рендва винаги (виж коментара горе) — при
-                // atlasProducts:[] (fallback от getPageData()) скриваме само
-                // визуалния грид с продукти, НЕ и самия CartSystem/drawer.
-                hideProductGrid={atlasProducts.length === 0}
               />
             </div>
 
@@ -1238,6 +1221,7 @@ export default async function HomePage() {
             </FadeIn>
           </div>
         </section>
+      )}
 
       <div className="affiliate-section-wrap">
         <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
