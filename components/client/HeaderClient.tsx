@@ -44,7 +44,7 @@ export function HeaderClient({ shippingPrice, freeShippingAbove }: Props) {
         </a>
 
         <nav className="header-nav">
-          <a href="/#produkti"     className="nav-link">Продукти</a>
+          <a href="/#kategorii"    className="nav-link">Продукти</a>
           {/* ✅ Каталог с всички продукти */}
           <a href="/produkti"      className="nav-link nav-link--all-products">Всички →</a>
           <a href="/#atlas"        className="nav-link">Atlas Terra</a>
@@ -74,7 +74,7 @@ export function HeaderClient({ shippingPrice, freeShippingAbove }: Props) {
       {mobileMenuOpen && (
         <div className="mob-nav">
           {([
-            ['/#produkti',    'Продукти'],
+            ['/#kategorii',   'Продукти'],
             ['/produkti',     '📦 Всички продукти'],
             ['/#atlas',       'Atlas Terra'],
             ['/#testimonials','Отзиви'],
