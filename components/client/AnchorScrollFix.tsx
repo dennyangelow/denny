@@ -1,4 +1,4 @@
-// components/client/AnchorScrollFix.tsx — v5
+// components/client/AnchorScrollFix.tsx — v6
 // Сървър компонент (без 'use client'), рендва само <script> — не чака
 // React hydration, работи дори ако hydration-ът другаде гръмне.
 //
@@ -52,6 +52,22 @@
 // пристигнеше секунди по-късно, вече биваше игнориран. Фикс: fallback
 // вдигнат на 12000ms — вече е истинска "последна издръжка" (счупен файл,
 // adblock), не конкурент на нормалното бавно мрежово зареждане.
+//
+// Проблем №6 (този файл, v6): DeferredStylesheet мина на media=print→all
+// техника (виж там v6) — вече CSS-ът реално се сваля и прилага. НО се
+// появи нов ефект: "намира секцията правилно, после CSS-ът се зарежда и
+// я избутва, не остава на върха". Две отделни причини:
+//   (а) Браузърът има вградено "scroll anchoring" поведение — когато
+//   layout-ът НАД viewport-а се промени (точно това правят padding-ите
+//   на секциите, щом deferred CSS се приложи), браузърът САМ мести
+//   скрола да "компенсира". Това е ВТОРИ, неконтролиран скок, отделен
+//   от нашата собствена корекция. Фикс: overflow-anchor:none в raiseVeil.
+//   (б) 'onload' на <link> означава файлът е свален, не непременно, че
+//   браузърът вече е преизчислил layout-а с новите стилове — style
+//   recalc/layout могат да се случат асинхронно, на следващия кадър.
+//   Ако измерим позицията веднага, рискуваме да хванем "стари" (все
+//   още без padding) стойности. Фикс: двоен requestAnimationFrame преди
+//   първото измерване след 'dc:deferred-css-loaded'.
 
 export function AnchorScrollFix() {
   const js = `
@@ -89,10 +105,20 @@ export function AnchorScrollFix() {
       // Временно спира всички CSS transitions/animations/scroll-behavior,
       // за да не се виждат "изскачащи" FadeIn ефекти по време на
       // програмния скрол. Премахва се сама след VEIL_MS.
+      // ⚠️ v6: добавен overflow-anchor:none — браузърът има вградено
+      // "scroll anchoring" поведение, което САМ мести скрола, когато
+      // layout-ът над viewport-а се промени (точно каквото се случва
+      // когато homepage-deferred.css се приложи и padding-ите на
+      // секциите ПРЕДИ целта пораснат от 0 на реалните им стойности).
+      // Това създаваше ВТОРИ, неконтролиран скок — отделен от нашата
+      // собствена корекция — точно "избутва я и не застава на върха".
+      // overflow-anchor:none изключва това нативно поведение, докато
+      // веилът е вдигнат, оставяйки само нашата изчислена корекция да
+      // мести скрола.
       function raiseVeil(){
         var style = document.createElement('style');
         style.setAttribute('data-anchor-scroll-fix-veil', '1');
-        style.textContent = '*{transition:none!important;animation:none!important;scroll-behavior:auto!important}';
+        style.textContent = '*{transition:none!important;animation:none!important;scroll-behavior:auto!important;overflow-anchor:none!important}';
         document.head.appendChild(style);
         return function lowerVeil(){
           if (style.parentNode) style.parentNode.removeChild(style);
@@ -194,7 +220,19 @@ export function AnchorScrollFix() {
             setTimeout(lowerVeil, VEIL_MS);
           }
 
-          tick();
+          // ⚠️ v6: не викаме tick() веднага при 'begin' — 'onload' на
+          // <link> значи файлът е СВАЛЕН, не непременно, че браузърът
+          // вече е преизчислил layout-а с новите стилове (style recalc/
+          // layout могат да се случат асинхронно, на следващия рендер
+          // кадър). Двоен requestAnimationFrame гарантира, че поне един
+          // пълен layout/paint цикъл с новите стилове е минал, преди да
+          // мерим позицията — иначе първото измерване рискува да хване
+          // "стари" (все още без padding) стойности.
+          requestAnimationFrame(function(){
+            requestAnimationFrame(function(){
+              tick();
+            });
+          });
         }
 
         window.addEventListener('dc:deferred-css-loaded', begin, { once: true });
