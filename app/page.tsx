@@ -19,24 +19,7 @@ import { SafeImg } from '@/components/client/SafeImg'
 import { AffiliateSection, CategoryLinksSection } from '@/components/client/AffiliateSection'
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import OffersShowcase from '@/components/marketing/OffersShowcase'
-import { DeferredStylesheet } from '@/components/client/DeferredStylesheet'
-import { AnchorScrollFix } from '@/components/client/AnchorScrollFix'
-import fs from 'node:fs'
-import path from 'node:path'
-// ✅ ФИКС v5 render-blocking CSS: homepage.css вече НЕ се зарежда като
-//    отделен <link rel="stylesheet"> (external file → отделен network
-//    round-trip → "Render-blocking requests" в PageSpeed, 340ms на мобилно
-//    само за 6KB критичен CSS). Вместо това го четем СЛЕД BUILD-а веднъж
-//    на module-load (не при всяка заявка) и го инжектираме инлайн като
-//    <style> — виж CRITICAL_CSS константата и <style> тага в началото на
-//    return-а по-долу. Нулира тази заявка изцяло: браузърът вече има
-//    критичния CSS в самия HTML отговор, без допълнителен fetch.
-//    homepage-deferred.css продължава да е external + async (виж
-//    DeferredStylesheet.tsx — вече чака window.load).
-const CRITICAL_CSS = fs.readFileSync(
-  path.join(process.cwd(), 'app', 'homepage.css'),
-  'utf8'
-)
+import './homepage.css'
 
 // ✅ ISR: 5 минути. Данните се обновяват на фона — не при всяка заявка.
 // За settings/FAQ/handbooks, които се менят рядко, това е напълно достатъчно.
@@ -858,9 +841,6 @@ export default async function HomePage() {
 
   return (
     <>
-      {/* ── Критичен CSS — инлайн, нулева допълнителна заявка ── */}
-      <style dangerouslySetInnerHTML={{ __html: CRITICAL_CSS }} />
-
       {/* ── SEO Schema Scripts ── */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionPageSchema) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(naruchnikListSchema) }} />
@@ -1228,14 +1208,7 @@ export default async function HomePage() {
         <AffiliateSection products={top6AffiliateProducts} allProducts={affiliateProducts} />
       </div>
 
-      {/* ══ GINEGAR ═══════════════════════════════════════════════════════════
-          ФИКС: обвиващ <div id="ginegar"> — секциите вътре взимат
-          id={sec.slug} от базата (напр. id="calitech", "amalgerol" и т.н.),
-          НИКОГА буквално "ginegar". Затова href="/#ginegar" в navigation-а
-          (HeaderClient.tsx) сочеше към несъществуващ елемент и нито
-          native browser scroll, нито JS фиксът можеха изобщо да
-          сработят — нямаше КЪМ КАКВО да скролнат. ══════════════════════ */}
-      <div id="ginegar">
+      {/* ══ СПЕЦИАЛНИ СЕКЦИИ ═══════════════════════════════════════════════════ */}
       {specialSections.map(sec => (
         <section key={sec.slug} id={sec.slug} className="ginegar-section">
           <div className="ginegar-glow" />
@@ -1316,7 +1289,6 @@ export default async function HomePage() {
           </div>
         </section>
       ))}
-      </div>
 
       {/* ══ TESTIMONIALS ═══════════════════════════════════════════════════════ */}
       {testimonials.length > 0 && (
@@ -1450,19 +1422,6 @@ export default async function HomePage() {
           </div>
         </div>
       </footer>
-
-      {/* ── AnchorScrollFix — трябва да е ПРЕДИ DeferredStylesheet в DOM-а.
-          ⚠️ Този компонент липсваше тук досега — затова #ginegar/#faq/
-          #testimonials скролваха само с native browser behavior (без
-          никоя от корекциите по-долу изобщо да се е изпълнявала). ── */}
-      <AnchorScrollFix />
-
-      {/* ── Deferred (below-the-fold) CSS — чака window.load, вижте
-          DeferredStylesheet.tsx v3. Умишлено е в самия край на дървото,
-          не защото мястото в DOM-а има значение (скриптът и без друго
-          вече чака load), а за яснота: това е последното нещо на
-          страницата, логически "extra" спрямо критичния render path. ── */}
-      <DeferredStylesheet href="/css/homepage-deferred.css" />
     </>
   )
 }
