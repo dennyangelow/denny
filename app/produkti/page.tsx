@@ -7,38 +7,11 @@
 //   - Резултатът е идентичен с homepage → продуктите се нареждат еднакво и на двете места
 
 import { Metadata }              from 'next'
-import fs                        from 'fs'
-import path                      from 'path'
 import { supabaseAdmin }         from '@/lib/supabase'
 import type { AffiliateProduct } from '@/lib/affiliate'
 import { ProduktCatalogClient }  from './ProduktCatalogClient'
-import { DeferredStylesheet }    from '@/components/client/DeferredStylesheet'
-
-// ⚠️ ФИКС (render-blocking CSS, същият проблем като homepage преди фикса):
-// Преди — '../homepage.css' и './produkti.css' бяха НОРМАЛНИ import-и.
-// Next.js third-parties всеки нормален CSS import в отделен <link
-// rel="stylesheet"> chunk — ДВА отделни render-blocking network request-а
-// на тази страница (виж PageSpeed "Render-blocking requests" — LCP 3.7s),
-// вместо един-единствен inline <style>, какъвто вече ползва homepage/page.tsx.
-// Решение: същата fs.readFileSync техника — четем и двата файла ВЕДНЪЖ при
-// module load (build time за static/ISR revalidate маршрути) и ги инжектираме
-// като един-единствен inline <style> таг директно в HTML-а. Нула допълнителни
-// network requests за критичния CSS.
-// homepage.css носи споделени стилове (header, nav, trust badges), нужни и
-// тук, защото ProduktCatalogClient преизползва същия HeaderClient.
-const HOMEPAGE_CRITICAL_CSS = fs.readFileSync(
-  path.join(process.cwd(), 'app', 'homepage.css'),
-  'utf8'
-)
-const PRODUKTI_CRITICAL_CSS = fs.readFileSync(
-  path.join(process.cwd(), 'app', 'produkti', 'produkti.css'),
-  'utf8'
-)
-const CRITICAL_CSS = HOMEPAGE_CRITICAL_CSS + '\n' + PRODUKTI_CRITICAL_CSS
-// ✅ produkti.css вече съдържа само hero/search/filters/grid/card/skeleton
-//    (critical). Долната част (A-Я списък, bottom CTA, load-more, empty
-//    state) е в public/css/produkti-deferred.css — зарежда се асинхронно
-//    по-долу, не блокира render-а.
+import '../homepage.css'
+import './produkti.css'
 
 export const revalidate = 300
 
@@ -226,12 +199,6 @@ export default async function ProduktiPage() {
 
   return (
     <>
-      {/* ── Критичен CSS, inline (виж коментара горе при fs.readFileSync) ── */}
-      <style dangerouslySetInnerHTML={{ __html: CRITICAL_CSS }} />
-
-      {/* ── Deferred (below-the-fold) CSS — не блокира LCP/FCP ── */}
-      <DeferredStylesheet href="/css/produkti-deferred.css" />
-
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildBreadcrumb()) }} />
       <script type="application/ld+json"
