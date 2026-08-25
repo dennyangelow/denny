@@ -1,4 +1,4 @@
-// components/client/AnchorScrollFix.tsx — v7
+// components/client/AnchorScrollFix.tsx — v5
 // Сървър компонент (без 'use client'), рендва само <script> — не чака
 // React hydration, работи дори ако hydration-ът другаде гръмне.
 //
@@ -52,53 +52,12 @@
 // пристигнеше секунди по-късно, вече биваше игнориран. Фикс: fallback
 // вдигнат на 12000ms — вече е истинска "последна издръжка" (счупен файл,
 // adblock), не конкурент на нормалното бавно мрежово зареждане.
-//
-// Проблем №6 (този файл, v6): DeferredStylesheet мина на media=print→all
-// техника (виж там v6) — вече CSS-ът реално се сваля и прилага. НО се
-// появи нов ефект: "намира секцията правилно, после CSS-ът се зарежда и
-// я избутва, не остава на върха". Две отделни причини:
-//   (а) Браузърът има вградено "scroll anchoring" поведение — когато
-//   layout-ът НАД viewport-а се промени (точно това правят padding-ите
-//   на секциите, щом deferred CSS се приложи), браузърът САМ мести
-//   скрола да "компенсира". Това е ВТОРИ, неконтролиран скок, отделен
-//   от нашата собствена корекция. Фикс: overflow-anchor:none в raiseVeil.
-//   (б) 'onload' на <link> означава файлът е свален, не непременно, че
-//   браузърът вече е преизчислил layout-а с новите стилове — style
-//   recalc/layout могат да се случат асинхронно, на следващия кадър.
-//   Ако измерим позицията веднага, рискуваме да хванем "стари" (все
-//   още без padding) стойности. Фикс: двоен requestAnimationFrame преди
-//   първото измерване след 'dc:deferred-css-loaded'.
-//
-// Проблем №7 (този файл, v7): "каквото и да натисна ме кара където
-// трябва и после веднага ме мести на едно и също място" — RACE между
-// стар и нов процес. Ако страницата се зареди с #hash в адреса, стартира
-// stableScrollTo() за него; той чака CSS/animation frames и може да
-// отнеме секунди. Ако междувременно потребителят кликне ДРУГ линк,
-// goToHashOnClick() го отвежда правилно веднага — но старият
-// stableScrollTo() продължава да работи във фонов режим необезпокояван
-// и по-късно (щом най-сетне приключи) насилствено скролва обратно към
-// ПЪРВОНАЧАЛНАТА си цел, независимо какво е кликнато междувременно.
-// Резултат: винаги "връща" на едно и също място. Фикс: navToken —
-// всяко ново извикване (клик или начален deep-link) взима собствен
-// номер; всеки чакащ процес проверява дали номерът му все още е
-// "текущият" преди да скролне и мълчаливо се отказва, ако е изпреварен.
 
 export function AnchorScrollFix() {
   const js = `
     (function(){
       var SKIP_SELECTOR = '.section-wrap,.atlas-section-wrap,.ginegar-section,.testimonials-section';
       var VEIL_MS = 450; // колко дълго държим transitions/animations спрени около скока
-
-      // ⚠️ v7: "токен за навигация" — при клик върху НОВ hash линк, докато
-      // предишна корекция (напр. stableScrollTo от началното зареждане на
-      // страницата) все още чака CSS/reflow, старата трябва да се откаже,
-      // не да довърши работата си по-късно и да върне потребителя обратно
-      // към първата цел. Затова: всяко ново извикване (клик ИЛИ начален
-      // deep-link) взима свой собствен navToken; преди всяко реално
-      // действие по скрола (в tick/finish/snapTo) проверяваме дали
-      // navToken все още е "текущият" — ако не е, значи по-нова навигация
-      // го е изпреварила и текущия процес мълчаливо спира.
-      var navToken = 0;
 
       function forceExpand(){
         var sections = document.querySelectorAll(SKIP_SELECTOR);
@@ -130,20 +89,10 @@ export function AnchorScrollFix() {
       // Временно спира всички CSS transitions/animations/scroll-behavior,
       // за да не се виждат "изскачащи" FadeIn ефекти по време на
       // програмния скрол. Премахва се сама след VEIL_MS.
-      // ⚠️ v6: добавен overflow-anchor:none — браузърът има вградено
-      // "scroll anchoring" поведение, което САМ мести скрола, когато
-      // layout-ът над viewport-а се промени (точно каквото се случва
-      // когато homepage-deferred.css се приложи и padding-ите на
-      // секциите ПРЕДИ целта пораснат от 0 на реалните им стойности).
-      // Това създаваше ВТОРИ, неконтролиран скок — отделен от нашата
-      // собствена корекция — точно "избутва я и не застава на върха".
-      // overflow-anchor:none изключва това нативно поведение, докато
-      // веилът е вдигнат, оставяйки само нашата изчислена корекция да
-      // мести скрола.
       function raiseVeil(){
         var style = document.createElement('style');
         style.setAttribute('data-anchor-scroll-fix-veil', '1');
-        style.textContent = '*{transition:none!important;animation:none!important;scroll-behavior:auto!important;overflow-anchor:none!important}';
+        style.textContent = '*{transition:none!important;animation:none!important;scroll-behavior:auto!important}';
         document.head.appendChild(style);
         return function lowerVeil(){
           if (style.parentNode) style.parentNode.removeChild(style);
@@ -154,14 +103,12 @@ export function AnchorScrollFix() {
       // "умен" сам по себе си — виж stableScrollTo по-долу за версията,
       // която се самокоригира докато layout-ът е нестабилен (шрифтове/
       // deferred CSS/картинки все още зареждат).
-      function snapTo(hash, myToken){
-        if (myToken !== navToken) return false; // изпреварен от по-нов клик
+      function snapTo(hash){
         var target = document.getElementById(hash);
         if (!target) return false;
         var touched = forceExpand();
         void document.body.offsetHeight; // форсиран reflow
         var top = computeTop(target);
-        if (myToken !== navToken) { restoreExpand(touched); return false; }
         window.scrollTo({ top: top, behavior: 'auto' });
         setTimeout(function(){ restoreExpand(touched); }, VEIL_MS + 50);
         return true;
@@ -170,9 +117,8 @@ export function AnchorScrollFix() {
       // Използва се при клик върху "#" линк — страницата вече е напълно
       // заредена по това време, така че една коректна итерация стига.
       function goToHashOnClick(hash){
-        var myToken = ++navToken; // анулира всяка чакаща по-стара корекция
         var lowerVeil = raiseVeil();
-        var ok = snapTo(hash, myToken);
+        var ok = snapTo(hash);
         setTimeout(lowerVeil, VEIL_MS);
         return ok;
       }
@@ -201,7 +147,6 @@ export function AnchorScrollFix() {
       // издръжка" fallback (счупен файл, adblock), не конкурент на
       // нормалното бавно зареждане.
       function stableScrollTo(hash){
-        var myToken = ++navToken; // анулира се, ако след това дойде клик
         var lowerVeil = raiseVeil();
         var allTouched = [];
         var started = false;
@@ -209,7 +154,6 @@ export function AnchorScrollFix() {
 
         function begin(){
           if (started) return;
-          if (myToken !== navToken) return; // изпреварен от клик междувременно
           started = true;
           var lastTop = null;
           var attempts = 0;
@@ -218,7 +162,6 @@ export function AnchorScrollFix() {
           var MAX_ATTEMPTS = 15; // ~1.5s допълнително след старта, за шрифтове/картинки
 
           function tick(){
-            if (myToken !== navToken) { finish(); return; } // изпреварен — спираме тихо
             attempts++;
             var target = document.getElementById(hash);
             if (!target){
@@ -229,7 +172,6 @@ export function AnchorScrollFix() {
             var touched = forceExpand();
             void document.body.offsetHeight;
             var top = computeTop(target);
-            if (myToken !== navToken) { restoreExpand(touched); finish(); return; }
             window.scrollTo({ top: top, behavior: 'auto' });
             allTouched = allTouched.concat(touched);
 
@@ -252,19 +194,7 @@ export function AnchorScrollFix() {
             setTimeout(lowerVeil, VEIL_MS);
           }
 
-          // ⚠️ v6: не викаме tick() веднага при 'begin' — 'onload' на
-          // <link> значи файлът е СВАЛЕН, не непременно, че браузърът
-          // вече е преизчислил layout-а с новите стилове (style recalc/
-          // layout могат да се случат асинхронно, на следващия рендер
-          // кадър). Двоен requestAnimationFrame гарантира, че поне един
-          // пълен layout/paint цикъл с новите стилове е минал, преди да
-          // мерим позицията — иначе първото измерване рискува да хване
-          // "стари" (все още без padding) стойности.
-          requestAnimationFrame(function(){
-            requestAnimationFrame(function(){
-              tick();
-            });
-          });
+          tick();
         }
 
         window.addEventListener('dc:deferred-css-loaded', begin, { once: true });
