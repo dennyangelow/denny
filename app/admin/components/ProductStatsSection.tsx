@@ -11,6 +11,7 @@
 
 import { useState, useMemo } from 'react'
 import { toBulgarianDateStr } from './rangeUtils'
+import { CommissionPanel } from './CommissionPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ function analyzeProducts(orders: Order[]) {
   }
 
   let tubes5L = 0, tubes20L = 0, totalLiters = 0
+  let revenue5L = 0, revenue20L = 0                    // ← ново, за комисионната
   const breakdown: Record<string, { name: string; qty: number; revenue: number; size: string; line: string }> = {}
 
   orders
@@ -106,8 +108,8 @@ function analyzeProducts(orders: Order[]) {
       const size    = detectSize(name)
       const line    = detectLine(name)
 
-      if (size === '5L')  { tubes5L  += qty; totalLiters += qty * 5  }
-      if (size === '20L') { tubes20L += qty; totalLiters += qty * 20 }
+      if (size === '5L')  { tubes5L  += qty; totalLiters += qty * 5;  revenue5L  += price }
+      if (size === '20L') { tubes20L += qty; totalLiters += qty * 20; revenue20L += price }
 
       const key = `${line}_${size}`
       let shortName = ''
@@ -122,7 +124,7 @@ function analyzeProducts(orders: Order[]) {
     })
 
   return {
-    tubes5L, tubes20L, totalLiters,
+    tubes5L, tubes20L, totalLiters, revenue5L, revenue20L,   // ← добавени
     totalTubes: tubes5L + tubes20L,
     breakdown: Object.values(breakdown).sort((a, b) => b.qty - a.qty),
   }
@@ -393,6 +395,9 @@ export function ProductStatsSection({ orders, formatPrice }: Props) {
           </div>
         )
       })}
+
+      {/* ── Комисионна ── */}
+      <CommissionPanel filteredOrders={filteredOrders} formatPrice={formatPrice} />
     </div>
   )
 }

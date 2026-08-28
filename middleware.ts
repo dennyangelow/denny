@@ -1,6 +1,7 @@
 // middleware.ts — v10 (ОРИГИНАЛЕН v7 + само matcher поправка)
 // Върнат оригиналният v7 middleware без НИКАКВИ redirect промени
 // Единствена промяна: matcher върнат на оригиналния от v7
+// ✅ Добавен /api/earnings в PROTECTED_API_PREFIXES — финансов лог, admin only
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -48,6 +49,7 @@ const PROTECTED_API_PREFIXES = [
   '/api/leads',
   '/api/orders',
   '/api/marketing',
+  '/api/earnings',     // ← ново: финансов лог, само за admin
 ]
 
 function isProtectedApi(pathname: string, method: string): boolean {

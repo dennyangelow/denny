@@ -8,11 +8,10 @@
 
 import { Metadata } from 'next'
 import Image from 'next/image'
+import dynamic from 'next/dynamic'
 import { CDN, AFF } from '@/lib/marketing-data'
 import { supabaseAdmin } from '@/lib/supabase'
 import { HeaderClient } from '@/components/client/HeaderClient'
-import { HandbooksPanel } from '@/components/client/HandbooksPanel'
-import { CartSystem } from '@/components/client/CartSystem'
 import { FaqSection } from '@/components/client/FaqSection'
 import { FadeIn } from '@/components/marketing/FadeIn'
 import { SafeImg } from '@/components/client/SafeImg'
@@ -20,6 +19,26 @@ import { AffiliateSection, CategoryLinksSection } from '@/components/client/Affi
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import OffersShowcase from '@/components/marketing/OffersShowcase'
 import './homepage.css'
+
+// ✅ Lazy-load на CartSystem (2553 реда, вкл. Econt интеграция и drawer логика)
+// и HandbooksPanel (форма за сваляне на наръчник) — и двата НЕ са нужни за
+// първия рендър/LCP на страницата, само след като потребителят кликне
+// "Количка" или някой handbook. Статичният import преди товареше целия им
+// JS в основния bundle на homepage дори при никакво взаимодействие
+// (виж PageSpeed "Reduce unused JavaScript" — ~69 KiB).
+// ssr:false е нужно, защото и двата пипат window/sessionStorage/localStorage
+// директно при mount (Econt cache, cart state) — не могат да се рендират
+// на сървъра. loading:() => null означава "не показвай нищо, докато чънкът
+// пристигне" — коректно, защото и двата се появяват само след клик
+// (drawer/модал), не заемат видимо място в layout-а преди това.
+const CartSystem = dynamic(
+  () => import('@/components/client/CartSystem').then(m => m.CartSystem),
+  { ssr: false, loading: () => null }
+)
+const HandbooksPanel = dynamic(
+  () => import('@/components/client/HandbooksPanel').then(m => m.HandbooksPanel),
+  { ssr: false, loading: () => null }
+)
 
 // ✅ ISR: 5 минути. Данните се обновяват на фона — не при всяка заявка.
 // За settings/FAQ/handbooks, които се менят рядко, това е напълно достатъчно.

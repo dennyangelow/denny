@@ -8,8 +8,9 @@ export async function GET(req: NextRequest) {
     const includeVariants = req.nextUrl.searchParams.get('include_variants') === 'true'
 
     // Ако е поискано — правим join с product_variants
+    // ✅ commission_rate добавен — нужен на CommissionPanel за % по вариант
     const selectQuery = includeVariants
-      ? '*, product_variants(id, label, size_liters, price, compare_price, price_per_liter, stock, sort_order, active)'
+      ? '*, product_variants(id, label, size_liters, price, compare_price, price_per_liter, stock, sort_order, active, commission_rate)'
       : '*'
 
     const { data, error } = await supabaseAdmin
