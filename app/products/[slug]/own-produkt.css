@@ -984,6 +984,8 @@
      една под друга — вижте homepage.css за пълния коментар на логиката. */
   .op-page .mk-offer-showcase-grid {
     display: flex; flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x mandatory;
+    justify-content: flex-start; /* ✅ базовото правило по-горе слага center — трябва
+      изрично да се нулира тук, иначе началото на carousel-а става недостижимо */
     scroll-padding-left: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none;
     gap: 12px; max-width: 100%; margin: 6px 0 0; padding: 12px 4px 6px;
   }

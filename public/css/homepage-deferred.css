@@ -916,6 +916,11 @@ a:hover .pk-card-title { color: #16a34a; }
      последната карта всички засядат чисто на едно и също ляво отстояние. */
   .atlas-offers-wrap .mk-offer-showcase-grid {
     display:flex; flex-wrap:nowrap; overflow-x:auto; scroll-snap-type:x mandatory;
+    justify-content:flex-start; /* ✅ КРИТИЧНО: базовото (десктоп) правило по-горе
+      слага justify-content:center — то НЕ се маха само защото сменяме display
+      тук, а остава активно и върху flex carousel-а. center + overflow скрол е
+      известен капан: скролът в НАЧАЛОТО на съдържанието става недостижим
+      (може се скролва само надясно) — точно бъгът, който виждаше. */
     scroll-padding-left:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;
     gap:14px; max-width:100%; margin:6px 0 0; padding:14px 4px 6px;
   }
