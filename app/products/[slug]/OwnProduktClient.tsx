@@ -78,6 +78,9 @@ interface OwnProduct {
 interface Props {
   product: OwnProduct; related: OwnProduct[]
   outOfStock: boolean; initialSettings: SiteSettings
+  /** ✅ SSR-нати маркетинг настройки от page.tsx — премахва клиентския
+   * fetch('/api/marketing') round-trip при mount (виж homepage фикса). */
+  initialMarketingSettings?: MarketingSettings | null
 }
 
 // ─── Cart item type (съвпада с CartSystem CartItem) ──────────────────────────
@@ -244,7 +247,7 @@ function FaqAccordion({ q, a }: { q: string; a: string }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────────
 export default function OwnProduktClient({
-  product, related, outOfStock, initialSettings,
+  product, related, outOfStock, initialSettings, initialMarketingSettings,
 }: Props) {
   const activeVariants = (product.variants || []).filter(v => v.active)
   const [selVariant, setSelVariant] = useState<ProductVariant | null>(
@@ -258,16 +261,19 @@ export default function OwnProduktClient({
   const currentImg = allImages[Math.min(activeImgIdx, Math.max(allImages.length - 1, 0))]
 
   // ✅ Маркетинг офертите (cross-sell/bundle) за секцията "Още по-изгодно" —
-  // сам route, който вече ползва CartSystem, за да остане в синхрон с drawer-а.
-  const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(null)
+  // SSR-нати от page.tsx (initialMarketingSettings), паралелно с продуктовите
+  // заявки — нула допълнителен мрежов round-trip. Fallback fetch само ако
+  // родителят не ги е подал (обратна съвместимост).
+  const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(initialMarketingSettings ?? null)
   useEffect(() => {
+    if (initialMarketingSettings) return
     let cancelled = false
     fetch('/api/marketing', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (!cancelled && data) setMarketingSettings(data) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [])
+  }, [initialMarketingSettings])
 
   const settings     = initialSettings
   const sym          = settings.currency_symbol
@@ -354,6 +360,7 @@ export default function OwnProduktClient({
         sitePhone={settings.site_phone}
         currencySymbol={sym}
         hideProductGrid
+        initialMarketingSettings={marketingSettings}
       />
 
       <main className="op-main">

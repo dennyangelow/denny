@@ -8,6 +8,7 @@ import { Metadata }      from 'next'
 import { notFound }      from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
 import OwnProduktClient  from './OwnProduktClient'
+import type { MarketingSettings } from '@/lib/offers'
 
 export const revalidate = 60
 
@@ -144,12 +145,16 @@ const PRODUCT_SELECT = [
 // ─── Data fetching ────────────────────────────────────────────────────────────
 async function getPageData(slug: string): Promise<{
   product: Product; related: Product[]; outOfStock: boolean; settings: SiteSettings
+  marketingSettings: MarketingSettings
 } | null> {
-  const [settingsRes, productRes, variantsRes, allProductsRes] = await Promise.allSettled([
+  const [settingsRes, productRes, variantsRes, allProductsRes, marketingRes] = await Promise.allSettled([
     supabaseAdmin.from('settings').select('key, value'),
     supabaseAdmin.from('products').select(PRODUCT_SELECT).eq('slug', slug).eq('active', true).single(),
     supabaseAdmin.from('product_variants').select('*').eq('active', true).order('sort_order'),
     supabaseAdmin.from('products').select(PRODUCT_SELECT).eq('active', true).order('sort_order'),
+    // ✅ SSR-нато вместо клиентски fetch('/api/marketing') от OwnProduktClient/CartSystem
+    // след hydration — виж homepage фикса за пълния разбор на проблема.
+    supabaseAdmin.from('marketing_settings').select('config').eq('id', 1).maybeSingle(),
   ])
 
   const settingsRows = settingsRes.status === 'fulfilled'
@@ -186,7 +191,17 @@ async function getPageData(slug: string): Promise<{
     product.stock === 0 ||
     (product.variants.length > 0 && product.variants.every(v => v.stock === 0))
 
-  return { product, related, outOfStock, settings }
+  const marketingConfig = marketingRes.status === 'fulfilled'
+    ? (marketingRes.value.data?.config as Partial<MarketingSettings> | undefined)
+    : undefined
+  const marketingSettings: MarketingSettings = {
+    upsell_enabled: true, cross_sell_enabled: true, post_purchase_enabled: true,
+    progress_bar_enabled: false, progress_goal_amount: 0, progress_goal_label: '',
+    post_purchase_delay: 0, offers: [],
+    ...marketingConfig,
+  }
+
+  return { product, related, outOfStock, settings, marketingSettings }
 }
 
 // ─── Metadata ─────────────────────────────────────────────────────────────────
@@ -247,7 +262,7 @@ export async function generateStaticParams() {
 export default async function OwnProduktPage({ params }: { params: { slug: string } }) {
   const data = await getPageData(params.slug)
   if (!data) notFound()
-  const { product, related, outOfStock, settings } = data
+  const { product, related, outOfStock, settings, marketingSettings } = data
 
   const canonicalUrl    = `${BASE_URL}/products/${product.slug}`
   const sym             = settings.currency_symbol
@@ -432,6 +447,7 @@ export default async function OwnProduktPage({ params }: { params: { slug: strin
         related={related}
         outOfStock={outOfStock}
         initialSettings={settings}
+        initialMarketingSettings={marketingSettings}
       />
     </>
   )

@@ -206,6 +206,11 @@ interface Props {
   siteEmail: string; sitePhone: string; currencySymbol?: string
   /** true → не рендира ProductCard grid (само drawer+ъпсели). Ползва се на продуктова страница. */
   hideProductGrid?: boolean
+  /** ✅ SSR-нати маркетинг настройки от page.tsx (същия Promise.all с останалите
+   * заявки) — премахва клиентския fetch('/api/marketing') round-trip при mount.
+   * Ако липсва (стари извиквания без този prop) — компонентът пада обратно на
+   * стария клиентски fetch, за обратна съвместимост. */
+  initialMarketingSettings?: MarketingSettings | null
 }
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
@@ -2190,10 +2195,10 @@ function CartDrawer({
 }
 
 // ─── MAIN CartSystem ──────────────────────────────────────────────────────────
-export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone, currencySymbol, hideProductGrid }: Props) {
+export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, siteEmail, sitePhone, currencySymbol, hideProductGrid, initialMarketingSettings }: Props) {
   const [cartItems, setCartItems]     = useState<CartItem[]>([])
   const [drawerOpen, setDrawerOpen]   = useState(false)
-  const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(null)
+  const [marketingSettings, setMarketingSettings] = useState<MarketingSettings | null>(initialMarketingSettings ?? null)
   const [hydrated, setHydrated]       = useState(false)
 
   useEffect(() => {
@@ -2215,11 +2220,17 @@ export function CartSystem({ atlasProducts, shippingPrice, freeShippingAbove, si
   }, [])
 
   useEffect(() => {
+    // ✅ Ако page.tsx вече ни е подал маркетинг настройките през SSR
+    // (initialMarketingSettings), НЕ правим излишен клиентски fetch —
+    // точно това beше причината офертите да "изникват" последни, чак след
+    // JS hydration + отделен мрежов round-trip. Пада обратно на стария fetch
+    // само ако prop-ът липсва (напр. по-стар caller, който още не го подава).
+    if (initialMarketingSettings) return
     fetch('/api/marketing', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setMarketingSettings(data) })
       .catch(() => {})
-  }, [])
+  }, [initialMarketingSettings])
 
   const addToCart = useCallback((item: CartItem) => {
     setCartItems(prev => {

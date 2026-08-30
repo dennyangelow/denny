@@ -18,6 +18,7 @@ import { SafeImg } from '@/components/client/SafeImg'
 import { AffiliateSection, CategoryLinksSection } from '@/components/client/AffiliateSection'
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import OffersShowcase from '@/components/marketing/OffersShowcase'
+import type { MarketingSettings } from '@/lib/offers'
 // ⚠️ ФИКС (наръчниците "изчезват"/половината липсват на мобилно):
 // HandbooksPanel вече е СТАТИЧЕН import, не dynamic(ssr:false). Причината
 // за проблема от скрийншотите: с ssr:false Next.js изобщо НЕ изпраща HTML
@@ -274,6 +275,11 @@ async function getPageData() {
       // Решение без rpc: select само slug + count с head:false и group чрез
       // PostgREST `group` параметър (Supabase го поддържа от v1.8+).
       { data: clicksRows,          error: e12 },
+      // ✅ Маркетинг оферти (bundle витрини, cart upsell/cross-sell/post-purchase) —
+      // SSR-нати ТУК, заедно с останалите заявки, вместо клиентски fetch('/api/marketing')
+      // след JS hydration. Премахва отделен мрежов round-trip, който правеше офертните
+      // карти видимо най-бавния елемент на страницата (виж PageSpeed анализа).
+      { data: marketingRow,        error: e13 },
     ] = await Promise.all([
       db.from('settings').select('key,value'),
       db.from('products').select('*').eq('active', true).order('sort_order'),
@@ -286,13 +292,11 @@ async function getPageData() {
       db.from('naruchnici').select('*').eq('active', true).order('sort_order'),
       db.from('special_sections').select('*').eq('active', true).order('sort_order'),
       db.from('faq_categories').select('*').order('sort_order'),
-      // ✅ GROUP BY директно в Supabase чрез rpc функция.
-      // Ако нямаш rpc функцията създадена — виж коментара в края на файла.
-      // Fallback: ако rpc не съществува, върщаме [] и ползваме sort_order.
       db.rpc('get_top_affiliate_clicks', { limit_count: 20 }).select('*'),
+      db.from('marketing_settings').select('config').eq('id', 1).maybeSingle(),
     ])
 
-    const errors = [e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11,e12]
+    const errors = [e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11,e12,e13]
     errors.forEach((e, i) => {
       if (e) console.error(`[getPageData] query ${i + 1} error:`, e.message)
     })
@@ -331,6 +335,17 @@ async function getPageData() {
           ),
         }),
       }
+    }
+
+    // ── Marketing settings (bundle оферти / cart upsell-cross-sell-post-purchase) ──
+    // ✅ SSR-нато вместо клиентски fetch('/api/marketing') от CartSystem/OffersShowcase
+    // след JS hydration — точно това беше причината офертните карти да "изникват"
+    // последни на страницата (виж PageSpeed анализа по-горе).
+    const marketingSettings: MarketingSettings = {
+      upsell_enabled: true, cross_sell_enabled: true, post_purchase_enabled: true,
+      progress_bar_enabled: false, progress_goal_amount: 0, progress_goal_label: '',
+      post_purchase_delay: 0, offers: [],
+      ...(marketingRow?.config as Partial<MarketingSettings> | undefined),
     }
 
     // ── Atlas products ────────────────────────────────────────────────────────
@@ -553,7 +568,7 @@ async function getPageData() {
 
     return {
       settings, atlasProducts, affiliateProducts, top6AffiliateProducts,
-      categoryLinks, promoBanners,
+      categoryLinks, promoBanners, marketingSettings,
       testimonials: (testimonialRows || []).map((t: Record<string, unknown>) => ({
         id:          String(t.id || ''),
         name:        String(t.name        || ''),
@@ -575,6 +590,11 @@ async function getPageData() {
       top6AffiliateProducts: [],
       categoryLinks:         [],
       promoBanners:          [],
+      marketingSettings: {
+        upsell_enabled: false, cross_sell_enabled: false, post_purchase_enabled: false,
+        progress_bar_enabled: false, progress_goal_amount: 0, progress_goal_label: '',
+        post_purchase_delay: 0, offers: [],
+      } as MarketingSettings,
       testimonials:          [],
       faq:                   [],
       faqCategories:         DEFAULT_FAQ_CATEGORIES,
@@ -674,7 +694,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function HomePage() {
   const {
     settings, atlasProducts, affiliateProducts, top6AffiliateProducts,
-    categoryLinks, promoBanners, testimonials, faq, faqCategories, handbooks, specialSections,
+    categoryLinks, promoBanners, marketingSettings, testimonials, faq, faqCategories, handbooks, specialSections,
   } = await getPageData()
 
   const trustItems  = safeJson<{ icon: string; text: string; sub?: string }[]>(settings.trust_strip_items, [])
@@ -1138,6 +1158,7 @@ export default async function HomePage() {
                 freeShippingAbove={settings.free_shipping_above}
                 siteEmail={settings.site_email}
                 sitePhone={settings.site_phone}
+                initialMarketingSettings={marketingSettings}
               />
             </div>
 
@@ -1146,6 +1167,7 @@ export default async function HomePage() {
               <FadeIn>
                 <div className="atlas-offers-wrap">
                   <OffersShowcase
+                    offers={marketingSettings.offers}
                     products={atlasProducts}
                     context="homepage"
                     currencySymbol={settings.currency_symbol}
