@@ -18,25 +18,51 @@ import { SafeImg } from '@/components/client/SafeImg'
 import { AffiliateSection, CategoryLinksSection } from '@/components/client/AffiliateSection'
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import OffersShowcase from '@/components/marketing/OffersShowcase'
-import './homepage.css'
+// ⚠️ ФИКС (наръчниците "изчезват"/половината липсват на мобилно):
+// HandbooksPanel вече е СТАТИЧЕН import, не dynamic(ssr:false). Причината
+// за проблема от скрийншотите: с ssr:false Next.js изобщо НЕ изпраща HTML
+// за тази секция — сървърът праща null, и панелът се появява едва след
+// като браузърът свали + изпълни + хидратира целия JS chunk на клиента.
+// На бавна мрежа/мобилно това създава реален "празен" период точно за
+// съдържание, което е ВИДИМО ВЕДНАГА (дясната половина на hero-то) —
+// оттам усещането "половината липсва".
+// Проверих HandbooksPanel.tsx ред по ред: единствените browser-only извиквания
+// (setTimeout за social-proof notification, Math.random за "изтеглени",
+// document.createElement при клик) са или вътре в useEffect, или вътре в
+// onClick handler — никога в render тялото. Това го прави 100% SSR-safe:
+// 'use client' компонент БЕЗ ssr:false се рендва напълно на сървъра (целият
+// списък с наръчници, заглавия, снимки, CTA бутони излизат директно в HTML-а),
+// а useEffect/onClick логиката просто се "закача" след hydration — точно
+// както е при HeaderClient по-долу, който също е 'use client' без ssr:false.
+// CartSystem ОСТАВА dynamic+ssr:false — той наистина не е видим при първия
+// рендър (drawer, отваря се само след клик "Количка") и пипа
+// localStorage/Econt кеш логика, която реално не е нужна преди клика.
+import { HandbooksPanel } from '@/components/client/HandbooksPanel'
+import { CriticalStyles } from '@/components/CriticalStyles'
+import { DeferredHomepageCSS } from '@/components/DeferredHomepageCSS'
+// ⚠️ ФИКС (LCP "Element render delay": 2 520ms → вижте CriticalStyles.tsx):
+// './homepage.css' вече НЕ се импортира тук directly. Целият файл (1197
+// реда) излизаше като 1 голям render-blocking <link rel="stylesheet"> в
+// <head> — браузърът чакаше да го свали + парсне, преди изобщо да има
+// право да нарисува urgency-bar-а (LCP елементът на страницата), въпреки
+// че данните (TTFB) са били готови за 20ms. Разделено на:
+//   1) CriticalStyles  — inline <style> само с urgency-bar+header+hero
+//      (пресъздава старите редове 1–276 от homepage.css) — рисува се
+//      мигновено, като част от самия HTML, без отделна заявка.
+//   2) DeferredHomepageCSS — зарежда останалите ~920 реда
+//      (public/css/homepage-deferred.css) асинхронно, без да блокира.
+// Пълният оригинален homepage.css остава в repo-то непроменен като
+// референция/backup — вече просто не се импортира.
 
-// ✅ Lazy-load на CartSystem (2553 реда, вкл. Econt интеграция и drawer логика)
-// и HandbooksPanel (форма за сваляне на наръчник) — и двата НЕ са нужни за
-// първия рендър/LCP на страницата, само след като потребителят кликне
-// "Количка" или някой handbook. Статичният import преди товареше целия им
-// JS в основния bundle на homepage дори при никакво взаимодействие
-// (виж PageSpeed "Reduce unused JavaScript" — ~69 KiB).
-// ssr:false е нужно, защото и двата пипат window/sessionStorage/localStorage
-// директно при mount (Econt cache, cart state) — не могат да се рендират
-// на сървъра. loading:() => null означава "не показвай нищо, докато чънкът
-// пристигне" — коректно, защото и двата се появяват само след клик
-// (drawer/модал), не заемат видимо място в layout-а преди това.
+// ✅ Lazy-load само на CartSystem (2553 реда, вкл. Econt интеграция и drawer
+// логика) — той НЕ е видим при първия рендър, само след като потребителят
+// кликне "Количка" (drawer, не заема място в layout-а преди това). ssr:false
+// е нужен, защото пипа window/localStorage/Econt кеш директно при mount.
+// loading:() => null означава "не показвай нищо, докато чънкът пристигне" —
+// коректно тук, защото drawer-ът наистина не съществува визуално преди клика.
+// HandbooksPanel вече НЕ е тук — виж коментара до static import-а му по-горе.
 const CartSystem = dynamic(
   () => import('@/components/client/CartSystem').then(m => m.CartSystem),
-  { ssr: false, loading: () => null }
-)
-const HandbooksPanel = dynamic(
-  () => import('@/components/client/HandbooksPanel').then(m => m.HandbooksPanel),
   { ssr: false, loading: () => null }
 )
 
@@ -860,6 +886,12 @@ export default async function HomePage() {
 
   return (
     <>
+      {/* ── Критичен CSS (inline) + асинхронно зареждане на останалия ──
+          Нарочно ПЪРВИ children — критичният <style> трябва да е наличен
+          преди браузърът да стигне до urgency-bar-а/hero-то по-долу. ── */}
+      <CriticalStyles />
+      <DeferredHomepageCSS />
+
       {/* ── SEO Schema Scripts ── */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionPageSchema) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(naruchnikListSchema) }} />
