@@ -21,6 +21,15 @@ export interface BundleRequirement {
 export type OfferType = 'cart_upsell' | 'cross_sell' | 'post_purchase' | 'bundle'
 export type TriggerType = 'always' | 'product_in_cart' | 'cart_above' | 'cart_below' | 'bundle_requirements'
 
+// ✅ Едно "готово" визуално вариант на bundle-а — снимка + фиксирана комбинация
+// продукти/бройки, показани като статична карта с 1 бутон "Добави", вместо
+// интерактивните степъри. Няколко showcase_cards на ЕДНА оферта = няколко
+// рекламни визии (напр. "1 база + 2 амино" И "1 база + 1 амино + 1 нитро"),
+// които водят до СЪЩОТО bundle_requirements правило отдолу — така няма риск
+// от двоен подарък, ако клиентът избере повече от 1 карта.
+export interface ShowcaseCardPick { product_id: string; qty: number }
+export interface ShowcaseCard { id: string; image_url: string; label?: string; featured?: boolean; preset_picks: ShowcaseCardPick[] }
+
 export interface UpsellOffer {
   id: string; type: OfferType; active: boolean
   title: string; description: string; emoji: string; image_url?: string
@@ -33,6 +42,16 @@ export interface UpsellOffer {
   discount_pct?: number; bundle_price?: number; sort_order: number
   bundle_requirements?: BundleRequirement[]
   reward_qty?: number
+  show_on_homepage?: boolean       // ✅ undefined/true = вижда се във витрината "🎁 Оферти и пакети" на
+                                    //    началната (ако иначе отговаря на offersForHomepage). false = офертата
+                                    //    си остава напълно активна (в количката, продуктови страници), само
+                                    //    не се показва на homepage витрината.
+  display_style?: 'interactive' | 'showcase'  // ✅ 'interactive' (default) = степъри, клиентът сам разпределя
+                                    //    бройки. 'showcase' = статични карти (виж showcase_cards).
+  showcase_cards?: ShowcaseCard[]  // ✅ Само когато display_style === 'showcase'.
+  urgency_text?: string            // ✅ Кратък текст за краен срок/спешност, показва се до всеки бутон
+                                    //    "Добави в количката" (напр. "Валидно до 30.09.2026").
+  cta_label?: string                // ✅ Текст на бутона на всяка showcase карта (default "🛒 Вземи пакета")
 }
 
 export interface MarketingSettings {
@@ -235,7 +254,8 @@ export function offersForProduct(offers: UpsellOffer[], productId: string): Upse
  */
 export function offersForHomepage(offers: UpsellOffer[]): UpsellOffer[] {
   return offers
-    .filter(o => o.active && (o.type === 'cross_sell' || o.type === 'bundle') &&
+    .filter(o => o.active && o.show_on_homepage !== false &&
+      (o.type === 'cross_sell' || o.type === 'bundle') &&
       (o.trigger_type === 'bundle_requirements' || o.trigger_type === 'always'))
     .sort((a, b) => a.sort_order - b.sort_order)
 }

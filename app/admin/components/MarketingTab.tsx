@@ -16,6 +16,13 @@ export interface BundleRequirement {
   size_liters?: number     // ✅ За групово условие: филтър по литри (напр. 20 = "който и да е 20л вариант")
 }
 
+// ✅ Едно "готово" визуално вариант на bundle-а — снимка + фиксирана комбинация
+// продукти/бройки, показани като статична карта с 1 бутон "Добави", вместо
+// интерактивните степъри. Няколко showcase_cards на ЕДНА оферта = няколко
+// рекламни визии, водещи до СЪЩОТО bundle_requirements правило отдолу.
+export interface ShowcaseCardPick { product_id: string; qty: number }
+export interface ShowcaseCard { id: string; image_url: string; label?: string; featured?: boolean; preset_picks: ShowcaseCardPick[] }
+
 export interface UpsellOffer {
   id: string
   type: 'cart_upsell' | 'cross_sell' | 'post_purchase' | 'bundle'
@@ -39,6 +46,12 @@ export interface UpsellOffer {
   bundle_requirements?: BundleRequirement[]  // ✅ За trigger_type='bundle_requirements' — множество условия (продукт+вариант+кол-во)
   reward_qty?: number                         // ✅ Колко бройки от offer_product_id/offer_variant_id се дават (по подразбиране 1)
   sort_order: number
+  show_on_homepage?: boolean       // ✅ undefined/true = показва се във витрината "🎁" на началната. false = скрита
+                                    //    само от homepage витрината, но си остава напълно активна навсякъде другаде.
+  display_style?: 'interactive' | 'showcase'  // ✅ 'interactive' (default) = степъри. 'showcase' = готови карти (виж по-долу).
+  showcase_cards?: ShowcaseCard[]  // ✅ Само когато display_style === 'showcase'.
+  urgency_text?: string            // ✅ Кратък текст за краен срок/спешност, показва се до всеки бутон "Добави"
+  cta_label?: string                // ✅ Текст на бутона на всяка showcase карта (default "🛒 Вземи пакета")
 }
 
 export interface MarketingSettings {
@@ -591,6 +604,95 @@ function BundleRequirementsEditor({ requirements, onChange, products, currencySy
   )
 }
 
+// ─── ShowcaseCardsEditor — готови визуални карти (снимка + фиксирана комбинация) ──
+function ShowcaseCardsEditor({ cards, onChange, products }: {
+  cards: ShowcaseCard[]
+  onChange: (cards: ShowcaseCard[]) => void
+  products: OwnProduct[]
+}) {
+  const update = (idx: number, patch: Partial<ShowcaseCard>) =>
+    onChange(cards.map((c, i) => i === idx ? { ...c, ...patch } : c))
+  const remove = (idx: number) => onChange(cards.filter((_, i) => i !== idx))
+  const add = () => onChange([...cards, { id: genId(), image_url: '', label: `Вариант ${cards.length + 1}`, preset_picks: [] }])
+
+  const updatePick = (cardIdx: number, pickIdx: number, patch: Partial<ShowcaseCardPick>) => {
+    const card = cards[cardIdx]
+    update(cardIdx, { preset_picks: card.preset_picks.map((p, i) => i === pickIdx ? { ...p, ...patch } : p) })
+  }
+  const removePick = (cardIdx: number, pickIdx: number) => {
+    const card = cards[cardIdx]
+    update(cardIdx, { preset_picks: card.preset_picks.filter((_, i) => i !== pickIdx) })
+  }
+  const addPick = (cardIdx: number) => {
+    const card = cards[cardIdx]
+    update(cardIdx, { preset_picks: [...card.preset_picks, { product_id: '', qty: 1 }] })
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <Label hint='Всяка карта = 1 готова визия (напр. рекламна снимка) с 1 бутон "Добави в количката", който директно слага точната комбинация — без степъри. Няколко карти могат да сочат към едно и също условие по-горе.'>
+        Витринни карти
+      </Label>
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
+        {cards.map((card, idx) => (
+          <div key={card.id} style={{ padding: '12px 14px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#334155' }}>Карта {idx + 1}</span>
+              <button type="button" onClick={() => remove(idx)}
+                style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}>✕ Премахни</button>
+            </div>
+            <div style={{ display: 'flex', gap: 14, marginBottom: 10, flexWrap: 'wrap' as const }}>
+              <div style={{ maxWidth: 220, flex: 1 }}>
+                <Label>Етикет (по избор)</Label>
+                <Field value={card.label || ''} onChange={v => update(idx, { label: v })} placeholder="Вариант 1" />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', paddingTop: 22, fontSize: 12.5, fontWeight: 700, color: '#334155', userSelect: 'none' as const }}>
+                <input type="checkbox" checked={!!card.featured} onChange={e => update(idx, { featured: e.target.checked })}
+                  style={{ width: 15, height: 15, accentColor: '#dc2626', cursor: 'pointer' }} />
+                🔥 Най-търсен (бадж върху снимката)
+              </label>
+            </div>
+            <ImageUpload value={card.image_url} onChange={v => update(idx, { image_url: v })} />
+            <div style={{ marginTop: 10 }}>
+              <Label hint="Точно тези продукти + бройки се добавят в количката с 1 клик върху бутона на картата">
+                Съдържание на комбинацията
+              </Label>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                {card.preset_picks.map((pick, pIdx) => (
+                  <div key={pIdx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <select value={pick.product_id} onChange={e => updatePick(idx, pIdx, { product_id: e.target.value })}
+                      style={{ flex: 1, padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 9, fontFamily: 'inherit', fontSize: 12.5, background: '#fff', color: '#0f172a' }}>
+                      <option value="">— избери продукт —</option>
+                      {products.map(p => <option key={p.id} value={p.id}>{p.emoji || '🌿'} {p.name}</option>)}
+                    </select>
+                    <Field type="number" value={pick.qty || 1} onChange={v => updatePick(idx, pIdx, { qty: Math.max(1, Number(v)) })}
+                      style={{ width: 64, flexShrink: 0 }} />
+                    <button type="button" onClick={() => removePick(idx, pIdx)}
+                      style={{ width: 30, height: 34, border: 'none', background: '#fff1f2', color: '#dc2626', borderRadius: 8, cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>✕</button>
+                  </div>
+                ))}
+                {card.preset_picks.length === 0 && (
+                  <div style={{ fontSize: 11.5, color: '#dc2626', fontWeight: 700, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 10px' }}>
+                    ⚠️ Без нито един продукт бутонът на картата няма да добавя нищо.
+                  </div>
+                )}
+              </div>
+              <button type="button" onClick={() => addPick(idx)}
+                style={{ marginTop: 8, padding: '6px 12px', background: '#fff', color: '#334155', border: '1.5px dashed #cbd5e1', borderRadius: 8, fontWeight: 700, fontSize: 11.5, cursor: 'pointer', fontFamily: 'inherit' }}>
+                + Добави продукт в комбинацията
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={add}
+        style={{ marginTop: 10, padding: '8px 16px', background: '#fff', color: '#334155', border: '1.5px dashed #cbd5e1', borderRadius: 10, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit' }}>
+        + Добави карта
+      </button>
+    </div>
+  )
+}
+
 // ─── OfferCard ────────────────────────────────────────────────────────────────
 
 function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, currencySymbol = '€', open, onToggleOpen }: {
@@ -656,6 +758,19 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
             </div>
             <div><Label>Emoji</Label><Field value={offer.emoji} onChange={v => onUpdate({ emoji: v })} placeholder="🌿" /></div>
           </div>
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 14px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12 }}>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>Показвай на началната страница</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                Изключи, за да остане активна само в количката/продуктовите страници, без да е във витрината 🎁 на началната
+              </div>
+            </div>
+            <div
+              onClick={() => onUpdate({ show_on_homepage: offer.show_on_homepage === false })}
+              style={{ width: 42, height: 24, borderRadius: 99, background: offer.show_on_homepage !== false ? '#16a34a' : '#e2e8f0', position: 'relative', cursor: 'pointer', transition: 'background .2s', flexShrink: 0 }}>
+              <div style={{ position: 'absolute', top: 2, left: offer.show_on_homepage !== false ? 20 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+            </div>
+          </div>
           <div style={{ marginTop: 12 }}><Label>Заглавие *</Label><Field value={offer.title} onChange={v => onUpdate({ title: v })} placeholder="Добави 20л и спести 15%" /></div>
           <div style={{ marginTop: 12 }}><Label>Описание</Label><Field value={offer.description} onChange={v => onUpdate({ description: v })} placeholder="Кратко убедително съобщение..." rows={2} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
@@ -705,6 +820,62 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
               products={products}
               currencySymbol={currencySymbol}
             />
+          )}
+
+          {offer.type === 'bundle' && offer.trigger_type === 'bundle_requirements' && (
+            <div style={{ marginTop: 16 }}>
+              <Label hint='Интерактивен = клиентът сам разпределя бройки чрез +/- степъри. Витрина = готови статични карти (твоя снимка) с 1 бутон "Добави", директно с точна фиксирана комбинация — по-добро за рекламни визии.'>
+                Начин на показване на началната
+              </Label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button"
+                  onClick={() => onUpdate({ display_style: 'interactive' })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 9,
+                    border: offer.display_style !== 'showcase' ? '1.5px solid #ea580c' : '1.5px solid #e2e8f0',
+                    background: offer.display_style !== 'showcase' ? '#ea580c12' : '#fff',
+                    fontSize: 12, fontWeight: 700, color: offer.display_style !== 'showcase' ? '#ea580c' : '#475569',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}>🎚 Интерактивен избор</button>
+                <button type="button"
+                  onClick={() => onUpdate({
+                    display_style: 'showcase',
+                    showcase_cards: offer.showcase_cards?.length ? offer.showcase_cards : [{ id: genId(), image_url: '', label: 'Вариант 1', preset_picks: [] }],
+                  })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 9,
+                    border: offer.display_style === 'showcase' ? '1.5px solid #ea580c' : '1.5px solid #e2e8f0',
+                    background: offer.display_style === 'showcase' ? '#ea580c12' : '#fff',
+                    fontSize: 12, fontWeight: 700, color: offer.display_style === 'showcase' ? '#ea580c' : '#475569',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}>🖼 Готови карти (витрина)</button>
+              </div>
+              {offer.display_style === 'showcase' && (
+                <>
+                  <ShowcaseCardsEditor
+                    cards={offer.showcase_cards || []}
+                    onChange={cards => onUpdate({ showcase_cards: cards })}
+                    products={products}
+                  />
+                  <div style={{ marginTop: 12, display: 'flex', gap: 12, flexWrap: 'wrap' as const }}>
+                    <div style={{ maxWidth: 260, flex: 1 }}>
+                      <Label hint='Текстът на бутона на всяка карта. Кратко е по-добре — на мобилен дълъг текст може да не се събере на 1 ред.'>
+                        Текст на бутона
+                      </Label>
+                      <Field value={offer.cta_label || ''} onChange={v => onUpdate({ cta_label: v })}
+                        placeholder="🛒 Вземи пакета" />
+                    </div>
+                    <div style={{ maxWidth: 260, flex: 1 }}>
+                      <Label hint='По избор — кратък текст (напр. краен срок), показва се точно до бутона "Добави в количката" на всяка карта, за усещане за спешност.'>
+                        Текст за спешност/краен срок
+                      </Label>
+                      <Field value={offer.urgency_text || ''} onChange={v => onUpdate({ urgency_text: v })}
+                        placeholder="⏳ Валидно до 30.09.2026" />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           <div style={{ marginTop: 12 }}>
             {offer.type === 'bundle' && (

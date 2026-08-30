@@ -18,7 +18,7 @@ import { SafeImg } from '@/components/client/SafeImg'
 import {
   offersForProduct, offersForHomepage, computeBundleProgress,
   offerRelatedProductIds,
-  type UpsellOffer, type OfferCartItemLike,
+  type UpsellOffer, type OfferCartItemLike, type ShowcaseCard,
 } from '@/lib/offers'
 
 // ─── Типове ────────────────────────────────────────────────────────────────────
@@ -93,6 +93,24 @@ function buildPayload(product: ShowcaseProduct, variant: ShowcaseVariant, qty: n
   }
 }
 
+// ✅ Резолвира preset_picks на 1 showcase карта към реални продукти/варианти —
+// вариантът се търси по same size_liters като груповото условие на офертата (ако
+// има такова), за да остане консистентно с bundle_requirements правилото отдолу.
+function resolveShowcaseCard(
+  card: ShowcaseCard, byId: Map<string, ShowcaseProduct>, fallbackSizeLiters?: number
+): { rows: { product: ShowcaseProduct; variant: ShowcaseVariant; qty: number }[]; total: number; allResolved: boolean } {
+  const rows: { product: ShowcaseProduct; variant: ShowcaseVariant; qty: number }[] = []
+  let allResolved = true
+  for (const pick of card.preset_picks || []) {
+    const product = byId.get(pick.product_id)
+    const variant = product ? pickVariant(product, undefined, fallbackSizeLiters) : null
+    if (product && variant && pick.qty > 0) rows.push({ product, variant, qty: pick.qty })
+    else allResolved = false
+  }
+  const total = rows.reduce((s, r) => s + r.variant.price * r.qty, 0)
+  return { rows, total, allResolved }
+}
+
 const TYPE_META: Record<string, { label: string; color: string; bg: string }> = {
   cross_sell: { label: 'Допълва поръчката', color: '#0369a1', bg: '#eff6ff' },
   bundle:     { label: 'Пакет',             color: '#ea580c', bg: '#fff7ed' },
@@ -145,6 +163,7 @@ function OfferPromoCard({
   currentProductId?: string; currentVariantId?: string; sym: string; cartItems: OfferCartItemLike[]
 }) {
   const [added, setAdded] = useState(false)
+  const [addedCardId, setAddedCardId] = useState<string | null>(null)
   const [picks, setPicks] = useState<Record<string, number>>({})
   const byId = useMemo(() => new Map(products.map(p => [p.id, p])), [products])
   const meta = TYPE_META[offer.type] || TYPE_META.cross_sell
@@ -182,6 +201,21 @@ function OfferPromoCard({
 
   const rewardProduct = offer.offer_product_id ? byId.get(offer.offer_product_id) : undefined
   const rewardVariant = rewardProduct ? pickVariant(rewardProduct, offer.offer_variant_id) : null
+
+  // ✅ "Витрина" режим — статични карти (готова снимка + фиксирана комбинация от
+  // продукти/бройки), директен 1-клик добавяне вместо интерактивните степъри.
+  // Няколко карти на 1 оферта = няколко визии на СЪЩОТО правило отдолу (безопасно —
+  // не създава риск от двоен подарък, тъй като bundle_requirements-а остава 1).
+  const showcaseMode = offer.display_style === 'showcase' && (offer.showcase_cards?.length || 0) > 0
+
+  function handleAddShowcaseCard(card: ShowcaseCard) {
+    const { rows } = resolveShowcaseCard(card, byId, groupReq?.size_liters)
+    for (const { product, variant, qty } of rows) {
+      dispatchAddToCart(buildPayload(product, variant, qty))
+    }
+    setAddedCardId(card.id)
+    setTimeout(() => setAddedCardId(null), 2200)
+  }
 
   function handleAdd() {
     if (groupReq) {
@@ -246,7 +280,7 @@ function OfferPromoCard({
   }
 
   return (
-    <div className="mk-offer-card" style={{ borderLeftColor: meta.color }}>
+    <div className={`mk-offer-card${showcaseMode ? ' mk-offer-card--showcase' : ''}`} style={{ borderLeftColor: meta.color }}>
       <div className="mk-offer-main">
         <div className="mk-offer-top">
           <span className="mk-offer-emoji" aria-hidden>{offer.emoji || '🎁'}</span>
@@ -263,8 +297,8 @@ function OfferPromoCard({
 
         {offer.description && <p className="mk-offer-desc">{offer.description}</p>}
 
-        {/* ── Свободен избор: степъри за всеки продукт от групата ── */}
-        {groupReq && !fulfilled && (
+        {/* ── Свободен избор: степъри за всеки продукт от групата (само ако НЕ е showcase) ── */}
+        {groupReq && !fulfilled && !showcaseMode && (
           <div className="mk-offer-picker">
             {groupCandidates.map(({ product, variant }) => {
               const info = perLiterInfo(product, variant)
@@ -310,7 +344,7 @@ function OfferPromoCard({
           </div>
         )}
 
-        {!groupReq && (
+        {!groupReq && !showcaseMode && (
           <div className="mk-offer-row">
             {involvedProducts.length > 0 && (
               <div className="mk-offer-products">
@@ -339,33 +373,70 @@ function OfferPromoCard({
           </div>
         )}
 
+        {/* ── Витрина: статични карти с готова снимка + 1 бутон "Добави" всяка ── */}
+        {showcaseMode && !fulfilled && (
+          <div className="mk-offer-showcase-grid">
+            {offer.showcase_cards!.map(card => {
+              const { rows, allResolved } = resolveShowcaseCard(card, byId, groupReq?.size_liters)
+              const isAdded = addedCardId === card.id
+              return (
+                <div key={card.id} className="mk-offer-showcase-card">
+                  {card.image_url && (
+                    <div className="mk-offer-showcase-img-wrap">
+                      <img src={card.image_url} alt={card.label || offer.title} className="mk-offer-showcase-img" />
+                      {card.featured && <span className="mk-offer-showcase-featured">🔥 Най-търсен</span>}
+                    </div>
+                  )}
+                  <div className="mk-offer-showcase-body">
+                    {card.label && <span className="mk-offer-showcase-label">{card.label}</span>}
+                    <button
+                      type="button"
+                      className="mk-offer-btn mk-offer-showcase-btn"
+                      style={{ background: meta.color }}
+                      onClick={() => handleAddShowcaseCard(card)}
+                      disabled={isAdded || !allResolved || rows.length === 0}
+                    >
+                      {isAdded ? '✓ Добавено' : allResolved ? (offer.cta_label || '🛒 Вземи пакета') : 'Няма наличност'}
+                    </button>
+                    {offer.urgency_text && (
+                      <span className="mk-offer-showcase-urgency">{offer.urgency_text}</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {isBundleReq && fulfilled && (
           <div className="mk-offer-unlocked">✓ Условията са изпълнени — вземи подаръка в количката</div>
         )}
       </div>
 
-      <div className="mk-offer-action">
-        {(offer.bundle_price || offer.discount_pct || rewardVariant?.price === 0) && (
-          <span className="mk-offer-price">
-            {offer.bundle_price ? `🎁 ${fmt(offer.bundle_price, sym)}`
-              : offer.discount_pct ? `-${offer.discount_pct}%`
-              : '🎁 Подарък'}
-          </span>
-        )}
-        {(!isBundleReq || !fulfilled) && (
-          <button
-            type="button"
-            className="mk-offer-btn"
-            style={{ background: meta.color }}
-            onClick={handleAdd}
-            disabled={added || (!!groupReq && pickedTotal === 0)}
-          >
-            {added ? '✓ Добавено'
-              : groupReq ? `+ Добави ${pickedTotal || ''} бр.`
-              : isBundleReq ? '+ Добави пакета' : '+ Добави'}
-          </button>
-        )}
-      </div>
+      {!showcaseMode && (
+        <div className="mk-offer-action">
+          {(offer.bundle_price || offer.discount_pct || rewardVariant?.price === 0) && (
+            <span className="mk-offer-price">
+              {offer.bundle_price ? `🎁 ${fmt(offer.bundle_price, sym)}`
+                : offer.discount_pct ? `-${offer.discount_pct}%`
+                : '🎁 Подарък'}
+            </span>
+          )}
+          {(!isBundleReq || !fulfilled) && (
+            <button
+              type="button"
+              className="mk-offer-btn"
+              style={{ background: meta.color }}
+              onClick={handleAdd}
+              disabled={added || (!!groupReq && pickedTotal === 0)}
+            >
+              {added ? '✓ Добавено'
+                : groupReq ? `+ Добави ${pickedTotal || ''} бр.`
+                : isBundleReq ? '+ Добави пакета' : '+ Добави'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

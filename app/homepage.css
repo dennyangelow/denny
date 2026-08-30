@@ -1061,6 +1061,13 @@ a:hover .pk-card-title { color: #16a34a; }
 }
 .atlas-offers-wrap .mk-offer-card:hover { box-shadow:0 6px 18px rgba(0,0,0,.08); transform:translateY(-1px); }
 .atlas-offers-wrap .mk-offer-main { flex:1; min-width:200px; display:flex; flex-direction:column; gap:5px; }
+
+/* ✅ Showcase-mode карти носят собствена картинна мрежа отдолу (не хоризонтален
+   ред икона+бутон като компактните карти) — но за промоции с 1-2 готови визии
+   по-добре е да заемат пълната ширина на секцията с ГОЛЕМИ, ясно четими снимки,
+   вместо да се свиват до малки thumbnail-и. */
+.atlas-offers-wrap .mk-offer-card--showcase { display:block; }
+.atlas-offers-wrap .mk-offer-card--showcase .mk-offer-main { display:block; }
 .atlas-offers-wrap .mk-offer-top { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
 .atlas-offers-wrap .mk-offer-emoji { font-size:16px; line-height:1; }
 .atlas-offers-wrap .mk-offer-title { font-size:13.5px; font-weight:800; color:#0f172a; line-height:1.3; }
@@ -1126,4 +1133,65 @@ a:hover .pk-card-title { color: #16a34a; }
 .atlas-offers-wrap .mk-offer-pick-gift {
   font-size:11.5px; font-weight:800; color:#b45309;
   background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:5px 9px; margin-top:2px;
+}
+
+/* ── Витрина: готови статични карти (снимка + 1 бутон), вместо степъри ──
+   Няколко карти = няколко рекламни визии на 1 общо bundle правило. Снимките
+   вече идват "готови" (изрязани от източника без дублиращ се CTA/footer).
+   На десктоп 2-те карти делят цялата ширина на секцията почти по равно (голями,
+   ясно четими снимки); на телефон се редят една под друга на пълна ширина. */
+.atlas-offers-wrap .mk-offer-showcase-grid {
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(0,320px)); gap:18px;
+  justify-content:center; /* ✅ центрира 1, 2 или 3 карти еднакво — иначе Grid ги
+                              подрежда отляво и оставя празно поле отдясно, ако
+                              контейнерът се окаже по-широк от нужното */
+  max-width:1030px; /* ≈ 3×320 + 2×18 — до 3 карти на ред, дори на много широк екран */
+  margin:6px auto 0; padding-top:14px; border-top:1px dashed #e5e7eb;
+}
+.atlas-offers-wrap .mk-offer-showcase-card {
+  display:flex; flex-direction:column; border:1.5px solid #e5e7eb; border-radius:16px;
+  overflow:hidden; background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.05);
+  transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+}
+.atlas-offers-wrap .mk-offer-showcase-card:hover {
+  box-shadow:0 14px 30px rgba(0,0,0,.11); transform:translateY(-2px); border-color:#bbf7d0;
+}
+.atlas-offers-wrap .mk-offer-showcase-img-wrap { position:relative; }
+.atlas-offers-wrap .mk-offer-showcase-img { width:100%; height:auto; display:block; background:#f9fafb; }
+.atlas-offers-wrap .mk-offer-showcase-featured {
+  position:absolute; top:10px; left:10px; z-index:1;
+  background:#dc2626; color:#fff; font-size:11px; font-weight:800;
+  padding:5px 11px; border-radius:99px; letter-spacing:.02em;
+  box-shadow:0 2px 8px rgba(220,38,38,.35);
+}
+.atlas-offers-wrap .mk-offer-showcase-body { display:flex; flex-direction:column; align-items:center; gap:10px; padding:16px 18px 20px; text-align:center; }
+.atlas-offers-wrap .mk-offer-showcase-label {
+  font-size:12.5px; font-weight:800; color:#16a34a; text-transform:uppercase; letter-spacing:.06em;
+}
+.atlas-offers-wrap .mk-offer-showcase-btn {
+  width:100%; text-align:center; padding:15px 20px; font-size:16px; border-radius:11px;
+  box-shadow:0 3px 10px rgba(20,83,45,.25);
+}
+.atlas-offers-wrap .mk-offer-showcase-btn:hover { box-shadow:0 5px 16px rgba(20,83,45,.32); }
+.atlas-offers-wrap .mk-offer-showcase-btn:disabled:not(:hover) { background:#94a3b8; box-shadow:none; }
+.atlas-offers-wrap .mk-offer-showcase-urgency {
+  font-size:12px; font-weight:700; color:#b45309; background:#fff7ed; border:1px solid #fed7aa;
+  border-radius:99px; padding:5px 12px; white-space:nowrap;
+}
+
+@media (max-width: 640px) {
+  /* ✅ На тесен екран НЕ трупаме картите една под друга (много скрол, а и с 3+
+     карти в бъдеще става безкраен списък) — вместо това хоризонтален swipe
+     carousel: всяка карта остава четима на комфортна ширина, "надничащ" ръб
+     на следващата подсказва, че може да се плъзга. Работи еднакво добре с
+     2, 3 или повече карти без нужда от промяна тук в бъдеще. */
+  .atlas-offers-wrap .mk-offer-showcase-grid {
+    display:flex; flex-wrap:nowrap; overflow-x:auto; scroll-snap-type:x mandatory;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none; gap:14px; max-width:100%;
+    margin:6px 0 0; padding:14px 4px 6px;
+  }
+  .atlas-offers-wrap .mk-offer-showcase-grid > .mk-offer-showcase-card:only-child { margin:0 auto; }
+  .atlas-offers-wrap .mk-offer-showcase-grid::-webkit-scrollbar { display:none; }
+  .atlas-offers-wrap .mk-offer-showcase-card { flex:0 0 84%; max-width:320px; scroll-snap-align:center; }
+  .atlas-offers-wrap .mk-offer-showcase-btn { padding:14px 18px; font-size:15px; }
 }
