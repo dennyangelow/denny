@@ -927,10 +927,70 @@
 .op-page .mk-offer-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .op-page .mk-offer-btn:disabled { background: var(--green); cursor: default; transform: none; filter: none; }
 
+/* ── Showcase-mode карти (готова снимка + 1 бутон), огледално на homepage.css,
+   но с по-компактния мащаб на продуктовата страница (по-малки шрифтове/padding,
+   ползва същите --var токени, за да остане визуално консистентно с останалата
+   част на страницата). ── */
+.op-page .mk-offer-card--showcase { display: block; }
+.op-page .mk-offer-card--showcase .mk-offer-main { display: block; }
+
+.op-page .mk-offer-showcase-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 300px)); gap: 16px;
+  justify-content: center;
+  max-width: 970px; /* ≈ 3×300 + 2×16 — до 3 карти на ред */
+  margin: 6px auto 0; padding-top: 12px; border-top: 1px dashed var(--border-soft);
+}
+.op-page .mk-offer-showcase-card {
+  display: flex; flex-direction: column;
+  border: 1.5px solid var(--border-soft); border-radius: 14px;
+  overflow: hidden; background: var(--card-bg); box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+}
+.op-page .mk-offer-showcase-card:hover {
+  box-shadow: 0 12px 26px rgba(0,0,0,.10); transform: translateY(-2px); border-color: var(--green-border);
+}
+.op-page .mk-offer-showcase-img-wrap { position: relative; }
+.op-page .mk-offer-showcase-img { width: 100%; height: auto; display: block; background: var(--bg); }
+.op-page .mk-offer-showcase-featured {
+  position: absolute; top: 9px; left: 9px; z-index: 1;
+  background: #dc2626; color: #fff; font-size: 10px; font-weight: 800;
+  padding: 4px 10px; border-radius: 99px; letter-spacing: .02em;
+  box-shadow: 0 2px 8px rgba(220,38,38,.35);
+}
+.op-page .mk-offer-showcase-body {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 13px 15px 16px; text-align: center;
+}
+.op-page .mk-offer-showcase-label {
+  font-size: 11px; font-weight: 800; color: var(--green); text-transform: uppercase; letter-spacing: .05em;
+}
+.op-page .mk-offer-showcase-btn {
+  width: 100%; text-align: center; padding: 12px 16px; font-size: 13.5px; border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(20,83,45,.22);
+}
+.op-page .mk-offer-showcase-btn:hover { box-shadow: 0 5px 14px rgba(20,83,45,.3); }
+.op-page .mk-offer-showcase-btn:disabled:not(:hover) { background: #94a3b8; box-shadow: none; }
+.op-page .mk-offer-showcase-urgency {
+  font-size: 11px; font-weight: 700; color: #b45309; background: #fff7ed; border: 1px solid #fed7aa;
+  border-radius: 99px; padding: 4px 11px; white-space: nowrap;
+}
+
 @media (max-width: 640px) {
   .op-page .mk-offers--product { padding: 14px 14px; }
   .op-page .mk-offer-card { padding: 9px 10px; }
   .op-page .mk-offer-action { margin-left: 0; width: 100%; justify-content: space-between; }
+
+  /* Showcase карти на телефон: хоризонтален swipe carousel вместо трупане
+     една под друга — вижте homepage.css за пълния коментар на логиката. */
+  .op-page .mk-offer-showcase-grid {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x mandatory;
+    scroll-padding-left: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    gap: 12px; max-width: 100%; margin: 6px 0 0; padding: 12px 4px 6px;
+  }
+  .op-page .mk-offer-showcase-grid::-webkit-scrollbar { display: none; }
+  .op-page .mk-offer-showcase-grid > .mk-offer-showcase-card:only-child { margin: 0 auto; }
+  .op-page .mk-offer-showcase-card { flex: 0 0 82%; max-width: 300px; scroll-snap-align: start; }
+  .op-page .mk-offer-showcase-btn { padding: 13px 16px; font-size: 13.5px; }
   .op-page .mk-offer-btn { flex: 1; }
 }
 

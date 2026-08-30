@@ -908,14 +908,19 @@ a:hover .pk-card-title { color: #16a34a; }
      карти в бъдеще става безкраен списък) — вместо това хоризонтален swipe
      carousel: всяка карта остава четима на комфортна ширина, "надничащ" ръб
      на следващата подсказва, че може да се плъзга. Работи еднакво добре с
-     2, 3 или повече карти без нужда от промяна тук в бъдеще. */
+     2, 3 или повече карти без нужда от промяна тук в бъдеще.
+     ⚠️ scroll-snap-align:START (не center!) — с "center" първата карта не
+     може физически да се центрира (би трябвало браузърът да скролне в
+     отрицателна посока, което е невъзможно), затова увисваше в грозна
+     непълна позиция. С "start" + scroll-padding първата, средните и
+     последната карта всички засядат чисто на едно и също ляво отстояние. */
   .atlas-offers-wrap .mk-offer-showcase-grid {
     display:flex; flex-wrap:nowrap; overflow-x:auto; scroll-snap-type:x mandatory;
-    -webkit-overflow-scrolling:touch; scrollbar-width:none; gap:14px; max-width:100%;
-    margin:6px 0 0; padding:14px 4px 6px;
+    scroll-padding-left:4px; -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    gap:14px; max-width:100%; margin:6px 0 0; padding:14px 4px 6px;
   }
   .atlas-offers-wrap .mk-offer-showcase-grid > .mk-offer-showcase-card:only-child { margin:0 auto; }
   .atlas-offers-wrap .mk-offer-showcase-grid::-webkit-scrollbar { display:none; }
-  .atlas-offers-wrap .mk-offer-showcase-card { flex:0 0 84%; max-width:320px; scroll-snap-align:center; }
+  .atlas-offers-wrap .mk-offer-showcase-card { flex:0 0 84%; max-width:320px; scroll-snap-align:start; }
   .atlas-offers-wrap .mk-offer-showcase-btn { padding:14px 18px; font-size:15px; }
 }
