@@ -19,6 +19,9 @@ import { AffiliateSection, CategoryLinksSection } from '@/components/client/Affi
 import { SpecialSectionButton } from '@/components/client/SpecialSectionButton'
 import OffersShowcase from '@/components/marketing/OffersShowcase'
 import type { MarketingSettings } from '@/lib/offers'
+// ✅ Ново: последни 3 блог поста на homepage — виж секцията "БЛОГ" по-долу.
+import { categoryLabel, categoryEmoji, DEFAULT_BLOG_CATEGORIES } from '@/lib/blog'
+import type { BlogCategory } from '@/lib/blog'
 // ⚠️ ФИКС (наръчниците "изчезват"/половината липсват на мобилно):
 // HandbooksPanel вече е СТАТИЧЕН import, не dynamic(ssr:false). Причината
 // за проблема от скрийншотите: с ssr:false Next.js изобщо НЕ изпраща HTML
@@ -188,6 +191,20 @@ interface ClickCountRow {
   count: number
 }
 
+// ✅ Ново: минималният сет полета, нужен за 3-те карти в homepage блог секцията
+//    (не пълния BlogPost тип от /lib/blog — тук не рендваме съдържанието на поста).
+interface HomeBlogPost {
+  id: string
+  slug: string
+  title: string
+  excerpt?: string
+  cover_image_url?: string
+  cover_image_alt?: string
+  category?: string
+  published_at?: string
+  reading_time_minutes?: number
+}
+
 // ─── Defaults ──────────────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS: SiteSettings = {
   hero_title:          'Искаш едри, здрави и сочни домати?',
@@ -280,6 +297,12 @@ async function getPageData() {
       // след JS hydration. Премахва отделен мрежов round-trip, който правеше офертните
       // карти видимо най-бавния елемент на страницата (виж PageSpeed анализа).
       { data: marketingRow,        error: e13 },
+      // ✅ Последни 3 публикувани блог поста — за homepage teaser секцията.
+      //    Само нужните полета (не '*'), status='published' + active=true,
+      //    точно както прави app/blog/page.tsx.
+      { data: blogPostsRows,       error: e14 },
+      // ✅ Живите категории (за emoji/label в тийзъра, вместо hardcoded fallback)
+      { data: blogCategoriesRows,  error: e15 },
     ] = await Promise.all([
       db.from('settings').select('key,value'),
       db.from('products').select('*').eq('active', true).order('sort_order'),
@@ -294,9 +317,16 @@ async function getPageData() {
       db.from('faq_categories').select('*').order('sort_order'),
       db.rpc('get_top_affiliate_clicks', { limit_count: 20 }).select('*'),
       db.from('marketing_settings').select('config').eq('id', 1).maybeSingle(),
+      db.from('blog_posts')
+        .select('id,slug,title,excerpt,cover_image_url,cover_image_alt,category,published_at,reading_time_minutes')
+        .eq('active', true)
+        .eq('status', 'published')
+        .order('published_at', { ascending: false })
+        .limit(3),
+      db.from('blog_categories').select('*').eq('active', true).order('sort_order', { ascending: true }),
     ])
 
-    const errors = [e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11,e12,e13]
+    const errors = [e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,e11,e12,e13,e14,e15]
     errors.forEach((e, i) => {
       if (e) console.error(`[getPageData] query ${i + 1} error:`, e.message)
     })
@@ -566,9 +596,24 @@ async function getPageData() {
       display_style: (b.display_style as 'bar' | 'featured') || undefined,
     }))
 
+    // ── Blog posts (последни 3, за homepage teaser) ────────────────────────────
+    const latestBlogPosts: HomeBlogPost[] = (blogPostsRows || []).map((p: Record<string, unknown>) => ({
+      id:                    String(p.id || p.slug),
+      slug:                  String(p.slug || ''),
+      title:                 String(p.title || ''),
+      excerpt:               p.excerpt ? String(p.excerpt) : undefined,
+      cover_image_url:       p.cover_image_url ? String(p.cover_image_url) : undefined,
+      cover_image_alt:       p.cover_image_alt ? String(p.cover_image_alt) : undefined,
+      category:              p.category ? String(p.category) : undefined,
+      published_at:          p.published_at ? String(p.published_at) : undefined,
+      reading_time_minutes:  p.reading_time_minutes ? Number(p.reading_time_minutes) : undefined,
+    }))
+
+    const blogCategories: BlogCategory[] = (blogCategoriesRows && blogCategoriesRows.length > 0) ? blogCategoriesRows : DEFAULT_BLOG_CATEGORIES
+
     return {
       settings, atlasProducts, affiliateProducts, top6AffiliateProducts,
-      categoryLinks, promoBanners, marketingSettings,
+      categoryLinks, promoBanners, marketingSettings, latestBlogPosts, blogCategories,
       testimonials: (testimonialRows || []).map((t: Record<string, unknown>) => ({
         id:          String(t.id || ''),
         name:        String(t.name        || ''),
@@ -596,6 +641,8 @@ async function getPageData() {
         post_purchase_delay: 0, offers: [],
       } as MarketingSettings,
       testimonials:          [],
+      latestBlogPosts:       [],
+      blogCategories:        DEFAULT_BLOG_CATEGORIES,
       faq:                   [],
       faqCategories:         DEFAULT_FAQ_CATEGORIES,
       handbooks:             DEFAULT_HANDBOOKS,
@@ -695,6 +742,7 @@ export default async function HomePage() {
   const {
     settings, atlasProducts, affiliateProducts, top6AffiliateProducts,
     categoryLinks, promoBanners, marketingSettings, testimonials, faq, faqCategories, handbooks, specialSections,
+    latestBlogPosts, blogCategories,
   } = await getPageData()
 
   const trustItems  = safeJson<{ icon: string; text: string; sub?: string }[]>(settings.trust_strip_items, [])
@@ -1341,7 +1389,13 @@ export default async function HomePage() {
                       // вариант отколкото реалния render на мобилно.
                       sizes="(max-width: 768px) 45vw, 260px"
                       quality={70}
-                      style={{ width: '100%', maxWidth: 260, height: 'auto', borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1, display: 'block', objectFit: 'contain' }}
+                      // ✅ ФИКС "has either width or height modified, but not the
+                      // other": width беше '100%' (не буквално 'auto'), докато
+                      // height беше 'auto' — Next/Image гледа дали ДВЕТЕ страни
+                      // казват точно 'auto', не просто "изглеждат responsive".
+                      // maxWidth:260 продължава да ограничава реалния render,
+                      // визуалният резултат е идентичен.
+                      style={{ width: 'auto', maxWidth:  '100%', height: 'auto', borderRadius: 18, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', position: 'relative', zIndex: 1, display: 'block', objectFit: 'contain' }}
                     />
                   )}
                   {sec.logo_url && sec.logo_url.startsWith('http') && (
@@ -1436,6 +1490,66 @@ export default async function HomePage() {
                   </FadeIn>
                 )
               })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ══ БЛОГ (последни 3 поста) ═══════════════════════════════════════════
+          ✅ Условен рендър: докато няма публикувани постове, latestBlogPosts
+          е [] и цялата секция връща null — homepage не показва празно място
+          или "очаквайте скоро", просто мълчи, докато не публикуваш първия пост.
+          Under-the-fold → снимките са lazy (без priority), стиловете отиват
+          в homepage-deferred.css (некритични, не пипат LCP на hero-то). */}
+      {latestBlogPosts.length > 0 && (
+        <section id="blog-teaser" className="home-blog-section">
+          <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+            <FadeIn>
+              <div className="section-head">
+                <span className="s-tag" style={{ color: '#059669' }}>От блога</span>
+                <h2 className="s-title" style={{ color: '#111827' }}>Последни статии</h2>
+                <p className="s-desc" style={{ color: '#6b7280' }}>
+                  Практични съвети за домати, краставици и торене — от реални оранжерии
+                </p>
+              </div>
+            </FadeIn>
+
+            <div className="home-blog-grid">
+              {latestBlogPosts.map((post, i) => (
+                <FadeIn key={post.id} delay={i * 70}>
+                  <a href={`/blog/${post.slug}`} className="home-blog-card">
+                    <div className="home-blog-card-img-wrap">
+                      {post.cover_image_url && (
+                        <SafeImg
+                          src={post.cover_image_url}
+                          alt={post.cover_image_alt || post.title}
+                          width={640}
+                          height={400}
+                          sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      )}
+                      {post.category && (
+                        <span className="home-blog-card-cat">{categoryEmoji(post.category, blogCategories)} {categoryLabel(post.category, blogCategories)}</span>
+                      )}
+                    </div>
+                    <div className="home-blog-card-body">
+                      <h3 className="home-blog-card-title">{post.title}</h3>
+                      {post.excerpt && <p className="home-blog-card-excerpt">{post.excerpt}</p>}
+                      <div className="home-blog-card-meta">
+                        {post.published_at && (
+                          <span>{new Date(post.published_at).toLocaleDateString('bg-BG', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                        )}
+                        {post.reading_time_minutes && <span>· {post.reading_time_minutes} мин четене</span>}
+                      </div>
+                    </div>
+                  </a>
+                </FadeIn>
+              ))}
+            </div>
+
+            <div style={{ textAlign: 'center', marginTop: 28 }}>
+              <a href="/blog" className="home-blog-all-link">Всички статии →</a>
             </div>
           </div>
         </section>

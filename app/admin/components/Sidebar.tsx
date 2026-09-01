@@ -1,14 +1,19 @@
 'use client'
-// app/admin/components/Sidebar.tsx — с добавен 📣 Маркетинг таб
+// app/admin/components/Sidebar.tsx — с добавени 📣 Маркетинг и 📝 Блог табове
 
 import { NAV_ITEMS, type TabId } from '@/lib/constants'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Забележка: Добави 'marketing' към NAV_ITEMS в lib/constants.ts:
+// Забележка: Добави 'marketing' и 'blog' към NAV_ITEMS в lib/constants.ts:
 //
 //   { id: 'marketing', label: 'Маркетинг', icon: '📣' },
+//   { id: 'blog',       label: 'Блог',      icon: '📝' },
 //
-// И добави 'marketing' към type TabId в същия файл.
+// И добави 'marketing' | 'blog' към type TabId в същия файл.
+// В app/admin/page.tsx, където превключваш активния таб (аналогично на
+// {tab === 'content' && <ContentTab />}), добави:
+//   {tab === 'blog' && <BlogTab />}
+// (import { BlogTab } from './components/BlogTab')
 // ──────────────────────────────────────────────────────────────────────────────
 
 interface Props {

@@ -1,6 +1,7 @@
 'use client'
-// components/layout/SiteHeader.tsx — v2
-// ПОПРАВКА: suppressHydrationWarning на <style> + isClient guard за scrolled state
+// components/layout/SiteHeader.tsx — v3
+// ✅ v3: добавен линк "Блог" в desktop и мобилното меню (/blog)
+// v2: ПОПРАВКА: suppressHydrationWarning на <style> + isClient guard за scrolled state
 // Причина: useState(false) на сървъра vs. реалната scroll позиция на клиента → hydration mismatch
 
 import { useState, useEffect } from 'react'
@@ -95,6 +96,7 @@ export default function SiteHeader({ variant = 'light' }: Props) {
             ['/#produkti',     'Продукти'],
             ['/#atlas',        'Atlas Terra'],
             ['/#ginegar',      'Ginegar'],
+            ['/blog',          'Блог'],
             ['/#testimonials', 'Отзиви'],
             ['/#faq',          'Въпроси'],
           ].map(([href, label]) => (
@@ -150,6 +152,7 @@ export default function SiteHeader({ variant = 'light' }: Props) {
             ['/#produkti',     'Продукти'],
             ['/#atlas',        'Atlas Terra'],
             ['/#ginegar',      'Ginegar'],
+            ['/blog',          'Блог'],
             ['/#testimonials', 'Отзиви'],
             ['/#faq',          'Въпроси'],
           ].map(([href, label]) => (

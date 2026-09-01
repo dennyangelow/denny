@@ -1193,7 +1193,11 @@ function ProductCard({ product, onAddToCart, fmt, fmtLiter }: {
               // реален размер, quality={70} маха допълнителен waste.
               sizes="160px"
               quality={70}
-              style={{ maxHeight: 160, maxWidth: '100%', height: 'auto', objectFit: 'contain', filter: isOutOfStock ? 'grayscale(35%)' : 'none', transition: 'filter .2s' }}
+              // ✅ ФИКС "has either width or height modified, but not the other":
+              // height:'auto' беше зададено в style, но width — не (maxWidth:'100%'
+              // не се брои за същото). Next/Image изисква и двете да са 'auto'
+              // заедно, за да пресметне правилно пропорцията. width:'auto' добавен.
+              style={{ maxHeight: 160, maxWidth: '100%', width: 'auto', height: 'auto', objectFit: 'contain', filter: isOutOfStock ? 'grayscale(35%)' : 'none', transition: 'filter .2s' }}
             />
           : <span style={{ fontSize: 72, filter: isOutOfStock ? 'grayscale(50%)' : 'none' }}>{product.emoji}</span>
         }

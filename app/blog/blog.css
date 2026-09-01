@@ -1,0 +1,153 @@
+/* app/blog/blog.css — v1
+ * ⚠️ LCP елементът на всеки блог маршрут е различен от produkt/homepage:
+ *   - /blog (списък)      → корицата на първата (featured) карта
+ *   - /blog/[slug] (пост)  → корицата на поста (.bp-cover img)
+ *   И на двете места ползвай <Image priority> на точно този елемент,
+ *   никога lazy loading там (виж коментарите в CriticalStyles.tsx/
+ *   AffiliateProduktClient.tsx за същия проблем, вече решен другаде в сайта).
+ */
+
+.blog-page * { box-sizing: border-box; }
+
+.blog-page {
+  font-family: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #fafaf8;
+  min-height: 100vh;
+  color: #1a1a1a;
+}
+
+/* ── Header на секцията (списък + пост) ─────────────────────────────────── */
+.blog-hero {
+  background: linear-gradient(160deg,#f0fdf4 0%,#dcfce7 35%,#f0fdf8 65%,#ecfdf5 100%);
+  border-bottom: 1px solid #bbf7d0;
+  padding: 40px 24px 32px;
+}
+.blog-hero-inner { max-width: 1100px; margin: 0 auto; }
+.blog-hero-title {
+  font-family: var(--font-cormorant), serif;
+  font-size: clamp(28px, 3.4vw, 44px);
+  color: #14532d;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+}
+.blog-hero-sub { font-size: 15px; color: #4b5563; max-width: 560px; line-height: 1.6; margin: 0; }
+
+.blog-breadcrumb {
+  font-size: 12px; color: #6b7280; display: flex; align-items: center; gap: 6px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.blog-breadcrumb a { color: #6b7280; text-decoration: none; }
+.blog-breadcrumb a:hover { color: #16a34a; }
+.blog-breadcrumb span { opacity: 0.5; }
+
+/* ── Категория филтри ───────────────────────────────────────────────────── */
+.blog-cat-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.blog-cat-chip {
+  font-size: 12.5px; font-weight: 700; color: #166534; background: #fff;
+  border: 1.5px solid #bbf7d0; padding: 6px 14px; border-radius: 22px;
+  text-decoration: none; transition: all .15s; display: inline-flex; align-items: center; gap: 5px;
+}
+.blog-cat-chip:hover, .blog-cat-chip--active { background: #16a34a; color: #fff; border-color: #16a34a; }
+
+/* ── Списък: карти грид ─────────────────────────────────────────────────── */
+.blog-list-wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 60px; }
+.blog-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+@media (max-width: 900px) { .blog-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; } }
+@media (max-width: 600px) { .blog-grid { grid-template-columns: 1fr; } }
+
+.blog-card {
+  display: flex; flex-direction: column; background: #fff; border: 1px solid #e5e7eb;
+  border-radius: 16px; overflow: hidden; text-decoration: none; color: inherit;
+  transition: transform .15s, box-shadow .15s;
+}
+.blog-card:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(0,0,0,0.08); }
+.blog-card-img-wrap { position: relative; width: 100%; aspect-ratio: 16/10; background: #f0fdf4; overflow: hidden; }
+.blog-card-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+.blog-card-cat {
+  position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.92);
+  color: #166534; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 99px;
+}
+.blog-card-body { padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.blog-card-title { font-size: 16px; font-weight: 700; color: #14532d; line-height: 1.35; margin: 0; }
+.blog-card-excerpt { font-size: 13px; color: #6b7280; line-height: 1.6; margin: 0; flex: 1; }
+.blog-card-meta { font-size: 11.5px; color: #9ca3af; display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+
+.blog-empty { text-align: center; padding: 60px 20px; color: #9ca3af; }
+
+.blog-pagination { display: flex; justify-content: center; gap: 8px; margin-top: 36px; }
+.blog-pagination a, .blog-pagination span {
+  padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; text-decoration: none;
+  border: 1.5px solid #e5e7eb; color: #374151;
+}
+.blog-pagination a:hover { border-color: #16a34a; color: #16a34a; }
+.blog-pagination .active { background: #16a34a; border-color: #16a34a; color: #fff; }
+
+/* ── Единичен пост ───────────────────────────────────────────────────────── */
+.bp-wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 60px; }
+.bp-cover { width: 100%; border-radius: 16px; overflow: hidden; margin-bottom: 24px; aspect-ratio: 16/9; background: #f0fdf4; }
+.bp-cover img { width: 100%; height: 100%; object-fit: cover; }
+
+.bp-title { font-family: var(--font-cormorant), serif; font-size: clamp(26px, 4vw, 40px); color: #14532d; font-weight: 700; line-height: 1.15; margin: 0 0 12px; }
+.bp-meta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 13px; color: #6b7280; margin-bottom: 24px; }
+.bp-meta-item { display: flex; align-items: center; gap: 5px; }
+
+.bp-disclosure {
+  display: flex; align-items: flex-start; gap: 10px; background: #fffbeb; border: 1.5px solid #fde68a;
+  border-left: 4px solid #f59e0b; border-radius: 12px; padding: 12px 16px; margin-bottom: 28px;
+  font-size: 13px; color: #92400e; line-height: 1.6;
+}
+
+.bp-content { font-size: 16px; line-height: 1.85; color: #1f2937; }
+.bp-content p { margin: 0 0 18px; }
+.bp-content h2 { font-family: var(--font-cormorant), serif; font-size: 26px; color: #14532d; font-weight: 700; margin: 32px 0 14px; line-height: 1.3; }
+.bp-content h3 { font-size: 19px; color: #1f2937; font-weight: 700; margin: 24px 0 10px; }
+.bp-content ul, .bp-content ol { margin: 0 0 18px; padding-left: 22px; }
+.bp-content li { margin-bottom: 8px; line-height: 1.7; }
+.bp-content figure { margin: 24px 0; }
+.bp-content figure img { width: 100%; border-radius: 12px; }
+.bp-content figcaption { font-size: 12.5px; color: #9ca3af; text-align: center; margin-top: 8px; }
+.bp-content blockquote {
+  margin: 24px 0; padding: 16px 20px; background: #f0fdf4; border-left: 4px solid #16a34a;
+  border-radius: 0 12px 12px 0; font-style: italic; color: #14532d; font-size: 16px; line-height: 1.7;
+}
+.bp-content blockquote cite { display: block; margin-top: 8px; font-size: 13px; font-style: normal; color: #16a34a; font-weight: 700; }
+
+/* ── Product embed карта в поста ────────────────────────────────────────── */
+.bp-product-embed { margin: 28px 0; border: 1.5px solid #bbf7d0; background: linear-gradient(135deg,#f0fdf4,#fff); border-radius: 16px; padding: 18px; display: flex; gap: 16px; align-items: center; }
+.bp-product-embed-note { font-size: 12px; color: #16a34a; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.bp-product-embed-img { width: 76px; height: 76px; border-radius: 12px; object-fit: contain; background: #fff; border: 1px solid #e5e7eb; flex-shrink: 0; }
+.bp-product-embed-title { font-size: 15px; font-weight: 700; color: #14532d; margin: 0 0 4px; }
+.bp-product-embed-desc { font-size: 12.5px; color: #6b7280; margin: 0 0 10px; }
+.bp-product-embed-btn { display: inline-flex; align-items: center; gap: 6px; background: #16a34a; color: #fff; padding: 8px 16px; border-radius: 9px; font-size: 13px; font-weight: 700; text-decoration: none; }
+@media (max-width: 480px) { .bp-product-embed { flex-direction: column; align-items: flex-start; } }
+
+/* ── FAQ в поста ─────────────────────────────────────────────────────────── */
+.bp-faq { margin: 28px 0; }
+.bp-faq-item { border-bottom: 1px solid #f1f5f9; }
+.bp-faq-item:last-child { border-bottom: none; }
+.bp-faq-q {
+  display: flex; justify-content: space-between; align-items: center; padding: 14px 0; cursor: pointer;
+  font-size: 15px; font-weight: 700; color: #1e293b; gap: 12px;
+  /* ✅ вече е <button>, не <div onClick> — reset на native бутонния стил */
+  width: 100%; background: none; border: none; font-family: inherit; text-align: left;
+}
+.bp-faq-icon { font-size: 22px; font-weight: 300; color: #94a3b8; flex-shrink: 0; line-height: 1; transition: transform .2s ease; }
+.bp-faq-icon.open { transform: rotate(45deg); color: #16a34a; }
+.bp-faq-a { font-size: 14px; color: #4b5563; line-height: 1.8; margin: 0 0 16px; padding: 10px 14px; background: #f8fafc; border-radius: 9px; border-left: 3px solid #16a34a; }
+
+/* ── Related posts / продукти ───────────────────────────────────────────── */
+.bp-related { margin-top: 48px; padding-top: 32px; border-top: 1px solid #e5e7eb; }
+.bp-related-title { font-size: 11px; font-weight: 800; color: #9ca3af; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 16px; }
+
+/* ── Sharing ─────────────────────────────────────────────────────────────── */
+.bp-share { display: flex; gap: 8px; margin: 28px 0; }
+.bp-share a {
+  width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+  background: #f0fdf4; border: 1px solid #bbf7d0; color: #16a34a; text-decoration: none; font-size: 14px; font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .bp-title { font-size: 26px; }
+  .bp-content { font-size: 15px; }
+}

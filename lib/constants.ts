@@ -34,6 +34,7 @@ export const NAV_ITEMS = [
   { id: 'orders',       icon: '◫',  label: 'Поръчки'      },
   { id: 'leads',        icon: '◉',  label: 'Email листа'  },
   { id: 'content',      icon: '✦',  label: 'Продукти'     },
+  { id: 'blog',         icon: '📝', label: 'Блог'         },
   { id: 'marketing',    icon: '📣', label: 'Маркетинг'    },
   { id: 'faq',          icon: '❓', label: 'FAQ'           },
   { id: 'testimonials', icon: '★',  label: 'Отзиви'       },

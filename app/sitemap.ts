@@ -43,12 +43,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly',
       priority:         0.85,
     },
+    {
+      url:             `${BASE_URL}/blog`,
+      lastModified:    new Date(),
+      changeFrequency: 'daily',
+      priority:         0.8,
+    },
     // ✅ ПРЕМАХНАТО: /naruchnici (редиректва към /#naruchnici — Google не го индексира)
     // Ако създадеш реална /naruchnici страница, добави тук обратно
   ]
 
   // ── 2. Паралелни заявки ───────────────────────────────────────────────────
-  const [naruchnikResult, affiliateResult, ownProductsResult] = await Promise.allSettled([
+  const [naruchnikResult, affiliateResult, ownProductsResult, blogResult] = await Promise.allSettled([
     supabaseAdmin
       .from('naruchnici')
       .select('slug, updated_at, cover_image_url, title')
@@ -64,6 +70,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .select('slug, updated_at, image_url, name')
       .eq('active', true)
       .order('sort_order'),
+    supabaseAdmin
+      .from('blog_posts')
+      .select('slug, updated_at, published_at, cover_image_url, cover_image_alt, title')
+      .eq('active', true)
+      .eq('status', 'published')
+      .order('published_at', { ascending: false }),
   ])
 
   // ── 3. Наръчници — priority 0.88, с images ───────────────────────────────
@@ -138,10 +150,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         : ownProductsResult.value?.error)
   }
 
+  // ── 6. Блог постове — priority 0.75, между produkti и own products ───────
+  let blogPages: MetadataRoute.Sitemap = []
+  if (blogResult.status === 'fulfilled' && blogResult.value.data) {
+    blogPages = blogResult.value.data.map((p: SlugRow) => ({
+      url:             `${BASE_URL}/blog/${p.slug}`,
+      lastModified:    safeDate(p.updated_at),
+      changeFrequency: 'weekly' as const,
+      priority:         0.75,
+      ...(p.cover_image_url ? {
+        images: [{ url: p.cover_image_url, title: p.image_alt || p.title || p.slug }]
+      } : {}),
+    }))
+  } else {
+    console.error('[sitemap] Грешка блог постове:',
+      blogResult.status === 'rejected'
+        ? blogResult.reason
+        : blogResult.value?.error)
+  }
+
   return [
     ...staticPages,
     ...ownProductPages,
     ...naruchnikPages,
+    ...blogPages,
     ...affiliatePages,
   ]
 } 

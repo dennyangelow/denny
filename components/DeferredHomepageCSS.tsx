@@ -1,25 +1,18 @@
-// components/DeferredHomepageCSS.tsx — SERVER COMPONENT
-// Зарежда homepage-deferred.css (всичко под сгъва: trust strip, категории,
-// продуктови карти, Atlas Terra, Ginegar, отзиви, FAQ, footer, cart drawer,
-// naruchnik стилове и т.н. — реда 277–1197 от старото homepage.css)
-// АСИНХРОННО, без да блокира първия рендър на страницата.
-//
-// Техника (media swap): <link media="print"> кара браузъра да НЕ
-// render-block-ва first paint заради този стил (защото не е "screen"
-// media), но пак го тегли на заден план. `onload="this.media='all'"`
-// превключва media обратно към 'all' веднага щом файлът пристигне, и
-// стиловете се прилагат — обикновено доста преди потребителят да е
-// скролнал до тези секции. <noscript> е fallback за хора без JS.
-//
-// Рендерирано през dangerouslySetInnerHTML нарочно: React-ovият onLoad
-// prop очаква JS функция (за synthetic events), а тук ни трябва истинският
-// HTML атрибут onload="…", затова тагът се инжектира като суров HTML.
-// display:'contents' на обвивката гарантира, че тя самата не влияе на
-// layout-а (не added никакъв кутия в DOM flow-а).
+// components/DeferredHomepageCSS.tsx — v2
+// ✅ ПОПРАВКА спрямо v1: добавен suppressHydrationWarning на обвиващия div.
+//    Ако /css/homepage-deferred.css се зареди много бързо (кеш, бърза мрежа),
+//    onload="this.media='all'" може да смени media атрибута ПРЕДИ React да
+//    завърши hydration-а. Тогава React сравнява server HTML-а (media="print")
+//    с реалния DOM (media="all", вече сменен от браузъра) → "Prop
+//    dangerouslySetInnerHTML did not match". Функционално нищо не е счупено
+//    (CSS-ът се прилага правилно и в двата случая) — това само маха шумното
+//    предупреждение в конзолата. Същият патърн вече се ползва в
+//    SiteHeader.tsx/SiteFooter.tsx за идентични hydration edge cases.
 export function DeferredHomepageCSS() {
   return (
     <>
       <div
+        suppressHydrationWarning
         style={{ display: 'contents' }}
         dangerouslySetInnerHTML={{
           __html:

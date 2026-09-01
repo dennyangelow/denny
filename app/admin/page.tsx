@@ -8,6 +8,7 @@ import { DashboardTab }       from './components/DashboardTab'
 import { OrdersTab }          from './components/OrdersTab'
 import { LeadsTab }           from './components/LeadsTab'
 import { ContentTab }         from './components/ContentTab'
+import { BlogTab }            from './components/BlogTab'
 import { AnalyticsTab }       from './components/AnalyticsTab'
 import { SettingsTab }        from './components/SettingsTab'
 import { FaqTab }             from './components/FaqTab'
@@ -169,6 +170,7 @@ export default function AdminPage() {
 
           {tab === 'leads'        && <LeadsTab leads={leads} />}
           {tab === 'content'      && <ContentTab />}
+          {tab === 'blog'         && <BlogTab />}
           {tab === 'marketing'    && <MarketingTab />}
           {tab === 'faq'          && <FaqTab />}
           {tab === 'testimonials' && <TestimonialsTab />}

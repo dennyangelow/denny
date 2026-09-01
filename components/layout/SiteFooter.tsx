@@ -1,5 +1,8 @@
 'use client'
-// components/layout/SiteFooter.tsx — v3
+// components/layout/SiteFooter.tsx — v4
+// ✅ ПОПРАВКИ спрямо v3:
+//   - Нова колона "Блог" с последните 4 поста от /api/blog?limit=4
+//   - Грид разширен на 5 колони (1.3fr + 4×1fr) за да побере новата колона
 // ✅ ПОПРАВКА спрямо v2:
 //   - Наръчниците вече се теглят динамично от /api/naruchnici вместо твърдо
 //     закодирани линкове — старата версия сочеше към грешен slug
@@ -23,8 +26,11 @@ function emojiFor(category?: string): string {
   return (category && CATEGORY_EMOJI[category]) || '📗'
 }
 
+interface BlogLink { slug: string; title: string }
+
 export default function SiteFooter() {
   const [naruchnici, setNaruchnici] = useState<NaruchnikLink[]>([])
+  const [blogPosts,  setBlogPosts]  = useState<BlogLink[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -39,6 +45,21 @@ export default function SiteFooter() {
     return () => { cancelled = true }
   }, [])
 
+  // ✅ Последните 4 блог поста — прясно съдържание във футъра на всяка страница,
+  //    вътрешни линкове към /blog/[slug] от целия сайт.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/blog?limit=4')
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled) return
+        const list = Array.isArray(data?.posts) ? data.posts : []
+        setBlogPosts(list.map((p: any) => ({ slug: p.slug, title: p.title })))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <footer suppressHydrationWarning style={{
       background: 'linear-gradient(180deg, #0a1f12 0%, #051a0d 100%)',
@@ -50,9 +71,10 @@ export default function SiteFooter() {
         .sf-inner { max-width: 1060px; margin: 0 auto; }
         .sf-grid {
           display: grid;
-          grid-template-columns: 1.4fr repeat(3, 1fr);
-          gap: 36px; margin-bottom: 40px;
+          grid-template-columns: 1.3fr repeat(4, 1fr);
+          gap: 30px; margin-bottom: 40px;
         }
+        @media (max-width: 1000px) { .sf-grid { grid-template-columns: 1fr 1fr 1fr; gap: 26px; } }
         @media (max-width: 820px) { .sf-grid { grid-template-columns: 1fr 1fr; gap: 28px; } }
         @media (max-width: 480px) { .sf-grid { grid-template-columns: 1fr; } }
         .sf-col-title {
@@ -115,6 +137,22 @@ export default function SiteFooter() {
             <a href="/#produkti" className="sf-link">Atlas Terra продукти</a>
             <a href="/#ginegar" className="sf-link">Ginegar найлони</a>
             <a href="/#faq" className="sf-link">Въпроси и отговори</a>
+          </div>
+
+          <div>
+            <div className="sf-col-title">Блог</div>
+            {/* ✅ Последните 4 поста — прясно съдържание + вътрешни линкове от футъра на всяка страница */}
+            {blogPosts.length === 0 && (
+              <a href="/blog" className="sf-link">Виж всички статии →</a>
+            )}
+            {blogPosts.map(p => (
+              <a key={p.slug} href={`/blog/${p.slug}`} className="sf-link">
+                📝 {p.title}
+              </a>
+            ))}
+            {blogPosts.length > 0 && (
+              <a href="/blog" className="sf-link" style={{ color: '#86efac', fontWeight: 700 }}>Виж всички →</a>
+            )}
           </div>
 
           <div>

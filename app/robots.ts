@@ -1,5 +1,7 @@
-// app/robots.ts — v5
-// ✅ ПОПРАВКИ:
+// app/robots.ts — v6
+// ✅ ПОПРАВКИ спрямо v5:
+//   - Добавен /blog/ в allow за '*' и Googlebot — новата блог секция
+// ✅ ПОПРАВКИ v5 (запазени):
 //   - Googlebot: добавен '/*?' в disallow (критично! без него индексира /produkti?q=xxx)
 //   - Добавен /products/ в allow за Googlebot
 //   - Добавени AI ботове: GPTBot, Claude-Web, PerplexityBot, anthropic-ai (за AI visibility)
@@ -14,12 +16,12 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/'],
+        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/', '/blog/'],
         disallow: ['/admin', '/admin/', '/api/', '/unsubscribe', '/*?'],
       },
       {
         userAgent: 'Googlebot',
-        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/'],
+        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/', '/blog/'],
         disallow: ['/admin/', '/api/', '/*?'], // ✅ КРИТИЧНА ПОПРАВКА
       },
       {

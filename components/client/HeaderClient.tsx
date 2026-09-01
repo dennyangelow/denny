@@ -51,6 +51,7 @@ export function HeaderClient({ shippingPrice, freeShippingAbove }: Props) {
           <a href="/#ginegar"      className="nav-link">Ginegar</a>
           <a href="/#testimonials" className="nav-link">Отзиви</a>
           <a href="/#faq"          className="nav-link">Въпроси</a>
+          <a href="/blog"          className="nav-link">Блог</a>
         </nav>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -79,6 +80,7 @@ export function HeaderClient({ shippingPrice, freeShippingAbove }: Props) {
             ['/#atlas',       'Atlas Terra'],
             ['/#testimonials','Отзиви'],
             ['/#faq',         'Въпроси'],
+            ['/blog',         '📝 Блог'],
           ] as [string, string][]).map(([h, l]) => (
             <a
               key={h}
