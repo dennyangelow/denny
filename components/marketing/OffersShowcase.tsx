@@ -384,19 +384,18 @@ function OfferPromoCard({
                   {card.image_url && (
                     <div className="mk-offer-showcase-img-wrap">
                       {/* ✅ ФИКС: суров <img> → SafeImg (next/image). Реалният файл е
-                          511×558px, показван на максимум 320px CSS ширина — суровият
-                          <img> сваляше пълния оригинал (2× повече пиксели от нужното)
-                          без WebP/AVIF компресия и без width/height (CLS риск).
-                          320×350 запазва пропорцията на оригинала (511:558 ≈ 320:350)
-                          и служи като hint за Next.js Image Optimizer кой srcset да
-                          генерира; sizes отразява реалния CSS layout (грид карта до
-                          320px, на мобилен carousel до 84vw). */}
+                          511×558px. Точният рендиран размер на картата е 318×347px
+                          (320px grid slot минус border-а на .mk-offer-showcase-card:
+                          1.5px от всяка страна = 320 - 3 ≈ 318 широчина, пропорцията
+                          518:558 запазена → 347 височина) — потвърдено директно от
+                          PageSpeed "displayed dimensions". sizes отразява реалния CSS
+                          layout (грид карта до 320px, на мобилен carousel до 84vw). */}
                       <SafeImg
                         src={card.image_url}
                         alt={card.label || offer.title}
                         className="mk-offer-showcase-img"
-                        width={320}
-                        height={350}
+                        width={318}
+                        height={347}
                         sizes="(max-width: 640px) 84vw, 320px"
                         quality={75}
                       />
