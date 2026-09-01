@@ -182,7 +182,7 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#f0fdf4', border: `1.5px solid ${hb.color}44`, borderRadius: 14, padding: '10px 12px', marginBottom: 16 }}>
                 <div style={{ width: 50, height: 68, flexShrink: 0, borderRadius: 10, overflow: 'hidden', background: `${hb.color}18`, boxShadow: `0 4px 16px ${hb.color}33` }}>
                   {hb.image_url
-                    ? <Image src={hb.image_url} alt="" width={50} height={68} sizes="50px" quality={65} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: 10 }} />
+                    ? <Image src={hb.image_url} alt="" width={50} height={68} sizes="50px" quality={45} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: 10 }} />
                     : <span style={{ fontSize: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>{hb.emoji}</span>
                   }
                 </div>
@@ -350,10 +350,12 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                     // imageSizes (256px) за реален displayed размер ~144-164px
                     // на мобилно (DPR emulation). sizes="82px" казва точния
                     // CSS размер → Next пресмята правилния bucket (виж и
-                    // next.config.js, добавен е 164px bucket). quality={65}
-                    // маха допълнителни ~9 KiB — детайлът не се вижда на 82px.
+                    // next.config.js, добавен е 164px bucket). quality={50}
+                    // (понижено от 65) маха и последните ~4.6 KiB — на 82px
+                    // реален displayed размер компресионната разлика между
+                    // 50 и 65 е практически невидима за корица на наръчник.
                     sizes="82px"
-                    quality={65}
+                    quality={50}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     onError={(e) => {
                       e.currentTarget.style.display = 'none'
