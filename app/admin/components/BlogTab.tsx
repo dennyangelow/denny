@@ -113,7 +113,7 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
           )}
 
           {block.type === 'heading' && (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, minWidth: 0 }}>
               <select value={block.level} onChange={e => update(idx, { ...block, level: Number(e.target.value) as 2 | 3 })}
                 style={{ ...inp, width: 90, flexShrink: 0 }}>
                 <option value={2}>H2</option>
@@ -121,7 +121,7 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
               </select>
               <input value={block.text} placeholder="Текст на заглавието"
                 onChange={e => update(idx, { ...block, text: e.target.value })}
-                style={inp} onFocus={focusGreen} onBlur={blurGray} />
+                style={{ ...inp, minWidth: 0, flex: 1 }} onFocus={focusGreen} onBlur={blurGray} />
             </div>
           )}
 
@@ -165,7 +165,7 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
 
           {block.type === 'product_embed' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
                 <select value={block.product_type}
                   onChange={e => update(idx, { ...block, product_type: e.target.value as 'affiliate' | 'own' })}
                   style={{ ...inp, width: 140, flexShrink: 0 }}>
@@ -174,7 +174,7 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
                 </select>
                 <input value={block.slug} placeholder="slug на продукта (напр. atlas-terra)"
                   onChange={e => update(idx, { ...block, slug: e.target.value })}
-                  style={{ ...inp, fontFamily: 'monospace' }} onFocus={focusGreen} onBlur={blurGray} />
+                  style={{ ...inp, fontFamily: 'monospace', minWidth: 0, flex: 1 }} onFocus={focusGreen} onBlur={blurGray} />
               </div>
               <input value={block.note || ''} placeholder="Кратък текст над картата (по избор)"
                 onChange={e => update(idx, { ...block, note: e.target.value })}
@@ -219,9 +219,9 @@ function FaqBlockEditor({ items, onChange }: { items: { q: string; a: string }[]
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {items.map((it, i) => (
         <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8, background: '#fff', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, minWidth: 0 }}>
             <input value={it.q} placeholder="Въпрос" onChange={e => update(i, 'q', e.target.value)}
-              style={{ ...inp, fontSize: 13 }} onFocus={focusGreen} onBlur={blurGray} />
+              style={{ ...inp, fontSize: 13, minWidth: 0, flex: 1 }} onFocus={focusGreen} onBlur={blurGray} />
             <button type="button" onClick={() => remove(i)} style={{ ...miniBtn, background: '#fee2e2', color: '#991b1b', flexShrink: 0 }}>✕</button>
           </div>
           <textarea rows={2} value={it.a} placeholder="Отговор" onChange={e => update(i, 'a', e.target.value)}
@@ -317,7 +317,7 @@ export function BlogTab() {
   }
 
   return (
-    <div style={{ padding: '16px 14px' }}>
+    <div style={{ padding: '16px 14px', boxSizing: 'border-box', maxWidth: '100%' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}
         @media(max-width:768px){.blog-edit-panel{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;max-height:100vh!important;border-radius:0!important;z-index:200;overflow-y:auto}}
         /* ✅ ФИКС: grid-template-columns преди беше inline style с фиксирано
@@ -345,8 +345,14 @@ export function BlogTab() {
         )}
       </div>
 
-      {/* ── Под-табове ─────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
+      {/* ── Под-табове ───────────────────────────────────────────────────────
+          ✅ ФИКС: на тесен екран сборната ширина на трите бутона (особено
+          с по-големи бройки постове/категории) надвишаваше viewport-а и
+          нямаше как да се пренесат — редът просто изтичаше извън екрана и
+          бутащ целия admin панел в хоризонтален скрол. Сега лентата сама
+          скролва хоризонтално (overflowX auto + nowrap), без да разтяга
+          родителя, и скролбарът е скрит за по-чист вид. */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)', overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
         {([
           { id: 'posts',      label: `Постове (${posts.length})` },
           { id: 'categories', label: `Категории (${categories.length})` },
@@ -355,7 +361,7 @@ export function BlogTab() {
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-              padding: '10px 14px', fontSize: 13.5, fontWeight: 700,
+              padding: '10px 14px', fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
               color: tab === t.id ? '#1b4332' : '#9ca3af',
               borderBottom: tab === t.id ? '2.5px solid #1b4332' : '2.5px solid transparent',
               marginBottom: -1,
@@ -425,11 +431,11 @@ export function BlogTab() {
               {/* Статус */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>Статус</label>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {(['draft', 'published', 'archived'] as const).map(s => (
                     <button key={s} type="button" onClick={() => set('status', s)}
                       style={{
-                        flex: 1, padding: '8px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700,
+                        flex: '1 1 80px', padding: '8px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700,
                         border: `1.5px solid ${editing.status === s ? '#2d6a4f' : '#e5e7eb'}`,
                         background: editing.status === s ? '#2d6a4f' : '#fff',
                         color: editing.status === s ? '#fff' : '#6b7280',
