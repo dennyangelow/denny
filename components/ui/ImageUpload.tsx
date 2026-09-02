@@ -187,14 +187,19 @@ export function ImageUpload({ value, onChange, folder = 'products', label = 'С�
         )}
       </div>
 
-      {/* URL input fallback */}
-      <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
+      {/* URL input fallback
+          ✅ ФИКС: input-ът беше `flex: 1` без `minWidth: 0` — по подразбиране
+          браузърът не свива <input> под собствената му min-content ширина
+          (~170-190px), затова в тесен родителски ред (block editor панел на
+          мобилен) редът изтичаше извън екрана. Добавен и minWidth:0 на
+          самия wrapper за същата причина. */}
+      <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
         <input
           type="url"
           placeholder="или въведи URL на снимка..."
           value={value}
           onChange={e => { setError(''); onChange(e.target.value) }}
-          style={{ flex: 1, padding: '8px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#111', background: '#fff' }}
+          style={{ flex: 1, minWidth: 0, padding: '8px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#111', background: '#fff' }}
           onFocus={e => e.target.style.borderColor = '#2d6a4f'}
           onBlur={e => e.target.style.borderColor = '#e5e7eb'}
         />
