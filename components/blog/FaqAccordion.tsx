@@ -29,11 +29,25 @@ export function FaqAccordion({ items }: { items: FaqItem[] }) {
               <span>{item.q}</span>
               <span className={`bp-faq-icon${isOpen ? ' open' : ''}`} aria-hidden="true">+</span>
             </button>
-            {isOpen && (
-              <p id={panelId} className="bp-faq-a" role="region">
-                {renderRichText(item.a)}
-              </p>
-            )}
+            {/* ✅ ФИКС: преди отговорът се монтираше в DOM-а САМО когато
+                isOpen === true ({isOpen && <p>...}) — при първо рендиране
+                (open === null за всички) НИТО ЕДИН отговор не съществуваше
+                в HTML-а на страницата, само въпросите. Googlebot изпълнява
+                JS, но не кликa акордеони — значи текстът на отговорите
+                реално не се индексираше от самата страница (само през
+                FAQPage JSON-LD schema-та в page.tsx, което не е същото
+                като видим, четим от Google текст в тялото на статията).
+                Сега <p> винаги е в DOM-а; само визуално се крие/показва
+                през display — Google официално третира скрито зад
+                accordion съдържание еднакво с видимото. */}
+            <p
+              id={panelId}
+              className="bp-faq-a"
+              role="region"
+              style={{ display: isOpen ? 'block' : 'none' }}
+            >
+              {renderRichText(item.a)}
+            </p>
           </div>
         )
       })}

@@ -17,7 +17,7 @@ interface Props {
 function StatCard({ label, value, tone }: { label: string; value: number | string; tone?: 'warn' }) {
   return (
     <div style={{
-      flex: 1, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px',
+      flex: '1 1 130px', background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', minWidth: 0,
     }}>
       <div style={{ fontSize: 22, fontWeight: 700, color: tone === 'warn' && Number(value) > 0 ? '#b45309' : 'var(--text)' }}>
         {value}
@@ -37,7 +37,9 @@ export function CategoriesScreen({ categories, posts, onChange }: Props) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+      {/* ✅ flexWrap добавен — на много тесен екран трите карти вече
+          пренасят на 2+1 ред вместо да се смачкват до нечетливи 60-70px */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
         <StatCard label="Категории общо" value={categories.length} />
         <StatCard label="Постове общо" value={posts.length} />
         <StatCard label="Категории без постове" value={emptyCategories} tone="warn" />

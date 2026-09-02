@@ -117,15 +117,15 @@ export function CategoryManager({ categories, onChange, postCounts }: Props) {
           <div key={c.slug} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 8px' }}>
             {editSlug === c.slug ? (
               <>
-                <input value={editEmoji} onChange={e => setEditEmoji(e.target.value)} style={{ ...inp, width: 44, textAlign: 'center' }} />
-                <input value={editLabel} onChange={e => setEditLabel(e.target.value)} style={{ ...inp, flex: 1 }} />
+                <input value={editEmoji} onChange={e => setEditEmoji(e.target.value)} style={{ ...inp, width: 44, flexShrink: 0, textAlign: 'center' }} />
+                <input value={editLabel} onChange={e => setEditLabel(e.target.value)} style={{ ...inp, flex: 1, minWidth: 0 }} />
                 <button disabled={busy} onClick={saveEdit} style={{ background: '#dcfce7', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 12, color: '#166534', fontWeight: 700 }}>✓</button>
                 <button disabled={busy} onClick={() => setEditSlug(null)} style={{ background: '#f3f4f6', border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 12, color: '#6b7280' }}>✕</button>
               </>
             ) : (
               <>
-                <span style={{ fontSize: 15 }}>{c.emoji}</span>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: c.active === false ? '#9ca3af' : '#1f2937', textDecoration: c.active === false ? 'line-through' : 'none' }}>
+                <span style={{ fontSize: 15, flexShrink: 0 }}>{c.emoji}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: c.active === false ? '#9ca3af' : '#1f2937', textDecoration: c.active === false ? 'line-through' : 'none' }}>
                   {c.label}
                 </span>
                 {postCounts && (
@@ -154,12 +154,12 @@ export function CategoryManager({ categories, onChange, postCounts }: Props) {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input value={newEmoji} onChange={e => setNewEmoji(e.target.value)} placeholder="🌿" style={{ ...inp, width: 44, textAlign: 'center' }} />
-        <input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Нова категория..." style={{ ...inp, flex: 1 }}
+      <div style={{ display: 'flex', gap: 6, minWidth: 0 }}>
+        <input value={newEmoji} onChange={e => setNewEmoji(e.target.value)} placeholder="🌿" style={{ ...inp, width: 44, flexShrink: 0, textAlign: 'center' }} />
+        <input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Нова категория..." style={{ ...inp, flex: 1, minWidth: 0 }}
           onKeyDown={e => e.key === 'Enter' && addCategory()} />
         <button disabled={busy || !newLabel.trim()} onClick={addCategory}
-          style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', opacity: busy || !newLabel.trim() ? 0.6 : 1 }}>
+          style={{ background: '#1b4332', color: '#fff', border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', opacity: busy || !newLabel.trim() ? 0.6 : 1, flexShrink: 0 }}>
           + Добави
         </button>
       </div>
