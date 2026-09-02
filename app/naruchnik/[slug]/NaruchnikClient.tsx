@@ -74,6 +74,38 @@ const FALLBACK_FAQ: FaqEntry[] = [
   { q: 'Ще получа ли спам на имейла си?', a: 'Не. Изпращаме само полезно съдържание по темата. Можеш да се отпишеш по всяко време с един клик.' },
 ]
 
+// ✅ ФИКС (PageSpeed: "Style & Layout" 2,394ms main-thread, TBT 670ms):
+//    scrollPct преди живееше в NaruchnikClient — същия компонент, който
+//    връща целия ~700-редов JSX дърво (hero, форма, FAQ, testimonials,
+//    inline <style> блок). Всеки scroll event → setState → React
+//    пренарежда ЦЕЛИЯ компонент, не само тънката progress лента.
+//    Изнесено тук като собствен малък компонент: сега scroll update-ите
+//    пренареждат само 1 div, не цялата страница. Добавен и
+//    requestAnimationFrame throttle — четенето на scrollTop/scrollHeight
+//    е forced-reflow read, така се случва максимум веднъж на анимационен
+//    кадър, не при всяко от десетките scroll събития между кадрите.
+function ScrollProgressBar() {
+  const [pct, setPct] = useState(0)
+
+  useEffect(() => {
+    let ticking = false
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(() => {
+        const el  = document.documentElement
+        const max = el.scrollHeight - el.clientHeight
+        setPct(max > 0 ? Math.min((el.scrollTop / max) * 100, 100) : 0)
+        ticking = false
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  return <div className="n-progress" style={{ width: `${pct}%` }} aria-hidden="true" />
+}
+
 export default function NaruchnikClient({
   nar, others, faqEntries, testimonials, downloadsCount, avgRating, reviewsCount, images,
 }: Props) {
@@ -99,19 +131,7 @@ export default function NaruchnikClient({
   const [openFaq,        setOpenFaq]        = useState<number | null>(null)
   const [activeT,        setActiveT]        = useState(0)
   const [mobileFormOpen, setMobileFormOpen] = useState(false)
-  const [scrollPct,      setScrollPct]      = useState(0)
   const formRef = useRef<HTMLDivElement>(null)
-
-  // Progress bar при scroll
-  useEffect(() => {
-    const onScroll = () => {
-      const el  = document.documentElement
-      const pct = (el.scrollTop / (el.scrollHeight - el.clientHeight)) * 100
-      setScrollPct(Math.min(pct, 100))
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
 
   const nameErr  = validateName(name)
   const emailErr = validateEmail(email)
@@ -643,7 +663,7 @@ export default function NaruchnikClient({
 
       {/* Progress bar */}
       <div className={`${syne.variable} ${lora.variable}`}>
-        <div className="n-progress" style={{ width: `${scrollPct}%` }} aria-hidden="true" />
+        <ScrollProgressBar />
 
       <SiteHeader variant="light" />
 
