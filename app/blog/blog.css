@@ -56,13 +56,18 @@
 @media (max-width: 900px) { .blog-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; } }
 @media (max-width: 600px) { .blog-grid { grid-template-columns: 1fr; } }
 
+/* ✅ ФИКС: aspect-ratio беше 16/10 тук срещу 16/9 на .bp-cover (единичен
+   пост) — object-fit:cover режеше различно на двете места, значи текст/
+   елементи близо до левия-десния ръб на корицата изчезваха в списъчната
+   карта, макар да се виждаха цели в самия пост. Сега и двете режат
+   еднакво (16/9) — WYSIWYG между списък и пост. */
 .blog-card {
   display: flex; flex-direction: column; background: #fff; border: 1px solid #e5e7eb;
   border-radius: 16px; overflow: hidden; text-decoration: none; color: inherit;
   transition: transform .15s, box-shadow .15s;
 }
 .blog-card:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(0,0,0,0.08); }
-.blog-card-img-wrap { position: relative; width: 100%; aspect-ratio: 16/10; background: #f0fdf4; overflow: hidden; }
+.blog-card-img-wrap { position: relative; width: 100%; aspect-ratio: 16/9; background: #f0fdf4; overflow: hidden; }
 .blog-card-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
 .blog-card-cat {
   position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.92);

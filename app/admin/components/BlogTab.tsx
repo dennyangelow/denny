@@ -319,7 +319,19 @@ export function BlogTab() {
   return (
     <div style={{ padding: '16px 14px' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}
-        @media(max-width:768px){.blog-edit-panel{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;max-height:100vh!important;border-radius:0!important;z-index:200;overflow-y:auto}}`}</style>
+        @media(max-width:768px){.blog-edit-panel{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;max-height:100vh!important;border-radius:0!important;z-index:200;overflow-y:auto}}
+        /* ✅ ФИКС: grid-template-columns преди беше inline style с фиксирано
+           "minmax(0,1fr) min(480px,100%)" при editing, БЕЗ media query да
+           го събаря обратно на 1 колона на мобилен. Edit панелът и без това
+           става position:fixed overlay на мобилен (правилото по-горе) —
+           значи "втората колона" на grid-а реално е празна там, но
+           дефиницията ѝ продължаваше да притиска/разтяга списъчната
+           колона отвъд екрана. Сега на мобилен грид-ът винаги е 1 колона;
+           2-колонният layout важи само на desktop (>768px), където и
+           двете колони реално се виждат една до друга. */
+        .blog-tab-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media(min-width:769px){.blog-tab-grid--editing{grid-template-columns:minmax(0,1fr) min(480px,100%)}}
+      `}</style>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: 0 }}>
@@ -354,7 +366,7 @@ export function BlogTab() {
       </div>
 
       {tab === 'posts' && (
-      <div style={{ display: 'grid', gridTemplateColumns: editing ? 'minmax(0,1fr) min(480px,100%)' : '1fr', gap: 20 }}>
+      <div className={`blog-tab-grid${editing ? ' blog-tab-grid--editing' : ''}`}>
 
         {/* List */}
         <div>

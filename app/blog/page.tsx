@@ -1,5 +1,9 @@
-// app/blog/page.tsx — v2
-// ✅ ПРОМЯНА спрямо v1: суров <img> → SafeImg (next/image) за card снимките.
+// app/blog/page.tsx — v3
+// ✅ ПРОМЯНА спрямо v2: SafeImg width/height 640x400 → 640x360 (16:9, вместо
+//    16:10) — съвпада с новия aspect-ratio на .blog-card-img-wrap (виж
+//    blog.css) и с .bp-cover на единичния пост, за да реже еднакво навсякъде.
+//    Добавен quality={70} — PageSpeed отчете 13.8 KiB спестими компресия за
+//    тези card thumbnails, default 75 е излишно високо за този размер.
 import { Metadata } from 'next'
 import { supabaseAdmin } from '@/lib/supabase'
 import { SafeImg } from '@/components/client/SafeImg'
@@ -153,7 +157,8 @@ export default async function BlogListPage(
                       alt={post.cover_image_alt || post.title}
                       priority={i === 0}
                       width={640}
-                      height={400}
+                      height={360}
+                      quality={70}
                       sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />

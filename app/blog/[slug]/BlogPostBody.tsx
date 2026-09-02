@@ -1,4 +1,7 @@
-// app/blog/[slug]/BlogPostBody.tsx — v3
+// app/blog/[slug]/BlogPostBody.tsx — v4
+// ✅ ПРОМЯНА спрямо v3: related cards снимки 640x400 → 640x360 (16:9) +
+//    quality={70} — съвпада с новия aspect-ratio на .blog-card-img-wrap
+//    (виж blog.css) и маха излишната компресия, която PageSpeed отчете.
 // ✅ ПРОМЯНА спрямо v2: paragraph/list/quote текстовете вече минават през
 //    renderRichText() от '@/lib/blogRichText' — поддържа [текст](линк)
 //    markdown-style синтаксис за реални кликаеми <a> елементи в content-а,
@@ -189,7 +192,8 @@ export default function BlogPostBody({ post, related, resolvedProducts, canonica
                       src={p.cover_image_url}
                       alt={p.cover_image_alt || p.title}
                       width={640}
-                      height={400}
+                      height={360}
+                      quality={70}
                       sizes="(max-width: 600px) 100vw, 33vw"
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />

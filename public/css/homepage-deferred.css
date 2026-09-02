@@ -951,7 +951,10 @@ a:hover .pk-card-title { color: #16a34a; }
 }
 .home-blog-card:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(0,0,0,.08); }
 .home-blog-card-img-wrap {
-  position: relative; width: 100%; aspect-ratio: 16/10; background: #f0fdf4; overflow: hidden;
+  /* ✅ ФИКС: беше 16/10, докато единичният пост (/blog/[slug] .bp-cover)
+     реже до 16/9 — разминаването режеше различни части на корицата тук
+     спрямо в самия пост. Сега съвпада 1:1. */
+  position: relative; width: 100%; aspect-ratio: 16/9; background: #f0fdf4; overflow: hidden;
 }
 .home-blog-card-cat {
   position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,.92);
