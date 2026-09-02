@@ -374,8 +374,19 @@ export function BlogTab() {
       {tab === 'posts' && (
       <div className={`blog-tab-grid${editing ? ' blog-tab-grid--editing' : ''}`}>
 
-        {/* List */}
-        <div>
+        {/* List
+            ✅ ФИКС: тази обвивка е ДИРЕКТНОТО дете на .blog-tab-grid (CSS
+            grid). Grid клетките по подразбиране НЕ могат да се свият под
+            min-content ширината на съдържанието си (automatic minimum
+            size), освен ако самата клетка няма overflow!=visible или
+            explicit minWidth:0. Заглавието на поста по-долу е
+            `whiteSpace:'nowrap'` — на дълго заглавие това принуждаваше
+            цялата grid колона (а с нея и целия admin panel) да се
+            разшири извън viewport-а на мобилен, избутвайки бутоните
+            "Редактирай"/"✕" физически извън видимия екран. minWidth:0
+            тук връща контрола на вложения `overflow:hidden` картов
+            контейнер и на flex:1/minWidth:0 на реда с бутоните. */}
+        <div style={{ minWidth: 0 }}>
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             {loading ? (
               <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
@@ -420,7 +431,7 @@ export function BlogTab() {
 
         {/* Editor panel */}
         {editing && (
-          <div className="blog-edit-panel" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20, maxHeight: '88vh', overflowY: 'auto', position: 'sticky', top: 20 }}>
+          <div className="blog-edit-panel" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20, maxHeight: '88vh', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, position: 'sticky', top: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{editing.id ? `✏️ ${editing.title || 'Редактирай'}` : '+ Нов пост'}</h3>
               <button onClick={() => setEditing(null)} style={{ background: '#f5f5f5', border: 'none', borderRadius: 7, padding: '5px 9px', cursor: 'pointer', color: '#6b7280', fontSize: 16 }}>✕</button>
