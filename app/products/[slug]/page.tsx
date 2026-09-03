@@ -14,6 +14,10 @@ export const revalidate = 60
 
 const BASE_URL    = 'https://dennyangelow.com'
 const AUTHOR_NAME = 'Denny Angelow'
+// ✅ ФИКС: преди images ставаше [] (празен масив) при липсващ product.image_url
+// — Facebook/Messenger показват линка без никаква снимка. /naruchnik/[slug] и
+// /blog/[slug] вече имат този fallback, тук липсваше.
+const FALLBACK_OG = `${BASE_URL}/og-image.jpg`
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface SiteSettings {
@@ -205,8 +209,11 @@ async function getPageData(slug: string): Promise<{
 }
 
 // ─── Metadata ─────────────────────────────────────────────────────────────────
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const data = await getPageData(params.slug)
+// ✅ ФИКС: params вече е Promise<{slug}> — сверено с конвенцията, вече
+// приложена в /naruchnik/[slug] и /blog/[slug] (Next.js 15).
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params
+  const data = await getPageData(slug)
   if (!data) return { title: 'Продукт не е намерен' }
   const { product, settings } = data
   const sym   = settings.currency_symbol
@@ -215,28 +222,34 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const title = product.seo_title || `${product.name} — Органичен биостимулант | Denny Angelow`
   const description = product.seo_description ||
     `${product.name} — ${product.subtitle || product.description?.slice(0, 150) || ''}${price ? `. Цена от ${price}` : ''}. Поръчай онлайн с доставка.`
+  const canonicalUrl = `${BASE_URL}/products/${product.slug}`
+  // ✅ ФИКС: никога празен images[] — при липсваща снимка пада на /og-image.jpg
+  const ogImage = product.image_url || FALLBACK_OG
 
   return {
     title,
     description,
     keywords: product.seo_keywords || '',
     alternates: {
-      canonical: `${BASE_URL}/products/${product.slug}`,
+      canonical: canonicalUrl,
+      languages: { 'bg-BG': canonicalUrl }, // ✅ hreflang, за консистентност с naruchnik/blog
     },
     openGraph: {
       title,
       description,
-      url:      `${BASE_URL}/products/${product.slug}`,
+      url:      canonicalUrl,
       siteName: 'Denny Angelow',
       locale:   'bg_BG',
       type:     'website',
-      images: product.image_url
-        ? [{ url: product.image_url, alt: product.image_alt || product.name, width: 800, height: 800 }]
-        : [],
+      images: [{
+        url: ogImage,
+        alt: product.image_alt || product.name,
+        width: 800, height: 800,
+      }],
     },
     twitter: {
       card: 'summary_large_image', title, description,
-      images: product.image_url ? [product.image_url] : [],
+      images: [ogImage],
     },
     robots: {
       index:     true,
@@ -259,8 +272,9 @@ export async function generateStaticParams() {
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
-export default async function OwnProduktPage({ params }: { params: { slug: string } }) {
-  const data = await getPageData(params.slug)
+export default async function OwnProduktPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
+  const data = await getPageData(slug)
   if (!data) notFound()
   const { product, related, outOfStock, settings, marketingSettings } = data
 

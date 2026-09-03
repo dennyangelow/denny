@@ -179,8 +179,16 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
               <input value={block.note || ''} placeholder="Кратък текст над картата (по избор)"
                 onChange={e => update(idx, { ...block, note: e.target.value })}
                 style={{ ...inp, fontSize: 13 }} onFocus={focusGreen} onBlur={blurGray} />
+              {/* ✅ ФИКС: текстът тук лъжеше за реалното поведение след
+                  промяната в AffiliateTrackedLink.tsx — линкът към
+                  /produkt/[slug] вече НЕ получава rel="sponsored nofollow"
+                  (той е вътрешна страница на сайта, не директен линк към
+                  мърчанта — виж коментара в самия AffiliateTrackedLink.tsx).
+                  Остарял helper текст в admin панела, който противоречи на
+                  кода, е по-лошо от липсващ — подвежда точно човека, който
+                  трябва да разчита на него. */}
               <div style={{ fontSize: 11, color: '#9ca3af' }}>
-                На публичната страница линкът автоматично получава <code>rel="sponsored nofollow"</code> ако е афилиейт.
+                На публичната страница линкът винаги е обикновен вътрешен линк (без <code>nofollow</code>) — реалният линк към мърчанта е отделен бутон "Купи" на самата продуктова страница.
               </div>
             </div>
           )}
