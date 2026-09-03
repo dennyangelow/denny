@@ -65,7 +65,7 @@ function newBlock(type: BlogBlock['type']): BlogBlock {
     case 'image':         return { type, url: '', alt: '', caption: '' }
     case 'quote':         return { type, text: '', author: '' }
     case 'list':          return { type, ordered: false, items: [] }
-    case 'product_embed': return { type, product_type: 'own', slug: '', note: '' }
+    case 'product_embed': return { type, product_type: 'own', slug: '', note: '', pitch: '' }
     case 'faq':           return { type, items: [] }
   }
 }
@@ -176,9 +176,24 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
                   onChange={e => update(idx, { ...block, slug: e.target.value })}
                   style={{ ...inp, fontFamily: 'monospace', minWidth: 0, flex: 1 }} onFocus={focusGreen} onBlur={blurGray} />
               </div>
-              <input value={block.note || ''} placeholder="Кратък текст над картата (по избор)"
+              <input value={block.note || ''} placeholder="Кратък badge таг над картата (по избор, напр. „За здрава почва“)"
                 onChange={e => update(idx, { ...block, note: e.target.value })}
                 style={{ ...inp, fontSize: 13 }} onFocus={focusGreen} onBlur={blurGray} />
+              {/* ✅ НОВО: pitch — за разлика от note (кратък 2-4 думен badge)
+                  и продуктовото описание (генерично, идва от products
+                  таблицата, еднакво навсякъде), pitch е убедителен/
+                  образователен текст, специфичен точно за тази статия —
+                  свързва аргумента от текста току-що прочетен с избора на
+                  този продукт. Рендира се под описанието, преди бутона
+                  (виж .bp-product-embed-pitch / .bp-product-card-pitch в
+                  blog.css). Поддържа [текст](линк) синтаксис. */}
+              <textarea rows={3} value={block.pitch || ''}
+                placeholder="Убедителен/обяснителен текст (по избор) — защо точно този продукт пасва тук, в контекста на статията..."
+                onChange={e => update(idx, { ...block, pitch: e.target.value })}
+                style={{ ...inp, fontSize: 13, resize: 'vertical' }} onFocus={focusGreen} onBlur={blurGray} />
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                Пиши тук защо ИМЕННО в контекста на този параграф от статията този продукт е логичният избор — различно е от общото описание на продукта, което идва от продуктовите данни.
+              </div>
               {/* ✅ ФИКС: текстът тук лъжеше за реалното поведение след
                   промяната в AffiliateTrackedLink.tsx — линкът към
                   /produkt/[slug] вече НЕ получава rel="sponsored nofollow"

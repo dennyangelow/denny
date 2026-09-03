@@ -383,21 +383,30 @@ function OfferPromoCard({
                 <div key={card.id} className="mk-offer-showcase-card">
                   {card.image_url && (
                     <div className="mk-offer-showcase-img-wrap">
-                      {/* ✅ ФИКС: суров <img> → SafeImg (next/image). Реалният файл е
-                          511×558px. Точният рендиран размер на картата е 318×347px
-                          (320px grid slot минус border-а на .mk-offer-showcase-card:
-                          1.5px от всяка страна = 320 - 3 ≈ 318 широчина, пропорцията
-                          518:558 запазена → 347 височина) — потвърдено директно от
-                          PageSpeed "displayed dimensions". sizes отразява реалния CSS
-                          layout (грид карта до 320px, на мобилен carousel до 84vw). */}
+                      {/* ✅ ФИКС v2: предишният коментар грешеше кой размер PageSpeed
+                          реално измерва. .mk-offer-showcase-img { width:100%; height:
+                          auto } — снимката винаги е FLUID, картата определя реалния
+                          размер, не width/height пропсовете тук (те само задават
+                          intrinsic aspect-ratio за next/image, за да няма CLS).
+                          На МОБИЛНО (където PageSpeed тества, form_factor=mobile)
+                          картата е .mk-offer-showcase-card { flex:0 0 84%;
+                          max-width:320px } вътре в carousel — реално измерените
+                          displayed dimensions са 284×310px, не 318×347 (десктоп grid
+                          slot 320px минус border, което важи само >640px viewport).
+                          284/310 = 0.916 = 511/558 (реалния файл) — правилното
+                          съотношение, запазено тук. sizes оставаме непроменен, той
+                          вече отразява коректно 84vw мобилно / 320px десктоп — истинският
+                          проблем беше deviceSizes дупката в next.config.js (виж там),
+                          не тази sizes стойност. quality свален с 5, забележимо
+                          спестява байтове без видима загуба на качество за product shot. */}
                       <SafeImg
                         src={card.image_url}
                         alt={card.label || offer.title}
                         className="mk-offer-showcase-img"
-                        width={318}
-                        height={347}
+                        width={284}
+                        height={310}
                         sizes="(max-width: 640px) 84vw, 320px"
-                        quality={75}
+                        quality={70}
                       />
                       {card.featured && <span className="mk-offer-showcase-featured">🔥 Най-търсен</span>}
                     </div>

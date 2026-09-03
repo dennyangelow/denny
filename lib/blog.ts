@@ -21,7 +21,15 @@ export interface BlogProductEmbedBlock {
   type: 'product_embed'
   product_type: 'affiliate' | 'own'
   slug: string
-  note?: string   // кратък текст над картата, напр. "Препоръчваме..."
+  note?: string   // кратък badge таг над картата, напр. "Основа за здрава почвена структура"
+  // ✅ НОВО: убедителен/образователен текст, специфичен за тази статия —
+  //    за разлика от note (кратък 2-4 думен таг) или продуктовото
+  //    description (генерично, идва от products таблицата и е еднакво
+  //    навсякъде), pitch е авторско изречение/абзац, което свързва
+  //    конкретния аргумент от статията с избора на точно този продукт.
+  //    По избор — рендира се само ако е зададено. Поддържа [текст](линк)
+  //    синтаксис през renderRichText(), както paragraph/list/quote/faq.
+  pitch?: string
 }
 export interface BlogFaqBlock {
   type: 'faq'

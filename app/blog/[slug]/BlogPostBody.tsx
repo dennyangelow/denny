@@ -90,6 +90,13 @@ function ProductEmbed({
     ? `🔗 Виж продукта${priceLabel}`
     : `🌿 Разгледай ${shortName}${priceLabel}`
 
+  // ✅ НОВО поле pitch (по избор): убедителен/образователен текст, който
+  //    ТИ пишеш конкретно за тази статия — за разлика от resolved.description
+  //    (генерично описание на продукта, идва от products таблицата и е
+  //    еднакво навсякъде), pitch обяснява защо ИМЕННО тук, в контекста на
+  //    точно този параграф от статията, продуктът е логичният избор.
+  //    Рендира се под описанието, преди CTA бутона. Поддържа renderRichText
+  //    ([текст](линк) синтаксис), точно като paragraph/list/quote блоковете.
   if (variant === 'card') {
     return (
       <div className="bp-product-card">
@@ -113,6 +120,7 @@ function ProductEmbed({
           </div>
         </div>
         {resolved.description && <p className="bp-product-card-desc">{resolved.description}</p>}
+        {block.pitch && <p className="bp-product-card-pitch">{renderRichText(block.pitch)}</p>}
         <AffiliateTrackedLink
           href={resolved.url}
           slug={resolved.key.split(':')[1]}
@@ -145,6 +153,7 @@ function ProductEmbed({
         {block.note && <div className="bp-product-embed-note">{block.note}</div>}
         <p className="bp-product-embed-title">{resolved.name}</p>
         {resolved.description && <p className="bp-product-embed-desc">{resolved.description}</p>}
+        {block.pitch && <p className="bp-product-embed-pitch">{renderRichText(block.pitch)}</p>}
         <AffiliateTrackedLink
           href={resolved.url}
           slug={resolved.key.split(':')[1]}

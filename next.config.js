@@ -9,6 +9,16 @@
 const nextConfig = {
   images: {
     imageSizes: [16, 32, 48, 64, 96, 128, 164, 256, 384],
+    // ✅ v6: deviceSizes вече е ЯВНО зададен (преди липсваше → Next ползваше
+    //    default-а [640,750,828,1080,1200,1920,2048,3840]). Дупката между
+    //    imageSizes max (384) и default deviceSizes min (640) означаваше,
+    //    че всяко изображение с нужна ширина 385–639px скачаше директно на
+    //    640px бъкет. Точно това удряше OffersShowcase snimките: displayed
+    //    284×310px на мобилно × ~1.8 DPR ≈ 511px нужни → Next искаше 640px,
+    //    не можеше да ъпскейлва оригинала (511×558) → сервираше го цял,
+    //    двойно по-голям от нужното (виж PageSpeed "49.1 KiB Est Savings").
+    //    440/500 запълват точно тази дупка.
+    deviceSizes: [440, 500, 640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     remotePatterns: [
       { protocol: 'https', hostname: 'd1yei2z3i6k35z.cloudfront.net' },
       { protocol: 'https', hostname: '*.supabase.co' },
