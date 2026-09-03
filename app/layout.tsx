@@ -390,7 +390,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <PageViewTracker />
         </Suspense>
         <AffiliatePreloader />
-        {children}
+        {/* ✅ ФИКС (Accessibility — "Document does not have a main landmark"):
+            преди {children} влизаше директно в <body> без landmark таг —
+            screen reader потребителите нямат бърз начин да "прескочат" до
+            основното съдържание (header/nav обикновено е извън {children},
+            в самите page-нива компоненти, затова тук е safe да увием
+            ЦЯЛОТО {children} в <main> — HeaderClient/SiteHeader вътре в
+            конкретните страници остават извън семантичен конфликт, защото
+            <main> позволява само 1 инстанция на страница, а тя се рендва
+            веднъж тук, на root ниво). */}
+        <main>{children}</main>
       </body>
     </html>
   )
