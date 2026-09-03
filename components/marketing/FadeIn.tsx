@@ -45,24 +45,40 @@ export function FadeIn({ children, delay = 0, className, style }: Props) {
     const el = ref.current
     if (!el) return
 
-    // Ако елементът вече е в/над видимата зона на екрана в момента, в
-    // който JS-ът най-накрая се е хидратирал — потребителят вероятно вече
-    // го е видял (или тъкмо го вижда) като статично съдържание. Няма нужда
-    // да го крием сега, само за да го "разкрием" веднага след това.
-    const rect = el.getBoundingClientRect()
-    const alreadyInView = rect.top < window.innerHeight
-    if (alreadyInView) return
+    // ✅ ФИКС (Lighthouse "Forced reflow" — потвърдено от PageSpeed 595ms
+    // total reflow time): el.getBoundingClientRect() тук се изпълняваше
+    // СИНХРОННО, веднага при hydration, за ВСЯКА FadeIn инстанция на
+    // страницата (продукти, отзиви, FAQ, блог — обикновено 20-30+ броя).
+    // React хидратира всички тия компоненти почти едновременно; ако между
+    // кои да е два getBoundingClientRect() извиквания има pending style
+    // промяна от друг компонент, браузърът е принуден да flush-не layout-а
+    // синхронно — read/write interleaving между много инстанции = класически
+    // "layout thrashing". requestAnimationFrame отлага четенето до момента,
+    // в който браузърът вече Е ЗАВЪРШИЛ естествения си layout pass за тоя
+    // кадър — четенето вече не e "forced", а обикновено. Функционално нищо
+    // не се променя (все така инстанции, вече видими на екрана, не играят
+    // fade анимация), само моментът на проверката се мести с 1 кадър.
+    let cancelled = false
+    let observer: IntersectionObserver | null = null
+    const raf = requestAnimationFrame(() => {
+      if (cancelled) return
+      const rect = el.getBoundingClientRect()
+      const alreadyInView = rect.top < window.innerHeight
+      if (alreadyInView) return
 
-    // Елементът реално е под текущия скрол — тук вече е безопасно (JS е
-    // хидратиран, IntersectionObserver ще реагира мигновено) да включим
-    // анимацията "fade up при скрол", както преди.
-    setState('pending')
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setState('visible'); observer.disconnect() } },
-      { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
+      setState('pending')
+      observer = new IntersectionObserver(
+        ([entry]) => { if (entry.isIntersecting) { setState('visible'); observer?.disconnect() } },
+        { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }
+      )
+      observer.observe(el)
+    })
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      observer?.disconnect()
+    }
   }, [])
 
   const hidden = state === 'pending'
