@@ -2,6 +2,7 @@
 // components/marketing/ProductCard.tsx
 
 import { FadeIn } from './FadeIn'
+import { SafeImg } from '@/components/client/SafeImg'
 
 // 1. Дефинираме ясен интерфейс, за да избегнем TypeScript грешките от липсващи данни
 export interface Product {
@@ -47,13 +48,30 @@ export function ProductCard({ p, idx }: Props) {
           
           {/* Горна част с изображение и баджове */}
           <div className="product-image-wrapper">
-            <img 
-              src={p.img} 
-              alt={p.name} 
-              loading="lazy" 
-              className="product-main-img" 
+            <SafeImg
+              src={p.img}
+              alt={p.name}
+              className="product-main-img"
+              width={280}
+              height={180}
+              // ✅ ФИКС: суров <img> без width/height/optimization →
+              // няма responsive srcset, няма автоматично AVIF/WebP,
+              // няма LCP hint. SafeImg минава през next/image, генерира
+              // правилния srcset спрямо реалната ширина на картата и пази
+              // fallback емоджи при счупен URL. priority остава false —
+              // тези карти не са LCP елементът на страницата (той е в
+              // hero-то), затова lazy loading тук е коректен.
+              sizes="(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 300px"
+              quality={75}
+              // ⚠️ SafeImg рендва <img> вътре в СВОЯ компонент (next/image),
+              // не буквално вътре в JSX-а на ProductCard — затова styled-jsx
+              // не може да прикачи скопирания си data-атрибут към него и
+              // скопираните .product-main-img правила по-долу никога няма
+              // да съвпаднат. Затова базовите размери се подават директно
+              // inline тук, а hover transform-ът по-долу е маркиран :global().
+              style={{ width: '100%', height: 180, objectFit: 'contain', transition: 'transform 0.5s ease' }}
             />
-            
+
             <div className="badge-primary" style={{ backgroundColor: p.color }}>
               {p.badge}
             </div>
@@ -137,14 +155,7 @@ export function ProductCard({ p, idx }: Props) {
           min-height: 220px;
         }
 
-        .product-main-img {
-          width: 100%;
-          height: 180px;
-          object-fit: contain;
-          transition: transform 0.5s ease;
-        }
-
-        .product-card-container:hover .product-main-img {
+        .product-card-container:hover :global(.product-main-img) {
           transform: scale(1.08);
         }
 

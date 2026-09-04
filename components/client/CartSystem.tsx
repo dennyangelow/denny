@@ -32,27 +32,32 @@ function useIsMobile() {
 }
 
 // ── Динамично измерване на долния ръб на sticky header ──────────────────────
+// ✅ ФИКС (Chrome trace, "Minimize main-thread work" — Style & Layout 3.5s):
+// старата версия викаше header.getBoundingClientRect() + offsetHeight на
+// ВСЕКИ scroll/resize event — 320 forced synchronous layout-а в рамките на
+// 4.3s (медиана 6.4ms между всеки), класически layout-thrashing подпис.
+// .site-header е sticky top:0 — реалната му височина/бордър се сменя само
+// при resize, mobile-menu toggle или breakpoint смяна (.scrolled класа
+// сменя само box-shadow, не height) — никога при обикновен scroll. Затова
+// ResizeObserver е точният инструмент: реагира само когато размерът РЕАЛНО
+// се е променил, вместо да измерва на всеки пиксел скрол.
 function useHeaderBottom() {
   const [bottom, setBottom] = useState(60)
   useEffect(() => {
-    function measure() {
-      const header = document.querySelector('.site-header') as HTMLElement | null
-      if (header) {
-        const rect = header.getBoundingClientRect()
-        // ✅ FIX: rect.bottom може да е 0 или негативно при бърз scroll.
-        // Използваме offsetHeight като по-стабилна fallback стойност.
-        const measured = Math.round(rect.bottom)
-        const fallback = header.offsetHeight || 60
-        setBottom(Math.max(fallback, measured > 0 ? measured : fallback))
-      }
+    const header = document.querySelector('.site-header') as HTMLElement | null
+    if (!header) return
+
+    const measure = () => {
+      const rect = header.getBoundingClientRect()
+      const measured = Math.round(rect.bottom)
+      const fallback = header.offsetHeight || 60
+      setBottom(Math.max(fallback, measured > 0 ? measured : fallback))
     }
+
     measure()
-    window.addEventListener('scroll', measure, { passive: true })
-    window.addEventListener('resize', measure, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', measure)
-      window.removeEventListener('resize', measure)
-    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(header)
+    return () => ro.disconnect()
   }, [])
   return bottom
 }
