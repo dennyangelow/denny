@@ -33,7 +33,7 @@ type NaruchnikMode = 'list' | 'seo'
 interface BaseItem { id: string; [key: string]: any }
 
 // ✅ Типове полета (включва нови v8 типове)
-type FieldType = 'text' | 'textarea' | 'url' | 'number' | 'color' | 'checkbox' | 'bullets' | 'seo_section' | 'faq_editor' | 'dose_table_editor' | 'vs_editor' | 'warnings_editor' | 'howto_editor' | 'multiselect'
+type FieldType = 'text' | 'textarea' | 'url' | 'number' | 'color' | 'checkbox' | 'bullets' | 'seo_section' | 'faq_editor' | 'dose_table_editor' | 'vs_editor' | 'warnings_editor' | 'howto_editor' | 'multiselect' | 'composition_editor'
 
 interface FieldDef {
   key:          string
@@ -142,10 +142,13 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       // ── Как се използва (How-to стъпки) ────────────────────────────────────
       { key: '_howto_divider', label: '📌 Как се използва — стъпки', type: 'seo_section' },
       { key: 'how_to_use',     label: 'Стъпки (по едно на ред)',    type: 'howto_editor' },
+      // ✅ НОВО: обяснителен параграф в началото на таб "Приложение" на сайта.
+      //    Ако го оставиш празно, сайтът показва автоматичен обобщен текст.
+      { key: 'application_intro', label: 'Въведение в "Приложение" (по желание)', type: 'textarea', placeholder: 'Защо фазата/начинът на приложение имат значение при този продукт...' },
 
       // ── Дозировъчна таблица ─────────────────────────────────────────────────
       { key: '_dose_divider',  label: '💉 Дозировъчна таблица',     type: 'seo_section' },
-      { key: 'dose_table',     label: 'Дози по култура/неприятел',  type: 'dose_table_editor' },
+      { key: 'dose_table',     label: 'Дози по култура/фаза',       type: 'dose_table_editor' },
 
       // ── VS Competitor ───────────────────────────────────────────────────────
       { key: '_vs_divider',    label: '⚔️ Сравнение с конкурент',   type: 'seo_section' },
@@ -160,6 +163,12 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'quarantine_note',    label: 'Карантина (детайли)',     type: 'text',    placeholder: 'Ягоди 1 ден | Домати 3 дни | Лозя 14 дни' },
       { key: 'season',             label: 'Сезон',                  type: 'text',    placeholder: 'Пролет / Лято — при поява на вредители' },
       { key: 'social_proof',       label: 'Social proof (1 ред)',   type: 'text',    placeholder: 'Одобрен за биологично производство в ЕС' },
+      // ✅ НОВО: пълен състав (Елемент / Съдържание), pH, плътност, механизъм на действие, съхранение
+      { key: 'composition',        label: 'Пълен състав (Елемент / Съдържание)', type: 'composition_editor' },
+      { key: 'ph',                 label: 'pH',                     type: 'text',    placeholder: '≈ 4,5' },
+      { key: 'density',            label: 'Плътност',               type: 'text',    placeholder: '1,6 г/мл' },
+      { key: 'mode_of_action',     label: 'Механизъм на действие (по едно на ред)', type: 'bullets', placeholder: 'Борът подпомага усвояването на калция\nМагнезият участва в синтеза на хлорофил' },
+      { key: 'storage_instructions', label: 'Съхранение',           type: 'textarea', placeholder: 'Съхранявай на сухо и хладно място, далеч от пряка слънчева светлина...' },
 
       // ── Предупреждения ───────────────────────────────────────────────────────
       { key: '_warn_divider',  label: '⚠️ Предупреждения',          type: 'seo_section' },
@@ -395,43 +404,79 @@ function WarningsEditor({ value, onChange }: { value: string[]; onChange: (v: st
 }
 
 // ─── Dose Table Editor ──────────────────────────────────────────────────────────
+// ✅ v2: освен phase/dose/interval, вече поддържа stage (фаза), method (начин на
+//    приложение — листно/почвено/капково) и purpose (защо точно тук) за
+//    по-обучителния таб "Приложение" на сайта. Старите редове (без новите
+//    полета) продължават да работят непроменени.
 function DoseTableEditor({
   value,
   onChange,
 }: {
-  value: { phase: string; dose: string; interval: string }[]
-  onChange: (v: { phase: string; dose: string; interval: string }[]) => void
+  value: { phase: string; stage?: string; method?: string; dose: string; interval: string; purpose?: string }[]
+  onChange: (v: { phase: string; stage?: string; method?: string; dose: string; interval: string; purpose?: string }[]) => void
 }) {
   const rows = Array.isArray(value) ? value : []
 
-  const update = (idx: number, field: 'phase' | 'dose' | 'interval', val: string) =>
+  const update = (idx: number, field: 'phase' | 'stage' | 'method' | 'dose' | 'interval' | 'purpose', val: string) =>
     onChange(rows.map((r, i) => i === idx ? { ...r, [field]: val } : r))
 
-  const add    = () => onChange([...rows, { phase: '', dose: '', interval: '' }])
+  const add    = () => onChange([...rows, { phase: '', stage: '', method: '', dose: '', interval: '', purpose: '' }])
   const remove = (idx: number) => onChange(rows.filter((_, i) => i !== idx))
 
+  const miniLabel: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 3 }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {rows.length === 0 && (
         <div style={{ padding: 14, background: '#f9fafb', borderRadius: 10, border: '1px dashed #e5e7eb', textAlign: 'center', fontSize: 13, color: '#9ca3af' }}>
           Няма редове. Натисни «+ Добави ред» за начало.
         </div>
       )}
-      {rows.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 28px', gap: 4, fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.06em', padding: '0 2px' }}>
-          <span>Култура / Неприятел</span><span>Доза</span><span>Интервал</span><span />
-        </div>
-      )}
       {rows.map((row, idx) => (
-        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 28px', gap: 5, alignItems: 'center' }}>
-          <input value={row.phase} onChange={e => update(idx, 'phase', e.target.value)}
-            placeholder="Домати — трипс" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
-          <input value={row.dose}  onChange={e => update(idx, 'dose',  e.target.value)}
-            placeholder="10–25 мл/дка" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
-          <input value={row.interval} onChange={e => update(idx, 'interval', e.target.value)}
-            placeholder="При поява, макс. 3 пъти" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+        <div key={idx} style={{ border: '1.5px solid #e5e7eb', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            <div>
+              <label style={miniLabel}>Култура / Приложение</label>
+              <input value={row.phase} onChange={e => update(idx, 'phase', e.target.value)}
+                placeholder="Домати / чушки" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+            </div>
+            <div>
+              <label style={miniLabel}>Фаза (по желание)</label>
+              <input value={row.stage || ''} onChange={e => update(idx, 'stage', e.target.value)}
+                placeholder="При завръзване на плода" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: 6 }}>
+            <div>
+              <label style={miniLabel}>Начин на приложение</label>
+              <select value={row.method || ''} onChange={e => update(idx, 'method', e.target.value)}
+                style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray}>
+                <option value="">— не е зададен —</option>
+                <option value="foliar">🌿 Листно пръскане</option>
+                <option value="soil">💧 Почвено внасяне</option>
+                <option value="drip">💧 Капково напояване</option>
+              </select>
+            </div>
+            <div>
+              <label style={miniLabel}>Доза</label>
+              <input value={row.dose} onChange={e => update(idx, 'dose', e.target.value)}
+                placeholder="150–200 мл/дка" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+            </div>
+            <div>
+              <label style={miniLabel}>Интервал</label>
+              <input value={row.interval} onChange={e => update(idx, 'interval', e.target.value)}
+                placeholder="На 7–10 дни" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+            </div>
+          </div>
+          <div>
+            <label style={miniLabel}>Защо точно тук (по желание)</label>
+            <input value={row.purpose || ''} onChange={e => update(idx, 'purpose', e.target.value)}
+              placeholder="Превенция на върхово гниене" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+          </div>
           <button onClick={() => remove(idx)}
-            style={{ background: '#fee2e2', border: 'none', borderRadius: 6, width: 28, height: 36, cursor: 'pointer', fontSize: 13, color: '#991b1b', flexShrink: 0 }}>✕</button>
+            style={{ alignSelf: 'flex-end', background: '#fee2e2', border: 'none', borderRadius: 6, padding: '5px 11px', cursor: 'pointer', fontSize: 12, color: '#991b1b', fontFamily: 'inherit', fontWeight: 600 }}>
+            ✕ Премахни ред
+          </button>
         </div>
       ))}
       <button onClick={add}
@@ -442,6 +487,58 @@ function DoseTableEditor({
       </button>
       {rows.length > 0 && (
         <div style={{ fontSize: 11, color: '#9ca3af' }}>{rows.length} реда · Запазват се при «Запази»</div>
+      )}
+    </div>
+  )
+}
+
+// ─── Composition Editor ─────────────────────────────────────────────────────────
+// ✅ НОВО: пълен състав на продукта — Елемент / Съдържание, за таб "Технически".
+function CompositionEditor({
+  value,
+  onChange,
+}: {
+  value: { element: string; content: string }[]
+  onChange: (v: { element: string; content: string }[]) => void
+}) {
+  const rows = Array.isArray(value) ? value : []
+
+  const update = (idx: number, field: 'element' | 'content', val: string) =>
+    onChange(rows.map((r, i) => i === idx ? { ...r, [field]: val } : r))
+
+  const add    = () => onChange([...rows, { element: '', content: '' }])
+  const remove = (idx: number) => onChange(rows.filter((_, i) => i !== idx))
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {rows.length === 0 && (
+        <div style={{ padding: 14, background: '#f9fafb', borderRadius: 10, border: '1px dashed #e5e7eb', textAlign: 'center', fontSize: 13, color: '#9ca3af' }}>
+          Няма редове. Натисни «+ Добави елемент» за начало.
+        </div>
+      )}
+      {rows.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 28px', gap: 4, fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.06em', padding: '0 2px' }}>
+          <span>Елемент</span><span>Съдържание</span><span />
+        </div>
+      )}
+      {rows.map((row, idx) => (
+        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 28px', gap: 5, alignItems: 'center' }}>
+          <input value={row.element} onChange={e => update(idx, 'element', e.target.value)}
+            placeholder="Калций (CaO), водоразтворим" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+          <input value={row.content} onChange={e => update(idx, 'content', e.target.value)}
+            placeholder="15% (240 г/л)" style={{ ...inp, fontSize: 12 }} onFocus={focusGreen} onBlur={blurGray} />
+          <button onClick={() => remove(idx)}
+            style={{ background: '#fee2e2', border: 'none', borderRadius: 6, width: 28, height: 36, cursor: 'pointer', fontSize: 13, color: '#991b1b', flexShrink: 0 }}>✕</button>
+        </div>
+      ))}
+      <button onClick={add}
+        style={{ padding: '9px', border: '1.5px dashed #d1d5db', borderRadius: 9, background: '#fff', cursor: 'pointer', fontSize: 13, color: '#6b7280', fontFamily: 'inherit', fontWeight: 600 }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#2d6a4f'; (e.currentTarget as HTMLElement).style.color = '#2d6a4f' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#d1d5db'; (e.currentTarget as HTMLElement).style.color = '#6b7280' }}>
+        + Добави елемент
+      </button>
+      {rows.length > 0 && (
+        <div style={{ fontSize: 11, color: '#9ca3af' }}>{rows.length} елемента · Запазват се при «Запази»</div>
       )}
     </div>
   )
@@ -635,6 +732,7 @@ export function ContentTab() {
       if (f.type === 'seo_section') return
       if (f.type === 'faq_editor')        defaults[f.key] = []
       else if (f.type === 'dose_table_editor') defaults[f.key] = []
+      else if (f.type === 'composition_editor') defaults[f.key] = []
       else if (f.type === 'warnings_editor')   defaults[f.key] = []
       else if (f.type === 'howto_editor')      defaults[f.key] = ''
       else if (f.type === 'vs_editor')         defaults[f.key] = { competitor: '', vs: [] }
@@ -1130,6 +1228,21 @@ export function ContentTab() {
                           {f.label}
                         </label>
                         <DoseTableEditor
+                          value={Array.isArray(editing[f.key]) ? editing[f.key] : []}
+                          onChange={v => set(f.key, v)}
+                        />
+                      </div>
+                    )
+                  }
+
+                  // ── Composition Editor ────────────────────────────────────
+                  if (f.type === 'composition_editor') {
+                    return (
+                      <div key={f.key}>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 8 }}>
+                          {f.label}
+                        </label>
+                        <CompositionEditor
                           value={Array.isArray(editing[f.key]) ? editing[f.key] : []}
                           onChange={v => set(f.key, v)}
                         />

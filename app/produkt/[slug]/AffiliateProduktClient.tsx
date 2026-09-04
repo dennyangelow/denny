@@ -43,6 +43,24 @@ function Stars({ rating, size = 13 }: { rating: number; size?: number }) {
   )
 }
 
+// ✅ ФИКС: поддръжка на **bold** inline текст — разбива реда по **...** и
+//    рендерира съответните части в <strong>, без да губи останалия текст.
+function renderInline(text: string, keyPrefix: React.Key) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(p => p !== '')
+  if (parts.length <= 1) return text
+  return parts.map((part, idx) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={`${keyPrefix}-b${idx}`} style={{ fontWeight:700, color:'#1e293b' }}>{part.slice(2, -2)}</strong>
+      : <span key={`${keyPrefix}-t${idx}`}>{part}</span>
+  )
+}
+
+const isTableRow = (l: string) => l.trim().startsWith('|') && l.trim().endsWith('|')
+const isTableSep = (l: string) => /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(l.trim())
+const parseTableRow = (l: string) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim())
+
+// ✅ ФИКС: поддръжка на markdown таблици (`| Кол1 | Кол2 |` + `|---|---|` разделител).
+//    Преди това целите редове с `|` излизаха като суров текст (виж скрийншотите).
 function renderFullContent(text?: string, color = '#16a34a') {
   if (!text) return null
   const lines = text.replace(/\r\n/g, '\n').split('\n')
@@ -51,14 +69,55 @@ function renderFullContent(text?: string, color = '#16a34a') {
   while (i < lines.length) {
     const line = lines[i].trim()
     if (!line) { i++; continue }
+
     if (line.startsWith('## ')) {
       elements.push(
         <h2 key={i} style={{ fontSize:14, fontWeight:700, color:'#1e293b', marginTop:18, marginBottom:8, lineHeight:1.4 }}>
-          {line.replace('## ', '')}
+          {renderInline(line.replace('## ', ''), `h${i}`)}
         </h2>
       )
       i++
-    } else if (line.startsWith('- ') || line.startsWith('• ')) {
+      continue
+    }
+
+    if (isTableRow(line) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const header = parseTableRow(line)
+      i += 2 // header + separator
+      const rows: string[][] = []
+      while (i < lines.length && isTableRow(lines[i])) {
+        rows.push(parseTableRow(lines[i]))
+        i++
+      }
+      elements.push(
+        <div key={`table-${i}`} style={{ overflowX:'auto', borderRadius:12, border:'1px solid #f1f5f9', margin:'8px 0 14px' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+            <thead>
+              <tr>
+                {header.map((h, hi) => (
+                  <th key={hi} style={{ background:'#f0fdf4', color:'#166534', fontWeight:800, fontSize:10.5, letterSpacing:'.05em', textTransform:'uppercase', padding:'9px 14px', textAlign:'left', whiteSpace:'nowrap' }}>
+                    {renderInline(h, `th${hi}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri}>
+                  {r.map((c, ci) => (
+                    <td key={ci} style={{ padding:'9px 14px', borderTop:'1px solid #f1f5f9', color:'#374151', lineHeight:1.5 }}>
+                      {renderInline(c, `td${ri}-${ci}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+      continue
+    }
+
+    if (line.startsWith('- ') || line.startsWith('• ')) {
       const items: string[] = []
       while (i < lines.length && (lines[i].trim().startsWith('- ') || lines[i].trim().startsWith('• '))) {
         items.push(lines[i].trim().replace(/^[-•]\s*/, ''))
@@ -68,17 +127,19 @@ function renderFullContent(text?: string, color = '#16a34a') {
         <ul key={`ul-${i}`} style={{ listStyle:'none', padding:0, margin:'0 0 6px' }}>
           {items.map((item, j) => (
             <li key={j} style={{ display:'flex', gap:8, alignItems:'flex-start', marginBottom:5, fontSize:13.5, color:'#374151', lineHeight:1.65 }}>
-              <span style={{ color, fontWeight:800, flexShrink:0, marginTop:1 }}>✓</span>{item}
+              <span style={{ color, fontWeight:800, flexShrink:0, marginTop:1 }}>✓</span>
+              <span>{renderInline(item, `li${j}`)}</span>
             </li>
           ))}
         </ul>
       )
-    } else {
-      elements.push(
-        <p key={i} style={{ fontSize:14, color:'#4b5563', lineHeight:1.8, marginBottom:8 }}>{line}</p>
-      )
-      i++
+      continue
     }
+
+    elements.push(
+      <p key={i} style={{ fontSize:14, color:'#4b5563', lineHeight:1.8, marginBottom:8 }}>{renderInline(line, `p${i}`)}</p>
+    )
+    i++
   }
   return elements
 }
@@ -88,6 +149,17 @@ function difficultyBadge(quarantineDays?: number) {
   if (quarantineDays === 0)  return { label:'Лесно за прилагане',         color:'#166534', bg:'#f0fdf4', border:'#bbf7d0', icon:'✅' }
   if (quarantineDays <= 3)   return { label:'Умерено — спази карантина',   color:'#92400e', bg:'#fffbeb', border:'#fde68a', icon:'⚠️' }
   return                            { label:'Внимание — дълга карантина',  color:'#991b1b', bg:'#fef2f2', border:'#fecaca', icon:'🔴' }
+}
+
+// ✅ НОВО: етикети за начин на приложение в таба "Приложение".
+//    Изрично без думата "фертигация" — само "Почвено внасяне" / "Капково напояване".
+function methodLabel(method?: string): { icon: string; label: string; tone: 'foliar' | 'soil' } | null {
+  switch (method) {
+    case 'foliar': return { icon:'🌿', label:'Листно пръскане',      tone:'foliar' }
+    case 'soil':   return { icon:'💧', label:'Почвено внасяне',       tone:'soil' }
+    case 'drip':   return { icon:'💧', label:'Капково напояване',     tone:'soil' }
+    default:       return null
+  }
 }
 
 function formatBgDate(dateStr?: string): string | null {
@@ -127,11 +199,31 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   const youtubeEmbed = parseYouTubeEmbed(product.youtube_url)
 
   const faqItems  = Array.isArray(product.faq)        ? product.faq        : []
-  const doseTable = Array.isArray(product.dose_table) ? product.dose_table : []
+  // ✅ НОВО: dose_table вече поддържа опционални полета `crop`, `stage`, `method`,
+  //    `purpose` за по-обучително, разбито по култура приложение. Стар формат
+  //    ({phase, dose, interval}) продължава да работи — вижда се fallback таблица долу.
+  //    Типовете от lib/affiliate все още не описват тези полета — cast към `any[]`
+  //    докато не се разширят там; не чупи нищо ако полетата липсват.
+  const doseTable = (Array.isArray(product.dose_table) ? product.dose_table : []) as {
+    phase?: string; crop?: string; stage?: string
+    method?: 'foliar' | 'soil' | 'drip' | string
+    dose: string; interval: string; purpose?: string
+  }[]
   const crops     = Array.isArray(product.crops)      ? product.crops      : []
   const warnings  = Array.isArray(product.warnings)   ? product.warnings   : []
   const features  = Array.isArray(product.features)   ? product.features   : []
   const bullets   = Array.isArray(product.bullets)    ? product.bullets    : features
+
+  // ✅ НОВО: опционални CMS полета за по-подробния таб "Технически" —
+  //    добави ги в AffiliateProduct типа в lib/affiliate.ts когато ги попълниш в админ панела.
+  const composition = Array.isArray((product as any).composition)
+    ? (product as any).composition as { element: string; content: string }[] : []
+  const modeOfAction = Array.isArray((product as any).mode_of_action)
+    ? (product as any).mode_of_action as string[] : []
+  const ph              = (product as any).ph as string | undefined
+  const density          = (product as any).density as string | undefined
+  const storageInfo      = (product as any).storage_instructions as string | undefined
+  const applicationIntro = (product as any).application_intro as string | undefined
 
   const diff        = difficultyBadge(product.quarantine_days)
   const lastUpdated = formatBgDate(product.updated_at || product.date_published) // ✅ #4/#9
@@ -780,6 +872,24 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 {/* Приложение */}
                 {activeTab === 'howto' && (
                   <>
+                    {/* ✅ НОВО: обучително въведение — защо фазата и начинът на приложение имат значение */}
+                    <div className="af-beginner" style={{ marginBottom:18 }}>
+                      <div className="af-beginner-title">🎯 Защо фазата и начинът на приложение имат значение</div>
+                      <p className="af-beginner-text">
+                        {applicationIntro || `Хранителните елементи в ${product.name} се усвояват различно според фазата на развитие на растението. Листното пръскане действа бързо и е подходящо при първите признаци на дефицит или за профилактика през критични фази. Почвеното/капково внасяне изгражда траен резерв в корена за целия сезон и е по-подходящо при системно програмно торене.`}
+                      </p>
+                    </div>
+
+                    {/* ✅ НОВО: легенда за начин на приложение */}
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:20 }}>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:11.5, fontWeight:700, color:'#166534', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:20, padding:'5px 12px' }}>
+                        🌿 Листно пръскане — бърз ефект
+                      </span>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:11.5, fontWeight:700, color:'#075985', background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:20, padding:'5px 12px' }}>
+                        💧 Почвено / капково — траен резерв
+                      </span>
+                    </div>
+
                     {howToSteps.length > 0 && (
                       <>
                         <h2 className="af-h2-seo">Как да използваш {product.name} — стъпки</h2>
@@ -791,26 +901,64 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                         ))}
                       </>
                     )}
+
                     {doseTable.length > 0 && (
-                      <div style={{ marginTop: howToSteps.length > 0 ? 18 : 0 }}>
-                        <h2 className="af-h2-seo">Дозировка на {product.name} по култури</h2>
+                      <div style={{ marginTop: howToSteps.length > 0 ? 22 : 0 }}>
+                        <h2 className="af-h2-seo">Дозировка на {product.name} по култури и фази</h2>
                         <p className="af-sec">📊 Норми на приложение</p>
-                        <div style={{ overflowX:'auto',borderRadius:12,border:'1px solid #f1f5f9' }}>
-                          <table className="af-dose-table">
-                            <thead><tr>
-                              <th>Култура / Неприятел</th><th>Доза</th><th>Интервал</th>
-                            </tr></thead>
-                            <tbody>
-                              {doseTable.map((row, i) => (
-                                <tr key={i}>
-                                  <td data-label="Употреба" style={{ fontWeight:600 }}>{row.phase}</td>
-                                  <td data-label="Доза" style={{ color, fontWeight:700 }}>{row.dose}</td>
-                                  <td data-label="Интервал" style={{ color:'#64748b' }}>{row.interval}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+
+                        {/* ✅ Разширен изглед — карти по култура/фаза, когато данните го поддържат */}
+                        {doseTable.some(r => r.crop || r.stage || r.method) ? (
+                          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                            {doseTable.map((row, i) => {
+                              const m = methodLabel(row.method)
+                              return (
+                                <div key={i} style={{ border:'1px solid #f1f5f9', borderRadius:12, padding:'14px 16px', background:'#fafaf8' }}>
+                                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:6, flexWrap:'wrap' }}>
+                                    <span style={{ fontWeight:700, fontSize:13.5, color:'#1e293b' }}>{row.crop || row.phase}</span>
+                                    {m && (
+                                      <span style={{
+                                        fontSize:11, fontWeight:800, whiteSpace:'nowrap', borderRadius:20, padding:'3px 10px',
+                                        color: m.tone === 'foliar' ? '#166534' : '#075985',
+                                        background: m.tone === 'foliar' ? '#f0fdf4' : '#eff6ff',
+                                        border: `1px solid ${m.tone === 'foliar' ? '#bbf7d0' : '#bfdbfe'}`,
+                                      }}>
+                                        {m.icon} {m.label}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {row.stage && (
+                                    <div style={{ fontSize:12.5, color:'#64748b', marginBottom:8 }}>📅 Фаза: {row.stage}</div>
+                                  )}
+                                  <div style={{ display:'flex', gap:20, flexWrap:'wrap', fontSize:13 }}>
+                                    <div><span style={{ color:'#94a3b8', fontSize:10.5, fontWeight:700, textTransform:'uppercase', letterSpacing:'.04em' }}>Доза </span><strong style={{ color }}>{row.dose}</strong></div>
+                                    <div><span style={{ color:'#94a3b8', fontSize:10.5, fontWeight:700, textTransform:'uppercase', letterSpacing:'.04em' }}>Интервал </span><span style={{ color:'#4b5563' }}>{row.interval}</span></div>
+                                  </div>
+                                  {row.purpose && (
+                                    <div style={{ fontSize:12.5, color:'#374151', marginTop:9, lineHeight:1.6, paddingTop:9, borderTop:'1px dashed #e2e8f0' }}>💡 {row.purpose}</div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ overflowX:'auto',borderRadius:12,border:'1px solid #f1f5f9' }}>
+                            <table className="af-dose-table">
+                              <thead><tr>
+                                <th>Култура / Неприятел</th><th>Доза</th><th>Интервал</th>
+                              </tr></thead>
+                              <tbody>
+                                {doseTable.map((row, i) => (
+                                  <tr key={i}>
+                                    <td data-label="Употреба" style={{ fontWeight:600 }}>{row.phase}</td>
+                                    <td data-label="Доза" style={{ color, fontWeight:700 }}>{row.dose}</td>
+                                    <td data-label="Интервал" style={{ color:'#64748b' }}>{row.interval}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                         <p style={{ fontSize:11,color:'#94a3b8',marginTop:8 }}>* При съмнение се консултирайте с агроном.</p>
                       </div>
                     )}
@@ -821,11 +969,38 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 {activeTab === 'tech' && (
                   <>
                     <h2 className="af-h2-seo">Технически характеристики на {product.name}</h2>
+
+                    {/* ✅ НОВО: пълен състав (Елемент / Съдържание) — вместо суров markdown */}
+                    {composition.length > 0 && (
+                      <div style={{ marginBottom:18 }}>
+                        <p className="af-sec">🧪 Пълен състав</p>
+                        <div style={{ overflowX:'auto',borderRadius:12,border:'1px solid #f1f5f9' }}>
+                          <table className="af-dose-table">
+                            <thead><tr><th>Елемент</th><th>Съдържание</th></tr></thead>
+                            <tbody>
+                              {composition.map((c, i) => (
+                                <tr key={i}>
+                                  <td data-label="Елемент" style={{ fontWeight:600 }}>{c.element}</td>
+                                  <td data-label="Съдържание" style={{ color, fontWeight:700 }}>{c.content}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
                     {product.active_substance && (
                       <div className="af-tech-row"><div className="af-tech-label">Активно вещество</div><div className="af-tech-val">{product.active_substance}</div></div>
                     )}
                     {product.dosage && (
                       <div className="af-tech-row"><div className="af-tech-label">Дозировка</div><div className="af-tech-val">{product.dosage}</div></div>
+                    )}
+                    {ph && (
+                      <div className="af-tech-row"><div className="af-tech-label">pH</div><div className="af-tech-val">{ph}</div></div>
+                    )}
+                    {density && (
+                      <div className="af-tech-row"><div className="af-tech-label">Плътност</div><div className="af-tech-val">{density}</div></div>
                     )}
                     {product.quarantine_days !== undefined && (
                       <div className="af-tech-row">
@@ -851,6 +1026,27 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                         </div>
                       </div>
                     )}
+                    {/* ✅ НОВО: механизъм на действие — обучителни bullet точки */}
+                    {modeOfAction.length > 0 && (
+                      <div style={{ marginTop:14 }}>
+                        <p className="af-sec">⚙️ Механизъм на действие</p>
+                        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                          {modeOfAction.map((m, i) => (
+                            <div key={i} style={{ display:'flex', gap:7, alignItems:'flex-start', fontSize:13.5, color:'#374151', lineHeight:1.65 }}>
+                              <span style={{ color, fontWeight:800, flexShrink:0, marginTop:1 }}>✓</span>{m}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ✅ НОВО: съхранение */}
+                    {storageInfo && (
+                      <div style={{ marginTop:12,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:'12px 14px',fontSize:12.5,color:'#374151',lineHeight:1.7 }}>
+                        📦 <strong>Съхранение:</strong> {storageInfo}
+                      </div>
+                    )}
+
                     {product.quarantine_days !== undefined && product.quarantine_days > 0 && (
                       <div style={{ marginTop:12,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,padding:'12px 14px',fontSize:12.5,color:'#78350f',lineHeight:1.7 }}>
                         💡 <strong>Какво означава карантина?</strong> Броят дни след последното пръскане, след които е безопасно да берете. Ако карантината е {product.quarantine_days} дни и пръскате на 1-ви, берете най-рано на {product.quarantine_days + 1}-ви.
