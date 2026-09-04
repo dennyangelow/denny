@@ -804,11 +804,17 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 ))}
               </div>
 
-              <div className="af-tab-panel" role="tabpanel" id={`tabpanel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
+              {/* ✅ SEO ФИКС: всеки таб вече се рендерира ВИНАГИ в DOM-а (не само активният).
+                  Google рендерира JS, но не кликва по табове — ако съдържанието не е монтирано,
+                  то на практика не съществува за търсачката, дори да има Product/FAQ schema.
+                  Вместо {`{activeTab === 'x' && (...)}`} (условно МОНТИРАНЕ), сега всеки панел
+                  е отделен <div> с hidden={`{activeTab !== 'x'}`} — HTML/CSS показване/скриване,
+                  съдържанието остава в DOM-а през цялото време. Google официално третира
+                  таб/акордеон съдържание скрито по този начин наравно с видимото. */}
 
                 {/* За продукта */}
-                {activeTab === 'about' && (
-                  <>
+                {hasAbout && (
+                  <div className="af-tab-panel" role="tabpanel" id="tabpanel-about" aria-labelledby="tab-about" hidden={activeTab !== 'about'}>
                     {product.description && (
                       <div className="af-beginner">
                         <div className="af-beginner-title">🌱 Накратко — за какво служи</div>
@@ -866,12 +872,12 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                         </div>
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
 
                 {/* Приложение */}
-                {activeTab === 'howto' && (
-                  <>
+                {hasHowto && (
+                  <div className="af-tab-panel" role="tabpanel" id="tabpanel-howto" aria-labelledby="tab-howto" hidden={activeTab !== 'howto'}>
                     {/* ✅ НОВО: обучително въведение — защо фазата и начинът на приложение имат значение */}
                     <div className="af-beginner" style={{ marginBottom:18 }}>
                       <div className="af-beginner-title">🎯 Защо фазата и начинът на приложение имат значение</div>
@@ -962,12 +968,12 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                         <p style={{ fontSize:11,color:'#94a3b8',marginTop:8 }}>* При съмнение се консултирайте с агроном.</p>
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
 
                 {/* Технически */}
-                {activeTab === 'tech' && (
-                  <>
+                {hasTech && (
+                  <div className="af-tab-panel" role="tabpanel" id="tabpanel-tech" aria-labelledby="tab-tech" hidden={activeTab !== 'tech'}>
                     <h2 className="af-h2-seo">Технически характеристики на {product.name}</h2>
 
                     {/* ✅ НОВО: пълен състав (Елемент / Съдържание) — вместо суров markdown */}
@@ -1052,12 +1058,12 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                         💡 <strong>Какво означава карантина?</strong> Броят дни след последното пръскане, след които е безопасно да берете. Ако карантината е {product.quarantine_days} дни и пръскате на 1-ви, берете най-рано на {product.quarantine_days + 1}-ви.
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
 
                 {/* Въпроси */}
-                {activeTab === 'faq' && (
-                  <>
+                {hasFaq && (
+                  <div className="af-tab-panel" role="tabpanel" id="tabpanel-faq" aria-labelledby="tab-faq" hidden={activeTab !== 'faq'}>
                     <h2 className="af-h2-seo">Често задавани въпроси за {product.name}</h2>
                     {faqItems.map(({ q, a }, i) => (
                       <div key={i} className="af-faq-item">
@@ -1065,12 +1071,15 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                           <span>{q}</span>
                           <span className={`af-faq-icon${openFaq === i ? ' open' : ''}`}>+</span>
                         </button>
-                        {openFaq === i && <p className="af-faq-ans">{a}</p>}
+                        {/* ✅ ФИКС: отговорът вече ВИНАГИ е в DOM-а — скрит с CSS (display:none),
+                            не условно монтиран. Отговаря на FAQPage schema-та в page.tsx: Google
+                            иска видимия текст да съвпада със schema-та; преди това отговорите,
+                            които потребителят не е отворил, изобщо не съществуваха в HTML-а. */}
+                        <p className="af-faq-ans" style={{ display: openFaq === i ? 'block' : 'none' }}>{a}</p>
                       </div>
                     ))}
-                  </>
+                  </div>
                 )}
-              </div>
 
               {/* ✅ #6 Related — само на MOBILE (под табовете, по-видима) */}
               {related.length > 0 && (
