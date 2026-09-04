@@ -71,7 +71,13 @@ export async function generateMetadata(
   const { product } = await getProduct(slug)
   if (!product) return { title: 'Продуктът не е намерен' }
 
-  const title = product.seo_title
+  // ✅ ФИКС (дублиран title): product.seo_title вече завършва с "| Denny Angelow"
+  //    (виж CSV/Supabase данните), а root layout.tsx има title.template: '%s | Denny Angelow'.
+  //    Next.js прилага template-а върху ВСЯКА string, върната тук — резултатът беше
+  //    "... | Denny Angelow | Denny Angelow" в <title> тага на всяка продуктова страница.
+  //    Решение: { absolute: ... } изрично казва на Next.js да игнорира template-а на
+  //    родителския layout и да ползва тази стойност точно както е, без добавки.
+  const rawTitle = product.seo_title
     || `${product.name}${product.subtitle ? ` — ${product.subtitle}` : ''} | Denny Angelow`
 
   const description = product.seo_description
@@ -94,7 +100,7 @@ export async function generateMetadata(
   ].filter(Boolean) as string[]
 
   return {
-    title,
+    title: { absolute: rawTitle },
     description,
     keywords,
     alternates: {
@@ -102,7 +108,7 @@ export async function generateMetadata(
       languages: { 'bg-BG': canonicalUrl },
     },
     openGraph: {
-      title,
+      title: rawTitle,
       description,
       url:      canonicalUrl,
       siteName: 'Denny Angelow',
@@ -114,7 +120,7 @@ export async function generateMetadata(
     },
     twitter: {
       card:        'summary_large_image',
-      title,
+      title:       rawTitle,
       description,
       images:      [ogImage],
       creator:     '@dennyangelow',
