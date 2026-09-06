@@ -698,7 +698,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 <div style={{ width:32,height:32,borderRadius:'50%',flexShrink:0,background:'#16a34a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15 }}>✅</div>
                 <div>
                   <div style={{ fontSize:10,fontWeight:800,color:'#166534',letterSpacing:'.05em' }}>0 ДНИ КАРАНТИНА</div>
-                  <div style={{ fontSize:11.5,color:'#4b5563',marginTop:1,lineHeight:1.4 }}>Пръскаш днес — береш утре.</div>
+                  <div style={{ fontSize:11.5,color:'#4b5563',marginTop:1,lineHeight:1.4 }}>{product.quarantine_note || 'Пръскаш днес — береш утре.'}</div>
                 </div>
               </div>
             )}
@@ -1074,7 +1074,9 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                       <div className="af-tech-row">
                         <div className="af-tech-label">Карантина</div>
                         <div className="af-tech-val" style={{ color: product.quarantine_days===0?'#166534':'#9a3412', fontWeight:700 }}>
-                          {product.quarantine_days === 0 ? '✓ 0 дни — бери на следващия ден' : product.quarantine_note || `${product.quarantine_days} дни`}
+                          {product.quarantine_days === 0
+                            ? (product.quarantine_note || '✓ 0 дни — бери на следващия ден')
+                            : (product.quarantine_note || `${product.quarantine_days} дни`)}
                         </div>
                       </div>
                     )}
