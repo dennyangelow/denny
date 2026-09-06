@@ -1,12 +1,19 @@
-// app/sitemap.ts — v10
-// ✅ ПОПРАВКИ спрямо v9:
-//   - Премахната /naruchnici от sitemap (redirect към /#naruchnici → Google не индексира)
-//   - Добавени images[] към naruchnik и products entries (Image Search трафик)
-//   - affiliate priority: 0.72 (без промяна)
-//   - /produkti revalidate: 300s вместо 60s (намалява Supabase натоварването)
+// app/sitemap.ts — v11
+// ✅ ПРОМЯНА спрямо v10:
+//   - Добавен export const revalidate. Без него app/sitemap.ts рискуваше да
+//     остане статично кеширан от build-а до следващия deploy — нова статия
+//     можеше да не се появи в живия sitemap.xml, докато не пуснеш нов
+//     deploy, независимо от revalidate=300 логиката на другите страници.
+//   - ФИКС: image title за блог постовете четеше p.image_alt (поле, което
+//     съществува само за affiliate продуктите), а не p.cover_image_alt
+//     (реалното поле, теглено за blog_posts) — значи алт текстът на
+//     корицата никога реално не се ползваше в image sitemap-а за блог
+//     постовете, винаги падаше на title fallback. Сега чете правилното поле.
 
 import { MetadataRoute } from 'next'
 import { supabaseAdmin }  from '@/lib/supabase'
+
+export const revalidate = 3600 // 1 час — sitemap не се нуждае от по-често опресняване
 
 const BASE_URL = 'https://dennyangelow.com'
 
@@ -14,6 +21,7 @@ interface SlugRow {
   slug:           string
   updated_at:     string | null
   cover_image_url?: string | null
+  cover_image_alt?: string | null
   image_url?:     string | null
   image_alt?:     string | null
   gallery_urls?:  (string | { url: string; alt?: string })[] | null
@@ -49,8 +57,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'daily',
       priority:         0.8,
     },
-    // ✅ ПРЕМАХНАТО: /naruchnici (редиректва към /#naruchnici — Google не го индексира)
-    // Ако създадеш реална /naruchnici страница, добави тук обратно
   ]
 
   // ── 2. Паралелни заявки ───────────────────────────────────────────────────
@@ -86,7 +92,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    safeDate(n.updated_at),
       changeFrequency: 'monthly' as const,
       priority:         0.88,
-      // ✅ НОВО: Image sitemap — Google Image Search трафик
       ...(n.cover_image_url ? {
         images: [{ url: n.cover_image_url, title: n.title || n.slug }]
       } : {}),
@@ -102,9 +107,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   let affiliatePages: MetadataRoute.Sitemap = []
   if (affiliateResult.status === 'fulfilled' && affiliateResult.value.data) {
     affiliatePages = affiliateResult.value.data.map((p: SlugRow) => {
-      // ✅ Всички снимки на продукта (главна + галерия). Ако снимка има
-      //    ръчен alt текст, той се ползва като title в sitemap-а; иначе —
-      //    автоматично генериран, страницата пак работи пълноценно.
       const gallery = Array.isArray(p.gallery_urls) ? p.gallery_urls : []
       const entries = [
         ...(p.image_url ? [{ url: p.image_url, alt: p.image_alt || undefined }] : []),
@@ -151,6 +153,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // ── 6. Блог постове — priority 0.75, между produkti и own products ───────
+  // ✅ ФИКС: p.cover_image_alt (не p.image_alt — това поле не съществува за
+  //    блог редовете, беше винаги undefined тук, значи image title винаги
+  //    падаше на title fallback).
   let blogPages: MetadataRoute.Sitemap = []
   if (blogResult.status === 'fulfilled' && blogResult.value.data) {
     blogPages = blogResult.value.data.map((p: SlugRow) => ({
@@ -159,7 +164,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly' as const,
       priority:         0.75,
       ...(p.cover_image_url ? {
-        images: [{ url: p.cover_image_url, title: p.image_alt || p.title || p.slug }]
+        images: [{ url: p.cover_image_url, title: p.cover_image_alt || p.title || p.slug }]
       } : {}),
     }))
   } else {
@@ -176,4 +181,4 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...blogPages,
     ...affiliatePages,
   ]
-} 
+}

@@ -1,10 +1,21 @@
-/* app/blog/blog.css — v1
+/* app/blog/blog.css — v2
  * ⚠️ LCP елементът на всеки блог маршрут е различен от produkt/homepage:
  *   - /blog (списък)      → корицата на първата (featured) карта
  *   - /blog/[slug] (пост)  → корицата на поста (.bp-cover img)
  *   И на двете места ползвай <Image priority> на точно този елемент,
- *   никога lazy loading там (виж коментарите в CriticalStyles.tsx/
- *   AffiliateProduktClient.tsx за същия проблем, вече решен другаде в сайта).
+ *   никога lazy loading там.
+ *
+ * ✅ ПРОМЯНА спрямо v1:
+ *   - Категорийните чипове вече са <button>, не <a href="?category=...">
+ *     (виж BlogListClient.tsx) — .blog-cat-chip получава cursor:pointer +
+ *     font-family: inherit reset за native бутонния стил.
+ *   - Добавен .blog-chip-n (брой статии badge до всеки чип).
+ *   - Премахнат .blog-pagination — вече не се използва никъде (заменен от
+ *     infinite scroll batch reveal в BlogListClient.tsx). Ако решиш някога
+ *     да добавиш класическа номерирана pagination пак, старите стилове са
+ *     запазени в git историята на v1, лесно се възстановяват.
+ *   - Нови секции: skeleton loader за infinite scroll batch-ове, sentinel,
+ *     load-more бутон, "Всички статии (А-Я)" блок.
  */
 
 .blog-page * { box-sizing: border-box; }
@@ -41,14 +52,34 @@
 .blog-breadcrumb a:hover { color: #16a34a; }
 .blog-breadcrumb span { opacity: 0.5; }
 
-/* ── Категория филтри ───────────────────────────────────────────────────── */
+/* ── Категория филтри (вече <button>, не <a>) ───────────────────────────── */
 .blog-cat-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .blog-cat-chip {
   font-size: 12.5px; font-weight: 700; color: #166534; background: #fff;
   border: 1.5px solid #bbf7d0; padding: 6px 14px; border-radius: 22px;
   text-decoration: none; transition: all .15s; display: inline-flex; align-items: center; gap: 5px;
+  cursor: pointer; font-family: inherit;
 }
 .blog-cat-chip:hover, .blog-cat-chip--active { background: #16a34a; color: #fff; border-color: #16a34a; }
+
+/* Брой статии badge до всеки чип */
+.blog-chip-n {
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(0,0,0,.08);
+  border-radius: 100px;
+  padding: 1px 7px;
+}
+.blog-cat-chip--active .blog-chip-n { background: rgba(255,255,255,.25); }
+
+@media (max-width: 640px) {
+  .blog-cat-filters {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; padding-bottom: 4px;
+  }
+  .blog-cat-filters::-webkit-scrollbar { display: none; }
+  .blog-cat-chip { flex-shrink: 0; }
+}
 
 /* ── Списък: карти грид ─────────────────────────────────────────────────── */
 .blog-list-wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 60px; }
@@ -56,11 +87,6 @@
 @media (max-width: 900px) { .blog-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; } }
 @media (max-width: 600px) { .blog-grid { grid-template-columns: 1fr; } }
 
-/* ✅ ФИКС: aspect-ratio беше 16/10 тук срещу 16/9 на .bp-cover (единичен
-   пост) — object-fit:cover режеше различно на двете места, значи текст/
-   елементи близо до левия-десния ръб на корицата изчезваха в списъчната
-   карта, макар да се виждаха цели в самия пост. Сега и двете режат
-   еднакво (16/9) — WYSIWYG между списък и пост. */
 .blog-card {
   display: flex; flex-direction: column; background: #fff; border: 1px solid #e5e7eb;
   border-radius: 16px; overflow: hidden; text-decoration: none; color: inherit;
@@ -80,13 +106,71 @@
 
 .blog-empty { text-align: center; padding: 60px 20px; color: #9ca3af; }
 
-.blog-pagination { display: flex; justify-content: center; gap: 8px; margin-top: 36px; }
-.blog-pagination a, .blog-pagination span {
-  padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; text-decoration: none;
-  border: 1.5px solid #e5e7eb; color: #374151;
+/* ── SKELETON LOADER (infinite scroll batch) ────────────────────────────── */
+@keyframes blog-shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
 }
-.blog-pagination a:hover { border-color: #16a34a; color: #16a34a; }
-.blog-pagination .active { background: #16a34a; border-color: #16a34a; color: #fff; }
+.blog-skeleton { pointer-events: none; user-select: none; }
+.blog-skel-img {
+  width: 100%; aspect-ratio: 16/9;
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 600px 100%;
+  animation: blog-shimmer 1.4s infinite linear;
+}
+.blog-skel-line {
+  border-radius: 6px;
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 600px 100%;
+  animation: blog-shimmer 1.4s infinite linear;
+}
+
+/* ── SENTINEL + LOAD INFO (infinite scroll) ─────────────────────────────── */
+.blog-sentinel { height: 1px; margin-top: 20px; }
+.blog-load-info {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  margin-top: 24px; font-size: 13px; color: #9ca3af; font-weight: 500;
+}
+.blog-load-more-btn {
+  background: none; border: 1.5px solid #e5e7eb; border-radius: 100px;
+  padding: 7px 16px; font-size: 12px; font-weight: 700;
+  font-family: var(--font-dm-sans), sans-serif; color: #374151;
+  cursor: pointer; transition: all .18s;
+}
+.blog-load-more-btn:hover { border-color: #16a34a; color: #16a34a; background: #f0fdf4; }
+
+/* ── ВСИЧКИ СТАТИИ (А-Я) ═══════════════════════════════════════════════════
+   ✅ Винаги реален, видим блок в HTML-а — не скрит cloaking трик. Служи за
+   бърз азбучен преглед на потребителя + допълнителна crawl подсигуровка.
+   Основен discovery механизъм за Google си остава app/sitemap.ts. */
+.blog-all-links {
+  margin-top: 48px;
+  padding: 26px 28px;
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 16px;
+}
+.blog-all-links-title {
+  font-family: var(--font-cormorant), serif;
+  font-size: 19px; font-weight: 700; color: #14532d;
+  margin: 0 0 14px;
+}
+.blog-all-links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px 16px;
+}
+.blog-all-links-item {
+  font-size: 13px; color: #6b7280; text-decoration: none;
+  padding: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color .15s;
+}
+.blog-all-links-item:hover { color: #16a34a; text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .blog-all-links { padding: 20px 16px; margin-top: 32px; }
+  .blog-all-links-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
 
 /* ── Единичен пост ───────────────────────────────────────────────────────── */
 .bp-wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 60px; }
@@ -129,12 +213,9 @@
 @media (max-width: 480px) { .bp-product-embed { flex-direction: column; align-items: flex-start; } }
 
 /* ── Product SHOWCASE ред (2+ съседни product_embed — компактни карти) ───
-   ✅ ПРОМЯНА: първата версия имаше огромна квадратна снимка (320x320) и
-   заемаше почти целия екран на desktop — прекалено доминиращо спрямо
-   текста на статията. Сега картата е компактна, хоризонтална в горната
-   част (малка 56px снимка + заглавие до нея, точно като стария единичен
-   .bp-product-embed стил), просто подредени 2 (или 3) на ред вместо
-   една под друга. Под 640px: 1 колона на телефон. */
+   ✅ Картата е компактна, хоризонтална в горната част (малка 56px снимка +
+   заглавие до нея), просто подредени 2 (или 3) на ред вместо една под
+   друга. Под 640px: 1 колона на телефон. */
 .bp-product-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -143,13 +224,6 @@
 }
 @media (max-width: 640px) {
   .bp-product-row { grid-template-columns: 1fr; }
-  /* ✅ На мобилен имаме пълна ширина (1 колона), докато на desktop
-     картата е свита за 2 колони редом. Без тази поправка картата
-     носеше desktop-размерите си (56px снимка, отрязан на 1 ред badge,
-     стегнат padding) въпреки че разполага с много повече място —
-     изглеждаше сбита и недоизползваща екрана. Тук "разхлабваме":
-     по-голяма снимка, badge вече на 2 реда ако трябва (не се отрязва),
-     по-четливи размери на шрифта, по-просторен padding. */
   .bp-product-card { padding: 18px 20px; gap: 12px; }
   .bp-product-card-img-wrap { width: 76px; height: 76px; }
   .bp-product-card-badge { -webkit-line-clamp: 2; line-clamp: 2; }
@@ -187,13 +261,7 @@
   font-size: 10px; color: #16a34a; font-weight: 800;
   text-transform: uppercase; letter-spacing: .03em; margin-bottom: 2px;
 }
-/* ✅ min-height = 2 реда стабилно, за да не "скачат" заглавието/описанието
-   надолу спрямо съседната карта, когато едното заглавие е 1 ред, а
-   другото — 2. */
 .bp-product-card-title { font-size: 13.5px; font-weight: 700; color: #14532d; margin: 0; line-height: 1.3; min-height: 2.6em; }
-/* ✅ flex:1 — описанието поема цялото свободно място в картата, значи
-   бутонът винаги "пада" на самото дъно и се подравнява идеално със
-   съседната карта в реда, независимо от дължината на текста над него. */
 .bp-product-card-desc { font-size: 12px; color: #6b7280; margin: 0; line-height: 1.55; flex: 1; }
 .bp-product-card-pitch { font-size: 12px; color: #14532d; background: #f0fdf4; border-left: 3px solid #86efac; border-radius: 0 8px 8px 0; padding: 8px 10px; margin: 0; line-height: 1.55; }
 .bp-product-card-btn {
@@ -211,7 +279,6 @@
 .bp-faq-q {
   display: flex; justify-content: space-between; align-items: center; padding: 14px 0; cursor: pointer;
   font-size: 15px; font-weight: 700; color: #1e293b; gap: 12px;
-  /* ✅ вече е <button>, не <div onClick> — reset на native бутонния стил */
   width: 100%; background: none; border: none; font-family: inherit; text-align: left;
 }
 .bp-faq-icon { font-size: 22px; font-weight: 300; color: #94a3b8; flex-shrink: 0; line-height: 1; transition: transform .2s ease; }
