@@ -8,7 +8,7 @@ import { notFound }           from 'next/navigation'
 import { supabaseAdmin }      from '@/lib/supabase'
 import AffiliateProduktClient from './AffiliateProduktClient'
 import type { AffiliateProduct } from '@/lib/affiliate'
-import { getRating, parseHowToUse, getAllImages } from '@/lib/affiliate'
+import { getRating, getReviewCount, hasRealRating, parseHowToUse, getAllImages } from '@/lib/affiliate'
 
 export const revalidate = 300
 
@@ -93,6 +93,7 @@ export async function generateMetadata(
     product.subtitle,
     product.seo_keywords,
     product.partner,
+    product.manufacturer,
     product.active_substance,
     product.category_label,
     ...(product.crops || []).slice(0, 3),
@@ -148,8 +149,13 @@ export default async function ProduktPage({
   const { product, related } = await getProduct(slug)
   if (!product) notFound()
 
+  // ✅ ФИКС: махнат hardcoded fallback от 847 отзива — измислена бройка,
+  //    която се показваше за всеки продукт без реален review_count.
+  //    showRating казва дали изобщо имаме реални данни за рейтинг — ако не,
+  //    нито UI-то, нито schema-та трябва да показват звезди/AggregateRating.
   const avgRating    = getRating(product)
-  const reviewCount  = product.review_count || 847
+  const reviewCount  = getReviewCount(product)
+  const showRating   = hasRealRating(product)
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
   const allImages     = getAllImages(product)
   const ogImage       = allImages[0]?.url || FALLBACK_OG
@@ -160,6 +166,24 @@ export default async function ProduktPage({
   const productPrice = product.price ? Number(product.price) : null
 
   // ── Product schema ────────────────────────────────────────────────────────
+  // ✅ ФИКС: `brand` вече е реалният производител (product.manufacturer),
+  //    не търговецът/партньорът. Продавачът (AgroApteki) си остава в
+  //    `offers.seller`, където му е мястото — Google различава двете роли
+  //    и объркването им е грешка за Product rich results.
+  //    Ако manufacturer липсва (все още не е попълнен за всички продукти),
+  //    падаме обратно на partner, за да не оставим schema-та без brand.
+  //
+  // ✅ ФИКС: aggregateRating вече се добавя САМО ако имаме реален рейтинг
+  //    И реален брой отзиви (showRating) — вместо винаги, с измислен
+  //    fallback. Fake AggregateRating без реални данни е директно
+  //    основание за manual action от Google.
+  //
+  // ✅ НОВО: mpn = официалният регистрационен номер на препарата, когато
+  //    е наличен — конкретен, проверим идентификатор вместо липсващ.
+  // ✅ НОВО: review — реални, видими отзиви (product.reviews), които стоят
+  //    зад AggregateRating числото вместо да е голо.
+  const realReviews = Array.isArray(product.reviews) ? product.reviews : []
+
   const productSchema = productPrice ? {
     '@context': 'https://schema.org',
     '@type':    'Product',
@@ -170,17 +194,32 @@ export default async function ProduktPage({
     image:       allImages.length > 0 ? allImages.map(img => img.url) : ogImage,
     url:         canonicalUrl,
     sku:         product.slug,
-    brand:       { '@type': 'Brand', name: product.partner || 'AgroApteki' },
+    ...(product.registration_number ? { mpn: product.registration_number } : {}),
+    brand: {
+      '@type': 'Brand',
+      name:     product.manufacturer || product.partner || 'AgroApteki',
+    },
     dateModified: product.updated_at
       ? new Date(product.updated_at).toISOString().split('T')[0]
       : new Date().toISOString().split('T')[0],
-    aggregateRating: {
-      '@type':      'AggregateRating',
-      ratingValue:   avgRating,
-      reviewCount:   reviewCount,
-      bestRating:    5,
-      worstRating:   1,
-    },
+    ...(showRating ? {
+      aggregateRating: {
+        '@type':      'AggregateRating',
+        ratingValue:   avgRating,
+        reviewCount:   reviewCount,
+        bestRating:    5,
+        worstRating:   1,
+      },
+    } : {}),
+    ...(realReviews.length > 0 ? {
+      review: realReviews.slice(0, 10).map(r => ({
+        '@type': 'Review',
+        reviewRating: { '@type': 'Rating', ratingValue: r.rating, bestRating: 5, worstRating: 1 },
+        author:  { '@type': 'Person', name: r.author },
+        ...(r.date ? { datePublished: r.date } : {}),
+        reviewBody: r.text,
+      })),
+    } : {}),
     offers: {
       '@type':         'Offer',
       price:            productPrice.toFixed(2),
@@ -303,6 +342,7 @@ export default async function ProduktPage({
         related={related}
         avgRating={avgRating}
         reviewCount={reviewCount}
+        showRating={showRating}
         images={allImages}
       />
     </>

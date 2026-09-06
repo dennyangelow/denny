@@ -26,6 +26,10 @@ interface Props {
   related:     AffiliateProduct[]
   avgRating:   number
   reviewCount: number
+  // ✅ НОВО: подадено от page.tsx (hasRealRating). Ако е false, продуктът
+  //    няма реален rating/review_count — не показваме звезди/числа никъде,
+  //    вместо да показваме фиктивния стар fallback (4.9 / 847).
+  showRating:  boolean
   // ✅ По желание — ако не е подадено (напр. стар caller), се извежда от product
   images?:     ProductImage[]
 }
@@ -171,7 +175,7 @@ function formatBgDate(dateStr?: string): string | null {
   } catch { return null }
 }
 
-export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, images }: Props) {
+export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, showRating, images }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('about')
   const [openFaq,   setOpenFaq]   = useState<number | null>(null)
   const [scrollPct, setScrollPct] = useState(0)
@@ -214,23 +218,26 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   const features  = Array.isArray(product.features)   ? product.features   : []
   const bullets   = Array.isArray(product.bullets)    ? product.bullets    : features
 
-  // ✅ НОВО: опционални CMS полета за по-подробния таб "Технически" —
-  //    добави ги в AffiliateProduct типа в lib/affiliate.ts когато ги попълниш в админ панела.
-  const composition = Array.isArray((product as any).composition)
-    ? (product as any).composition as { element: string; content: string }[] : []
-  const modeOfAction = Array.isArray((product as any).mode_of_action)
-    ? (product as any).mode_of_action as string[] : []
-  const ph              = (product as any).ph as string | undefined
-  const density          = (product as any).density as string | undefined
-  const storageInfo      = (product as any).storage_instructions as string | undefined
-  const applicationIntro = (product as any).application_intro as string | undefined
+  // ✅ ФИКС: тези полета вече са официално типизирани в lib/affiliate.ts —
+  //    вече не се четат с `(product as any)`.
+  const composition       = Array.isArray(product.composition) ? product.composition : []
+  const modeOfAction      = Array.isArray(product.mode_of_action) ? product.mode_of_action : []
+  const ph                = product.ph
+  const density           = product.density
+  const storageInfo       = product.storage_instructions
+  const applicationIntro  = product.application_intro
+
+  // ✅ НОВО: реален производител / регистрационен номер / реални отзиви
+  const manufacturer = product.manufacturer
+  const registrationNumber = product.registration_number
+  const realReviews = Array.isArray(product.reviews) ? product.reviews : []
 
   const diff        = difficultyBadge(product.quarantine_days)
   const lastUpdated = formatBgDate(product.updated_at || product.date_published) // ✅ #4/#9
 
-  const hasAbout = !!(product.description || bullets.length > 0 || product.full_content || warnings.length > 0 || product.vs_competitor)
+  const hasAbout = !!(product.description || bullets.length > 0 || product.full_content || warnings.length > 0 || product.vs_competitor || realReviews.length > 0)
   const hasHowto = howToSteps.length > 0 || doseTable.length > 0
-  const hasTech  = !!(product.active_substance || product.dosage || crops.length > 0 || product.quarantine_days !== undefined)
+  const hasTech  = !!(product.active_substance || product.dosage || crops.length > 0 || product.quarantine_days !== undefined || manufacturer || registrationNumber || composition.length > 0)
   const hasFaq   = faqItems.length > 0
 
   // ✅ #1 Tabs с count badge
@@ -664,12 +671,14 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
 
           {/* Buy card */}
           <div className="af-card af-card-p" id="af-buy-card">
-            {/* ✅ #8 Брой оценки с икона */}
-            <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:12 }}>
-              <Stars rating={avgRating} size={14} />
-              <span style={{ fontSize:12.5,fontWeight:700,color:'#374151' }}>{avgRating.toFixed(1)}/5</span>
-              <span style={{ fontSize:11.5,color:'#94a3b8' }}>👥 {reviewCount.toLocaleString('bg-BG')} отзива</span>
-            </div>
+            {/* ✅ #8 Брой оценки с икона — само ако рейтингът е реален (showRating) */}
+            {showRating && (
+              <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:12 }}>
+                <Stars rating={avgRating} size={14} />
+                <span style={{ fontSize:12.5,fontWeight:700,color:'#374151' }}>{avgRating.toFixed(1)}/5</span>
+                <span style={{ fontSize:11.5,color:'#94a3b8' }}>👥 {reviewCount.toLocaleString('bg-BG')} отзива</span>
+              </div>
+            )}
 
             {product.price && (
               <div style={{ marginBottom:4 }}>
@@ -731,10 +740,12 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 <div style={{ fontFamily:"var(--font-cormorant),serif",fontWeight:700,fontSize:16,color:'#0f172a',lineHeight:1 }}>Denny Angelow</div>
                 <div style={{ fontSize:9,color:'#16a34a',fontWeight:800,textTransform:'uppercase',letterSpacing:'.1em',marginTop:3 }}>Агро Консултант</div>
               </div>
-              <div style={{ marginLeft:'auto',textAlign:'right' }}>
-                <Stars rating={avgRating} size={11} />
-                <div style={{ fontSize:9.5,color:'#64748b',marginTop:2 }}>{avgRating.toFixed(1)}/5 · {reviewCount}</div>
-              </div>
+              {showRating && (
+                <div style={{ marginLeft:'auto',textAlign:'right' }}>
+                  <Stars rating={avgRating} size={11} />
+                  <div style={{ fontSize:9.5,color:'#64748b',marginTop:2 }}>{avgRating.toFixed(1)}/5 · {reviewCount}</div>
+                </div>
+              )}
             </div>
             <p style={{ fontSize:12,color:'#4b5563',lineHeight:1.6,marginTop:9 }}>
               Лично проверен — препоръчван на <strong style={{color:'#166534'}}>85K+ последователи</strong> и 800+ стопанства.
@@ -763,15 +774,21 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
             {product.subtitle && (
               <p style={{ fontSize:14.5,color:'#64748b',lineHeight:1.55,marginBottom:12 }}>{product.subtitle}</p>
             )}
-            {/* ✅ #8 Рейтинг с икона */}
-            <div style={{ display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' }}>
-              <Stars rating={avgRating} size={13} />
-              <span style={{ fontSize:12.5,fontWeight:700,color:'#374151' }}>{avgRating.toFixed(1)}/5</span>
-              <span style={{ fontSize:12,color:'#94a3b8' }}>👥 {reviewCount.toLocaleString('bg-BG')} верифицирани отзива</span>
-              {product.social_proof && (
-                <span style={{ fontSize:12,color:'#64748b',fontStyle:'italic' }}>· {product.social_proof}</span>
-              )}
-            </div>
+            {/* ✅ #8 Рейтинг с икона — само ако е реален (showRating) */}
+            {(showRating || product.social_proof) && (
+              <div style={{ display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' }}>
+                {showRating && (
+                  <>
+                    <Stars rating={avgRating} size={13} />
+                    <span style={{ fontSize:12.5,fontWeight:700,color:'#374151' }}>{avgRating.toFixed(1)}/5</span>
+                    <span style={{ fontSize:12,color:'#94a3b8' }}>👥 {reviewCount.toLocaleString('bg-BG')} верифицирани отзива</span>
+                  </>
+                )}
+                {product.social_proof && (
+                  <span style={{ fontSize:12,color:'#64748b',fontStyle:'italic' }}>{showRating ? '· ' : ''}{product.social_proof}</span>
+                )}
+              </div>
+            )}
             {/* ✅ #4 Последно обновено */}
             {lastUpdated && (
               <div style={{ marginTop:8,fontSize:10.5,color:'#b0b8c1',display:'flex',alignItems:'center',gap:4 }}>
@@ -869,6 +886,30 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                               ))}
                             </tbody>
                           </table>
+                        </div>
+                      </div>
+                    )}
+                    {/* ✅ НОВО: реални текстове на отзиви — видимо съдържание зад
+                        Product.review schema-та в page.tsx (виж realReviews).
+                        Само число без нито един реален цитат е слаб сигнал и
+                        за Google, и за читателя. */}
+                    {realReviews.length > 0 && (
+                      <div style={{ marginTop:16 }}>
+                        <h2 className="af-h2-seo">Какво казват клиентите за {product.name}</h2>
+                        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                          {realReviews.slice(0, 5).map((r, i) => (
+                            <div key={i} style={{ border:'1px solid #f1f5f9', borderRadius:12, padding:'12px 14px', background:'#fafaf8' }}>
+                              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, marginBottom:5 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                                  <Stars rating={r.rating} size={11} />
+                                  <span style={{ fontSize:12.5, fontWeight:700, color:'#1e293b' }}>{r.author}</span>
+                                  {r.verified && <span style={{ fontSize:10, color:'#16a34a', fontWeight:700 }}>✓ Проверен</span>}
+                                </div>
+                                {r.date && <span style={{ fontSize:10.5, color:'#94a3b8' }}>{formatBgDate(r.date)}</span>}
+                              </div>
+                              <p style={{ fontSize:13, color:'#4b5563', lineHeight:1.65, margin:0 }}>{r.text}</p>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -976,7 +1017,23 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                   <div className="af-tab-panel" role="tabpanel" id="tabpanel-tech" aria-labelledby="tab-tech" hidden={activeTab !== 'tech'}>
                     <h2 className="af-h2-seo">Технически характеристики на {product.name}</h2>
 
-                    {/* ✅ НОВО: пълен състав (Елемент / Съдържание) — вместо суров markdown */}
+                    {/* ✅ НОВО: производител + регистрационен номер — ясно видими,
+                        вместо заровени вътре в full_content/faq текст. Важен
+                        E-E-A-T/доверителен сигнал за pesticide-подобен продукт. */}
+                    {manufacturer && (
+                      <div className="af-tech-row"><div className="af-tech-label">Производител</div><div className="af-tech-val">{manufacturer}</div></div>
+                    )}
+                    {registrationNumber && (
+                      <div className="af-tech-row">
+                        <div className="af-tech-label">Регистрация</div>
+                        <div className="af-tech-val">Разрешен за употреба в България — {registrationNumber}</div>
+                      </div>
+                    )}
+
+                    {/* ✅ НОВО: пълен състав (Елемент / Съдържание) — вместо суров markdown
+                        ФИКС: премахнат bold+цветен стил на всяка стойност — преди изглеждаше
+                        като стена от оранжев текст, дори за дълги изречения (OROWET® описание),
+                        което обезценяваше акцентния цвят навсякъде другаде на страницата. */}
                     {composition.length > 0 && (
                       <div style={{ marginBottom:18 }}>
                         <p className="af-sec">🧪 Пълен състав</p>
@@ -987,7 +1044,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                               {composition.map((c, i) => (
                                 <tr key={i}>
                                   <td data-label="Елемент" style={{ fontWeight:600 }}>{c.element}</td>
-                                  <td data-label="Съдържание" style={{ color, fontWeight:700 }}>{c.content}</td>
+                                  <td data-label="Съдържание" style={{ color:'#374151' }}>{c.content}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -996,7 +1053,12 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                       </div>
                     )}
 
-                    {product.active_substance && (
+                    {/* ✅ ФИКС: "Активно вещество" се показва само ако НЯМА подробна
+                        composition таблица — иначе двете разказват едно и също нещо
+                        с различни думи (виждаше се дублирано в скрийншота). Ако искаш
+                        и двете, попълни composition само с чисто химическите елементи
+                        (не с регистрация/класификация — за тях вече има отделни полета). */}
+                    {product.active_substance && composition.length === 0 && (
                       <div className="af-tech-row"><div className="af-tech-label">Активно вещество</div><div className="af-tech-val">{product.active_substance}</div></div>
                     )}
                     {product.dosage && (

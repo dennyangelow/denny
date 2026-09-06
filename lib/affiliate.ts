@@ -1,7 +1,14 @@
-// lib/affiliate.ts — v3
-// ✅ ПОПРАВКИ спрямо v2:
-//   - Добавен parseHowToUse() helper — премахва дублирането между page.tsx и Client
-//   - Добавен parseYouTubeEmbed() — безопасен YouTube URL parser (watch, youtu.be, shorts)
+// lib/affiliate.ts — v4
+// ✅ ПОПРАВКИ спрямо v3:
+//   - Типизирани composition/mode_of_action/ph/density/storage_instructions/
+//     application_intro/featured_home/home_order — вече ги има в Supabase,
+//     но липсваха тук; клиентът ги четеше с `(product as any)`.
+//   - НОВО: manufacturer + registration_number — реален производител и
+//     официален регистрационен номер, структурирани (не заровени в текст).
+//   - НОВО: reviews (ReviewItem[]) — реални отзиви зад AggregateRating.
+//   - getRating()/review_count вече НЕ фабрикуват фиктивни стойности
+//     (старите fallback-и 4.9 / 847 показваха измислено социално доказателство
+//     за продукти без реални данни) — виж getRating/getReviewCount/hasRealRating.
 
 export interface DoseRow {
   phase:    string
@@ -23,6 +30,21 @@ export interface VsCompetitor {
 export interface FaqItem {
   q: string
   a: string
+}
+
+export interface CompositionRow {
+  element: string
+  content: string
+}
+
+// ✅ НОВО: реален отзив — за да застане истинско съдържание зад
+//    AggregateRating schema-та вместо само число.
+export interface ReviewItem {
+  author:   string
+  rating:   number
+  text:     string
+  date?:    string   // ISO "2026-05-02"
+  verified?: boolean
 }
 
 export interface AffiliateProduct {
@@ -87,12 +109,57 @@ export interface AffiliateProduct {
   // timestamps
   created_at?: string
   updated_at?: string
+
+  // ✅ НОВО: полета, които вече съществуват в Supabase (виж CSV export),
+  //    но не бяха описани тук — в клиента се четяха с `(product as any)`.
+  //    Сега са официално типизирани, без нужда от any cast никъде.
+  composition?:           CompositionRow[]
+  mode_of_action?:        string[]
+  ph?:                    string
+  density?:               string
+  storage_instructions?:  string
+  application_intro?:     string
+  featured_home?:         boolean
+  home_order?:            number | null
+
+  // ✅ НОВО: реален производител — различен от `partner` (търговецът/
+  //    партньорът, напр. "agroapteki"). Нужен за коректен `brand` в
+  //    Product schema (Google очаква производител, не търговец).
+  manufacturer?:          string
+
+  // ✅ НОВО: официален регистрационен номер на препарата (напр. пред
+  //    БАБХ/МЗХГ) — структуриран, вместо заровен в full_content/faq текст.
+  //    Използва се и като `mpn` в Product schema.
+  registration_number?:   string
+
+  // ✅ НОВО: реални отзиви — вместо голо число в review_count.
+  //    JSONB масив, по същия модел като faq/dose_table.
+  reviews?:               ReviewItem[]
 }
 
 // ── Helper: безопасно конвертира rating към number ─────────────────────────
+// ✅ ФИКС: старата версия връщаше фиктивно 4.9, ако продуктът няма реален
+//    rating — на практика измислен позитивен резултат в AggregateRating
+//    schema (риск за Google manual action за fake reviews, и просто нечестно
+//    към читателя). Сега връща 0 при липса на реален rating; извикващият код
+//    (page.tsx / клиентът) трябва да скрие звездите/schema-та изцяло, когато
+//    getRating() === 0 или getReviewCount() === 0 — виж getReviewCount() долу.
 export function getRating(product: AffiliateProduct): number {
   const r = Number(product.rating)
-  return isNaN(r) || r <= 0 ? 4.9 : r
+  return isNaN(r) || r <= 0 ? 0 : r
+}
+
+// ── Helper: безопасно конвертира review_count към number ───────────────────
+// ✅ ФИКС: премахва предишния hardcoded fallback от 847 отзива в page.tsx —
+//    измислена бройка, показвана за всеки продукт без реален review_count.
+export function getReviewCount(product: AffiliateProduct): number {
+  const n = Number(product.review_count)
+  return isNaN(n) || n < 0 ? 0 : n
+}
+
+// ── Helper: има ли продуктът достатъчно данни, за да покажем рейтинг ───────
+export function hasRealRating(product: AffiliateProduct): boolean {
+  return getRating(product) > 0 && getReviewCount(product) > 0
 }
 
 // ── Helper: парсира how_to_use (JSON array или newline текст) ──────────────
