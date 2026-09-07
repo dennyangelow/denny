@@ -215,8 +215,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   }[]
   const crops     = Array.isArray(product.crops)      ? product.crops      : []
   const warnings  = Array.isArray(product.warnings)   ? product.warnings   : []
-  const features  = Array.isArray(product.features)   ? product.features   : []
-  const bullets   = Array.isArray(product.bullets)    ? product.bullets    : features
+  const bullets   = Array.isArray(product.bullets)    ? product.bullets    : []
 
   // ✅ ФИКС: тези полета вече са официално типизирани в lib/affiliate.ts —
   //    вече не се четат с `(product as any)`.
@@ -235,7 +234,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   const diff        = difficultyBadge(product.quarantine_days)
   const lastUpdated = formatBgDate(product.updated_at || product.date_published) // ✅ #4/#9
 
-  const hasAbout = !!(product.description || bullets.length > 0 || product.full_content || warnings.length > 0 || product.vs_competitor || realReviews.length > 0)
+  const hasAbout = !!(product.description || bullets.length > 0 || product.full_content || warnings.length > 0 || product.vs_competitor || product.registration_number || product.manufacturer || realReviews.length > 0)
   const hasHowto = howToSteps.length > 0 || doseTable.length > 0
   const hasTech  = !!(product.active_substance || product.dosage || crops.length > 0 || product.quarantine_days !== undefined || manufacturer || registrationNumber || composition.length > 0)
   const hasFaq   = faqItems.length > 0
@@ -866,7 +865,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                         </div>
                       </div>
                     )}
-                    {product.vs_competitor && (
+                    {product.vs_competitor ? (
                       <div style={{ marginTop:14 }}>
                         <h2 className="af-h2-seo">{product.name} срещу {product.vs_competitor.competitor}</h2>
                         <div style={{ overflowX:'auto',borderRadius:12,border:'1px solid #f1f5f9' }}>
@@ -877,18 +876,31 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                               <th style={{ background:'#fef2f2',color:'#dc2626' }}>{product.vs_competitor.competitor}</th>
                             </tr></thead>
                             <tbody>
-                              {product.vs_competitor.vs.map((row, i) => (
+                              {product.vs_competitor.vs.map((row, i) => {
+                                const same = row.ours.trim().toLowerCase() === row.theirs.trim().toLowerCase()
+                                return (
                                 <tr key={i}>
                                   <td style={{ fontWeight:600,color:'#374151' }}>{row.feature}</td>
                                   <td style={{ color:'#166534',fontWeight:600 }}>✓ {row.ours}</td>
-                                  <td style={{ color:'#dc2626' }}>✗ {row.theirs}</td>
+                                  <td style={{ color: same ? '#166534' : '#dc2626' }}>{same ? '✓' : '✗'} {row.theirs}</td>
                                 </tr>
-                              ))}
+                                )
+                              })}
                             </tbody>
                           </table>
                         </div>
                       </div>
-                    )}
+                    ) : product.registration_number ? (
+                      /* ✅ НОВО (v2): само тънко badge, БЕЗ дублиране на производител/
+                         регистрация/механизъм — тези вече стоят подробно в таб "Технически"
+                         и в наративен вид в "Какво е Амалгерол" по-горе. Тук само насочваме. */
+                      <div style={{ marginTop:14, background:'#ecfdf5', border:'1px solid #a7f3d0', borderRadius:10, padding:'11px 15px', display:'flex', gap:9, alignItems:'center' }}>
+                        <span style={{ fontSize:17, flexShrink:0 }}>🏅</span>
+                        <div style={{ fontSize:13, color:'#166534', fontWeight:600, lineHeight:1.5 }}>
+                          Официално признат в ЕС като биостимулант — пълните данни за производител и регистрация виж в таб „Технически".
+                        </div>
+                      </div>
+                    ) : null}
                     {/* ✅ НОВО: реални текстове на отзиви — видимо съдържание зад
                         Product.review schema-та в page.tsx (виж realReviews).
                         Само число без нито един реален цитат е слаб сигнал и

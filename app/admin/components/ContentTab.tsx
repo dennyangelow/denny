@@ -156,6 +156,8 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
 
       // ── Технически данни ────────────────────────────────────────────────────
       { key: '_tech_divider',      label: '🔬 Технически данни (продуктова страница)', type: 'seo_section' },
+      { key: 'manufacturer',       label: 'Производител',           type: 'text',    placeholder: 'Hechenbichler GmbH, Австрия' },
+      { key: 'registration_number', label: 'Официална регистрация', type: 'textarea', placeholder: 'EU биостимулант PFC 6(B), Сертификат № ...' },
       { key: 'active_substance',   label: 'Активно вещество',       type: 'text',    placeholder: 'Спинозад 480 г/л' },
       { key: 'volume',             label: 'Обем/Опаковка',          type: 'text',    placeholder: '100 мл' },
       { key: 'dosage',             label: 'Дозировка (обобщено)',    type: 'text',    placeholder: '10–30 мл/дка' },
@@ -550,11 +552,12 @@ function VsEditor({
   onChange,
 }: {
   value: { competitor: string; vs: { feature: string; ours: string; theirs: string }[] } | null | undefined
-  onChange: (v: { competitor: string; vs: { feature: string; ours: string; theirs: string }[] }) => void
+  onChange: (v: { competitor: string; vs: { feature: string; ours: string; theirs: string }[] } | null) => void
 }) {
   const data = value && typeof value === 'object'
     ? value
     : { competitor: '', vs: [] }
+  const isEmpty = !value
 
   const setCompetitor = (c: string) => onChange({ ...data, competitor: c })
   const setRows = (vs: typeof data.vs)  => onChange({ ...data, vs })
@@ -564,9 +567,17 @@ function VsEditor({
 
   const addRow    = () => setRows([...data.vs, { feature: '', ours: '', theirs: '' }])
   const removeRow = (idx: number) => setRows(data.vs.filter((_, i) => i !== idx))
+  // ✅ НОВО: връща полето обратно на null (без сравнение) — вместо да увисва
+  // като {competitor:'', vs:[]}, което кодът на сайта би показал като празна таблица.
+  const clearAll = () => onChange(null)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {isEmpty && (
+        <div style={{ padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 12, color: '#166534' }}>
+          ✓ Без сравнение (vs_competitor = null) — сайтът показва badge с доверие вместо таблица. Добави ред долу само ако наистина имаш честен, проверим конкурент.
+        </div>
+      )}
       <div>
         <label style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', display: 'block', marginBottom: 4 }}>Конкурентен продукт</label>
         <input value={data.competitor} onChange={e => setCompetitor(e.target.value)}
@@ -594,12 +605,20 @@ function VsEditor({
           Добави редове за сравнение долу.
         </div>
       )}
-      <button onClick={addRow}
-        style={{ padding: '9px', border: '1.5px dashed #d1d5db', borderRadius: 9, background: '#fff', cursor: 'pointer', fontSize: 13, color: '#6b7280', fontFamily: 'inherit', fontWeight: 600 }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#2d6a4f'; (e.currentTarget as HTMLElement).style.color = '#2d6a4f' }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#d1d5db'; (e.currentTarget as HTMLElement).style.color = '#6b7280' }}>
-        + Добави ред за сравнение
-      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={addRow}
+          style={{ flex: 1, padding: '9px', border: '1.5px dashed #d1d5db', borderRadius: 9, background: '#fff', cursor: 'pointer', fontSize: 13, color: '#6b7280', fontFamily: 'inherit', fontWeight: 600 }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#2d6a4f'; (e.currentTarget as HTMLElement).style.color = '#2d6a4f' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#d1d5db'; (e.currentTarget as HTMLElement).style.color = '#6b7280' }}>
+          + Добави ред за сравнение
+        </button>
+        {!isEmpty && (
+          <button onClick={clearAll} type="button"
+            style={{ padding: '9px 14px', border: '1.5px solid #fecaca', borderRadius: 9, background: '#fff', cursor: 'pointer', fontSize: 13, color: '#991b1b', fontFamily: 'inherit', fontWeight: 600 }}>
+            ✕ Изчисти (без сравнение)
+          </button>
+        )}
+      </div>
       {data.vs.length > 0 && (
         <div style={{ fontSize: 11, color: '#9ca3af' }}>{data.vs.length} реда · Запазват се при «Запази»</div>
       )}
