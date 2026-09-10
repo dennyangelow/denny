@@ -8,7 +8,6 @@
 
 import { Metadata } from 'next'
 import Image from 'next/image'
-import dynamic from 'next/dynamic'
 import { CDN } from '@/lib/marketing-data'
 import { supabaseAdmin } from '@/lib/supabase'
 import { HeaderClient } from '@/components/client/HeaderClient'
@@ -67,10 +66,13 @@ import { DeferredHomepageCSS } from '@/components/DeferredHomepageCSS'
 // loading:() => null означава "не показвай нищо, докато чънкът пристигне" —
 // коректно тук, защото drawer-ът наистина не съществува визуално преди клика.
 // HandbooksPanel вече НЕ е тук — виж коментара до static import-а му по-горе.
-const CartSystem = dynamic(
-  () => import('@/components/client/CartSystem').then(m => m.CartSystem),
-  { ssr: false, loading: () => null }
-)
+// ⚠️ ФИКС (PageSpeed "Minimize main-thread work" 5.3s / LCP element render
+// delay 1,770ms): dynamic(ssr:false) спира само SERVER рендъра — Next.js
+// пак сваля + монтира CartSystem (2574 реда) веднага след hydration,
+// въпреки че drawer-ът не е видим, докато няма клик. DeferredCartSystem
+// отлага реалния mount до requestIdleCallback/3s timeout — виж
+// components/client/DeferredCartSystem.tsx за пълния коментар.
+import { DeferredCartSystem as CartSystem } from '@/components/client/DeferredCartSystem'
 
 // ✅ ISR: 5 минути. Данните се обновяват на фона — не при всяка заявка.
 // За settings/FAQ/handbooks, които се менят рядко, това е напълно достатъчно.
