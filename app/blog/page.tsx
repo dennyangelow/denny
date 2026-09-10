@@ -20,6 +20,12 @@
 //     v11 за revalidate фикса) — "Всички статии" блокът в BlogListClient
 //     е за реални посетители + допълнителна crawl подсигуровка, не
 //     основен механизъм.
+//
+// ⚠️ БЕЛЕЖКА: header-ът (SiteHeader) и неговата количка-конфигурация
+//    (getSettings() + getHeaderCartConfig('blog')) НЕ живеят тук —
+//    app/blog/layout.tsx вече рендва SiteHeader за целия /blog route
+//    group (списък + /blog/[slug]), значи settings се тегли ТАМ, веднъж,
+//    вместо дублирано във всяка страница под /blog.
 import { Metadata } from 'next'
 import { supabaseAdmin } from '@/lib/supabase'
 import BlogListClient from './BlogListClient'

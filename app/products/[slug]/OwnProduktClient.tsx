@@ -791,7 +791,7 @@ export default function OwnProduktClient({
         </button>
       </div>
 
-      <SiteFooter />
+      <SiteFooter settings={settings} />
     </div>
   )
 }

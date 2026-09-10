@@ -9,9 +9,11 @@
 import { Metadata } from 'next'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
-import { CDN, AFF } from '@/lib/marketing-data'
+import { CDN } from '@/lib/marketing-data'
 import { supabaseAdmin } from '@/lib/supabase'
 import { HeaderClient } from '@/components/client/HeaderClient'
+// ✅ НОВО: заменя хардкоднатия footer по-долу (виж бележката преди <footer>)
+import SiteFooter from '@/components/layout/SiteFooter'
 import { FaqSection } from '@/components/client/FaqSection'
 import { FadeIn } from '@/components/marketing/FadeIn'
 import { SafeImg } from '@/components/client/SafeImg'
@@ -97,6 +99,11 @@ interface SiteSettings {
   cta_subtitle: string
   currency: string
   currency_symbol: string
+  // ✅ НОВО: социални линкове за SiteFooter (SettingsTab → "📱 Социални мрежи")
+  social_facebook_url?:  string
+  social_instagram_url?: string
+  social_youtube_url?:   string
+  social_tiktok_url?:    string
 }
 
 interface Handbook {
@@ -351,6 +358,19 @@ async function getPageData() {
         ...(s.trust_strip_items  && { trust_strip_items:  s.trust_strip_items }),
         ...(s.social_proof_items && { social_proof_items: s.social_proof_items }),
         ...(s.footer_about_text  && { footer_about_text:  s.footer_about_text }),
+        // ✅ НОВО: без тези редове settings.social_facebook_url и т.н. никога
+        //    не стигат до SiteFooter — падаше винаги на DEFAULTS, независимо
+        //    какво е записано в SettingsTab/базата.
+        //    ⚠️ Умишлено !== undefined, не truthy проверка (за разлика от
+        //    редовете по-горе) — SiteFooter различава "изрично изчистено от
+        //    admin" (празен string → скрива иконата) от "никога не е
+        //    задавано" (undefined → пада на default линка). Truthy проверка
+        //    (&&) би третирала празен string като "полето не съществува" и
+        //    щеше да върне default вместо да скрие иконата.
+        ...(s.social_facebook_url  !== undefined && { social_facebook_url:  s.social_facebook_url }),
+        ...(s.social_instagram_url !== undefined && { social_instagram_url: s.social_instagram_url }),
+        ...(s.social_youtube_url   !== undefined && { social_youtube_url:   s.social_youtube_url }),
+        ...(s.social_tiktok_url    !== undefined && { social_tiktok_url:    s.social_tiktok_url }),
         ...(s.cta_title          && { cta_title:          s.cta_title }),
         ...(s.cta_subtitle       && { cta_subtitle:       s.cta_subtitle }),
         ...(s.currency           && { currency:           s.currency }),
@@ -1559,56 +1579,11 @@ export default async function HomePage() {
       {faq.length > 0 && <FaqSection faq={faq} categories={faqCategories} />}
 
       {/* ══ FOOTER ═════════════════════════════════════════════════════════════ */}
-      <footer className="site-footer">
-        <div style={{ maxWidth: 880, margin: '0 auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 28, marginBottom: 36, textAlign: 'left' }}>
-            <div>
-              <div style={{ fontSize: 26, marginBottom: 8 }}>🍅</div>
-              <div style={{ fontFamily: "var(--font-cormorant), serif", fontSize: 19, color: '#fff', fontWeight: 700, marginBottom: 4 }}>Denny Angelow</div>
-              <div style={{ fontSize: 10, color: '#86efac', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Агро Консултант</div>
-              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>{settings.footer_about_text}</p>
-            </div>
-            <div>
-              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>Наръчници</div>
-              {handbooks.map(hb => (
-                <a key={hb.slug} href={`/naruchnik/${hb.slug}`} className="footer-link">{hb.emoji} {hb.title}</a>
-              ))}
-            </div>
-            <div>
-              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>Партньори</div>
-              {[
-                { label: '🌿 AgroApteki.bg', href: `https://agroapteki.com/${AFF}` },
-                { label: '🏡 Oranjeriata.bg', href: 'https://oranjeriata.com/' },
-                { label: '🌱 AtlasAgro.eu',   href: 'https://atlasagro.eu/' },
-              ].map(l => (
-                <a key={l.label} href={l.href} target="_blank" rel="nofollow sponsored noopener" className="footer-link">{l.label}</a>
-              ))}
-            </div>
-            <div>
-              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>Контакт</div>
-              <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.6)', marginBottom: 6 }}>
-                📧 <a href={`mailto:${settings.site_email}`} style={{ color: '#86efac', fontWeight: 600, textDecoration: 'none' }}>{settings.site_email}</a>
-              </p>
-              {settings.site_phone && (
-                <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.6)', marginBottom: 6 }}>
-                  📞 <a href={`tel:${settings.site_phone}`} style={{ color: '#86efac', fontWeight: 600, textDecoration: 'none' }}>{settings.site_phone}</a>
-                </p>
-              )}
-              {settings.whatsapp_number && (
-                <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.6)', marginBottom: 6 }}>
-                  💬 <a href={`https://wa.me/${settings.whatsapp_number}`} target="_blank" rel="noopener" style={{ color: '#86efac', fontWeight: 600, textDecoration: 'none' }}>WhatsApp</a>
-                </p>
-              )}
-              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>Пон–Пет, 9:00–17:00 ч.</p>
-            </div>
-          </div>
-          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', marginBottom: 18 }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>© 2025–2026 Denny Angelow · Всички права запазени</div>
-            <a href="/admin" style={{ color: 'rgba(255,255,255,0.15)', textDecoration: 'none', fontSize: 11 }}>Admin</a>
-          </div>
-        </div>
-      </footer>
+      {/* ✅ Заменя ~50 реда дублиран hardcoded footer със споделения
+          SiteFooter — settings-driven контакти, динамични naruchnik/блог
+          линкове, консистентно с /naruchnik, /products, /blog, /produkti,
+          /produkt/[slug]. */}
+      <SiteFooter settings={settings} />
     </>
   )
 }

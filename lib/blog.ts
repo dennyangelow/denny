@@ -1,4 +1,12 @@
-// lib/blog.ts — v2
+// lib/blog.ts — v3
+// ✅ ПРОМЯНА спрямо v2: нов BlogTableBlock ('table') в BlogBlockType/
+//    BlogBlock union-а — истинска таблица за сравнения (напр. хуминови vs
+//    фулвови киселини) вместо bullet списък. estimateReadingTime() вече
+//    брои и думите в headers/rows на table блоковете (преди щяха тихо да
+//    тежат 0 думи). Рендирането е в app/blog/[slug]/BlogPostBody.tsx
+//    (case 'table'), редакцията — в app/admin/components/BlogTab.tsx
+//    (TableBlockEditor), стиловете — в app/blog/blog.css (.bp-table*).
+//
 // ✅ ПРОМЯНА спрямо v1:
 //   - Нов експортиран тип BlogListPost — леката форма на BlogPost, без
 //     'content', използвана от /blog списъка (виж app/blog/page.tsx v4).
@@ -20,6 +28,7 @@ export type BlogBlockType =
   | 'image'
   | 'quote'
   | 'list'
+  | 'table'
   | 'product_embed'
   | 'faq'
 
@@ -28,6 +37,17 @@ export interface BlogHeadingBlock   { type: 'heading'; level: 2 | 3; text: strin
 export interface BlogImageBlock     { type: 'image'; url: string; alt: string; caption?: string }
 export interface BlogQuoteBlock     { type: 'quote'; text: string; author?: string }
 export interface BlogListBlock      { type: 'list'; ordered: boolean; items: string[] }
+// ✅ НОВ — истинска таблица за сравнения (напр. хуминови vs фулвови
+//    киселини, продуктови сравнения), вместо bullet списък с дълги
+//    изречения на ред. Всяка клетка (headers + rows) минава през
+//    renderRichText() при рендиране в BlogPostBody.tsx, значи поддържа
+//    [текст](линк) синтаксис като paragraph/list/quote/faq.
+export interface BlogTableBlock {
+  type: 'table'
+  headers: string[]
+  rows: string[][]
+  caption?: string
+}
 export interface BlogProductEmbedBlock {
   type: 'product_embed'
   product_type: 'affiliate' | 'own'
@@ -53,6 +73,7 @@ export type BlogBlock =
   | BlogImageBlock
   | BlogQuoteBlock
   | BlogListBlock
+  | BlogTableBlock
   | BlogProductEmbedBlock
   | BlogFaqBlock
 
@@ -134,6 +155,9 @@ export function estimateReadingTime(content: BlogBlock[]): number {
     if (block.type === 'paragraph' || block.type === 'heading') return acc + block.text.split(/\s+/).filter(Boolean).length
     if (block.type === 'quote') return acc + block.text.split(/\s+/).filter(Boolean).length
     if (block.type === 'list') return acc + block.items.join(' ').split(/\s+/).filter(Boolean).length
+    // ✅ НОВО — headers + всички клетки на всеки ред, иначе таблица блок
+    //    тежи 0 думи в изчислението и подценява реалното четивно време.
+    if (block.type === 'table') return acc + [...block.headers, ...block.rows.flat()].join(' ').split(/\s+/).filter(Boolean).length
     if (block.type === 'faq') return acc + block.items.map(i => i.q + ' ' + i.a).join(' ').split(/\s+/).filter(Boolean).length
     return acc
   }, 0)

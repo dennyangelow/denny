@@ -21,9 +21,16 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // 2. ИЗЧИСТВАНЕ НА КЕША: 
-  // Това казва на Next.js да обнови началната страница веднага
-  revalidatePath('/') 
+  // 2. ИЗЧИСТВАНЕ НА КЕША:
+  // Това казва на Next.js да обнови засегнатите страници веднага.
+  // ✅ ДОБАВЕНО: /produkti, /blog и /produkt/[slug]//naruchnik/[slug]
+  //    (layout ниво) — settings вече управляват и "🛒 Количка по
+  //    страници" (SettingsTab), не само началната страница.
+  revalidatePath('/')
+  revalidatePath('/produkti')
+  revalidatePath('/blog')
+  revalidatePath('/produkt', 'layout')
+  revalidatePath('/naruchnik', 'layout')
 
   return NextResponse.json({ success: true })
 }

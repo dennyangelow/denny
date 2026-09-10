@@ -1,8 +1,15 @@
 'use client'
-// app/admin/components/BlogTab.tsx — v1
+// app/admin/components/BlogTab.tsx — v2
+// ✅ ПРОМЯНА спрямо v1: добавен 'table' block type (BLOCK_TYPE_LABELS,
+//    newBlock(), TableBlockEditor) — истинска таблица за сравнения вместо
+//    bullet списък, вижте съответната промяна в app/blog/[slug]/
+//    BlogPostBody.tsx (case 'table') и blog.css (.bp-table*).
+//    ⚠️ ИЗИСКВА добавка в lib/blog.ts — виж бележката до BlogBlock export-а
+//    там (не е включена в този файл, защото lib/blog.ts не ми е предоставен).
+//
 // Admin таб за блог постовете. Съдържанието се пази като масив от типизирани
-// блокове (paragraph/heading/image/quote/list/product_embed/faq) — не суров
-// HTML — за да контролираме напълно рендъринга на публичната страница
+// блокове (paragraph/heading/image/quote/list/table/product_embed/faq) — не
+// суров HTML — за да контролираме напълно рендъринга на публичната страница
 // (Next/Image, lazy loading, product карти), точно както описано в
 // lib/blog.ts и в SQL коментарите на blog_posts таблицата.
 //
@@ -54,6 +61,7 @@ const BLOCK_TYPE_LABELS: Record<BlogBlock['type'], string> = {
   image:         '🖼️ Снимка',
   quote:         '❝ Цитат',
   list:          '• Списък',
+  table:         '▦ Таблица',
   product_embed: '🛒 Продуктова карта',
   faq:           '❓ FAQ',
 }
@@ -65,6 +73,9 @@ function newBlock(type: BlogBlock['type']): BlogBlock {
     case 'image':         return { type, url: '', alt: '', caption: '' }
     case 'quote':         return { type, text: '', author: '' }
     case 'list':          return { type, ordered: false, items: [] }
+    // ✅ НОВ — стартираме с 2 колони, за да не гледаш празен блок без
+    //    насока какво да пишеш; можеш да добавиш/махнеш колони отдолу.
+    case 'table':          return { type, headers: ['Показател', 'Стойност'], rows: [] }
     case 'product_embed': return { type, product_type: 'own', slug: '', note: '', pitch: '' }
     case 'faq':           return { type, items: [] }
   }
@@ -163,6 +174,11 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
             </div>
           )}
 
+          {block.type === 'table' && (
+            <TableBlockEditor headers={block.headers} rows={block.rows}
+              onChange={v => update(idx, { ...block, ...v })} />
+          )}
+
           {block.type === 'product_embed' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
@@ -232,6 +248,77 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
 const miniBtn: React.CSSProperties = {
   width: 24, height: 24, borderRadius: 6, border: 'none', background: '#eef2f7',
   color: '#374151', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+}
+
+// ✅ НОВ — редактор за 'table' блока. Колоните се управляват като текст,
+// по едно заглавие на ред (същия UX модел като 'list' items), а редовете
+// са repeat-able групи от input-и — по един на колона, за да не се
+// налага ръчно броене на запетаи/разделители при много колони. При
+// промяна на броя колони изравняваме дължината на вече въведените
+// редове (padding/truncate), за да не се разминат индексите при рендър.
+function TableBlockEditor({
+  headers, rows, onChange,
+}: {
+  headers: string[]
+  rows:    string[][]
+  onChange: (v: { headers: string[]; rows: string[][] }) => void
+}) {
+  const setHeaders = (text: string) => {
+    const newHeaders = text.split('\n').map(s => s.trim()).filter(Boolean)
+    const newRows = rows.map(r => {
+      const next = [...r]
+      while (next.length < newHeaders.length) next.push('')
+      return next.slice(0, newHeaders.length)
+    })
+    onChange({ headers: newHeaders, rows: newRows })
+  }
+  const updateCell = (ri: number, ci: number, val: string) => {
+    const next = rows.map(r => [...r])
+    next[ri] = [...next[ri]]
+    next[ri][ci] = val
+    onChange({ headers, rows: next })
+  }
+  const addRow    = () => onChange({ headers, rows: [...rows, headers.map(() => '')] })
+  const removeRow = (ri: number) => onChange({ headers, rows: rows.filter((_, i) => i !== ri) })
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>
+          Колони (по едно заглавие на ред)
+        </label>
+        <textarea rows={3} value={headers.join('\n')}
+          placeholder={'Показател\nХуминови киселини\nФулвови киселини'}
+          onChange={e => setHeaders(e.target.value)}
+          style={{ ...inp, fontSize: 13, resize: 'vertical' }} onFocus={focusGreen} onBlur={blurGray} />
+      </div>
+
+      {headers.length === 0 && (
+        <div style={{ fontSize: 12, color: '#9ca3af' }}>Добави поне една колона отгоре, за да въведеш редове.</div>
+      )}
+
+      {headers.length > 0 && rows.map((row, ri) => (
+        <div key={ri} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8, background: '#fff', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' }}>Ред {ri + 1}</span>
+            <button type="button" onClick={() => removeRow(ri)} style={{ ...miniBtn, background: '#fee2e2', color: '#991b1b' }}>✕</button>
+          </div>
+          {headers.map((h, ci) => (
+            <input key={ci} value={row[ci] || ''} placeholder={h}
+              onChange={e => updateCell(ri, ci, e.target.value)}
+              style={{ ...inp, fontSize: 13 }} onFocus={focusGreen} onBlur={blurGray} />
+          ))}
+        </div>
+      ))}
+
+      {headers.length > 0 && (
+        <button type="button" onClick={addRow}
+          style={{ padding: '7px', border: '1.5px dashed #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 12.5, color: '#6b7280', fontFamily: 'inherit', fontWeight: 600 }}>
+          + Добави ред
+        </button>
+      )}
+    </div>
+  )
 }
 
 function FaqBlockEditor({ items, onChange }: { items: { q: string; a: string }[]; onChange: (v: { q: string; a: string }[]) => void }) {

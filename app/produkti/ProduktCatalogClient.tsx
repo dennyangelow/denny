@@ -10,6 +10,12 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import type { AffiliateProduct } from '@/lib/affiliate'
 import { getRating } from '@/lib/affiliate'
+// ✅ НОВО: обединеният header + admin-управляемата конфигурация за
+//    количката на страници без количка (виж lib/header-cart.ts)
+import SiteHeader from '@/components/layout/SiteHeader'
+import type { HeaderCartConfig } from '@/lib/header-cart'
+// ✅ НОВО: заменя минималния хардкоднат footer (само copyright) по-долу
+import SiteFooter from '@/components/layout/SiteFooter'
 // ⚠️ ФИКС (LCP 3.9s / PageSpeed Insights, produkti mobile): картите тук
 // ползваха суров <img>, не SafeImg → нула next/image оптимизация (без
 // WebP/AVIF, без srcset) на РЕАЛНИЯ каталог с продукти. Homepage вече
@@ -28,6 +34,11 @@ interface Props {
   categories:      string[]
   initialVisible?: number
   initialSort?:    SortMode
+  // ✅ НОВО: конфигурация за количката в менюто, подадена от page.tsx
+  //    (getSettings() + getHeaderCartConfig('produkti'))
+  headerCart?:     HeaderCartConfig
+  // ✅ НОВО: подава се на SiteFooter за settings-driven контакти
+  settings?:       Record<string, string>
 }
 
 // ✅ Групиране на тесните SEO категории в 6 разбираеми "чадър" филтъра.
@@ -233,25 +244,18 @@ export function ProduktCatalogClient({
   categories,
   initialVisible = BATCH,
   initialSort = 'popular',
+  headerCart,
+  settings,
 }: Props) {
   const [activeFilter, setActiveFilter] = useState<string>('all')
   const [search,       setSearch]       = useState('')
   const [searchFocus,  setSearchFocus]  = useState(false)
   const [sortMode,     setSortMode]     = useState<SortMode>(initialSort)
-  const [scrolled,     setScrolled]     = useState(false)
-  const [mobileMenu,   setMobileMenu]   = useState(false)
   const [visible,      setVisible]      = useState(initialVisible)
   const [loading,      setLoading]      = useState(false)
 
   const searchRef    = useRef<HTMLInputElement>(null)
   const dropdownRef  = useRef<HTMLDivElement>(null)
-
-  // ── Header scroll ────────────────────────────────────────────────────────
-  useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 30)
-    window.addEventListener('scroll', fn, { passive: true })
-    return () => window.removeEventListener('scroll', fn)
-  }, [])
 
   // ── Затваряне на dropdown при клик извън него ────────────────────────────
   useEffect(() => {
@@ -397,43 +401,14 @@ export function ProduktCatalogClient({
       overflowX:  'hidden',
     }}>
 
-      {/* ══ HEADER ══ */}
-      <header className={`site-header${scrolled ? ' scrolled' : ''}`}>
-        <a href="/" className="header-logo">
-          <span style={{ fontSize:24 }}>🍅</span>
-          <div>
-            <div className="logo-name">Denny Angelow</div>
-            <div className="logo-sub">Агро Консултант</div>
-          </div>
-        </a>
-        <nav className="header-nav">
-          <a href="/"              className="nav-link">Начало</a>
-          <a href="/produkti"      className="nav-link" style={{ color:'#16a34a', fontWeight:700 }}>Продукти</a>
-          <a href="/#atlas"        className="nav-link">Atlas Terra</a>
-          <a href="/#testimonials" className="nav-link">Отзиви</a>
-          <a href="/#faq"          className="nav-link">Въпроси</a>
-        </nav>
-        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-          <a href="/" className="cart-btn" style={{ textDecoration:'none' }}>← Начало</a>
-          <button className="mob-btn" onClick={() => setMobileMenu(v=>!v)} aria-label="Меню">
-            {mobileMenu ? '✕' : '☰'}
-          </button>
-        </div>
-      </header>
-
-      {mobileMenu && (
-        <div className="mob-nav">
-          {([
-            ['/', 'Начало'],
-            ['/produkti', '📦 Всички продукти'],
-            ['/#atlas', 'Atlas Terra'],
-            ['/#testimonials', 'Отзиви'],
-            ['/#faq', 'Въпроси'],
-          ] as [string, string][]).map(([h, l]) => (
-            <a key={h} href={h} className="mob-nav-link" onClick={() => setMobileMenu(false)}>{l}</a>
-          ))}
-        </div>
-      )}
+      {/* ══ HEADER — обединен компонент; количката е изключена по подразбиране
+          тук и се управлява от админ панела (SettingsTab → "🛒 Количка по
+          страници"). ══ */}
+      <SiteHeader
+        showCart={headerCart?.enabled ?? false}
+        cartFallbackLabel={headerCart?.label}
+        cartFallbackHref={headerCart?.href}
+      />
 
       {/* ══ HERO ══ */}
       <div className="pk-hero">
@@ -813,16 +788,8 @@ export function ProduktCatalogClient({
 
       </div>
 
-      <footer style={{
-        textAlign: 'center', padding: '20px 24px',
-        fontSize: 12.5, color: '#9ca3af',
-        borderTop: '1px solid #f1f5f9',
-      }}>
-        © 2025–2026 Denny Angelow ·{' '}
-        <a href="/" style={{ color:'#16a34a', textDecoration:'none', fontWeight:600 }}>
-          dennyangelow.com
-        </a>
-      </footer>
+      {/* ✅ Заменя минималния copyright-only footer с пълния споделен SiteFooter */}
+      <SiteFooter settings={settings} />
 
     </div>
   )

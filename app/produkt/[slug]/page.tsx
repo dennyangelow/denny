@@ -1,7 +1,9 @@
-// app/produkt/[slug]/page.tsx — v8
-// ✅ ПОПРАВКИ спрямо v7:
-//   - parseHowToUseServer премахната — използва се parseHowToUse от @/lib/affiliate
-//   - Няма повече дублиране на логиката между server и client
+// app/produkt/[slug]/page.tsx — v9
+// ✅ ПОПРАВКИ спрямо v8:
+//   - НОВО: getSettings() + getHeaderCartConfig('produkt') — количката в
+//     менюто на тази страница вече се управлява от админ панела
+//     (SettingsTab → "🛒 Количка по страници"), вместо да е хардкодната
+//     изключена. Подадено надолу като headerCart prop.
 
 import { Metadata }           from 'next'
 import { notFound }           from 'next/navigation'
@@ -9,6 +11,9 @@ import { supabaseAdmin }      from '@/lib/supabase'
 import AffiliateProduktClient from './AffiliateProduktClient'
 import type { AffiliateProduct } from '@/lib/affiliate'
 import { getRating, getReviewCount, hasRealRating, parseHowToUse, getAllImages } from '@/lib/affiliate'
+// ✅ НОВО
+import { getSettings } from '@/lib/settings'
+import { getHeaderCartConfig } from '@/lib/header-cart'
 
 export const revalidate = 300
 
@@ -146,8 +151,16 @@ export default async function ProduktPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug }             = await params
-  const { product, related } = await getProduct(slug)
+  // ✅ Паралелни заявки — продукт + settings (за headerCart конфигурацията)
+  const [{ product, related }, settings] = await Promise.all([
+    getProduct(slug),
+    getSettings(),
+  ])
   if (!product) notFound()
+
+  // ✅ НОВО: количката в менюто тук е изключена по подразбиране —
+  //    управлявана от админ панела (SettingsTab → "🛒 Количка по страници")
+  const headerCart = getHeaderCartConfig(settings, 'produkt')
 
   // ✅ ФИКС: махнат hardcoded fallback от 847 отзива — измислена бройка,
   //    която се показваше за всеки продукт без реален review_count.
@@ -344,6 +357,8 @@ export default async function ProduktPage({
         reviewCount={reviewCount}
         showRating={showRating}
         images={allImages}
+        headerCart={headerCart}
+        settings={settings}
       />
     </>
   )

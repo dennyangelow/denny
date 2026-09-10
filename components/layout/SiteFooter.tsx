@@ -1,19 +1,46 @@
 'use client'
-// components/layout/SiteFooter.tsx — v4
-// ✅ ПОПРАВКИ спрямо v3:
-//   - Нова колона "Блог" с последните 4 поста от /api/blog?limit=4
-//   - Грид разширен на 5 колони (1.3fr + 4×1fr) за да побере новата колона
+// components/layout/SiteFooter.tsx — v8
+// ✅ ПРОМЯНА спрямо v7:
+//   - Социалните икони (FB/IG/YT/TT) вече са истински SVG лога, не букви.
+//   - Линковете им вече идват от settings (SettingsTab → "📱 Социални
+//     мрежи") — social_facebook_url/social_instagram_url/
+//     social_youtube_url/social_tiktok_url. Ако полето не е зададено в
+//     settings изобщо → пада на DEFAULTS (старите линкове). Ако admin го
+//     е изчистил нарочно (празен string) → иконата на тази мрежа не се
+//     показва изобщо, вместо да сочи към грешен/случаен акаунт.
+//   - Праг за Блог showcase свален от 5 на 4: ≤3 статии → компактна 4-та
+//     колона в горния ред; ≥4 статии → widescreen секция под него, вече
+//     3 колони (не 2), до 9 статии общо (/api/blog?limit=9).
+//
+// ✅ ПРОМЯНА спрямо v4: optional `settings` prop — контактите
+//    (site_email/site_phone/whatsapp_number) и footer_about_text вече
+//    могат да идват от settings таблицата, вместо да са hardcoded само
+//    тук. Ако settings не е подаден/полето липсва — пада на старите
+//    hardcoded стойности (DEFAULTS по-долу).
+//
 // ✅ ПОПРАВКА спрямо v2:
-//   - Наръчниците вече се теглят динамично от /api/naruchnici вместо твърдо
-//     закодирани линкове — старата версия сочеше към грешен slug
-//     (krastavici-visoki-dobivy вместо реалния krastavici-naruchnik) и щеше
-//     да продължи да се чупи всеки път, щом добавиш/преименуваш наръчник.
-//     Сега футерът навсякъде показва точно каквото е в базата — не може да
-//     остане разсинхронизиран.
+//   - Наръчниците се теглят динамично от /api/naruchnici вместо твърдо
+//     закодирани линкове — никога не сочи към остарял/грешен slug.
 
 import { useState, useEffect } from 'react'
 
 const AFF = 'ref=dennyangelow'
+
+// ✅ Праг за превключване между компактна колона (≤3) и широк showcase (≥4).
+const BLOG_SHOWCASE_THRESHOLD = 4
+
+// ✅ Fallback стойности — ползват се, ако settings prop не е подаден
+//    или конкретното поле липсва в него (undefined — не изчистено нарочно).
+const DEFAULTS = {
+  footer_about_text:   'Помагам на фермери да отглеждат по-здрави растения с проверени органични методи и правилна защита.',
+  site_email:          'support@dennyangelow.com',
+  site_phone:          '+359876238623',
+  whatsapp_number:     '359876238623',
+  social_facebook_url:  'https://www.facebook.com/dennyangelow',
+  social_instagram_url: 'https://www.instagram.com/dennyangelow',
+  social_youtube_url:   'https://www.youtube.com/@dennyangelow',
+  social_tiktok_url:    'https://www.tiktok.com/@dennyangelow',
+}
 
 interface NaruchnikLink { slug: string; title: string; category?: string }
 
@@ -28,7 +55,60 @@ function emojiFor(category?: string): string {
 
 interface BlogLink { slug: string; title: string }
 
-export default function SiteFooter() {
+interface Props {
+  // ✅ По избор — приема или плоския Record<string,string> от
+  //    getSettings()/lib/settings.ts, ИЛИ типизиран settings обект (напр.
+  //    SiteSettings от OwnProduktClient.tsx), стига да съдържа тези полета
+  //    като string. Тесен интерфейс вместо Record<string,string> нарочно —
+  //    Record<string,string> изисква index signature от подадения обект,
+  //    което SiteSettings (типизиран интерфейс с числови полета като
+  //    shipping_econt) не удовлетворява и би гръмнало TypeScript.
+  settings?: {
+    footer_about_text?:    string
+    site_email?:           string
+    site_phone?:            string
+    whatsapp_number?:      string
+    social_facebook_url?:  string
+    social_instagram_url?: string
+    social_youtube_url?:   string
+    social_tiktok_url?:    string
+  }
+}
+
+// ─── Социални икони — прости, разпознаваеми SVG лога (currentColor) ──────────
+function FacebookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+      <path d="M13.5 21.9v-8.1h2.7l.4-3.2h-3.1V8.6c0-.9.3-1.6 1.7-1.6h1.7V4.1c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.3H7.4v3.2H10v8.1h3.5z"/>
+    </svg>
+  )
+}
+function InstagramIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5"/>
+      <circle cx="12" cy="12" r="4.6"/>
+      <circle cx="17.7" cy="6.3" r="1" fill="currentColor" stroke="none"/>
+    </svg>
+  )
+}
+function YoutubeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <rect x="1.5" y="5" width="21" height="14" rx="4"/>
+      <path d="M10 8.7l6 3.3-6 3.3z" fill="currentColor" stroke="none"/>
+    </svg>
+  )
+}
+function TiktokIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+      <path d="M16.6 2c.3 1.9 1.5 3.5 3.3 4.2.5.2 1 .3 1.5.3v3.1c-1.6 0-3.1-.5-4.4-1.4v6.9c0 3.5-2.8 6.3-6.3 6.3s-6.3-2.8-6.3-6.3c0-3.4 2.7-6.2 6.1-6.3v3.2c-1.7.1-3 1.5-3 3.1 0 1.7 1.4 3.1 3.1 3.1s3.1-1.4 3.1-3.1V2h3z"/>
+    </svg>
+  )
+}
+
+export default function SiteFooter({ settings }: Props) {
   const [naruchnici, setNaruchnici] = useState<NaruchnikLink[]>([])
   const [blogPosts,  setBlogPosts]  = useState<BlogLink[]>([])
 
@@ -45,11 +125,11 @@ export default function SiteFooter() {
     return () => { cancelled = true }
   }, [])
 
-  // ✅ Последните 4 блог поста — прясно съдържание във футъра на всяка страница,
-  //    вътрешни линкове към /blog/[slug] от целия сайт.
+  // ✅ До 9 последни блог поста — таван за showcase режима (3×3).
+  //    Компактният режим показва само първите 3 от същия списък.
   useEffect(() => {
     let cancelled = false
-    fetch('/api/blog?limit=4')
+    fetch('/api/blog?limit=9')
       .then(res => res.json())
       .then(data => {
         if (cancelled) return
@@ -60,6 +140,29 @@ export default function SiteFooter() {
     return () => { cancelled = true }
   }, [])
 
+  // ✅ settings[key] → DEFAULTS[key] → никога undefined/празно в JSX-а
+  const aboutText      = settings?.footer_about_text?.trim() || DEFAULTS.footer_about_text
+  const email          = settings?.site_email?.trim()        || DEFAULTS.site_email
+  const phone          = settings?.site_phone?.trim()        || DEFAULTS.site_phone
+  const whatsappNumber = settings?.whatsapp_number?.trim()   || DEFAULTS.whatsapp_number
+
+  // ✅ Социални линкове: undefined (полето изобщо не е в settings) → default.
+  //    Изрично празен string (admin е изчистил полето) → мрежата се крие.
+  const socialDefs = [
+    { key: 'facebook',  label: 'Facebook',  Icon: FacebookIcon,
+      url: settings?.social_facebook_url  !== undefined ? settings.social_facebook_url.trim()  : DEFAULTS.social_facebook_url },
+    { key: 'instagram', label: 'Instagram', Icon: InstagramIcon,
+      url: settings?.social_instagram_url !== undefined ? settings.social_instagram_url.trim() : DEFAULTS.social_instagram_url },
+    { key: 'youtube',   label: 'YouTube',   Icon: YoutubeIcon,
+      url: settings?.social_youtube_url   !== undefined ? settings.social_youtube_url.trim()   : DEFAULTS.social_youtube_url },
+    { key: 'tiktok',    label: 'TikTok',    Icon: TiktokIcon,
+      url: settings?.social_tiktok_url    !== undefined ? settings.social_tiktok_url.trim()    : DEFAULTS.social_tiktok_url },
+  ].filter(s => s.url.length > 0)
+
+  const hasBlog     = blogPosts.length > 0
+  const isShowcase  = blogPosts.length >= BLOG_SHOWCASE_THRESHOLD
+  const compactBlog = hasBlog && !isShowcase
+
   return (
     <footer suppressHydrationWarning style={{
       background: 'linear-gradient(180deg, #0a1f12 0%, #051a0d 100%)',
@@ -69,14 +172,33 @@ export default function SiteFooter() {
     }}>
       <style suppressHydrationWarning>{`
         .sf-inner { max-width: 1060px; margin: 0 auto; }
-        .sf-grid {
+
+        /* ── Горен ред: Лого · Наръчници · Партньори+Контакт (+ Блог, ако е компактен) ── */
+        .sf-top-grid {
           display: grid;
-          grid-template-columns: 1.3fr repeat(4, 1fr);
-          gap: 30px; margin-bottom: 40px;
+          grid-template-columns: 1.1fr 1fr 1.2fr;
+          gap: 30px; margin-bottom: 36px;
         }
-        @media (max-width: 1000px) { .sf-grid { grid-template-columns: 1fr 1fr 1fr; gap: 26px; } }
-        @media (max-width: 820px) { .sf-grid { grid-template-columns: 1fr 1fr; gap: 28px; } }
-        @media (max-width: 480px) { .sf-grid { grid-template-columns: 1fr; } }
+        .sf-top-grid--with-blog { grid-template-columns: 1.1fr 1fr 1.2fr 1fr; }
+        @media (max-width: 1050px) { .sf-top-grid--with-blog { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 900px) {
+          .sf-top-grid { grid-template-columns: 1fr 1fr; gap: 26px; }
+          .sf-top-grid--with-blog { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 520px) {
+          .sf-top-grid, .sf-top-grid--with-blog { grid-template-columns: 1fr; }
+        }
+
+        /* ── Блог showcase: широка секция, под горния ред, 3 колони × статии (до 9) ── */
+        .sf-blog-section { margin-bottom: 36px; padding-top: 30px; border-top: 1px solid rgba(255,255,255,.07); }
+        .sf-blog-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 4px 34px;
+        }
+        @media (max-width: 820px) { .sf-blog-grid { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 560px) { .sf-blog-grid { grid-template-columns: 1fr; } }
+
         .sf-col-title {
           font-size: 10px; font-weight: 800; color: rgba(255,255,255,.35);
           letter-spacing: .1em; text-transform: uppercase; margin-bottom: 14px;
@@ -86,14 +208,26 @@ export default function SiteFooter() {
           text-decoration: none; padding: 4px 0; transition: color .15s; line-height: 1.5;
         }
         .sf-link:hover { color: #86efac; }
+        .sf-blog-link {
+          display: block; font-size: 13.5px; color: rgba(255,255,255,.5);
+          text-decoration: none; padding: 7px 0; transition: color .15s; line-height: 1.4;
+          border-bottom: 1px solid rgba(255,255,255,.05);
+        }
+        .sf-blog-link:hover { color: #86efac; }
         .sf-social {
           display: flex; align-items: center; justify-content: center;
           width: 34px; height: 34px; border-radius: 9px;
           background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.09);
-          text-decoration: none; font-size: 11px; font-weight: 800; color: rgba(255,255,255,.6);
-          transition: background .2s, transform .2s;
+          text-decoration: none; color: rgba(255,255,255,.6);
+          transition: background .2s, transform .2s, color .2s;
         }
-        .sf-social:hover { background: rgba(74,222,128,.15); color: #86efac; transform: translateY(-2px); }
+        .sf-social:hover { transform: translateY(-2px); }
+        /* ✅ Brand-цветове при hover — всяка мрежа в своя разпознаваем цвят,
+           вместо единен зелен акцент за всички. */
+        .sf-social--facebook:hover  { background: rgba(24,119,242,.2);  color: #6ea8ff; }
+        .sf-social--instagram:hover { background: rgba(225,48,108,.2);  color: #f472b6; }
+        .sf-social--youtube:hover   { background: rgba(255,0,0,.18);    color: #ff6b6b; }
+        .sf-social--tiktok:hover    { background: rgba(255,255,255,.18); color: #fff; }
         .sf-socials { display: flex; gap: 8px; flex-wrap: wrap; }
         .sf-divider { height: 1px; background: rgba(255,255,255,.07); margin-bottom: 20px; }
         .sf-bottom {
@@ -104,24 +238,23 @@ export default function SiteFooter() {
       `}</style>
 
       <div className="sf-inner">
-        <div className="sf-grid">
+        <div className={`sf-top-grid${compactBlog ? ' sf-top-grid--with-blog' : ''}`}>
           <div>
             <div style={{ fontSize: 28, marginBottom: 10 }}>🍅</div>
             <div style={{ fontFamily: "var(--font-cormorant), serif", fontSize: 20, color: '#fff', fontWeight: 700, marginBottom: 3, lineHeight: 1.2 }}>Denny Angelow</div>
             <div style={{ fontSize: 9.5, color: '#86efac', fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', marginBottom: 12 }}>Агро Консултант</div>
-            <p style={{ fontSize: 13, color: 'rgba(255,255,255,.42)', lineHeight: 1.7, maxWidth: 240, marginBottom: 18 }}>
-              Помагам на фермери да отглеждат по-здрави растения с проверени органични методи и правилна защита.
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,.42)', lineHeight: 1.7, maxWidth: 320, marginBottom: 18 }}>
+              {aboutText}
             </p>
-            <div className="sf-socials">
-              {[
-                ['https://www.facebook.com/dennyangelow', 'FB', 'Facebook'],
-                ['https://www.instagram.com/dennyangelow', 'IG', 'Instagram'],
-                ['https://www.youtube.com/@dennyangelow', 'YT', 'YouTube'],
-                ['https://www.tiktok.com/@dennyangelow', 'TT', 'TikTok'],
-              ].map(([href, label, title]) => (
-                <a key={href} href={href} target="_blank" rel="noopener" className="sf-social" aria-label={title} title={title}>{label}</a>
-              ))}
-            </div>
+            {socialDefs.length > 0 && (
+              <div className="sf-socials">
+                {socialDefs.map(s => (
+                  <a key={s.key} href={s.url} target="_blank" rel="noopener" className={`sf-social sf-social--${s.key}`} aria-label={s.label} title={s.label}>
+                    <s.Icon />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -139,37 +272,50 @@ export default function SiteFooter() {
             <a href="/#faq" className="sf-link">Въпроси и отговори</a>
           </div>
 
-          <div>
-            <div className="sf-col-title">Блог</div>
-            {/* ✅ Последните 4 поста — прясно съдържание + вътрешни линкове от футъра на всяка страница */}
-            {blogPosts.length === 0 && (
-              <a href="/blog" className="sf-link">Виж всички статии →</a>
-            )}
-            {blogPosts.map(p => (
-              <a key={p.slug} href={`/blog/${p.slug}`} className="sf-link">
-                📝 {p.title}
-              </a>
-            ))}
-            {blogPosts.length > 0 && (
-              <a href="/blog" className="sf-link" style={{ color: '#86efac', fontWeight: 700 }}>Виж всички →</a>
-            )}
-          </div>
-
-          <div>
+          <div className="sf-contact">
             <div className="sf-col-title">Партньори</div>
             <a href={`https://agroapteki.com/${AFF}`} target="_blank" rel="nofollow sponsored noopener" className="sf-link">🌿 AgroApteki.bg</a>
             <a href="https://oranjeriata.com/" target="_blank" rel="nofollow sponsored noopener" className="sf-link">🏡 Oranjeriata.bg</a>
             <a href="https://atlasagro.eu/" target="_blank" rel="nofollow sponsored noopener" className="sf-link">🌱 AtlasAgro.eu</a>
-          </div>
-
-          <div className="sf-contact">
+            <div style={{ height: 10 }} />
             <div className="sf-col-title">Контакт</div>
-            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📧 <a href="mailto:support@dennyangelow.com">support@dennyangelow.com</a></p>
-            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📞 <a href="tel:+359876238623">+359 876 238 623</a></p>
-            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>💬 <a href="https://wa.me/359876238623" target="_blank" rel="noopener">WhatsApp</a></p>
+            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📧 <a href={`mailto:${email}`}>{email}</a></p>
+            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📞 <a href={`tel:${phone}`}>{phone}</a></p>
+            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>💬 <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noopener">WhatsApp</a></p>
             <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.6 }}>Пон–Пет, 9:00–17:00 ч.</p>
           </div>
+
+          {/* ✅ Компактен режим (≤3 статии) — Блог като 4-та тясна колона,
+              същата плътност като останалите. */}
+          {compactBlog && (
+            <div>
+              <div className="sf-col-title">Блог</div>
+              {blogPosts.slice(0, 3).map(p => (
+                <a key={p.slug} href={`/blog/${p.slug}`} className="sf-link">
+                  📝 {p.title}
+                </a>
+              ))}
+              <a href="/blog" className="sf-link" style={{ color: '#86efac', fontWeight: 700 }}>Виж всички →</a>
+            </div>
+          )}
         </div>
+
+        {/* ✅ Showcase режим (≥4 статии) — широка секция, 3 колони × статии, до 9. */}
+        {isShowcase && (
+          <div className="sf-blog-section">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div className="sf-col-title" style={{ marginBottom: 0 }}>📝 Последно в блога</div>
+              <a href="/blog" className="sf-link" style={{ color: '#86efac', fontWeight: 700, padding: 0 }}>Виж всички →</a>
+            </div>
+            <div className="sf-blog-grid">
+              {blogPosts.map(p => (
+                <a key={p.slug} href={`/blog/${p.slug}`} className="sf-blog-link">
+                  {p.title}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="sf-divider" />
         <div className="sf-bottom">

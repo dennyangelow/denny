@@ -1,12 +1,9 @@
-// app/naruchnik/[slug]/page.tsx — v14
-// ✅ ПОПРАВКИ спрямо v13:
-//   - params: Promise<{slug}> — Next.js 15 изисква async params (TypeScript fix)
-//   - OG image: добавен fallback към /og-image.jpg ако cover_image_url липсва
-//   - alternates: добавен languages { 'bg-BG' } (hreflang за всяка страница)
-//   - twitter: добавен fallback image
-//   - robots: добавени max-snippet, max-image-preview, max-video-preview (липсваха в generateMetadata)
-//   - BreadcrumbList: 3 стъпки с /naruchnici — САМО след като създадеш реална страница!
-//     Засега остава 2 стъпки.
+// app/naruchnik/[slug]/page.tsx — v15
+// ✅ ПОПРАВКИ спрямо v14:
+//   - НОВО: getSettings() + getHeaderCartConfig('naruchnik') — количката в
+//     менюто на наръчниците вече се управлява от админ панела
+//     (SettingsTab → "🛒 Количка по страници"), вместо да е хардкодната
+//     изключена (стария <SiteHeader variant="light" /> без cart изобщо).
 
 import { Metadata }      from 'next'
 import { notFound }      from 'next/navigation'
@@ -14,6 +11,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 import NaruchnikClient   from './NaruchnikClient'
 import type { Testimonial } from './NaruchnikClient'
 import { buildImageList } from '@/lib/images'
+// ✅ НОВО
+import { getSettings } from '@/lib/settings'
+import { getHeaderCartConfig } from '@/lib/header-cart'
 
 export const revalidate = 3600
 
@@ -154,8 +154,16 @@ export default async function NaruchnikPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug }        = await params
-  const { nar, others } = await getNaruchnik(slug)
+  // ✅ Паралелни заявки — наръчник + settings (за headerCart конфигурацията)
+  const [{ nar, others }, settings] = await Promise.all([
+    getNaruchnik(slug),
+    getSettings(),
+  ])
   if (!nar) notFound()
+
+  // ✅ НОВО: количката в менюто тук е изключена по подразбиране —
+  //    управлявана от админ панела (SettingsTab → "🛒 Количка по страници")
+  const headerCart = getHeaderCartConfig(settings, 'naruchnik')
 
   const canonicalUrl   = `${BASE_URL}/naruchnik/${nar.slug}`
   const downloadsCount = nar.downloads_count || 6000
@@ -313,6 +321,8 @@ export default async function NaruchnikPage({
         avgRating={avgRating}
         reviewsCount={reviewsCount}
         images={allImages}
+        headerCart={headerCart}
+        settings={settings}
       />
     </>
   )

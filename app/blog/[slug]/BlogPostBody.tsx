@@ -1,4 +1,11 @@
-// app/blog/[slug]/BlogPostBody.tsx — v5
+// app/blog/[slug]/BlogPostBody.tsx — v6
+// ✅ ПРОМЯНА спрямо v5:
+//   4) НОВ 'table' block type — истинска <table> за сравнения (напр.
+//      хуминови vs фулвови киселини, сравнение на продукти), вместо
+//      bullet списък. Виж case 'table' в Block(). Изисква съответна
+//      добавка в BlogBlock union-а (lib/blog.ts), admin block editor-а
+//      (BlogTab.tsx) и стилове (blog.css) — виж коментарите там.
+//
 // ✅ ПРОМЯНА спрямо v4:
 //   1) FIX бутони: ctaLabel за "own" продукти преди беше твърдо закачен
 //      за низа "Atlas Terra" независимо кой продукт реално е embed-нат —
@@ -210,6 +217,32 @@ function Block({
       return <ProductEmbed block={block} resolved={resolvedProducts[`${block.product_type}:${block.slug}`]} />
     case 'faq':
       return <FaqAccordion items={block.items} />
+    case 'table':
+      // ✅ НОВ блок тип — истинска <table> вместо bullet списък за
+      // сравнения (хуминови/фулвови, продуктови таблици и т.н.). Мобилен
+      // подход: хоризонтален скрол на самата таблица (.bp-table-wrap),
+      // не "картонизиране" на редовете — по-надежден за произволен брой
+      // колони и по-четим за реални данни. Първата колона е sticky, за да
+      // остане етикетът видим при скрол настрани (виж blog.css).
+      return (
+        <div className="bp-table-wrap">
+          <table className="bp-table">
+            <thead>
+              <tr>
+                {block.headers.map((h, i) => <th key={i}>{renderRichText(h)}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => <td key={ci}>{renderRichText(cell)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {block.caption && <p className="bp-table-caption">{block.caption}</p>}
+        </div>
+      )
     default:
       return null
   }

@@ -21,7 +21,10 @@ import type { Naruchnik } from './page'
 import type { ResolvedImage } from '@/lib/images'
 import { buildImageList } from '@/lib/images'
 import SiteHeader from '@/components/layout/SiteHeader'
+// ✅ НОВО: admin-управляемата конфигурация за количката (виж lib/header-cart.ts)
+import type { HeaderCartConfig } from '@/lib/header-cart'
 import SiteFooter from '@/components/layout/SiteFooter'
+import '@/app/homepage.css'
 
 // ✅ ФИКС: тези 2 шрифта се зареждаха през render-blocking @import вътре в
 //    inline <style> по-долу (~1650ms загуба, същия проблем като на produkt
@@ -52,6 +55,11 @@ interface Props {
   testimonials: Testimonial[]; downloadsCount: number; avgRating: number; reviewsCount: number
   // ✅ По желание — ако не е подадено, се извежда от nar директно
   images?: ResolvedImage[]
+  // ✅ НОВО: конфигурация за количката в менюто, подадена от page.tsx
+  //    (getSettings() + getHeaderCartConfig('naruchnik'))
+  headerCart?: HeaderCartConfig
+  // ✅ НОВО: подава се на SiteFooter за settings-driven контакти
+  settings?:   Record<string, string>
 }
 
 const CAT_EMOJI: Record<string, string> = {
@@ -107,7 +115,7 @@ function ScrollProgressBar() {
 }
 
 export default function NaruchnikClient({
-  nar, others, faqEntries, testimonials, downloadsCount, avgRating, reviewsCount, images,
+  nar, others, faqEntries, testimonials, downloadsCount, avgRating, reviewsCount, images, headerCart, settings,
 }: Props) {
   const emoji  = catEmoji(nar.category)
   const pdfUrl = nar.pdf_url || '#'
@@ -665,7 +673,14 @@ export default function NaruchnikClient({
       <div className={`${syne.variable} ${lora.variable}`}>
         <ScrollProgressBar />
 
-      <SiteHeader variant="light" />
+      {/* ✅ Количката е изключена по подразбиране тук — управляема от админ
+          панела (SettingsTab → "🛒 Количка по страници"). */}
+      <SiteHeader
+        variant="light"
+        showCart={headerCart?.enabled ?? false}
+        cartFallbackLabel={headerCart?.label}
+        cartFallbackHref={headerCart?.href}
+      />
 
       {/* Breadcrumb */}
       <nav className="n-bc" aria-label="Навигация">
@@ -896,7 +911,7 @@ export default function NaruchnikClient({
         </div>
       )}
 
-      <SiteFooter />
+      <SiteFooter settings={settings} />
       </div>
     </>
   )

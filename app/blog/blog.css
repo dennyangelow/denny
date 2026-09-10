@@ -1,4 +1,8 @@
-/* app/blog/blog.css — v2
+/* app/blog/blog.css — v3
+ * ✅ ПРОМЯНА спрямо v2: добавени .bp-table* стилове за новия 'table'
+ *   content block (истинска таблица за сравнения вместо bullet списък) —
+ *   виж case 'table' в BlogPostBody.tsx.
+ *
  * ⚠️ LCP елементът на всеки блог маршрут е различен от produkt/homepage:
  *   - /blog (списък)      → корицата на първата (featured) карта
  *   - /blog/[slug] (пост)  → корицата на поста (.bp-cover img)
@@ -201,6 +205,39 @@
   border-radius: 0 12px 12px 0; font-style: italic; color: #14532d; font-size: 16px; line-height: 1.7;
 }
 .bp-content blockquote cite { display: block; margin-top: 8px; font-size: 13px; font-style: normal; color: #16a34a; font-weight: 700; }
+
+/* ── Таблица за сравнение (table block) ──────────────────────────────────
+   ✅ НОВО. Мобилен подход: хоризонтален скрол на цялата таблица (не
+   "картонизиране" на редовете) — по-надежден за произволен брой колони и
+   по-четим за реални сравнителни данни. Първата колона е sticky, за да
+   остане етикетът ("Показател") видим, докато потребителят скролва
+   настрани към стойностите. */
+.bp-table-wrap {
+  margin: 24px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+}
+.bp-table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 480px; }
+.bp-table th, .bp-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #f1f5f9; line-height: 1.5; }
+.bp-table th {
+  background: #f0fdf4; color: #14532d; font-weight: 700; font-size: 12.5px;
+  text-transform: uppercase; letter-spacing: .02em; white-space: nowrap;
+}
+.bp-table tbody tr:last-child td { border-bottom: none; }
+.bp-table tbody tr:nth-child(even) { background: #fafaf8; }
+.bp-table th:first-child, .bp-table td:first-child {
+  position: sticky; left: 0; background: #fff; font-weight: 700; color: #14532d;
+  box-shadow: 1px 0 0 #f1f5f9;
+}
+.bp-table th:first-child { background: #f0fdf4; }
+.bp-table tbody tr:nth-child(even) td:first-child { background: #fafaf8; }
+.bp-table-caption { font-size: 12.5px; color: #9ca3af; text-align: center; margin: 8px 0 0; }
+@media (max-width: 480px) {
+  .bp-table { font-size: 13px; }
+  .bp-table th, .bp-table td { padding: 8px 10px; }
+}
 
 /* ── Product embed карта в поста (единичен продукт — хоризонтално) ──────── */
 .bp-product-embed { margin: 28px 0; border: 1.5px solid #bbf7d0; background: linear-gradient(135deg,#f0fdf4,#fff); border-radius: 16px; padding: 18px; display: flex; gap: 16px; align-items: center; }

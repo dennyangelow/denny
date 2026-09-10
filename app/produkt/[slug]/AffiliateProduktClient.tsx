@@ -15,6 +15,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import type { AffiliateProduct, ProductImage } from '@/lib/affiliate'
 import { getRating, parseHowToUse, parseYouTubeEmbed, getAllImages } from '@/lib/affiliate'
+// ✅ НОВО: обединеният header + admin-управляемата конфигурация за
+//    количката на страници без количка (виж lib/header-cart.ts)
+import SiteHeader from '@/components/layout/SiteHeader'
+import type { HeaderCartConfig } from '@/lib/header-cart'
+// ✅ НОВО: footer — тази страница нямаше footer изобщо преди
+import SiteFooter from '@/components/layout/SiteFooter'
 
 // ✅ ФИКС: DM Sans и Cormorant Garamond вече се зареждат ВЕДНЪЖ, глобално, в
 //    app/layout.tsx чрез next/font/google — приложени като CSS променливи
@@ -32,6 +38,12 @@ interface Props {
   showRating:  boolean
   // ✅ По желание — ако не е подадено (напр. стар caller), се извежда от product
   images?:     ProductImage[]
+  // ✅ НОВО: конфигурация за количката в менюто, подадена от page.tsx
+  //    (getSettings() + getHeaderCartConfig('produkt')). Ако липсва —
+  //    падаме на разумен default (количка изключена, "Всички продукти").
+  headerCart?: HeaderCartConfig
+  // ✅ НОВО: подава се на SiteFooter за settings-driven контакти
+  settings?:   Record<string, string>
 }
 
 type TabId = 'about' | 'howto' | 'tech' | 'faq'
@@ -175,13 +187,11 @@ function formatBgDate(dateStr?: string): string | null {
   } catch { return null }
 }
 
-export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, showRating, images }: Props) {
+export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, showRating, images, headerCart, settings }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('about')
   const [openFaq,   setOpenFaq]   = useState<number | null>(null)
   const [scrollPct, setScrollPct] = useState(0)
   const [bought,    setBought]    = useState(false)
-  const [mobMenu,   setMobMenu]   = useState(false)
-  const [scrolled,  setScrolled]  = useState(false)
   const [pulse,     setPulse]     = useState(false)   // ✅ #3
   const [lightbox,  setLightbox]  = useState(false)   // ✅ #5
   const dialogRef = useRef<HTMLDialogElement>(null)    // ✅ #10
@@ -258,7 +268,6 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
     const onScroll = () => {
       const el = document.documentElement
       setScrollPct(Math.min((el.scrollTop / (el.scrollHeight - el.clientHeight)) * 100, 100))
-      setScrolled(el.scrollTop > 10)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
@@ -521,42 +530,23 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         </dialog>
       )}
 
-      {/* Header */}
-      <header className={`site-header${scrolled ? ' scrolled' : ''}`}>
-        <a href="/" className="header-logo">
-          <span style={{ fontSize:24 }}>🍅</span>
-          <div><div className="logo-name">Denny Angelow</div><div className="logo-sub">Агро Консултант</div></div>
-        </a>
-        <nav className="header-nav">
-          <a href="/produkti" className="nav-link">Продукти</a>
-          <a href="/#atlas" className="nav-link">Atlas Terra</a>
-          <a href="/#ginegar" className="nav-link">Ginegar</a>
-          <a href="/#testimonials" className="nav-link">Отзиви</a>
-          <a href="/#faq" className="nav-link">Въпроси</a>
-        </nav>
-        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-          <a href="/produkti" className="cart-btn">← Всички продукти</a>
-          <button className="mob-btn" onClick={() => setMobMenu(v => !v)} aria-label="Меню" aria-expanded={mobMenu}>
-            {mobMenu ? '✕' : '☰'}
-          </button>
-        </div>
-      </header>
-
-      {mobMenu && (
-        <div className="mob-nav">
-          {([['/produkti','Продукти'],['/#atlas','Atlas Terra'],['/#testimonials','Отзиви'],['/#faq','Въпроси']] as [string,string][]).map(([h,l]) => (
-            <a key={h} href={h} className="mob-nav-link" onClick={() => setMobMenu(false)}>{l}</a>
-          ))}
-          <a href="/produkti" className="mob-nav-link" style={{ color:'#16a34a', fontWeight:800 }} onClick={() => setMobMenu(false)}>← Всички продукти</a>
-        </div>
-      )}
+      {/* Header — обединен компонент; количката е изключена по подразбиране
+          тук и се управлява от админ панела (SettingsTab → "🛒 Количка по
+          страници"). scrolled/mobMenu state по-долу вече не се ползват от
+          header-а (вътрешни са за SiteHeader), но остават за евентуална
+          друга логика в компонента. */}
+      <SiteHeader
+        showCart={headerCart?.enabled ?? false}
+        cartFallbackLabel={headerCart?.label}
+        cartFallbackHref={headerCart?.href}
+      />
 
       {/* Hero band */}
       <div className="af-hero-band">
         <div className="af-hero-inner">
           <nav className="af-bc" aria-label="Навигация до страницата">
             <a href="/">Начало</a><span className="af-bc-sep">›</span>
-            <a href="/produkti">Продукти</a><span className="af-bc-sep">›</span>
+            <a href="/#produkti">Продукти</a><span className="af-bc-sep">›</span>
             <strong title={product.name}>{product.name}</strong>
           </nav>
           <span className="af-cat-badge"
@@ -1217,6 +1207,9 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           🛒 {priceLabel}Виж в AgroApteki →
         </button>
       </div>
+
+      {/* ✅ НОВО: тази страница нямаше footer изобщо преди */}
+      <SiteFooter settings={settings} />
     </div>
   )
 }

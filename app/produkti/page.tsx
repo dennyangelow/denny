@@ -1,10 +1,9 @@
-// app/produkti/page.tsx — v6
-// ✅ ПОПРАВКИ спрямо v5:
-//   - getClickCounts() заменен с get_top_affiliate_clicks RPC (същата функция като homepage)
-//   - RPC филтрира partner='category' — категорийните кликове ВЕЧЕ НЕ замърсяват sort-а
-//   - RPC брои само последните 90 дни (days_back=90)
-//   - Колоната вече се казва "click_count" (не "count") — обновен ClickCountRow тип
-//   - Резултатът е идентичен с homepage → продуктите се нареждат еднакво и на двете места
+// app/produkti/page.tsx — v7
+// ✅ ПОПРАВКИ спрямо v6:
+//   - НОВО: getSettings() + getHeaderCartConfig('produkti') — количката в
+//     менюто на тази страница вече се управлява от админ панела
+//     (SettingsTab → "🛒 Количка по страници"). Подадено надолу като
+//     headerCart prop към ProduktCatalogClient.
 
 import { Metadata }              from 'next'
 import { supabaseAdmin }         from '@/lib/supabase'
@@ -12,6 +11,9 @@ import type { AffiliateProduct } from '@/lib/affiliate'
 import { ProduktCatalogClient }  from './ProduktCatalogClient'
 import '../homepage.css'
 import './produkti.css'
+// ✅ НОВО
+import { getSettings } from '@/lib/settings'
+import { getHeaderCartConfig } from '@/lib/header-cart'
 
 export const revalidate = 300
 
@@ -180,11 +182,16 @@ function buildProductSchemas(products: AffiliateProduct[]) {
 }
 
 export default async function ProduktiPage() {
-  // ✅ Паралелни заявки — по-бързо
-  const [products, clickCounts] = await Promise.all([
+  // ✅ Паралелни заявки — по-бързо. Добавен getSettings() за headerCart.
+  const [products, clickCounts, settings] = await Promise.all([
     getAllProducts(),
     getClickCounts(),  // ✅ вече ползва RPC — идентично с homepage
+    getSettings(),
   ])
+
+  // ✅ НОВО: количката в менюто тук е изключена по подразбиране —
+  //    управлявана от админ панела (SettingsTab → "🛒 Количка по страници")
+  const headerCart = getHeaderCartConfig(settings, 'produkti')
 
   const categories = Array.from(
     new Set(products.map(p => p.category_label).filter(Boolean))
@@ -215,6 +222,8 @@ export default async function ProduktiPage() {
         categories={categories}
         initialVisible={12}
         initialSort="popular"            // ✅ default: популярни
+        headerCart={headerCart}
+        settings={settings}
       />
     </>
   )
