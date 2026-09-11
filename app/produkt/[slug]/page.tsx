@@ -21,6 +21,38 @@ const BASE_URL    = 'https://dennyangelow.com'
 const AUTHOR_NAME = 'Denny Angelow'
 const FALLBACK_OG = `${BASE_URL}/og-image.jpg`
 
+// ✅ НОВО — лека форма на блог статия за секцията "Прочети повече".
+// Огледална на BlogArticleRef в app/products/[slug]/page.tsx.
+interface BlogArticleRef {
+  slug:                  string
+  title:                 string
+  excerpt?:              string
+  cover_image_url?:      string
+  cover_image_alt?:      string
+  reading_time_minutes?: number
+}
+
+async function getRelatedArticles(slug: string): Promise<BlogArticleRef[]> {
+  try {
+    // ✅ Affiliate продукти се свързват през related_affiliate_slugs (не
+    // related_product_slugs — това поле е за собствените Atlas Terra
+    // продукти, виж app/products/[slug]/page.tsx).
+    const { data, error } = await supabaseAdmin
+      .from('blog_posts')
+      .select('slug, title, excerpt, cover_image_url, cover_image_alt, reading_time_minutes')
+      .eq('active', true)
+      .eq('status', 'published')
+      .contains('related_affiliate_slugs', [slug])
+      .order('published_at', { ascending: false })
+      .limit(4)
+    if (error) throw error
+    return data || []
+  } catch (err) {
+    console.error('[produkt/page] getRelatedArticles:', err)
+    return []
+  }
+}
+
 async function getAllAffiliateProducts(): Promise<AffiliateProduct[]> {
   try {
     const { data, error } = await supabaseAdmin
@@ -152,9 +184,11 @@ export default async function ProduktPage({
 }) {
   const { slug }             = await params
   // ✅ Паралелни заявки — продукт + settings (за headerCart конфигурацията)
-  const [{ product, related }, settings] = await Promise.all([
+  //    + статии от блога, споменаващи този продукт (related_affiliate_slugs)
+  const [{ product, related }, settings, relatedArticles] = await Promise.all([
     getProduct(slug),
     getSettings(),
+    getRelatedArticles(slug),
   ])
   if (!product) notFound()
 
@@ -359,6 +393,7 @@ export default async function ProduktPage({
         images={allImages}
         headerCart={headerCart}
         settings={settings}
+        relatedArticles={relatedArticles}
       />
     </>
   )

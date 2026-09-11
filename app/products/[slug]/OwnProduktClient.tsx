@@ -75,12 +75,23 @@ interface OwnProduct {
   created_at?: string
   updated_at?: string
 }
+// ✅ НОВО — лека форма на блог статия за секцията "Прочети повече".
+interface BlogArticleRef {
+  slug:                  string
+  title:                 string
+  excerpt?:              string
+  cover_image_url?:      string
+  cover_image_alt?:      string
+  reading_time_minutes?: number
+}
 interface Props {
   product: OwnProduct; related: OwnProduct[]
   outOfStock: boolean; initialSettings: SiteSettings
   /** ✅ SSR-нати маркетинг настройки от page.tsx — премахва клиентския
    * fetch('/api/marketing') round-trip при mount (виж homepage фикса). */
   initialMarketingSettings?: MarketingSettings | null
+  /** ✅ НОВО — статии от блога, споменаващи този продукт (related_product_slugs). */
+  relatedArticles?: BlogArticleRef[]
 }
 
 // ─── Cart item type (съвпада с CartSystem CartItem) ──────────────────────────
@@ -226,6 +237,25 @@ function RelatedCard({ r, fmtFn }: { r: OwnProduct; fmtFn: (n: number) => string
   )
 }
 
+// ✅ НОВО — карта за секцията "Прочети повече", огледална на RelatedCard
+// визуално (същия .op-related-card look), но сочи към /blog/[slug] и
+// показва четивно време вместо цена.
+function ArticleCard({ a }: { a: BlogArticleRef }) {
+  return (
+    <Link href={`/blog/${a.slug}`} className="op-related-card op-article-card">
+      {a.cover_image_url && (
+        <img src={a.cover_image_url} alt={a.cover_image_alt || a.title} className="op-related-img" width={54} height={54} loading="lazy" />
+      )}
+      <div className="op-related-info">
+        <div className="op-related-name">{a.title}</div>
+        {a.excerpt && <div className="op-related-sub">{a.excerpt}</div>}
+        {a.reading_time_minutes && <div className="op-article-time">📖 {a.reading_time_minutes} мин четене</div>}
+      </div>
+      <span className="op-related-arrow" aria-hidden>→</span>
+    </Link>
+  )
+}
+
 // ✅ FaqAccordion: itemScope/itemProp атрибутите ПРЕМАХНАТИ
 // Inline microdata се дублираше с JSON-LD от page.tsx → грешки в Search Console
 function FaqAccordion({ q, a }: { q: string; a: string }) {
@@ -248,6 +278,7 @@ function FaqAccordion({ q, a }: { q: string; a: string }) {
 // ─── Main Component ───────────────────────────────────────────────────────────────
 export default function OwnProduktClient({
   product, related, outOfStock, initialSettings, initialMarketingSettings,
+  relatedArticles = [],
 }: Props) {
   const activeVariants = (product.variants || []).filter(v => v.active)
   const [selVariant, setSelVariant] = useState<ProductVariant | null>(
@@ -743,6 +774,21 @@ export default function OwnProduktClient({
                       <div className="op-why-text">{item.text}</div>
                     </div>
                   ))}
+                </div>
+              </section>
+            )}
+
+            {/* 7.5 Прочети повече — статии от блога, споменаващи продукта */}
+            {/* ✅ НОВО — related_product_slugs вече не е декоративно поле:
+                тегли се в page.tsx (contains-заявка към blog_posts) и
+                свързва продуктовата страница обратно към образователното
+                съдържание в блога. Тих fallback: ако няма статии, секцията
+                просто не се рендира — не чупи нищо. */}
+            {relatedArticles.length > 0 && (
+              <section className="op-content-card op-content-card--articles" aria-labelledby="s-articles">
+                <h2 id="s-articles" className="op-section-title">Прочети повече</h2>
+                <div className="op-related-list op-article-list">
+                  {relatedArticles.map(a => <ArticleCard key={a.slug} a={a} />)}
                 </div>
               </section>
             )}

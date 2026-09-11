@@ -173,13 +173,16 @@ export default function SiteFooter({ settings }: Props) {
       <style suppressHydrationWarning>{`
         .sf-inner { max-width: 1060px; margin: 0 auto; }
 
-        /* ── Горен ред: Лого · Наръчници · Партньори+Контакт (+ Блог, ако е компактен) ── */
+        /* ── Горен ред: Лого · Наръчници · Партньори+Контакт (+ Блог, ако е компактен) ──
+           ✅ Равни колони (1fr 1fr 1fr) и същия gap като .sf-blog-grid по-долу —
+           умишлено, за да се подравнят визуално двата реда една под друга,
+           вместо да изглеждат като два несвързани грида. */
         .sf-top-grid {
           display: grid;
-          grid-template-columns: 1.1fr 1fr 1.2fr;
+          grid-template-columns: repeat(3, 1fr);
           gap: 30px; margin-bottom: 36px;
         }
-        .sf-top-grid--with-blog { grid-template-columns: 1.1fr 1fr 1.2fr 1fr; }
+        .sf-top-grid--with-blog { grid-template-columns: repeat(4, 1fr); }
         @media (max-width: 1050px) { .sf-top-grid--with-blog { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 900px) {
           .sf-top-grid { grid-template-columns: 1fr 1fr; gap: 26px; }
@@ -194,7 +197,7 @@ export default function SiteFooter({ settings }: Props) {
         .sf-blog-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 4px 34px;
+          gap: 4px 30px;
         }
         @media (max-width: 820px) { .sf-blog-grid { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 560px) { .sf-blog-grid { grid-template-columns: 1fr; } }
@@ -203,6 +206,14 @@ export default function SiteFooter({ settings }: Props) {
           font-size: 10px; font-weight: 800; color: rgba(255,255,255,.35);
           letter-spacing: .1em; text-transform: uppercase; margin-bottom: 14px;
         }
+        /* ✅ Колоната става flex-column, за да може .sf-col-divider вътре да
+           се "закотви" с margin-top:auto в дъното ѝ — grid items по
+           подразбиране се разтягат (align-items:stretch) до височината на
+           най-високата колона в реда, значи и двете "Бързи линкове"/
+           "Контакт" ще паднат на едно и също ниво, без значение колко
+           наръчника/партньора има отгоре. */
+        .sf-col-flex { display: flex; flex-direction: column; }
+        .sf-col-divider { margin-top: auto; padding-top: 22px; }
         .sf-link {
           display: block; font-size: 13.5px; color: rgba(255,255,255,.5);
           text-decoration: none; padding: 4px 0; transition: color .15s; line-height: 1.5;
@@ -257,7 +268,7 @@ export default function SiteFooter({ settings }: Props) {
             )}
           </div>
 
-          <div>
+          <div className="sf-col-flex">
             <div className="sf-col-title">Наръчници</div>
             {/* ✅ Динамично от базата — никога не сочи към грешен/остарял slug */}
             {naruchnici.map(n => (
@@ -265,24 +276,30 @@ export default function SiteFooter({ settings }: Props) {
                 {emojiFor(n.category)} {n.title}
               </a>
             ))}
-            <div style={{ height: 10 }} />
-            <div className="sf-col-title">Бързи линкове</div>
-            <a href="/#produkti" className="sf-link">Atlas Terra продукти</a>
-            <a href="/#ginegar" className="sf-link">Ginegar найлони</a>
-            <a href="/#faq" className="sf-link">Въпроси и отговори</a>
+            {/* ✅ "Закотвено" в дъното на колоната (margin-top: auto) — за да
+                застане на точно същото ниво като "Контакт" в съседната
+                колона, без значение колко наръчника има в списъка отгоре. */}
+            <div className="sf-col-divider">
+              <div className="sf-col-title">Бързи линкове</div>
+              <a href="/#produkti" className="sf-link">Atlas Terra продукти</a>
+              <a href="/#ginegar" className="sf-link">Ginegar найлони</a>
+              <a href="/#faq" className="sf-link">Въпроси и отговори</a>
+            </div>
           </div>
 
-          <div className="sf-contact">
+          <div className="sf-contact sf-col-flex">
             <div className="sf-col-title">Партньори</div>
             <a href={`https://agroapteki.com/${AFF}`} target="_blank" rel="nofollow sponsored noopener" className="sf-link">🌿 AgroApteki.bg</a>
             <a href="https://oranjeriata.com/" target="_blank" rel="nofollow sponsored noopener" className="sf-link">🏡 Oranjeriata.bg</a>
             <a href="https://atlasagro.eu/" target="_blank" rel="nofollow sponsored noopener" className="sf-link">🌱 AtlasAgro.eu</a>
-            <div style={{ height: 10 }} />
-            <div className="sf-col-title">Контакт</div>
-            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📧 <a href={`mailto:${email}`}>{email}</a></p>
-            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📞 <a href={`tel:${phone}`}>{phone}</a></p>
-            <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>💬 <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noopener">WhatsApp</a></p>
-            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.6 }}>Пон–Пет, 9:00–17:00 ч.</p>
+            {/* ✅ Закотвено в дъното — подравнява се с "Бързи линкове" отляво */}
+            <div className="sf-col-divider">
+              <div className="sf-col-title">Контакт</div>
+              <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📧 <a href={`mailto:${email}`}>{email}</a></p>
+              <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>📞 <a href={`tel:${phone}`}>{phone}</a></p>
+              <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,.5)', marginBottom: 6 }}>💬 <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noopener">WhatsApp</a></p>
+              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.6 }}>Пон–Пет, 9:00–17:00 ч.</p>
+            </div>
           </div>
 
           {/* ✅ Компактен режим (≤3 статии) — Блог като 4-та тясна колона,

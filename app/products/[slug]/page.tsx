@@ -53,6 +53,18 @@ interface Testimonial { name: string; location: string; text: string; rating?: n
 interface StatItem    { label: string; value: string; sub?: string }
 interface CompItem    { name: string; value: string; pct?: number; note?: string }
 
+// ✅ НОВО — лека форма на блог статия за секцията "Прочети повече" на
+// продуктовата страница. Само колоните, нужни за карта — не пълния
+// content на статията (същия принцип като BlogListPost в lib/blog.ts).
+interface BlogArticleRef {
+  slug:                  string
+  title:                 string
+  excerpt?:              string
+  cover_image_url?:      string
+  cover_image_alt?:      string
+  reading_time_minutes?: number
+}
+
 interface Product {
   id:              string
   slug:            string
@@ -149,9 +161,9 @@ const PRODUCT_SELECT = [
 // ─── Data fetching ────────────────────────────────────────────────────────────
 async function getPageData(slug: string): Promise<{
   product: Product; related: Product[]; outOfStock: boolean; settings: SiteSettings
-  marketingSettings: MarketingSettings
+  marketingSettings: MarketingSettings; relatedArticles: BlogArticleRef[]
 } | null> {
-  const [settingsRes, productRes, variantsRes, allProductsRes, marketingRes] = await Promise.allSettled([
+  const [settingsRes, productRes, variantsRes, allProductsRes, marketingRes, blogArticlesRes] = await Promise.allSettled([
     supabaseAdmin.from('settings').select('key, value'),
     supabaseAdmin.from('products').select(PRODUCT_SELECT).eq('slug', slug).eq('active', true).single(),
     supabaseAdmin.from('product_variants').select('*').eq('active', true).order('sort_order'),
@@ -159,6 +171,17 @@ async function getPageData(slug: string): Promise<{
     // ✅ SSR-нато вместо клиентски fetch('/api/marketing') от OwnProduktClient/CartSystem
     // след hydration — виж homepage фикса за пълния разбор на проблема.
     supabaseAdmin.from('marketing_settings').select('config').eq('id', 1).maybeSingle(),
+    // ✅ НОВО — статии от блога, които изрично споменават този продукт
+    // (related_product_slugs @> [slug], попълвано ръчно в BlogTab.tsx).
+    // .contains() на text[] колона генерира правилния `@>` Postgres оператор.
+    supabaseAdmin
+      .from('blog_posts')
+      .select('slug, title, excerpt, cover_image_url, cover_image_alt, reading_time_minutes')
+      .eq('active', true)
+      .eq('status', 'published')
+      .contains('related_product_slugs', [slug])
+      .order('published_at', { ascending: false })
+      .limit(4),
   ])
 
   const settingsRows = settingsRes.status === 'fulfilled'
@@ -205,7 +228,17 @@ async function getPageData(slug: string): Promise<{
     ...marketingConfig,
   }
 
-  return { product, related, outOfStock, settings, marketingSettings }
+  // ✅ Тих fail — липсваща/празна секция "Прочети повече" не е причина да
+  // счупим цялата продуктова страница (същия толерантен подход като
+  // останалите Promise.allSettled резултати тук).
+  const relatedArticles: BlogArticleRef[] = blogArticlesRes.status === 'fulfilled'
+    ? ((blogArticlesRes.value.data ?? []) as BlogArticleRef[])
+    : []
+  if (blogArticlesRes.status === 'rejected') {
+    console.error('[products/[slug]] Грешка свързани статии:', blogArticlesRes.reason)
+  }
+
+  return { product, related, outOfStock, settings, marketingSettings, relatedArticles }
 }
 
 // ─── Metadata ─────────────────────────────────────────────────────────────────
@@ -276,7 +309,7 @@ export default async function OwnProduktPage({ params }: { params: Promise<{ slu
   const { slug } = await params
   const data = await getPageData(slug)
   if (!data) notFound()
-  const { product, related, outOfStock, settings, marketingSettings } = data
+  const { product, related, outOfStock, settings, marketingSettings, relatedArticles } = data
 
   const canonicalUrl    = `${BASE_URL}/products/${product.slug}`
   const sym             = settings.currency_symbol
@@ -462,6 +495,7 @@ export default async function OwnProduktPage({ params }: { params: Promise<{ slu
         outOfStock={outOfStock}
         initialSettings={settings}
         initialMarketingSettings={marketingSettings}
+        relatedArticles={relatedArticles}
       />
     </>
   )

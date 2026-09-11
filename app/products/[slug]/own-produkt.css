@@ -569,6 +569,8 @@
 
 /* ── Why ── */
 .op-content-card--why { background: linear-gradient(135deg, #fafafa 0%, #fff 100%); }
+/* ── Прочети повече (свързани блог статии) ── */
+.op-content-card--articles { background: linear-gradient(135deg, #fafffe 0%, #fff 100%); }
 .op-why-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .op-why-item {
   background: var(--card-bg); border-radius: var(--radius-md);
@@ -638,6 +640,17 @@
 .op-related-price { font-size: 13px; font-weight: 800; color: var(--green); }
 .op-related-arrow { color: var(--border); font-size: 16px; flex-shrink: 0; transition: color .15s; }
 .op-related-card:hover .op-related-arrow { color: var(--green); }
+
+/* ── Article cards ("Прочети повече") — реизползва .op-related-card, но
+   на desktop в 2 колони (top-level секция, не sidebar) и с четивно време
+   вместо цена. ── */
+.op-article-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.op-article-card .op-related-name { white-space: normal; }
+.op-article-card .op-related-sub {
+  white-space: normal; overflow: visible; text-overflow: clip;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.op-article-time { font-size: 11px; font-weight: 700; color: var(--green); margin-top: 2px; }
 
 /* ══ MOBILE STICKY BAR ══════════════════════════════════════════════ */
 .op-mobile-bar {
@@ -719,6 +732,7 @@
   .op-img-card, .op-info-card, .op-buy-card { padding: 18px; }
   .op-author-card { padding: 14px 16px; }
   .op-section-title { font-size: 18px; }
+  .op-article-list { grid-template-columns: 1fr; }
 
   .op-stats-row   { grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .op-stat        { padding: 12px 10px; }

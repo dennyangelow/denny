@@ -27,6 +27,16 @@ import SiteFooter from '@/components/layout/SiteFooter'
 //    (--font-dm-sans / --font-cormorant) върху <html>. Тук просто ги ползваме
 //    с var(...) — регистрирането им пак тук би заредило шрифтовете двойно.
 
+// ✅ НОВО — лека форма на блог статия за секцията "Прочети повече".
+interface BlogArticleRef {
+  slug:                  string
+  title:                 string
+  excerpt?:              string
+  cover_image_url?:      string
+  cover_image_alt?:      string
+  reading_time_minutes?: number
+}
+
 interface Props {
   product:     AffiliateProduct
   related:     AffiliateProduct[]
@@ -44,6 +54,8 @@ interface Props {
   headerCart?: HeaderCartConfig
   // ✅ НОВО: подава се на SiteFooter за settings-driven контакти
   settings?:   Record<string, string>
+  // ✅ НОВО: статии от блога, споменаващи този продукт (related_affiliate_slugs)
+  relatedArticles?: BlogArticleRef[]
 }
 
 type TabId = 'about' | 'howto' | 'tech' | 'faq'
@@ -187,7 +199,7 @@ function formatBgDate(dateStr?: string): string | null {
   } catch { return null }
 }
 
-export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, showRating, images, headerCart, settings }: Props) {
+export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, showRating, images, headerCart, settings, relatedArticles = [] }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('about')
   const [openFaq,   setOpenFaq]   = useState<number | null>(null)
   const [scrollPct, setScrollPct] = useState(0)
@@ -327,6 +339,36 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
             <div style={{ fontSize:10, color:rel.color||color, fontWeight:700, textTransform:'uppercase', letterSpacing:'.04em', marginTop:1 }}>{rel.category_label || rel.subtitle}</div>
           </div>
           <span style={{ color:rel.color||color, fontSize:13, flexShrink:0 }}>→</span>
+        </a>
+      ))}
+    </div>
+  )
+
+  // ✅ НОВО — "Прочети повече" компонент, огледален на RelatedBlock визуално
+  // (реизползва .af-rel картата), но сочи към /blog/[slug] и показва
+  // четивно време вместо категория.
+  const ArticlesBlock = () => (
+    <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+      {(relatedArticles || []).map(a => (
+        <a key={a.slug} href={`/blog/${a.slug}`} className="af-rel"
+          style={{'--rc': color} as React.CSSProperties}>
+          {a.cover_image_url
+            ? <img src={a.cover_image_url} alt={a.cover_image_alt || a.title}
+                onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                width={40} height={40}
+                loading="lazy"
+                style={{ width:40, height:40, objectFit:'cover', borderRadius:8, flexShrink:0 }} />
+            : <div style={{ width:40, height:40, borderRadius:8, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>📖</div>
+          }
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:12.5, fontWeight:700, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.title}</div>
+            {a.reading_time_minutes && (
+              <div style={{ fontSize:10, color, fontWeight:700, textTransform:'uppercase', letterSpacing:'.04em', marginTop:1 }}>
+                {a.reading_time_minutes} мин четене
+              </div>
+            )}
+          </div>
+          <span style={{ color, fontSize:13, flexShrink:0 }}>→</span>
         </a>
       ))}
     </div>
@@ -1170,6 +1212,18 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                   title={`${product.name} видео`}
                 />
               </div>
+            </div>
+          )}
+
+          {/* ✅ НОВО — "Прочети повече": статии от блога, споменаващи този
+              продукт (related_affiliate_slugs, попълвано в BlogTab.tsx).
+              Веднъж в основната колона — не се нуждае от отделен mobile
+              вариант като RelatedBlock, защото тук няма sidebar, който да
+              изчезва на мобилно. */}
+          {relatedArticles.length > 0 && (
+            <div className="af-card af-card-p" style={{ marginBottom:16 }}>
+              <p className="af-sec">📖 Прочети повече</p>
+              <ArticlesBlock />
             </div>
           )}
 
