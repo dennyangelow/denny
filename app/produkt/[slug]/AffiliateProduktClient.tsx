@@ -361,7 +361,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
             : <div style={{ width:40, height:40, borderRadius:8, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>📖</div>
           }
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:12.5, fontWeight:700, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.title}</div>
+            <div style={{ fontSize:12.5, fontWeight:700, color:'#0f172a', lineHeight:1.35, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as const, overflow:'hidden' }}>{a.title}</div>
             {a.reading_time_minutes && (
               <div style={{ fontSize:10, color, fontWeight:700, textTransform:'uppercase', letterSpacing:'.04em', marginTop:1 }}>
                 {a.reading_time_minutes} мин четене
@@ -475,6 +475,13 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .af-thumb.active{border-color:var(--tc,#16a34a);box-shadow:0 0 0 2px var(--tc,#16a34a)22}
         .af-thumb img{width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply;display:block}
         .af-related-mobile{display:none}
+        /* ✅ Тънък разделител между "Комбинирай с" и "Прочети повече",
+           когато седят в една обща карта (вместо две отделни бели кутии). */
+        .af-sec-divider{height:1px;background:#ede9e1;margin:14px 0 0}
+        /* ✅ "Прочети повече" desktop копие живее вътре в мерджнатата
+           "Комбинирай с" карта в sidebar-а (af-left) — скрита на мобилно
+           през .af-articles-desktop, огледално на .af-related-mobile. */
+        .af-articles-desktop{display:block}
         .af-pill-season-full{}
         @media(max-width:820px){
           .af-page-root{overflow-x:hidden!important;max-width:100vw!important;width:100%!important}
@@ -524,6 +531,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           .af-beginner-text{font-size:13px}
           .af-btn-buy{font-size:14.5px;padding:14px 16px;border-radius:12px}
           .af-related-mobile{display:block}
+          .af-articles-desktop{display:none}
           .af-lightbox{max-width:97vw;max-height:95vh;padding:12px}
           .af-lightbox-img{max-width:calc(97vw - 24px);max-height:calc(95vh - 52px)}
         }
@@ -783,13 +791,29 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
             </p>
           </div>
 
-          {/* ✅ #6 Related — само на DESKTOP (скрита на мобилно чрез CSS) */}
-          {related.length > 0 && (
+          {/* ✅ ПРОМЯНА — "Комбинирай с" и "Прочети повече" вече са ЕДНА
+              карта с разделител, вместо две отделни бели кутии една до
+              друга (по-малко повторение на border/shadow, по-стегнат
+              sidebar). Второто заглавие се показва само ако първото
+              секция реално присъства — за да не увисне разделител без
+              нищо над него, ако продуктът няма related продукти. */}
+          {(related.length > 0 || relatedArticles.length > 0) && (
             <div className="af-card af-card-sm" style={{ display:'block' }}
               // скрита на mobile чрез .af-related-mobile логика в @media — тук просто "block" на desktop
             >
-              <p className="af-sec">🔗 Комбинирай с</p>
-              <RelatedBlock />
+              {related.length > 0 && (
+                <>
+                  <p className="af-sec">🔗 Комбинирай с</p>
+                  <RelatedBlock />
+                </>
+              )}
+              {relatedArticles.length > 0 && (
+                <div className="af-articles-desktop">
+                  {related.length > 0 && <div className="af-sec-divider" />}
+                  <p className="af-sec" style={{ marginTop: related.length > 0 ? 14 : 0 }}>📖 Прочети повече</p>
+                  <ArticlesBlock />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1189,11 +1213,26 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                   </div>
                 )}
 
-              {/* ✅ #6 Related — само на MOBILE (под табовете, по-видима) */}
-              {related.length > 0 && (
+              {/* ✅ ПРОМЯНА — "Прочети повече" и "Комбинирай с" вече са една
+                  карта на мобилно (обратен ред спрямо desktop — статиите
+                  отгоре, продуктите отдолу), вместо две отделни кутии.
+                  af-related-mobile носи видимостта (скрита на desktop —
+                  desktop версията е в sidebar-а по-горе). */}
+              {(relatedArticles.length > 0 || related.length > 0) && (
                 <div className="af-card af-card-sm af-related-mobile" style={{ marginBottom:16 }}>
-                  <p className="af-sec">🔗 Комбинирай с</p>
-                  <RelatedBlock />
+                  {relatedArticles.length > 0 && (
+                    <>
+                      <p className="af-sec">📖 Прочети повече</p>
+                      <ArticlesBlock />
+                    </>
+                  )}
+                  {related.length > 0 && (
+                    <div>
+                      {relatedArticles.length > 0 && <div className="af-sec-divider" />}
+                      <p className="af-sec" style={{ marginTop: relatedArticles.length > 0 ? 14 : 0 }}>🔗 Комбинирай с</p>
+                      <RelatedBlock />
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -1212,18 +1251,6 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                   title={`${product.name} видео`}
                 />
               </div>
-            </div>
-          )}
-
-          {/* ✅ НОВО — "Прочети повече": статии от блога, споменаващи този
-              продукт (related_affiliate_slugs, попълвано в BlogTab.tsx).
-              Веднъж в основната колона — не се нуждае от отделен mobile
-              вариант като RelatedBlock, защото тук няма sidebar, който да
-              изчезва на мобилно. */}
-          {relatedArticles.length > 0 && (
-            <div className="af-card af-card-p" style={{ marginBottom:16 }}>
-              <p className="af-sec">📖 Прочети повече</p>
-              <ArticlesBlock />
             </div>
           )}
 
