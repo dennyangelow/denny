@@ -37,7 +37,7 @@ export const NAV_ITEMS = [
   { id: 'blog',         icon: '📝', label: 'Блог'         },
   { id: 'marketing',    icon: '📣', label: 'Маркетинг'    },
   { id: 'faq',          icon: '❓', label: 'FAQ'           },
-  { id: 'testimonials', icon: '★',  label: 'Отзиви'       },
+  { id: 'reviews',      icon: '★',  label: 'Отзиви'       },
   { id: 'settings',     icon: '◈',  label: 'Настройки'    },
 ] as const
 

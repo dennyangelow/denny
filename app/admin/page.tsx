@@ -12,7 +12,9 @@ import { BlogTab }            from './components/BlogTab'
 import { AnalyticsTab }       from './components/AnalyticsTab'
 import { SettingsTab }        from './components/SettingsTab'
 import { FaqTab }             from './components/FaqTab'
-import { TestimonialsTab }    from './components/TestimonialsTab'
+// ✅ ФИКС: TestimonialsTab заменен от ReviewsTab (обединената reviews
+// система — вече покрива и продуктите, и наръчниците, и началната)
+import { ReviewsTab }         from './components/ReviewsTab'
 import { MarketingTab }       from './components/MarketingTab'
 import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
@@ -173,7 +175,7 @@ export default function AdminPage() {
           {tab === 'blog'         && <BlogTab />}
           {tab === 'marketing'    && <MarketingTab />}
           {tab === 'faq'          && <FaqTab />}
-          {tab === 'testimonials' && <TestimonialsTab />}
+          {tab === 'reviews'      && <ReviewsTab />}
           {tab === 'analytics'    && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}
 
           {tab === 'settings'     && <SettingsTab ordersCount={orders.length} leadsCount={leads.length} />}

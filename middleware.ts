@@ -23,6 +23,10 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/orders' && method === 'POST')                             return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST')       return true
   if (pathname === '/api/leads' && method === 'POST')                              return true
+  // ✅ НОВО: публична форма за отзиви — винаги пише status='pending' на
+  //    сървъра (виж route.ts), затова е безопасно публична. /api/reviews
+  //    (admin CRUD) остава защитен — само тази под-пътека е изключение.
+  if (pathname === '/api/reviews/submit' && method === 'POST')                     return true
   if (pathname === '/api/leads/unsubscribe')                                        return true
   if (pathname === '/api/leads/sequence' && method === 'GET')                      return true
   if (pathname.startsWith('/api/analytics/'))                                       return true
