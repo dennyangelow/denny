@@ -15,6 +15,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { trackProductEvent } from '@/lib/trackProductEvent'
 import { HeaderClient } from '@/components/client/HeaderClient'
 import { CartSystem }   from '@/components/client/CartSystem'
 import SiteFooter       from '@/components/layout/SiteFooter'
@@ -69,6 +70,9 @@ interface OwnProduct {
   stats?: StatItem[]
   composition?: CompItem[]
   composition_ph?: string
+  // ✅ НОВО — от физическия етикет на продукта, продукт-специфични (виж админ панела)
+  storage_instructions?: string
+  mixing_warning?: string
   // ✅ Реални данни от БД
   review_count?: number
   avg_rating?: number
@@ -92,6 +96,20 @@ interface Props {
   initialMarketingSettings?: MarketingSettings | null
   /** ✅ НОВО — статии от блога, споменаващи този продукт (related_product_slugs). */
   relatedArticles?: BlogArticleRef[]
+  /** ✅ НОВО — реални отзиви от обединената reviews таблица (заменя
+   * единичния product.testimonial цитат като основен източник) */
+  reviews?: ReviewItem[]
+  aggregateRatingData?: { avg: number; count: number }
+}
+
+// ✅ НОВО — форма на реален отзив от reviews таблицата (виж lib/reviews.ts)
+interface ReviewItem {
+  id:              string
+  author_name:     string
+  author_location?: string | null
+  rating:          number
+  text:            string
+  verified:        boolean
 }
 
 // ─── Cart item type (съвпада с CartSystem CartItem) ──────────────────────────
@@ -161,57 +179,19 @@ function normalizeToAtlasProduct(p: OwnProduct): AtlasProduct {
 // ─── Schema.org (Product САМО) ────────────────────────────────────────────────
 // ✅ FAQPage schema е ПРЕМАХНАТА от тук — живее само в page.tsx (server component)
 // ✅ BreadcrumbList е ПРЕМАХНАТА от тук — живее само в page.tsx (server component)
-// Дублирането на тези schemas причиняваше грешки в Google Search Console
-function ProductSchema({
-  product, variant, sym,
-}: {
-  product: OwnProduct; variant: ProductVariant | null; sym: string
-}) {
-  const oos = !variant || variant.stock === 0
-
-  // ✅ AggregateRating само ако имаме РЕАЛЕН брой отзиви от БД
-  const hasRealRating =
-    typeof product.review_count === 'number' && product.review_count > 0 &&
-    typeof product.avg_rating   === 'number' && product.avg_rating   > 0
-
-  const allImages = buildImageList(product.image_url, product.image_alt, product.gallery_urls, product.name)
-
-  const schema = {
-    '@context': 'https://schema.org',
-    '@type':    'Product',
-    name:        product.name,
-    description: product.description || '',
-    // ✅ Масив от всички снимки (главна + галерия) — по-добър шанс твоята
-    //    снимка (не конкурентска) да излезе в Google rich results
-    image:       allImages.map(img => img.url),
-    brand:       { '@type': 'Brand', name: 'Atlas Terra' },
-    ...(product.seo_keywords ? { keywords: product.seo_keywords } : {}),
-    offers: {
-      '@type':        'Offer',
-      priceCurrency:   sym === 'лв.' ? 'BGN' : 'EUR',
-      price:           (variant?.price ?? 0).toFixed(2),
-      availability:    oos ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
-      seller:          { '@type': 'Organization', name: 'Denny Angelow' },
-      url:             `https://dennyangelow.com/products/${product.slug}`,
-    },
-    ...(hasRealRating ? {
-      aggregateRating: {
-        '@type':      'AggregateRating',
-        ratingValue:   product.avg_rating!.toFixed(1),
-        reviewCount:   product.review_count!,
-        bestRating:    5,
-        worstRating:   1,
-      },
-    } : {}),
-  }
-
-  return (
-    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
-  )
-}
+// ✅ ФИКС: Product schema (ProductSchema-компонентът) е ПРЕМАХНАТ оттук по
+// СЪЩАТА причина — page.tsx вече рендва пълен, по-точен Product schema
+// сървърно (с реални варианти/AggregateOffer и вече реални Review обекти
+// от новата reviews таблица). Двата заедно = duplicate structured data,
+// класически проблем в Google Search Console. Останалите schema types
+// (FAQPage/BreadcrumbList) вече бяха консолидирани по-рано — това довършва
+// същото почистване за Product.
 
 // ─── Sub-components ──────────────────────────────────────────────────────────────
-function Stars({ rating = 4.9 }: { rating?: number }) {
+// ✅ ФИКС: премахнат фалшив default rating=4.9 — Stars вече винаги се вика
+// с изрична реална стойност (виж hasRealRating guard-овете по-горе);
+// default тук би маскирал бъдещ бъг, показвайки измислена оценка.
+function Stars({ rating }: { rating: number }) {
   return (
     <span className="op-stars" aria-label={`${rating} от 5 звезди`}>
       {[1,2,3,4,5].map(i => (
@@ -279,6 +259,8 @@ function FaqAccordion({ q, a }: { q: string; a: string }) {
 export default function OwnProduktClient({
   product, related, outOfStock, initialSettings, initialMarketingSettings,
   relatedArticles = [],
+  reviews = [],
+  aggregateRatingData,
 }: Props) {
   const activeVariants = (product.variants || []).filter(v => v.active)
   const [selVariant, setSelVariant] = useState<ProductVariant | null>(
@@ -336,6 +318,7 @@ export default function OwnProduktClient({
       size_liters:  variant.size_liters ?? 0,
     }
     dispatchAddToCart(payload)
+    trackProductEvent('add_to_cart', product.slug)
     setAdded(true)
     setTimeout(() => setAdded(false), 2500)
   }, [variant, isOOS, product])
@@ -354,13 +337,20 @@ export default function OwnProduktClient({
   const stats       = product.stats        || []
   const composition = product.composition  || []
 
-  // ✅ Рейтинг — реален от БД → testimonial → fallback
-  const displayRating = product.avg_rating ?? testimonial?.rating ?? 4.9
-  const displayReviewCount = product.review_count && product.review_count > 0
-    ? `${product.review_count} отзива`
-    : testimonial?.name
-      ? '1+ отзива'
-      : '124+ отзива'
+  // ✅ Рейтинг — САМО реален от БД. Без измислени фолбек числа ("1+"/"124+ отзива") —
+  //    те подвеждат клиента и нямат покритие в реални данни (review_count беше 0
+  //    и за трите продукта). Ако няма реален рейтинг, редът по-долу превключва към
+  //    честен testimonial-базиран trust текст вместо звезди.
+  // ✅ Рейтинг — предпочита реалната агрегатна стойност от новата reviews
+  //    таблица (aggregateRatingData, подадена от page.tsx); при липса —
+  //    fallback към старите product.avg_rating/review_count полета. И двата
+  //    пътя са честни (нула → нищо не се показва), никога измислен fallback.
+  const hasRealRating = aggregateRatingData
+    ? aggregateRatingData.avg > 0 && aggregateRatingData.count > 0
+    : typeof product.avg_rating === 'number' && product.avg_rating > 0 &&
+      typeof product.review_count === 'number' && product.review_count > 0
+  const displayAvgRating   = aggregateRatingData?.avg   ?? product.avg_rating
+  const displayReviewCount = aggregateRatingData?.count ?? product.review_count
 
   const badgeClass: Record<string, string> = {
     green: 'op-eco-badge--green', blue: 'op-eco-badge--blue',
@@ -369,8 +359,8 @@ export default function OwnProduktClient({
 
   return (
     <div className="op-page">
-      {/* ✅ ProductSchema — само Product type, без FAQ/Breadcrumb (те са в page.tsx) */}
-      <ProductSchema product={product} variant={variant} sym={sym} />
+      {/* ✅ ФИКС: ProductSchema премахнат оттук — дублираше сървърния Product
+          schema от page.tsx (виж бележката горе) */}
 
       {/* Urgency bar */}
       {urgencyRaw && (
@@ -501,13 +491,24 @@ export default function OwnProduktClient({
                   <h1 className="op-title">{product.name}</h1>
                   {product.subtitle && <p className="op-subtitle">{product.subtitle}</p>}
                   <div className="op-rating-row">
-                    <Stars rating={displayRating} />
-                    <span className="op-rating-text">
-                      {displayRating.toFixed(1)}
-                      {' · '}
-                      {displayReviewCount}
-                    </span>
-                    <span className="op-separator">·</span>
+                    {hasRealRating ? (
+                      <>
+                        <Stars rating={displayAvgRating!} />
+                        <span className="op-rating-text">
+                          {displayAvgRating!.toFixed(1)}
+                          {' · '}
+                          {displayReviewCount} отзива
+                        </span>
+                        <span className="op-separator">·</span>
+                      </>
+                    ) : testimonial?.name ? (
+                      <>
+                        <span className="op-rating-text">
+                          ✓ Лично тествано и препоръчано от {testimonial.name}
+                        </span>
+                        <span className="op-separator">·</span>
+                      </>
+                    ) : null}
                     <span className={`op-instock-text${isOOS ? ' op-instock-text--oos' : ''}`}>
                       {isOOS ? '⚠️ Изчерпан' : '✓ В наличност'}
                     </span>
@@ -706,7 +707,60 @@ export default function OwnProduktClient({
                   ))}
                 </div>
                 <div className="op-usage-note">
-                  💡 <strong>Забележка:</strong> Приложим през цялата година. Съвместим с всички продукти за растителна защита. Не запушва дюзи при фертигация.
+                  💡 <strong>Забележка:</strong> Приложим през цялата година. Не запушва дюзи при фертигация. Преди смесване с други продукти виж съвместимостта по-долу.
+                </div>
+              </section>
+            )}
+
+            {/* 4b. Съхранение и съвместимост — от физическия етикет, продукт-специфично.
+                ⚠️ НЕ пиши тук общо "съвместим с всичко" — etikетите на Atlas Terra/AMINO/NITRO
+                имат различни конкретни изключения (хлор / минерални масла / силни к-ни). */}
+            {(product.storage_instructions || product.mixing_warning) && (
+              <section className="op-content-card op-content-card--storage" aria-labelledby="s-storage">
+                <h2 id="s-storage" className="op-section-title">Съхранение и съвместимост</h2>
+                <div className="op-usage-note" style={{ marginTop: 0 }}>
+                  {product.storage_instructions && (
+                    <div>🌡️ <strong>Съхранение:</strong> {product.storage_instructions}</div>
+                  )}
+                  {product.mixing_warning && (
+                    <div style={{ marginTop: product.storage_instructions ? 8 : 0 }}>
+                      ⚠️ <strong>Смесимост:</strong> {product.mixing_warning}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* 4c. Реални отзиви — от обединената reviews таблица.
+                ✅ НОВО: заменя/допълва единичния product.testimonial цитат
+                с реален списък от отзиви (ако има одобрени). */}
+            {reviews.length > 0 && (
+              <section className="op-content-card op-content-card--reviews" aria-labelledby="s-reviews">
+                <h2 id="s-reviews" className="op-section-title">
+                  Какво казват клиентите
+                  {hasRealRating && (
+                    <span style={{ fontWeight: 400, fontSize: 13, color: '#6b7280', marginLeft: 8 }}>
+                      ({displayAvgRating!.toFixed(1)}/5 · {displayReviewCount} отзива)
+                    </span>
+                  )}
+                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {reviews.slice(0, 5).map(r => (
+                    <div key={r.id} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <Stars rating={r.rating} />
+                        <strong style={{ fontSize: 13.5 }}>{r.author_name}</strong>
+                        {r.author_location && (
+                          <span style={{ fontSize: 12, color: '#9ca3af' }}>· 📍 {r.author_location}</span>
+                        )}
+                        {/* ✅ "Верифициран" се показва само ако е реално маркиран такъв в admin панела */}
+                        {r.verified && (
+                          <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>✓ Потвърден</span>
+                        )}
+                      </div>
+                      <p style={{ fontSize: 13.5, color: '#4b5563', margin: 0, lineHeight: 1.6 }}>„{r.text}"</p>
+                    </div>
+                  ))}
                 </div>
               </section>
             )}

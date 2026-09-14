@@ -68,12 +68,10 @@ const CAT_EMOJI: Record<string, string> = {
 }
 const catEmoji = (cat = '') => CAT_EMOJI[cat?.toLowerCase()] || CAT_EMOJI.default
 
-// Fallback testimonials ако БД е празна
-const FALLBACK_TESTIMONIALS: Testimonial[] = [
-  { name: 'Георги Петров', location: 'Пловдив', stars: 5, text: 'Невероятен наръчник! Реколтата ми се удвои само за един сезон. Препоръчвам го на всеки фермер.' },
-  { name: 'Мария Стоянова', location: 'Стара Загора', stars: 5, text: 'Накрая намерих практично ръководство на български. Всичко е обяснено ясно и работи реално.' },
-  { name: 'Иван Димитров', location: 'Варна', stars: 5, text: 'Изтеглих го с малко съмнения, но след първото четене веднага приложих методите. Резултатите са видими!' },
-]
+// ✅ ФИКС: премахнат FALLBACK_TESTIMONIALS (трима измислени хора — Георги
+// Петров/Мария Стоянова/Иван Димитров — показвани като реални клиенти за
+// всеки наръчник без попълнени отзиви). Ако няма реални одобрени отзиви,
+// секцията просто не показва нищо — виж activeTestimonials по-долу.
 
 // Fallback FAQ
 const FALLBACK_FAQ: FaqEntry[] = [
@@ -125,9 +123,13 @@ export default function NaruchnikClient({
   const [activeImgIdx, setActiveImgIdx] = useState(0)
   const currentImg = gallery[Math.min(activeImgIdx, Math.max(gallery.length - 1, 0))]
 
-  // Ако БД е върнала празни масиви — използваме fallback съдържание
+  // Ако БД е върнала празни масиви — използваме fallback само за FAQ (общи,
+  // не-персонални въпроси — приемливо). За отзиви НЕ фабрикуваме хора — виж
+  // фикса по-горе. Ако няма реални одобрени отзиви, activeTestimonials е [].
   const activeFaq          = faqEntries.length > 0 ? faqEntries : FALLBACK_FAQ
-  const activeTestimonials = testimonials.length > 0 ? testimonials : FALLBACK_TESTIMONIALS
+  const activeTestimonials = testimonials
+  // ✅ Честен guard — вместо голи 0/5, 0 отзива навсякъде долу
+  const hasRealRating = avgRating > 0 && reviewsCount > 0
 
   const [name,           setName]           = useState('')
   const [email,          setEmail]          = useState('')
@@ -744,10 +746,12 @@ export default function NaruchnikClient({
                 <span className="nh-stat-v">{dlK}</span>
                 <span className="nh-stat-l">изтегляния</span>
               </div>
-              <div className="nh-stat">
-                <span className="nh-stat-v">{avgRating}/5</span>
-                <span className="nh-stat-l">оценка</span>
-              </div>
+              {hasRealRating && (
+                <div className="nh-stat">
+                  <span className="nh-stat-v">{avgRating}/5</span>
+                  <span className="nh-stat-l">оценка</span>
+                </div>
+              )}
               <div className="nh-stat">
                 <span className="nh-stat-v">PDF</span>
                 <span className="nh-stat-l">безплатно</span>
@@ -766,7 +770,9 @@ export default function NaruchnikClient({
         {!done && (
           <div className="n-social-proof" style={{ marginBottom: 0 }}>
             <div className="n-sp-row"><span className="n-sp-icon">👨‍🌾</span><span className="n-sp-text">Над {dlK} фермери вече го изтеглиха</span></div>
-            <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
+            {hasRealRating && (
+              <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
+            )}
           </div>
         )}
       </div>
@@ -777,18 +783,20 @@ export default function NaruchnikClient({
 
           {/* Book card — описание + content body */}
           <article className="n-card">
-            <div className="n-rating-strip">
-              <div className="n-stars">
-                {[1,2,3,4,5].map(i => <span key={i} className="n-star">★</span>)}
+            {hasRealRating && (
+              <div className="n-rating-strip">
+                <div className="n-stars">
+                  {[1,2,3,4,5].map(i => <span key={i} className="n-star">★</span>)}
+                </div>
+                <span style={{ fontSize: 13, color: '#374151', fontWeight: 700 }}>{avgRating}/5</span>
+                <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
+                  ({reviewsCount.toLocaleString('bg-BG')} отзива)
+                </span>
+                {/* ✅ ФИКС: "Верифицирани отзиви" премахнато — тези отзиви не
+                    минават през реален verification процес (виж verified
+                    поле в reviews таблицата), затова твърдението беше невярно */}
               </div>
-              <span style={{ fontSize: 13, color: '#374151', fontWeight: 700 }}>{avgRating}/5</span>
-              <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
-                ({reviewsCount.toLocaleString('bg-BG')} отзива)
-              </span>
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: '#16a34a', fontWeight: 700 }}>
-                ✓ Верифицирани отзиви
-              </span>
-            </div>
+            )}
 
             <div style={{ padding: '20px 26px' }}>
               <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8 }}>{description}</p>
@@ -821,37 +829,45 @@ export default function NaruchnikClient({
             ))}
           </section>
 
-          {/* Testimonials */}
-          <section className="n-card n-card-p" aria-label="Отзиви">
-            <div className="n-sec-lbl">💬 Какво казват читателите</div>
-            <div key={activeT} style={{ animation: 'fadeIn .3s ease' }}>
-              <p className="n-testi-quote">{activeTestimonials[activeT].text}</p>
-              <div className="n-testi-author">
-                <div className="n-testi-avatar">
-                  {(activeTestimonials[activeT].name?.[0] || '?').toUpperCase()}
-                </div>
-                <div>
-                  <div className="n-testi-name">{activeTestimonials[activeT].name}</div>
-                  <div className="n-testi-loc">📍 {activeTestimonials[activeT].location}</div>
-                </div>
-                <div className="n-testi-stars">
-                  {[1,2,3,4,5].map(i => <span key={i} style={{ color: '#f59e0b', fontSize: 13 }}>★</span>)}
+          {/* Testimonials — ✅ ФИКС: цялата секция вече е guard-ната зад
+              activeTestimonials.length > 0. Преди, при празен масив (вече
+              възможно след премахването на FALLBACK_TESTIMONIALS),
+              activeTestimonials[activeT] щеше да е undefined → runtime crash. */}
+          {activeTestimonials.length > 0 && (
+            <section className="n-card n-card-p" aria-label="Отзиви">
+              <div className="n-sec-lbl">💬 Какво казват читателите</div>
+              <div key={activeT} style={{ animation: 'fadeIn .3s ease' }}>
+                <p className="n-testi-quote">{activeTestimonials[activeT].text}</p>
+                <div className="n-testi-author">
+                  <div className="n-testi-avatar">
+                    {(activeTestimonials[activeT].name?.[0] || '?').toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="n-testi-name">{activeTestimonials[activeT].name}</div>
+                    <div className="n-testi-loc">📍 {activeTestimonials[activeT].location}</div>
+                  </div>
+                  <div className="n-testi-stars">
+                    {/* ✅ ФИКС: показва РЕАЛНИЯ брой звезди на този отзив, не хардкоднати 5 */}
+                    {[1,2,3,4,5].map(i => (
+                      <span key={i} style={{ color: i <= (activeTestimonials[activeT].stars || 5) ? '#f59e0b' : '#e2e8f0', fontSize: 13 }}>★</span>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-            {activeTestimonials.length > 1 && (
-              <div className="n-testi-dots">
-                {activeTestimonials.map((_, i) => (
-                  <button
-                    key={i}
-                    className={`n-tdot${i === activeT ? ' active' : ''}`}
-                    onClick={() => setActiveT(i)}
-                    aria-label={`Отзив ${i + 1}`}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+              {activeTestimonials.length > 1 && (
+                <div className="n-testi-dots">
+                  {activeTestimonials.map((_, i) => (
+                    <button
+                      key={i}
+                      className={`n-tdot${i === activeT ? ' active' : ''}`}
+                      onClick={() => setActiveT(i)}
+                      aria-label={`Отзив ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Author bio */}
           <aside className="n-author">
@@ -888,7 +904,9 @@ export default function NaruchnikClient({
           {!done && (
             <div className="n-social-proof">
               <div className="n-sp-row"><span className="n-sp-icon">👨‍🌾</span><span className="n-sp-text">Над {dlK} фермери вече го изтеглиха</span></div>
-              <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
+              {hasRealRating && (
+                <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
+              )}
               <div className="n-sp-row"><span className="n-sp-icon">🌿</span><span className="n-sp-text">Препоръчан от Denny Angelow</span></div>
               <div className="n-sp-row"><span className="n-sp-icon">🔒</span><span className="n-sp-text">Сигурно — без спам, без риск</span></div>
             </div>

@@ -12,41 +12,29 @@
 //   - Fallback: ако top6 е празен → показва първите 6 от allProducts
 
 import { trackAffiliateClick } from '@/lib/trackAffiliateClick'
+import { getRating, hasRealRating } from '@/lib/affiliate'
+import type { AffiliateProduct } from '@/lib/affiliate'
 import { SafeImg } from '@/components/client/SafeImg'
 import { FadeIn } from '@/components/marketing/FadeIn'
 
-interface AffiliateProduct {
-  id:              string
-  slug:            string
-  name:            string
-  subtitle?:       string
-  description?:    string
-  bullets?:        string[]
-  image_url?:      string
-  image_alt?:      string
-  affiliate_url:   string
-  partner:         string
-  emoji?:          string
-  badge_text?:     string
-  tag_text?:       string
-  color?:          string
-  badge_color?:    string
-  category_label?: string
-  rating?:         number | string
-  review_count?:   number
-  price?:          number | string
-  price_currency?: string
-  quarantine_days?: number
-}
+// ✅ ФИКС (ts2345, "Property 'active' is missing"): преди тук имаше собствено,
+// локално копие на `interface AffiliateProduct` — без полето `active`. lib/affiliate.ts
+// го изисква (задължително), затова getRating(p)/hasRealRating(p) отказваха да
+// компилират: `p` идваше от локалния (по-беден) тип, а функциите очакваха
+// каноничния тип от lib/affiliate.ts. Двата типа имаха едно и също име, но
+// различна форма → TypeScript ги третираше като несъвместими.
+// Фиксът: махнат локалният дубликат, вносим директно каноничния тип — същия
+// принцип, по който вече е рефакторирана bundle логиката в lib/offers.ts
+// (един източник на истина вместо копирани типове на няколко места).
+// Всички полета, които компонентът реално ползва (id, slug, name, subtitle,
+// description, bullets, image_url, image_alt, affiliate_url, partner, emoji,
+// badge_text, tag_text, color, badge_color, category_label, rating,
+// review_count, price, price_currency, quarantine_days) вече съществуват в
+// каноничния тип — нищо не се губи, само отпада разминаването.
 
 interface Props {
   products:    AffiliateProduct[]   // топ 6 по кликове (подредени)
   allProducts: AffiliateProduct[]   // всички — за реалния брой в брояча
-}
-
-function getRating(p: AffiliateProduct): number {
-  const r = Number(p.rating)
-  return isNaN(r) || r <= 0 ? 4.9 : r
 }
 
 function Stars({ rating }: { rating: number }) {
@@ -147,14 +135,16 @@ export function AffiliateSection({ products, allProducts }: Props) {
                     <h3 className="pk-card-title">{p.name}</h3>
                   </a>
 
-                  {/* Рейтинг */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                    <Stars rating={rating} />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{rating}/5</span>
-                    {p.review_count && (
-                      <span style={{ fontSize: 11, color: '#9ca3af' }}>({p.review_count})</span>
-                    )}
-                  </div>
+                  {/* Рейтинг — само ако е реален (не измислен fallback) */}
+                  {hasRealRating(p) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <Stars rating={rating} />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{rating}/5</span>
+                      {p.review_count && (
+                        <span style={{ fontSize: 11, color: '#9ca3af' }}>({p.review_count})</span>
+                      )}
+                    </div>
+                  )}
 
                   {p.subtitle && (
                     <p className="pk-card-sub">{p.subtitle}</p>

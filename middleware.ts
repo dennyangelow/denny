@@ -19,9 +19,7 @@ function securityHeaders(res: NextResponse): NextResponse {
 function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/site-data')                                              return true
   if (pathname === '/api/naruchnici' && method === 'GET')                         return true
-  if (pathname === '/api/naruchnici/track')                                        return true
   if (pathname === '/api/affiliate-products' && method === 'GET')                  return true
-  if (pathname === '/api/affiliate-clicks' && method === 'POST')                   return true
   if (pathname === '/api/orders' && method === 'POST')                             return true
   if (pathname.match(/^\/api\/orders\/[^/]+\/notify$/) && method === 'POST')       return true
   if (pathname === '/api/leads' && method === 'POST')                              return true
@@ -43,8 +41,8 @@ const PROTECTED_API_PREFIXES = [
   '/api/settings',
   '/api/own-products',
   '/api/affiliate-products',
-  '/api/affiliate-clicks',
   '/api/testimonials',
+  '/api/reviews',      // ← ново: обединената reviews/testimonials система
   '/api/naruchnici',
   '/api/faq',
   '/api/category-links',

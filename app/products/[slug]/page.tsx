@@ -7,6 +7,9 @@
 import { Metadata }      from 'next'
 import { notFound }      from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
+// ✅ НОВО — обединената reviews система (заменя product.testimonial единичен
+// цитат + product.review_count/avg_rating като единствен източник)
+import { getReviews, getAggregateRating } from '@/lib/reviews'
 import OwnProduktClient  from './OwnProduktClient'
 import type { MarketingSettings } from '@/lib/offers'
 
@@ -149,6 +152,13 @@ function buildSettings(rows: { key: string; value: string }[]): SiteSettings {
 const PRODUCT_SELECT = [
   'id', 'slug', 'name', 'subtitle', 'description', 'badge', 'emoji',
   'image_url', 'image_alt',
+  // ✅ ФИКС: тези 3 колони съществуват в products таблицата и се редактират
+  // в admin панела (OwnProductsTab.tsx), но липсваха от explicit select-а тук
+  // — затова стигаха до клиента като `undefined` въпреки верни данни в БД,
+  // и "Съхранение и съвместимост" секцията (условие `storage_instructions ||
+  // mixing_warning`) никога не се показваше. gallery_urls има същия проблем
+  // и щеше да се появи в мига, в който се качат снимки в галерията.
+  'gallery_urls', 'storage_instructions', 'mixing_warning',
   'features', 'usage_notes', 'category', 'stock', 'active', 'sort_order',
   'seo_title', 'seo_description', 'seo_keywords',
   'how_it_works', 'crops', 'faq', 'testimonial',
@@ -162,6 +172,8 @@ const PRODUCT_SELECT = [
 async function getPageData(slug: string): Promise<{
   product: Product; related: Product[]; outOfStock: boolean; settings: SiteSettings
   marketingSettings: MarketingSettings; relatedArticles: BlogArticleRef[]
+  reviews: Awaited<ReturnType<typeof getReviews>>
+  aggregateRatingData: Awaited<ReturnType<typeof getAggregateRating>>
 } | null> {
   const [settingsRes, productRes, variantsRes, allProductsRes, marketingRes, blogArticlesRes] = await Promise.allSettled([
     supabaseAdmin.from('settings').select('key, value'),
@@ -238,7 +250,13 @@ async function getPageData(slug: string): Promise<{
     console.error('[products/[slug]] Грешка свързани статии:', blogArticlesRes.reason)
   }
 
-  return { product, related, outOfStock, settings, marketingSettings, relatedArticles }
+  // ✅ НОВО — реални отзиви от обединената reviews таблица за ТОЗИ продукт
+  const [reviews, aggregateRatingData] = await Promise.all([
+    getReviews('own_product', product.id),
+    getAggregateRating('own_product', product.id),
+  ])
+
+  return { product, related, outOfStock, settings, marketingSettings, relatedArticles, reviews, aggregateRatingData }
 }
 
 // ─── Metadata ─────────────────────────────────────────────────────────────────
@@ -309,7 +327,7 @@ export default async function OwnProduktPage({ params }: { params: Promise<{ slu
   const { slug } = await params
   const data = await getPageData(slug)
   if (!data) notFound()
-  const { product, related, outOfStock, settings, marketingSettings, relatedArticles } = data
+  const { product, related, outOfStock, settings, marketingSettings, relatedArticles, reviews, aggregateRatingData } = data
 
   const canonicalUrl    = `${BASE_URL}/products/${product.slug}`
   const sym             = settings.currency_symbol
@@ -326,15 +344,16 @@ export default async function OwnProduktPage({ params }: { params: Promise<{ slu
 
   const activeVariants = product.variants.filter(v => v.active)
 
-  const hasRealRating =
-    typeof product.review_count === 'number' && product.review_count > 0 &&
-    typeof product.avg_rating   === 'number' && product.avg_rating   > 0
+  // ✅ ФИКС: рейтингът вече идва от реалната reviews таблица (истински
+  // мигрирани отзиви), не от product.review_count/avg_rating — тези
+  // оставащи полета в products вече не са единственият източник на истина.
+  const hasRealRating = aggregateRatingData.avg > 0 && aggregateRatingData.count > 0
 
   const aggregateRating = hasRealRating ? {
     aggregateRating: {
       '@type':      'AggregateRating',
-      ratingValue:   product.avg_rating!.toFixed(1),
-      reviewCount:   product.review_count!,
+      ratingValue:   aggregateRatingData.avg.toFixed(1),
+      reviewCount:   aggregateRatingData.count,
       bestRating:    5,
       worstRating:   1,
     },
@@ -371,6 +390,16 @@ export default async function OwnProduktPage({ params }: { params: Promise<{ slu
       },
     })),
     ...aggregateRating,
+    // ✅ НОВО — реални Review обекти (само тези с реален текст) вместо
+    // предишния единичен testimonial цитат
+    ...(reviews.filter(r => r.text?.trim()).length > 0 ? {
+      review: reviews.filter(r => r.text?.trim()).map(r => ({
+        '@type': 'Review',
+        reviewRating: { '@type': 'Rating', ratingValue: r.rating, bestRating: 5 },
+        author: { '@type': 'Person', name: r.author_name },
+        reviewBody: r.text,
+      })),
+    } : {}),
   } : null
 
   // ── Schema.org: Article (E-E-A-T) ─────────────────────────────────────────
@@ -496,6 +525,8 @@ export default async function OwnProduktPage({ params }: { params: Promise<{ slu
         initialSettings={settings}
         initialMarketingSettings={marketingSettings}
         relatedArticles={relatedArticles}
+        reviews={reviews}
+        aggregateRatingData={aggregateRatingData}
       />
     </>
   )

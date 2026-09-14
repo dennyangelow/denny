@@ -15,6 +15,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import type { AffiliateProduct, ProductImage } from '@/lib/affiliate'
 import { getRating, parseHowToUse, parseYouTubeEmbed, getAllImages } from '@/lib/affiliate'
+import { trackAffiliateClick } from '@/lib/trackAffiliateClick'
 // ✅ НОВО: обединеният header + admin-управляемата конфигурация за
 //    количката на страници без количка (виж lib/header-cart.ts)
 import SiteHeader from '@/components/layout/SiteHeader'
@@ -56,6 +57,11 @@ interface Props {
   settings?:   Record<string, string>
   // ✅ НОВО: статии от блога, споменаващи този продукт (related_affiliate_slugs)
   relatedArticles?: BlogArticleRef[]
+  // ✅ НОВО — реални отзиви от обединената reviews таблица (ако са подадени
+  // от page.tsx). Формата е различен от стария product.reviews[] (author →
+  // author_name, date → created_at), затова трансформираме тук веднъж,
+  // вместо да пипаме рендера по-долу, който вече е правилно изграден.
+  reviews?: { id: string; author_name: string; author_location?: string | null; rating: number; text: string; verified: boolean; created_at: string }[]
 }
 
 type TabId = 'about' | 'howto' | 'tech' | 'faq'
@@ -199,7 +205,7 @@ function formatBgDate(dateStr?: string): string | null {
   } catch { return null }
 }
 
-export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, showRating, images, headerCart, settings, relatedArticles = [] }: Props) {
+export default function AffiliateProduktClient({ product, related, avgRating, reviewCount, showRating, images, headerCart, settings, relatedArticles = [], reviews }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('about')
   const [openFaq,   setOpenFaq]   = useState<number | null>(null)
   const [scrollPct, setScrollPct] = useState(0)
@@ -251,7 +257,20 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   // ✅ НОВО: реален производител / регистрационен номер / реални отзиви
   const manufacturer = product.manufacturer
   const registrationNumber = product.registration_number
-  const realReviews = Array.isArray(product.reviews) ? product.reviews : []
+  // ✅ ФИКС: предпочита реалните отзиви от новата reviews таблица (ако е
+  // подадена), иначе пада обратно към старото product.reviews[] (винаги
+  // празно за 39-те продукта към момента на писане, но пазим fallback-а
+  // за безопасност). Трансформираме към формата, който рендерът очаква
+  // (author/date вместо author_name/created_at).
+  const realReviews = reviews && reviews.length > 0
+    ? reviews.map(r => ({
+        author:   r.author_name,
+        rating:   r.rating,
+        text:     r.text,
+        date:     r.created_at,
+        verified: r.verified,
+      }))
+    : Array.isArray(product.reviews) ? product.reviews : []
 
   const diff        = difficultyBadge(product.quarantine_days)
   const lastUpdated = formatBgDate(product.updated_at || product.date_published) // ✅ #4/#9
@@ -308,11 +327,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
     setBought(true)
     setPulse(false)
     setTimeout(() => setBought(false), 2500)
-    fetch('/api/affiliate-clicks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ partner: product.partner, product_slug: product.slug }),
-    }).catch(() => {})
+    trackAffiliateClick(product.partner, product.slug)
   }
 
   // ✅ #2 Цена за мобилния бутон

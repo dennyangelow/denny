@@ -15,9 +15,15 @@
 //    обикновен вътрешен линк (follow, в същия таб) — точно като всеки
 //    друг линк в статията. Click tracking-ът за affiliate product embed-и
 //    е запазен, само вече е чисто за аналитика, не влияе на rel/target.
+import { trackAffiliateClick } from '@/lib/trackAffiliateClick'
+
 interface Props {
   href: string
   slug: string
+  /** Реалният партньор/търговец (напр. "agroapteki") — задължителен за
+   *  affiliate_clicks таблицата, route.ts връща 400 без него. Подава се
+   *  от resolved.partner (виж app/blog/[slug]/page.tsx resolveProductEmbeds). */
+  partner?: string
   /** true = продуктът идва от affiliate таблицата → трекваме клика за
    *  аналитика. НЕ означава rel=nofollow — href винаги е вътрешна страница. */
   sponsored: boolean
@@ -25,25 +31,12 @@ interface Props {
   className?: string
 }
 
-function trackAffiliateClick(slug: string) {
-  try {
-    fetch('/api/affiliate-clicks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      keepalive: true,
-      body: JSON.stringify({ slug, source: 'blog' }),
-    }).catch(() => {})
-  } catch {
-    /* noop */
-  }
-}
-
-export function AffiliateTrackedLink({ href, slug, sponsored, children, className }: Props) {
+export function AffiliateTrackedLink({ href, slug, partner, sponsored, children, className }: Props) {
   return (
     <a
       href={href}
       className={className}
-      onClick={() => sponsored && trackAffiliateClick(slug)}
+      onClick={() => sponsored && trackAffiliateClick(partner || 'blog', slug)}
     >
       {children}
     </a>

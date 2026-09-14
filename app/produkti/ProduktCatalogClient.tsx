@@ -668,13 +668,19 @@ export function ProduktCatalogClient({
 
                       {p.subtitle && <p className="pk-card-sub">{p.subtitle}</p>}
 
-                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
-                        <Stars rating={rating} />
-                        <span style={{ fontSize:12, fontWeight:700, color:'#374151' }}>{rating}/5</span>
-                        {p.review_count && (
-                          <span style={{ fontSize:11, color:'#9ca3af' }}>({p.review_count})</span>
-                        )}
-                      </div>
+                      {/* ✅ ФИКС: getRating(p) връща 0 при липса на реален рейтинг
+                          (виж lib/affiliate.ts) — но блокът се рендваше безусловно,
+                          значи всеки продукт без реален рейтинг показваше "0/5"
+                          с празни звезди вместо просто да скрие реда. */}
+                      {rating > 0 && (
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                          <Stars rating={rating} />
+                          <span style={{ fontSize:12, fontWeight:700, color:'#374151' }}>{rating}/5</span>
+                          {p.review_count && (
+                            <span style={{ fontSize:11, color:'#9ca3af' }}>({p.review_count})</span>
+                          )}
+                        </div>
+                      )}
 
                       {bullets.slice(0, 2).length > 0 && (
                         <ul className="pk-bullets">

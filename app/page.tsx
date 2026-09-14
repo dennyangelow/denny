@@ -10,6 +10,10 @@ import { Metadata } from 'next'
 import Image from 'next/image'
 import { CDN } from '@/lib/marketing-data'
 import { supabaseAdmin } from '@/lib/supabase'
+// ✅ НОВО — само новата reviews таблица е източник на истина за рейтинг
+// (виж produkti/page.tsx фикса) — p.rating/p.review_count/p.avg_rating от
+// products/affiliate_products се оказаха ръчно въведени, неподкрепени числа.
+import { getAggregateRatingsBatch } from '@/lib/reviews'
 import { HeaderClient } from '@/components/client/HeaderClient'
 // ✅ НОВО: заменя хардкоднатия footer по-долу (виж бележката преди <footer>)
 import SiteFooter from '@/components/layout/SiteFooter'
@@ -132,6 +136,9 @@ interface AtlasProduct {
   features: string[]; variants?: ProductVariant[]
   outOfStock?: boolean
   stock?: number
+  // ✅ НОВО — за реален (не фабрикуван) aggregateRating в ItemList schema
+  avg_rating?: number
+  review_count?: number
 }
 
 interface AffiliateProduct {
@@ -146,6 +153,16 @@ interface AffiliateProduct {
   price_currency?: string
   featured_home?: boolean
   home_order?:    number | null
+  // ✅ НОВО — за реален (не фабрикуван) aggregateRating в ItemList schema
+  rating?: number
+  review_count?: number
+  // ✅ ФИКС (ts2322 в AffiliateSection): каноничният AffiliateProduct тип
+  // в lib/affiliate.ts изисква `active` — липсваше тук, затова
+  // <AffiliateSection products={...}> вече не type-check-ваше след като
+  // AffiliateSection.tsx мина на import type { AffiliateProduct } from
+  // '@/lib/affiliate' вместо собствено копие. Данните вече идват от
+  // select('*') — просто не бяха пренасяни в мапинга по-долу.
+  active: boolean
 }
 
 interface CategoryLink {
@@ -162,6 +179,7 @@ interface Testimonial {
   avatar_url?: string
   product?: string
   review_date?: string
+  verified?: boolean
 }
 
 interface FaqItem {
@@ -318,7 +336,11 @@ async function getPageData() {
       db.from('product_variants').select('*').eq('active', true).order('sort_order'),
       db.from('affiliate_products').select('*').eq('active', true).order('sort_order'),
       db.from('category_links').select('*').eq('active', true).order('sort_order'),
-      db.from('testimonials').select('*').order('sort_order').limit(9),
+      // ✅ ФИКС: вече чете от новата обединена `reviews` таблица вместо
+      // отделната `testimonials` — featured_home=true + approved показва
+      // точно избраните за началната страница отзиви, през всички типове
+      // продукти/наръчници (виж reviews миграцията).
+      db.from('reviews').select('*').eq('featured_home', true).eq('status', 'approved').order('home_sort_order').limit(9),
       db.from('promo_banners').select('*').eq('active', true).order('sort_order'),
       db.from('faq').select('*').eq('active', true).order('sort_order'),
       db.from('naruchnici').select('*').eq('active', true).order('sort_order'),
@@ -444,6 +466,9 @@ async function getPageData() {
         variants,
         outOfStock,
         stock: Number(p.stock) || 0,
+        // ✅ НОВО — реални стойности от products таблицата (0/null → без rating)
+        avg_rating:   p.avg_rating   != null ? Number(p.avg_rating)   : undefined,
+        review_count: p.review_count != null ? Number(p.review_count) : undefined,
       }
     })
 
@@ -472,7 +497,32 @@ async function getPageData() {
       price_currency: String(p.price_currency || 'EUR'),
       featured_home:  Boolean(p.featured_home),
       home_order:     p.home_order != null ? Number(p.home_order) : null,
+      // ✅ НОВО — реални стойности от affiliate_products (след DB-default фикса
+      // в reviews миграцията, вече не са фабрикувани 5.0/1 за всеки продукт)
+      rating:         p.rating != null ? Number(p.rating) : undefined,
+      review_count:   p.review_count != null ? Number(p.review_count) : undefined,
+      active:         p.active !== false,
     }))
+
+    // ✅ ФИКС: само новата reviews таблица решава рейтинга вече — p.rating/
+    // p.avg_rating/p.review_count по-горе идват директно от products/
+    // affiliate_products и се оказаха неподкрепени с реални отзиви ръчно
+    // въведени числа. Една batch заявка за всички продукти наведнъж,
+    // после презаписваме стойностите с реалните (или undefined, ако няма).
+    const [ownRatings, affRatings] = await Promise.all([
+      getAggregateRatingsBatch('own_product',       atlasProducts.map(p => p.id)),
+      getAggregateRatingsBatch('affiliate_product',  affiliateProducts.map(p => p.id)),
+    ])
+    atlasProducts.forEach(p => {
+      const r = ownRatings.get(p.id)
+      p.avg_rating   = r?.avg   || undefined
+      p.review_count = r?.count || undefined
+    })
+    affiliateProducts.forEach(p => {
+      const r = affRatings.get(p.id)
+      p.rating        = r?.avg   || undefined
+      p.review_count  = r?.count || undefined
+    })
 
     // ── Top affiliate products by click count (от SQL GROUP BY) ──────────────
     // ✅ clicksRows вече е масив от { product_slug, count } — не 5000 реда.
@@ -638,13 +688,17 @@ async function getPageData() {
       categoryLinks, promoBanners, marketingSettings, latestBlogPosts, blogCategories,
       testimonials: (testimonialRows || []).map((t: Record<string, unknown>) => ({
         id:          String(t.id || ''),
-        name:        String(t.name        || ''),
-        location:    String(t.location    || ''),
-        text:        String(t.text        || ''),
-        rating:      Number(t.rating)     || 5,
-        avatar_url:  String(t.avatar_url  || ''),
-        product:     String(t.product     || ''),
-        review_date: String(t.review_date || ''),
+        name:        String(t.author_name     || ''),
+        location:    String(t.author_location || ''),
+        text:        String(t.text            || ''),
+        rating:      Number(t.rating)         || 5,
+        // ✅ Старата `avatar_url`/`product` (стикер бадж) вече не идват от
+        // отделна testimonials таблица — reviews няма аватар поле (само
+        // screenshot_url за скрийншот-базирани отзиви, различна функция).
+        avatar_url:  '',
+        product:     '',
+        review_date: String(t.created_at || ''),
+        verified:    Boolean(t.verified),
       })),
       faq, faqCategories, handbooks, specialSections,
     }
@@ -855,12 +909,21 @@ export default async function HomePage() {
         url:           p.affiliate_url || BASE_URL,
         ...(p.seo_keywords ? { keywords: p.seo_keywords } : {}),
         brand: { '@type': 'Brand', name: p.partner || 'Agroapteki' },
-        review: {
-          '@type': 'Review',
-          reviewRating: { '@type': 'Rating', ratingValue: 5, bestRating: 5 },
-          author: { '@type': 'Person', name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
-          reviewBody: `Препоръчан от Denny Angelow — агро консултант с 8+ години опит в отглеждането на зеленчуци.`,
-        },
+        // ✅ ФИКС: премахнат хардкоднат фалшив `review` (5★, "препоръчан от
+        // Denny Angelow" еднакво за всеки продукт) — Google третира Review/
+        // AggregateRating markup като отзиви от трети страни, не описание
+        // от продавача; риск от manual action. Вместо това — реален
+        // агрегатен рейтинг, САМО ако продуктът реално има такъв (виж
+        // reviews миграцията, която махна фалшивите DB defaults 5.0/1).
+        ...(p.rating && p.review_count && p.rating > 0 && p.review_count > 0 ? {
+          aggregateRating: {
+            '@type':     'AggregateRating',
+            ratingValue:  p.rating,
+            reviewCount:  p.review_count,
+            bestRating:   5,
+            worstRating:  1,
+          },
+        } : {}),
         ...(p.price ? {
           offers: {
             '@type':          'Offer',
@@ -909,12 +972,17 @@ export default async function HomePage() {
           ...(p.seo_keywords ? { keywords: p.seo_keywords } : {}),
           brand:        { '@type': 'Brand',        name: 'Atlas Terra', url: 'https://atlasagro.eu' },
           manufacturer: { '@type': 'Organization', name: 'Atlas Agro',  url: 'https://atlasagro.eu' },
-          review: {
-            '@type': 'Review',
-            reviewRating: { '@type': 'Rating', ratingValue: 5, bestRating: 5 },
-            author: { '@type': 'Person', name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
-            reviewBody: p.desc || `${p.name} — препоръчан биостимулатор от Denny Angelow за домати и краставици.`,
-          },
+          // ✅ ФИКС: същото — премахнат хардкоднат фалшив `review`, заменен
+          // с реален агрегатен рейтинг само ако продуктът реално има такъв.
+          ...(p.avg_rating && p.review_count && p.avg_rating > 0 && p.review_count > 0 ? {
+            aggregateRating: {
+              '@type':     'AggregateRating',
+              ratingValue:  p.avg_rating,
+              reviewCount:  p.review_count,
+              bestRating:   5,
+              worstRating:  1,
+            },
+          } : {}),
           ...(activeVariants.length > 1 ? {
             offers: {
               '@type':       'AggregateOffer',
@@ -1454,10 +1522,16 @@ export default async function HomePage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     {[1,2,3,4,5].map(n => <span key={n} style={{ color: '#f59e0b', fontSize: 15 }}>★</span>)}
                   </div>
-                  <span style={{ fontWeight: 800, fontSize: 15, color: '#111' }}>5.0</span>
+                  {/* ✅ ФИКС: реална средна оценка от действителните testimonials,
+                      не хардкоднато "5.0" — и без "верифицирани" (не минават
+                      през реален verification процес) */}
+                  <span style={{ fontWeight: 800, fontSize: 15, color: '#111' }}>
+                    {testimonials.length > 0
+                      ? (testimonials.reduce((s, t) => s + (t.rating || 5), 0) / testimonials.length).toFixed(1)
+                      : '—'}
+                  </span>
                   <span style={{ color: '#e5e7eb' }}>|</span>
-                  <span style={{ fontSize: 13, color: '#6b7280' }}>{testimonials.length} верифицирани отзива</span>
-                  <span style={{ fontSize: 11, color: '#059669', fontWeight: 700, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 100, padding: '2px 10px' }}>✓ Проверени</span>
+                  <span style={{ fontSize: 13, color: '#6b7280' }}>{testimonials.length} отзива</span>
                 </div>
               </div>
             </FadeIn>
@@ -1483,7 +1557,9 @@ export default async function HomePage() {
                         {Array.from({ length: t.rating || 5 }).map((_, j) => (
                           <span key={j} className="star" aria-hidden="true">★</span>
                         ))}
-                        <span className="testimonial-verified">✓ Верифициран</span>
+                        {/* ✅ ФИКС: "✓ Верифициран" се показва само ако е РЕАЛНО
+                            маркиран verified в admin панела, не за всеки отзив */}
+                        {t.verified && <span className="testimonial-verified">✓ Верифициран</span>}
                       </div>
                       <blockquote style={{ margin: 0 }}>
                         <p className="testimonial-text">„{t.text}"</p>

@@ -231,8 +231,11 @@ export function useAdminData() {
         weekRevenue,
         pendingPayments: orderList.filter(o => o.payment_status === 'pending' && o.status !== 'cancelled').length,
         avgOrderValue:   active.length ? revenue / active.length : 0,
-        conversionRate:  pvData?.last30 && last30Orders.length
-          ? Math.min(99, (last30Orders.length / pvData.last30) * 100)
+        // ✅ Ползваме last30Unique (уникални посетители), не last30 (общи page
+        // views) — иначе човек, разгледал 5 страници, се брои 5 пъти в
+        // знаменателя и изкуствено намалява conversion rate-а.
+        conversionRate:  pvData?.last30Unique && last30Orders.length
+          ? Math.min(99, (last30Orders.length / pvData.last30Unique) * 100)
           : 0,
       })
     } catch (err: unknown) {

@@ -1,9 +1,12 @@
-// app/produkti/page.tsx — v7
-// ✅ ПОПРАВКИ спрямо v6:
-//   - НОВО: getSettings() + getHeaderCartConfig('produkti') — количката в
-//     менюто на тази страница вече се управлява от админ панела
-//     (SettingsTab → "🛒 Количка по страници"). Подадено надолу като
-//     headerCart prop към ProduktCatalogClient.
+// app/produkti/page.tsx — v8
+// ✅ ПОПРАВКИ спрямо v7:
+//   - ФИКС (по решение): p.rating/p.review_count вече НЕ се ползват директно
+//     от affiliate_products — оказаха се ръчно въведени "правдоподобни"
+//     числа (напр. Калитех 4.8/5 · 18) без нито един реален отзив зад тях.
+//     Вместо това — една batch заявка към новата reviews таблица
+//     (getAggregateRatingsBatch), после реалните avg/count се "закачат"
+//     към всеки продукт преди да стигнат до schema-та и клиента. Само
+//     новата reviews система е източник на истина вече, навсякъде.
 
 import { Metadata }              from 'next'
 import { supabaseAdmin }         from '@/lib/supabase'
@@ -11,9 +14,10 @@ import type { AffiliateProduct } from '@/lib/affiliate'
 import { ProduktCatalogClient }  from './ProduktCatalogClient'
 import '../homepage.css'
 import './produkti.css'
-// ✅ НОВО
 import { getSettings } from '@/lib/settings'
 import { getHeaderCartConfig } from '@/lib/header-cart'
+// ✅ НОВО
+import { getAggregateRatingsBatch } from '@/lib/reviews'
 
 export const revalidate = 300
 
@@ -74,10 +78,6 @@ interface ClickCountRow {
 }
 
 // ── Взима брой кликове чрез RPC (идентично с homepage) ──────────────────────
-// ✅ ПОПРАВКА: ползва get_top_affiliate_clicks RPC вместо директна заявка
-//   - автоматично изключва partner='category' кликове
-//   - брои само последните 90 дни
-//   - резултатът е 100% идентичен с homepage → еднакво наредени продукти
 async function getClickCounts(): Promise<Record<string, number>> {
   try {
     const { data, error } = await supabaseAdmin
@@ -149,56 +149,73 @@ function buildItemList(products: AffiliateProduct[]) {
   }
 }
 
-function buildProductSchemas(products: AffiliateProduct[]) {
-  return products.slice(0, 12).map(p => ({
-    '@context':  'https://schema.org',
-    '@type':     'Product',
-    name:        p.name,
-    description: p.description || p.subtitle,
-    image:       p.image_url ?? undefined,
-    url:         `${BASE_URL}/produkt/${p.slug}`,
-    sku:         p.slug,
-    brand:       { '@type': 'Brand', name: p.partner || 'AgroApteki' },
-    ...(p.price ? {
-      offers: {
-        '@type':       'Offer',
-        price:          Number(p.price).toFixed(2),
-        priceCurrency: p.price_currency || 'EUR',
-        availability:  'https://schema.org/InStock',
-        url:           `${BASE_URL}/produkt/${p.slug}`,
-        seller:        { '@type': 'Organization', name: p.partner || 'AgroApteki' },
-      },
-    } : {}),
-    ...(p.rating && p.review_count ? {
-      aggregateRating: {
-        '@type':      'AggregateRating',
-        ratingValue:  Number(p.rating),
-        reviewCount:  p.review_count,
-        bestRating:   5,
-        worstRating:  1,
-      },
-    } : {}),
-  }))
+// ✅ ФИКС: приема Map с реални рейтинги (от reviews таблицата) вместо да
+// чете p.rating/p.review_count директно от affiliate_products
+function buildProductSchemas(
+  products: AffiliateProduct[],
+  ratings: Map<string, { avg: number; count: number }>,
+) {
+  return products.slice(0, 12).map(p => {
+    const rating = ratings.get(p.id)
+    return {
+      '@context':  'https://schema.org',
+      '@type':     'Product',
+      name:        p.name,
+      description: p.description || p.subtitle,
+      image:       p.image_url ?? undefined,
+      url:         `${BASE_URL}/produkt/${p.slug}`,
+      sku:         p.slug,
+      brand:       { '@type': 'Brand', name: p.partner || 'AgroApteki' },
+      ...(p.price ? {
+        offers: {
+          '@type':       'Offer',
+          price:          Number(p.price).toFixed(2),
+          priceCurrency: p.price_currency || 'EUR',
+          availability:  'https://schema.org/InStock',
+          url:           `${BASE_URL}/produkt/${p.slug}`,
+          seller:        { '@type': 'Organization', name: p.partner || 'AgroApteki' },
+        },
+      } : {}),
+      ...(rating && rating.avg > 0 && rating.count > 0 ? {
+        aggregateRating: {
+          '@type':      'AggregateRating',
+          ratingValue:  rating.avg,
+          reviewCount:  rating.count,
+          bestRating:   5,
+          worstRating:  1,
+        },
+      } : {}),
+    }
+  })
 }
 
 export default async function ProduktiPage() {
-  // ✅ Паралелни заявки — по-бързо. Добавен getSettings() за headerCart.
+  // ✅ Паралелни заявки — по-бързо.
   const [products, clickCounts, settings] = await Promise.all([
     getAllProducts(),
-    getClickCounts(),  // ✅ вече ползва RPC — идентично с homepage
+    getClickCounts(),
     getSettings(),
   ])
 
-  // ✅ НОВО: количката в менюто тук е изключена по подразбиране —
-  //    управлявана от админ панела (SettingsTab → "🛒 Количка по страници")
+  // ✅ НОВО — една batch заявка за реални рейтинги на ВСИЧКИ продукти наведнъж
+  // (вместо да четем неподкрепените p.rating/p.review_count колони)
+  const ratingsMap = await getAggregateRatingsBatch('affiliate_product', products.map(p => p.id))
+
+  // ✅ Закачаме реалните стойности към всеки продукт — замества старите
+  // p.rating/p.review_count навсякъде надолу по веригата (schema + клиент)
+  const productsWithRealRatings = products.map(p => {
+    const r = ratingsMap.get(p.id)
+    return { ...p, rating: r?.avg || undefined, review_count: r?.count || undefined }
+  })
+
   const headerCart = getHeaderCartConfig(settings, 'produkti')
 
   const categories = Array.from(
-    new Set(products.map(p => p.category_label).filter(Boolean))
+    new Set(productsWithRealRatings.map(p => p.category_label).filter(Boolean))
   ) as string[]
 
   // ✅ Сортираме по кликове за default view (популярни най-отгоре)
-  const sortedByClicks = [...products].sort((a, b) => {
+  const sortedByClicks = [...productsWithRealRatings].sort((a, b) => {
     const ca = clickCounts[a.slug] || 0
     const cb = clickCounts[b.slug] || 0
     return cb - ca  // DESC — най-кликвани първи
@@ -210,18 +227,18 @@ export default async function ProduktiPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildBreadcrumb()) }} />
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildItemList(sortedByClicks)) }} />
-      {buildProductSchemas(sortedByClicks).map((schema, i) => (
+      {buildProductSchemas(sortedByClicks, ratingsMap).map((schema, i) => (
         <script key={i} type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
       ))}
 
       <ProduktCatalogClient
-        products={products}              // оригинален ред (sort_order) — за "По ред"
-        sortedByClicks={sortedByClicks}  // ✅ наредени по кликове — за "Популярни"
-        clickCounts={clickCounts}        // ✅ за показване на badge с брой кликове
+        products={productsWithRealRatings}    // оригинален ред (sort_order) — за "По ред"
+        sortedByClicks={sortedByClicks}        // ✅ наредени по кликове — за "Популярни"
+        clickCounts={clickCounts}              // ✅ за показване на badge с брой кликове
         categories={categories}
         initialVisible={12}
-        initialSort="popular"            // ✅ default: популярни
+        initialSort="popular"                  // ✅ default: популярни
         headerCart={headerCart}
         settings={settings}
       />

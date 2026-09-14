@@ -106,6 +106,10 @@ interface OwnProduct {
   features?: string[]
   category?: string
   usage_notes?: string
+  // ✅ НОВО — от физическия етикет, продукт-специфично (различно за всеки продукт —
+  //    Atlas Terra/NITRO/AMINO имат различни изключения при смесване!)
+  storage_instructions?: string
+  mixing_warning?: string
   // SEO
   seo_title?: string
   seo_description?: string
@@ -581,6 +585,7 @@ export function OwnProductsTab() {
     setEditing({
       id: '', name: '', slug: '', subtitle: '', description: '',
       badge: 'Хит', emoji: '🌿', image_url: '', image_alt: '', gallery_urls: [],
+      storage_instructions: '', mixing_warning: '',
       price: 0, compare_price: 0, unit: 'л.', stock: 100,
       sort_order: 0, active: true, features: [], category: 'atlas',
       usage_notes: 'Листно: 150-500 мл/дка. Почвено: 200-500 мл/дка. Семена: 25-50 мл/100 кг.',
@@ -862,6 +867,18 @@ export function OwnProductsTab() {
                   <Label>Начин на употреба (usage_notes)</Label>
                   <textarea rows={2} value={editing.usage_notes || ''} onChange={e => set('usage_notes', e.target.value)} placeholder="Листно: 150-500 мл/дка. Почвено: 200-500 мл/дка." style={{ ...inp, resize: 'vertical' }} onFocus={focusGreen} onBlur={blurGray} />
                   <span style={{ fontSize: 11, color: '#9ca3af' }}>Формат: "Листно: X мл/дка. Почвено: Y мл/дка. Семена: Z мл/100 кг."</span>
+                </div>
+
+                <div>
+                  <Label>Съхранение (от физическия етикет)</Label>
+                  <textarea rows={2} value={editing.storage_instructions || ''} onChange={e => set('storage_instructions', e.target.value)} placeholder="Избягвайте излагане на продукта на пряка слънчева светлина и температура по-висока от 25°C." style={{ ...inp, resize: 'vertical' }} onFocus={focusGreen} onBlur={blurGray} />
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>Показва се на продуктовата страница в „Съхранение и съвместимост".</span>
+                </div>
+
+                <div>
+                  <Label>⚠️ Предупреждение при смесване (от физическия етикет — ПРОДУКТ-СПЕЦИФИЧНО)</Label>
+                  <textarea rows={2} value={editing.mixing_warning || ''} onChange={e => set('mixing_warning', e.target.value)} placeholder="Да не се смесва с продукти, които съдържат минерални масла, редуциращи агенти, силни киселини или основи." style={{ ...inp, resize: 'vertical' }} onFocus={focusGreen} onBlur={blurGray} />
+                  <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>⚠️ Копирай ТОЧНО от етикета на ТОЗИ продукт — Atlas Terra/NITRO/AMINO имат различни изключения (хлор / минерални масла / силни к-ни). Не копирай от друг продукт.</span>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

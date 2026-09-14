@@ -10,7 +10,8 @@ const ALLOWED_TYPES  = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'i
 //    лимитът тук е малко над старите 5MB, като буфер за тях.
 const MAX_SIZE       = 8 * 1024 * 1024 // 8MB
 const VALID_FOLDERS  = ['products', 'testimonials', 'settings', 'handbooks', 'marketing',
-                        'banners', 'misc', 'affiliate', 'naruchnici', 'special-sections']
+                        'banners', 'misc', 'affiliate', 'naruchnici', 'special-sections',
+                        'reviews']
 
 export async function POST(req: NextRequest) {
   try {

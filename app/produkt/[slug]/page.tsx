@@ -10,7 +10,12 @@ import { notFound }           from 'next/navigation'
 import { supabaseAdmin }      from '@/lib/supabase'
 import AffiliateProduktClient from './AffiliateProduktClient'
 import type { AffiliateProduct } from '@/lib/affiliate'
-import { getRating, getReviewCount, hasRealRating, parseHowToUse, getAllImages } from '@/lib/affiliate'
+// ✅ ФИКС: getRating/getReviewCount/hasRealRating вече не се ползват тук —
+// само новата reviews таблица (lib/reviews.ts) решава рейтинга, виж по-долу
+import { parseHowToUse, getAllImages } from '@/lib/affiliate'
+// ✅ НОВО — обединената reviews система (заменя product.reviews[] и
+// product.rating/review_count като основен източник)
+import { getReviews, getAggregateRating } from '@/lib/reviews'
 // ✅ НОВО
 import { getSettings } from '@/lib/settings'
 import { getHeaderCartConfig } from '@/lib/header-cart'
@@ -196,13 +201,22 @@ export default async function ProduktPage({
   //    управлявана от админ панела (SettingsTab → "🛒 Количка по страници")
   const headerCart = getHeaderCartConfig(settings, 'produkt')
 
-  // ✅ ФИКС: махнат hardcoded fallback от 847 отзива — измислена бройка,
-  //    която се показваше за всеки продукт без реален review_count.
-  //    showRating казва дали изобщо имаме реални данни за рейтинг — ако не,
-  //    нито UI-то, нито schema-та трябва да показват звезди/AggregateRating.
-  const avgRating    = getRating(product)
-  const reviewCount  = getReviewCount(product)
-  const showRating   = hasRealRating(product)
+  // ✅ НОВО — реални отзиви от обединената reviews таблица за ТОЗИ продукт
+  const [newReviews, aggregateRatingData] = await Promise.all([
+    getReviews('affiliate_product', product.id),
+    getAggregateRating('affiliate_product', product.id),
+  ])
+
+  // ✅ ФИКС (по решение): само новата reviews таблица е източник на истина
+  // за рейтинг вече — БЕЗ fallback към старите product.rating/review_count
+  // полета. Тези полета се оказаха ръчно въведени "правдоподобни" числа
+  // (напр. 4.8/5 · 18) без нито един реален отзив зад тях — същия проблем,
+  // който цялата тази система трябваше да реши. Продукт без реални
+  // одобрени отзиви в новата таблица вече просто не показва рейтинг —
+  // никакво изключение.
+  const avgRating    = aggregateRatingData.avg
+  const reviewCount  = aggregateRatingData.count
+  const showRating   = aggregateRatingData.avg > 0 && aggregateRatingData.count > 0
   const canonicalUrl = `${BASE_URL}/produkt/${product.slug}`
   const allImages     = getAllImages(product)
   const ogImage       = allImages[0]?.url || FALLBACK_OG
@@ -227,9 +241,15 @@ export default async function ProduktPage({
   //
   // ✅ НОВО: mpn = официалният регистрационен номер на препарата, когато
   //    е наличен — конкретен, проверим идентификатор вместо липсващ.
-  // ✅ НОВО: review — реални, видими отзиви (product.reviews), които стоят
-  //    зад AggregateRating числото вместо да е голо.
-  const realReviews = Array.isArray(product.reviews) ? product.reviews : []
+  // ✅ ФИКС (по решение): само новата reviews таблица — без fallback към
+  // старото product.reviews[] (потвърдено празно за всички продукти и не
+  // е достижимо през admin панела вече, само през новия ReviewsTab).
+  const realReviews = newReviews.filter(r => r.text?.trim()).map(r => ({
+    author: r.author_name,
+    rating: r.rating,
+    text:   r.text,
+    date:   r.created_at,
+  }))
 
   const productSchema = productPrice ? {
     '@context': 'https://schema.org',
@@ -394,6 +414,7 @@ export default async function ProduktPage({
         headerCart={headerCart}
         settings={settings}
         relatedArticles={relatedArticles}
+        reviews={newReviews}
       />
     </>
   )

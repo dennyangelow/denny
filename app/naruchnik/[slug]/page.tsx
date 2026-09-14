@@ -1,9 +1,18 @@
-// app/naruchnik/[slug]/page.tsx — v15
-// ✅ ПОПРАВКИ спрямо v14:
-//   - НОВО: getSettings() + getHeaderCartConfig('naruchnik') — количката в
-//     менюто на наръчниците вече се управлява от админ панела
-//     (SettingsTab → "🛒 Количка по страници"), вместо да е хардкодната
-//     изключена (стария <SiteHeader variant="light" /> без cart изобщо).
+// app/naruchnik/[slug]/page.tsx — v16
+// ✅ ПОПРАВКИ спрямо v15:
+//   - ПРЕМАХНАТИ фалшивите fallback-и `|| 4.9` / `|| 847` / `|| 6000` —
+//     отиваха БЕЗ проверка направо в Book schema (aggregateRating/
+//     interactionStatistic), т.е. Google получаваше измислени 4.9★/847
+//     отзива/6000 сваляния за всеки наръчник без реални попълнени данни.
+//   - Рейтингът/отзивите вече идват от новата обединена `reviews` таблица
+//     (lib/reviews.ts), не от nar.avg_rating/nar.reviews_count (които бяха
+//     ръчно въведени, силно завишени числа спрямо реалните тестимониали).
+//   - interactionStatistic (сваляния) вече взима РЕАЛНИЯ tracked брояч
+//     `nar.downloads`, не маркетинговото `downloads_count` — схема данните
+//     трябва да са верни, за разлика от показания на екрана маркетинг текст.
+//   - aggregateRating/interactionStatistic вече се включват в schema-та
+//     САМО ако има реални данни (hasRealRating / downloads > 0) — никога
+//     повече фабрикувани стойности.
 
 import { Metadata }      from 'next'
 import { notFound }      from 'next/navigation'
@@ -11,9 +20,10 @@ import { supabaseAdmin } from '@/lib/supabase'
 import NaruchnikClient   from './NaruchnikClient'
 import type { Testimonial } from './NaruchnikClient'
 import { buildImageList } from '@/lib/images'
-// ✅ НОВО
 import { getSettings } from '@/lib/settings'
 import { getHeaderCartConfig } from '@/lib/header-cart'
+// ✅ НОВО — обединената reviews система
+import { getReviews, getAggregateRating, hasRealRating } from '@/lib/reviews'
 
 export const revalidate = 3600
 
@@ -39,9 +49,13 @@ export interface Naruchnik {
   faq?: { q: string; a: string }[]
   content_body?: string
   author_bio?:   string
+  // ⚠️ reviews_count/avg_rating остават в схемата за обратна съвместимост
+  // (стари данни/UI), но вече НЕ се ползват за schema.org markup — виж
+  // getAggregateRating() по-долу вместо тях.
   reviews_count?: number
   avg_rating?:   number
-  downloads_count?: number
+  downloads?:      number  // ✅ реален tracked брояч
+  downloads_count?: number // ⚠️ маркетингово число, показвано на екрана — виж бележка при NaruchnikClient извикването
   created_at?:   string
   updated_at?:   string
   testimonials?: Testimonial[]
@@ -84,7 +98,7 @@ export async function generateMetadata(
 
   const title       = nar.meta_title || `${nar.title} — Безплатен PDF Наръчник | Denny Angelow`
   const description = nar.meta_description || nar.description
-    || `Изтегли безплатно "${nar.title}" — практично ръководство за по-здрави растения и рекордна реколта. Над ${nar.downloads_count || 6000} фермери вече го изтеглиха.`
+    || `Изтегли безплатно "${nar.title}" — практично ръководство за по-здрави растения и рекордна реколта.`
   const canonicalUrl = `${BASE_URL}/naruchnik/${nar.slug}`
   const allImages = buildImageList(nar.cover_image_url, nar.image_alt, nar.gallery_urls, `${nar.title} — PDF наръчник`)
   // ✅ Fallback OG image — никога нямаме празен images[]
@@ -139,9 +153,9 @@ export async function generateMetadata(
       googleBot: {
         index:               true,
         follow:              true,
-        'max-snippet':       -1,      // ✅ ПОПРАВКА: липсваше!
-        'max-image-preview': 'large', // ✅ ПОПРАВКА: липсваше!
-        'max-video-preview': -1,      // ✅ ПОПРАВКА: липсваше!
+        'max-snippet':       -1,
+        'max-image-preview': 'large',
+        'max-video-preview': -1,
       },
     },
   }
@@ -154,21 +168,27 @@ export default async function NaruchnikPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug }        = await params
-  // ✅ Паралелни заявки — наръчник + settings (за headerCart конфигурацията)
+  // ✅ Паралелни заявки — наръчник + settings + реални отзиви/рейтинг
   const [{ nar, others }, settings] = await Promise.all([
     getNaruchnik(slug),
     getSettings(),
   ])
   if (!nar) notFound()
 
-  // ✅ НОВО: количката в менюто тук е изключена по подразбиране —
-  //    управлявана от админ панела (SettingsTab → "🛒 Количка по страници")
+  const [realReviews, aggregateRatingData] = await Promise.all([
+    getReviews('handbook', nar.id),
+    getAggregateRating('handbook', nar.id),
+  ])
+
   const headerCart = getHeaderCartConfig(settings, 'naruchnik')
 
   const canonicalUrl   = `${BASE_URL}/naruchnik/${nar.slug}`
-  const downloadsCount = nar.downloads_count || 6000
-  const avgRating      = nar.avg_rating      || 4.9
-  const reviewsCount   = nar.reviews_count   || 847
+  // ⚠️ downloads_count е маркетингово число, ръчно въведено в admin панела —
+  // остава за екрана (виж бележка при NaruchnikClient по-долу), но НЕ отива
+  // в schema.org markup — там ползваме само реалния tracked брояч.
+  const downloadsCount = nar.downloads_count || 0
+  const realDownloads  = nar.downloads || 0
+
   const allImages       = buildImageList(nar.cover_image_url, nar.image_alt, nar.gallery_urls, `${nar.title} — PDF наръчник`)
   const ogImage         = allImages[0]?.url || `${BASE_URL}/og-image.jpg`
 
@@ -189,10 +209,18 @@ export default async function NaruchnikPage({
   const seenQ = new Set(newFaq.map(f => f.q.trim()))
   const faqEntries = [...newFaq, ...legacyFaq.filter(f => !seenQ.has(f.q.trim()))]
 
-  const testimonials: Testimonial[] = Array.isArray(nar.testimonials) ? nar.testimonials : []
+  // ✅ Реалните отзиви от новата таблица заместват nar.testimonials/
+  // FALLBACK_TESTIMONIALS (виж NaruchnikClient.tsx фикса) — ако няма нито
+  // един реален одобрен отзив, подаваме празен масив, НЕ измислени хора.
+  const testimonials: Testimonial[] = realReviews.map(r => ({
+    name:     r.author_name,
+    location: r.author_location || '',
+    text:     r.text,
+    stars:    r.rating,
+  }))
 
   // ── Book schema ───────────────────────────────────────────────────────────
-  const bookSchema = {
+  const bookSchema: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type':    'Book',
     name:        nar.title,
@@ -204,7 +232,6 @@ export default async function NaruchnikPage({
     genre:       'Agriculture / Gardening',
     datePublished,
     dateModified,
-    // ✅ ПОПРАВКА: numberOfPages премахнат — без реална стойност Google penalty-ва
     author: {
       '@type':    'Person',
       name:        AUTHOR_NAME,
@@ -223,18 +250,27 @@ export default async function NaruchnikPage({
       priceCurrency: 'BGN',
       availability:  'https://schema.org/InStock',
     },
-    aggregateRating: {
+  }
+
+  // ✅ aggregateRating — САМО ако има реални одобрени отзиви (не фалшив fallback)
+  if (hasRealRating(aggregateRatingData)) {
+    bookSchema.aggregateRating = {
       '@type':      'AggregateRating',
-      ratingValue:   avgRating,
-      reviewCount:   reviewsCount,
+      ratingValue:   aggregateRatingData.avg,
+      reviewCount:   aggregateRatingData.count,
       bestRating:    5,
       worstRating:   1,
-    },
-    interactionStatistic: {
+    }
+  }
+
+  // ✅ interactionStatistic — САМО ако имаме реален tracked брой сваляния
+  // (не маркетинговото downloads_count)
+  if (realDownloads > 0) {
+    bookSchema.interactionStatistic = {
       '@type':              'InteractionCounter',
       interactionType:      'https://schema.org/DownloadAction',
-      userInteractionCount: downloadsCount,
-    },
+      userInteractionCount: realDownloads,
+    }
   }
 
   // ── Article schema (E-E-A-T) ──────────────────────────────────────────────
@@ -318,8 +354,8 @@ export default async function NaruchnikPage({
         faqEntries={faqEntries}
         testimonials={testimonials}
         downloadsCount={downloadsCount}
-        avgRating={avgRating}
-        reviewsCount={reviewsCount}
+        avgRating={aggregateRatingData.avg}
+        reviewsCount={aggregateRatingData.count}
         images={allImages}
         headerCart={headerCart}
         settings={settings}

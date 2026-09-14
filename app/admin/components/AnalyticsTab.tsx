@@ -142,6 +142,19 @@ function getVisitsForRange(pageViews: PageViewStats | null, range: Range): numbe
   return pageViews.total ?? 0
 }
 
+// ✅ Уникални посетители за дадения период — за conversion funnel и
+// conversion rate. Едно поръчка идва от 1 човек, не от 1 page view, затова
+// знаменателят на "% conversion" трябва да е уникални хора, не общи прегледи
+// (иначе някой, разгледал 5 страници, изкуствено намалява % с 5x).
+function getUniqueVisitsForRange(pageViews: PageViewStats | null, range: Range): number {
+  if (!pageViews) return 0
+  if (range === 1)     return pageViews.todayUnique  ?? 0
+  if (range === 7)     return pageViews.last7Unique  ?? 0
+  if (range === 30)    return pageViews.last30Unique ?? 0
+  if (range === 90)    return pageViews.last90Unique ?? 0
+  return pageViews.unique ?? 0   // 365/all — само общ unique е наличен
+}
+
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
 export function RangePicker({ range, onChange }: { range: Range; onChange: (r: Range) => void }) {
@@ -529,12 +542,13 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   const affBar = useMemo(() => getAffBar(affDetails, analytics, range), [affDetails, analytics, range])
 
   const funnelData = useMemo(() => {
-    const visits = getVisitsForRange(pageViews, range)
+    // ✅ Уникални посетители, не общи page views — виж getUniqueVisitsForRange
+    const visits = getUniqueVisitsForRange(pageViews, range)
     const cnt    = filteredOrders.length
     return [
-      { stage:'Посещения',    value: visits,    pct: 100 },
-      { stage:'Aff. кликове', value: affClicks, pct: visits ? Math.round(affClicks / visits * 100) : 0 },
-      { stage:'Поръчки',      value: cnt,       pct: visits ? Math.round(cnt / visits * 100) : 0 },
+      { stage:'Посещения (уник.)', value: visits,    pct: 100 },
+      { stage:'Aff. кликове',      value: affClicks, pct: visits ? Math.round(affClicks / visits * 100) : 0 },
+      { stage:'Поръчки',           value: cnt,       pct: visits ? Math.round(cnt / visits * 100) : 0 },
     ]
   }, [pageViews, affClicks, filteredOrders, range])
 

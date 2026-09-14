@@ -63,38 +63,49 @@ export default function BlogListClient({ posts, categories, initialVisible = BAT
   const hasMore       = visible < filtered.length
   const skeletonCount = hasMore ? Math.min(BATCH, filtered.length - visible) : 0
 
-  // ── Infinite scroll (същия подход като ProduktCatalogClient) ─────────────
+  // ── Infinite scroll (IntersectionObserver) ────────────────────────────────
+  // ✅ ПРОМЯНА: преди слушаше 'scroll'/'resize' и на всеки tick смяташе
+  //    getBoundingClientRect() — форсира reflow при всяко scroll събитие,
+  //    независимо колко далеч е сентинелът. IntersectionObserver тригерва
+  //    само когато браузърът реално установи, че елементът е близо до
+  //    viewport-а (rootMargin действа като предварителен буфер, аналог на
+  //    старото "+500"), без ръчни изчисления на всеки frame.
   const sentinelRef     = useRef<HTMLDivElement>(null)
   const loadingGuardRef = useRef(false)
+  const loadTimeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!hasMore) return
 
-    const checkScroll = () => {
-      if (loadingGuardRef.current) return
-      const el = sentinelRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      if (rect.top <= window.innerHeight + 500) {
+    const el = sentinelRef.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0].isIntersecting) return
+        if (loadingGuardRef.current) return
+
         loadingGuardRef.current = true
         setLoading(true)
-        requestAnimationFrame(() => {
-          loadMore()
-          requestAnimationFrame(() => {
-            setLoading(false)
-            loadingGuardRef.current = false
-          })
-        })
-      }
-    }
 
-    window.addEventListener('scroll', checkScroll, { passive: true })
-    window.addEventListener('resize', checkScroll)
-    checkScroll()
+        // ✅ posts вече са напълно заредени client-side (loadMore е просто
+        //    local slice, не network заявка) — кратко изкуствено закъснение
+        //    вместо мигновен скок, колкото потребителят да усети зареждане
+        //    на следващата партида, а не рязко "изскачане" на 9 карти.
+        loadTimeoutRef.current = setTimeout(() => {
+          loadMore()
+          setLoading(false)
+          loadingGuardRef.current = false
+        }, 250)
+      },
+      { rootMargin: '500px 0px' }
+    )
+
+    observer.observe(el)
 
     return () => {
-      window.removeEventListener('scroll', checkScroll)
-      window.removeEventListener('resize', checkScroll)
+      observer.disconnect()
+      if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current)
     }
   }, [hasMore, loadMore])
 
