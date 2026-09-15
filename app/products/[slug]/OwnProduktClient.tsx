@@ -52,7 +52,8 @@ interface HowItem      { icon: string; title: string; text: string }
 interface CropRow      { name: string; leaf: string; soil: string; seed?: string }
 interface WhyItem      { icon: string; title: string; text: string }
 interface EcoBadge     { label: string; color: 'green'|'blue'|'brown'|'gold' }
-interface Testimonial  { name: string; location: string; text: string; rating?: number }
+// ✅ ФИКС: interface Testimonial премахнат — products.testimonial колоната
+// е DROP-ната. Реалните отзиви идват от reviews таблицата (виж Props.reviews).
 interface StatItem     { label: string; value: string; sub?: string }
 interface CompItem     { name: string; value: string; pct?: number; note?: string }
 
@@ -65,7 +66,7 @@ interface OwnProduct {
   seo_title?: string; seo_description?: string; seo_keywords?: string
   stock: number; active: boolean; variants?: ProductVariant[]
   faq?: FaqItem[]; how_it_works?: HowItem[]; crops?: CropRow[]
-  testimonial?: Testimonial; why_items?: WhyItem[]
+  why_items?: WhyItem[]
   eco_badges?: EcoBadge[]; certifications?: string[]
   stats?: StatItem[]
   composition?: CompItem[]
@@ -73,9 +74,9 @@ interface OwnProduct {
   // ✅ НОВО — от физическия етикет на продукта, продукт-специфични (виж админ панела)
   storage_instructions?: string
   mixing_warning?: string
-  // ✅ Реални данни от БД
-  review_count?: number
-  avg_rating?: number
+  // ✅ ФИКС: testimonial/review_count/avg_rating премахнати — колоните са
+  // DROP-нати (products.testimonial, .review_count, .avg_rating). Реалните
+  // данни идват от Props.reviews/aggregateRatingData (reviews таблицата).
   created_at?: string
   updated_at?: string
 }
@@ -333,24 +334,18 @@ export default function OwnProduktClient({
   const crops       = product.crops        || []
   const whyItems    = product.why_items    || []
   const ecoBadges   = product.eco_badges   || []
-  const testimonial = product.testimonial
   const stats       = product.stats        || []
   const composition = product.composition  || []
 
-  // ✅ Рейтинг — САМО реален от БД. Без измислени фолбек числа ("1+"/"124+ отзива") —
-  //    те подвеждат клиента и нямат покритие в реални данни (review_count беше 0
-  //    и за трите продукта). Ако няма реален рейтинг, редът по-долу превключва към
-  //    честен testimonial-базиран trust текст вместо звезди.
-  // ✅ Рейтинг — предпочита реалната агрегатна стойност от новата reviews
-  //    таблица (aggregateRatingData, подадена от page.tsx); при липса —
-  //    fallback към старите product.avg_rating/review_count полета. И двата
-  //    пътя са честни (нула → нищо не се показва), никога измислен fallback.
+  // ✅ ФИКС (по решение): само новата reviews таблица е източник на истина за
+  // рейтинг вече — БЕЗ fallback към старите product.avg_rating/review_count
+  // полета (DROP-нати). Продукт без реални одобрени отзиви просто не
+  // показва рейтинг — никакво изключение.
   const hasRealRating = aggregateRatingData
     ? aggregateRatingData.avg > 0 && aggregateRatingData.count > 0
-    : typeof product.avg_rating === 'number' && product.avg_rating > 0 &&
-      typeof product.review_count === 'number' && product.review_count > 0
-  const displayAvgRating   = aggregateRatingData?.avg   ?? product.avg_rating
-  const displayReviewCount = aggregateRatingData?.count ?? product.review_count
+    : false
+  const displayAvgRating   = aggregateRatingData?.avg
+  const displayReviewCount = aggregateRatingData?.count
 
   const badgeClass: Record<string, string> = {
     green: 'op-eco-badge--green', blue: 'op-eco-badge--blue',
@@ -498,13 +493,6 @@ export default function OwnProduktClient({
                           {displayAvgRating!.toFixed(1)}
                           {' · '}
                           {displayReviewCount} отзива
-                        </span>
-                        <span className="op-separator">·</span>
-                      </>
-                    ) : testimonial?.name ? (
-                      <>
-                        <span className="op-rating-text">
-                          ✓ Лично тествано и препоръчано от {testimonial.name}
                         </span>
                         <span className="op-separator">·</span>
                       </>
@@ -800,21 +788,10 @@ export default function OwnProduktClient({
               </section>
             )}
 
-            {/* 6. Testimonial */}
-            {testimonial?.text && (
-              <section className="op-content-card op-content-card--testimonial" aria-label="Отзив от клиент">
-                <div className="op-testimonial">
-                  <div className="op-testimonial-stars" aria-label={`${testimonial.rating ?? 5} звезди`}>
-                    {'★'.repeat(Math.round(testimonial.rating ?? 5))}
-                  </div>
-                  <blockquote className="op-testimonial-text">{testimonial.text}</blockquote>
-                  <div className="op-testimonial-author">
-                    <strong>{testimonial.name}</strong>
-                    {testimonial.location && <span>{testimonial.location}</span>}
-                  </div>
-                </div>
-              </section>
-            )}
+            {/* ✅ ФИКС: секция "6. Testimonial" (единичен product.testimonial цитат)
+                премахната изцяло — дублираше новата "Какво казват клиентите"
+                секция по-горе (реални отзиви от reviews таблицата), а
+                products.testimonial колоната вече не съществува (DROP-ната). */}
 
             {/* 7. Защо */}
             {whyItems.length > 0 && (

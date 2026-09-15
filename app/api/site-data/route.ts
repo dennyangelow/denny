@@ -1,4 +1,6 @@
 // app/api/site-data/route.ts
+// ✅ ФИКС: testimonials таблицата е DROP-ната (мигрирана в обединената
+// reviews таблица) — вече чете featured_home+approved отзиви оттам.
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
@@ -16,14 +18,15 @@ export async function GET() {
       atlasRes,
       affiliateRes,
       categoryRes,
-      testimonialsRes,
+      reviewsRes,
       faqRes,
     ] = await Promise.all([
       supabase.from('settings').select('key, value'),
       supabase.from('products').select('*').eq('active', true).order('sort_order'),
       supabase.from('affiliate_products').select('*').eq('active', true).order('sort_order'),
       supabase.from('category_links').select('*').eq('active', true).order('sort_order'),
-      supabase.from('testimonials').select('*').eq('active', true).order('sort_order'),
+      // ✅ ФИКС: reviews таблица вместо старата testimonials
+      supabase.from('reviews').select('*').eq('featured_home', true).eq('status', 'approved').order('home_sort_order'),
       supabase.from('faq').select('*').eq('active', true).order('sort_order'),
     ])
 
@@ -32,7 +35,9 @@ export async function GET() {
       atlasProducts:     atlasRes.data        || [],
       affiliateProducts: affiliateRes.data    || [],
       categoryLinks:     categoryRes.data     || [],
-      testimonials:      testimonialsRes.data || [],
+      // ✅ ключът остава "testimonials" за обратна съвместимост с
+      // консуматорите на този endpoint, но данните вече идват от reviews
+      testimonials:      reviewsRes.data      || [],
       faq:               faqRes.data          || [],
     }, {
       headers: {

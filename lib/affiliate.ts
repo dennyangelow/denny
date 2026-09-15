@@ -37,16 +37,6 @@ export interface CompositionRow {
   content: string
 }
 
-// ✅ НОВО: реален отзив — за да застане истинско съдържание зад
-//    AggregateRating schema-та вместо само число.
-export interface ReviewItem {
-  author:   string
-  rating:   number
-  text:     string
-  date?:    string   // ISO "2026-05-02"
-  verified?: boolean
-}
-
 export interface AffiliateProduct {
   id:              string
   slug:            string
@@ -132,9 +122,9 @@ export interface AffiliateProduct {
   //    Използва се и като `mpn` в Product schema.
   registration_number?:   string
 
-  // ✅ НОВО: реални отзиви — вместо голо число в review_count.
-  //    JSONB масив, по същия модел като faq/dose_table.
-  reviews?:               ReviewItem[]
+  // ✅ ФИКС: `reviews?: ReviewItem[]` премахнато — affiliate_products.reviews
+  // колоната е DROP-ната (винаги беше празна, 0/39 продукта). Реалните
+  // отзиви вече идват изцяло от обединената `reviews` таблица (lib/reviews.ts).
 }
 
 // ── Helper: безопасно конвертира rating към number ─────────────────────────

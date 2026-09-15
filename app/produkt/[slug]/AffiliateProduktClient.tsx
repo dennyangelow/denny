@@ -257,20 +257,16 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   // ✅ НОВО: реален производител / регистрационен номер / реални отзиви
   const manufacturer = product.manufacturer
   const registrationNumber = product.registration_number
-  // ✅ ФИКС: предпочита реалните отзиви от новата reviews таблица (ако е
-  // подадена), иначе пада обратно към старото product.reviews[] (винаги
-  // празно за 39-те продукта към момента на писане, но пазим fallback-а
-  // за безопасност). Трансформираме към формата, който рендерът очаква
-  // (author/date вместо author_name/created_at).
-  const realReviews = reviews && reviews.length > 0
-    ? reviews.map(r => ({
-        author:   r.author_name,
-        rating:   r.rating,
-        text:     r.text,
-        date:     r.created_at,
-        verified: r.verified,
-      }))
-    : Array.isArray(product.reviews) ? product.reviews : []
+  // ✅ ФИКС (по решение — само новата система, никакви stale fallback-и):
+  // старото product.reviews[] вече не съществува (DROP COLUMN) — премахнат
+  // fallback-ът изцяло. Реалните отзиви идват само от reviews таблицата.
+  const realReviews = (reviews || []).map(r => ({
+    author:   r.author_name,
+    rating:   r.rating,
+    text:     r.text,
+    date:     r.created_at,
+    verified: r.verified,
+  }))
 
   const diff        = difficultyBadge(product.quarantine_days)
   const lastUpdated = formatBgDate(product.updated_at || product.date_published) // ✅ #4/#9

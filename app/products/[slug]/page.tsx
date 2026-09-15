@@ -52,7 +52,8 @@ interface HowItem     { icon: string; title: string; text: string }
 interface CropRow     { name: string; leaf: string; soil: string; seed?: string }
 interface WhyItem     { icon: string; title: string; text: string }
 interface EcoBadge    { label: string; color: 'green' | 'blue' | 'brown' | 'gold' }
-interface Testimonial { name: string; location: string; text: string; rating?: number }
+// ✅ ФИКС: interface Testimonial премахнат — products.testimonial колоната е
+// DROP-ната (виж reviews проекта). Реалните отзиви идват от lib/reviews.ts.
 interface StatItem    { label: string; value: string; sub?: string }
 interface CompItem    { name: string; value: string; pct?: number; note?: string }
 
@@ -90,15 +91,14 @@ interface Product {
   how_it_works?:   HowItem[]
   crops?:          CropRow[]
   faq?:            FaqItem[]
-  testimonial?:    Testimonial
   why_items?:      WhyItem[]
   eco_badges?:     EcoBadge[]
   certifications?: string[]
   stats?:          StatItem[]
   composition?:    CompItem[]
   composition_ph?: string
-  review_count?:   number
-  avg_rating?:     number
+  // ✅ ФИКС: testimonial/review_count/avg_rating премахнати — колоните са
+  // DROP-нати. Реалните данни идват от getReviews/getAggregateRating.
   created_at?:     string
   updated_at?:     string
   variants:        ProductVariant[]
@@ -161,10 +161,9 @@ const PRODUCT_SELECT = [
   'gallery_urls', 'storage_instructions', 'mixing_warning',
   'features', 'usage_notes', 'category', 'stock', 'active', 'sort_order',
   'seo_title', 'seo_description', 'seo_keywords',
-  'how_it_works', 'crops', 'faq', 'testimonial',
+  'how_it_works', 'crops', 'faq',
   'why_items', 'eco_badges', 'certifications',
   'stats', 'composition', 'composition_ph',
-  'review_count', 'avg_rating',
   'created_at', 'updated_at',
 ].join(', ')
 

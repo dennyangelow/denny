@@ -118,9 +118,9 @@ const CONFIGS: Record<Exclude<SubTab, 'promos'>, TabConfig> = {
       { key: 'home_order',     label: 'Ред на началната (1 = първи от 6)', type: 'number', placeholder: '1' },
 
       // ── Рейтинг ─────────────────────────────────────────────────────────────
-      { key: '_rating_divider', label: '⭐ Рейтинг и отзиви',     type: 'seo_section' },
-      { key: 'rating',         label: 'Рейтинг (1.0 – 5.0)',      type: 'number',   placeholder: '4.9' },
-      { key: 'review_count',   label: 'Брой отзиви',              type: 'number',   placeholder: '23' },
+      // ✅ ФИКС: rating/review_count полетата премахнати оттук — колоните вече
+      // не съществуват в affiliate_products (DROP COLUMN, виж reviews проекта).
+      // Управлението на отзиви вече е изцяло в admin таб "⭐ Отзиви" (ReviewsTab).
       { key: 'date_published', label: 'Дата публикуване (YYYY-MM-DD)', type: 'text', placeholder: '2026-03-28' },
 
       // ── SEO ─────────────────────────────────────────────────────────────────
@@ -996,10 +996,8 @@ export function ContentTab() {
                       {subTab === 'affiliate' && item.click_count !== undefined && item.click_count > 0 && (
                         <span style={{ color: '#0369a1', fontSize: 11, flexShrink: 0, background: '#eff6ff', padding: '1px 6px', borderRadius: 99 }}>👁 {item.click_count} кликa</span>
                       )}
-                      {/* Rating badge */}
-                      {subTab === 'affiliate' && item.rating && (
-                        <span style={{ color: '#d97706', fontSize: 11, flexShrink: 0, background: '#fffbeb', padding: '1px 6px', borderRadius: 99 }}>⭐ {item.rating}</span>
-                      )}
+                      {/* ✅ ФИКС: "Rating badge" премахнат — item.rating вече не идва от
+                          тази таблица (rating/review_count колоните са DROP-нати) */}
                       {/* Dose table badge */}
                       {subTab === 'affiliate' && Array.isArray(item.dose_table) && item.dose_table.length > 0 && (
                         <span style={{ color: '#059669', fontSize: 11, flexShrink: 0, background: '#ecfdf5', padding: '1px 6px', borderRadius: 99 }}>💉 {item.dose_table.length} дози</span>

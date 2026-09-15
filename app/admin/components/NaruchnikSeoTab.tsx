@@ -12,13 +12,6 @@ import { toast } from '@/components/ui/Toast'
 
 export interface FaqItem { q: string; a: string }
 
-export interface TestimonialItem {
-  name: string
-  location: string
-  text: string
-  stars?: number
-}
-
 interface NaruchnikSeo {
   id: string
   slug: string
@@ -36,33 +29,13 @@ interface NaruchnikSeo {
   faq_q3?: string; faq_a3?: string
   content_body?: string
   author_bio?: string
-  reviews_count?: number
-  avg_rating?: number
   downloads_count?: number
-  testimonials?: TestimonialItem[]
+  // ✅ ФИКС: reviews_count/avg_rating/testimonials премахнати — колоните вече
+  // не съществуват в naruchnici (DROP COLUMN). Отзивите за наръчници вече
+  // живеят изцяло в admin таб "⭐ Отзиви" (ReviewsTab), таблица reviews.
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Нормализира testimonials — гарантира, че е масив от обекти */
-function normalizeTestimonials(raw: unknown): TestimonialItem[] {
-  if (!raw) return []
-  if (Array.isArray(raw)) {
-    return raw.filter(
-      (t): t is TestimonialItem =>
-        typeof t === 'object' && t !== null && 'name' in t
-    )
-  }
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw)
-      return normalizeTestimonials(parsed)
-    } catch {
-      return []
-    }
-  }
-  return []
-}
 
 /** Нормализира faq — гарантира, че е масив от {q,a} обекти */
 function normalizeFaq(raw: unknown): FaqItem[] {
@@ -78,9 +51,9 @@ function normalizeFaq(raw: unknown): FaqItem[] {
   return []
 }
 
-/** Normalize целия наръчник — testimonials и faq винаги са масиви */
+/** Normalize целия наръчник — faq винаги е масив */
 function normalize(n: NaruchnikSeo): NaruchnikSeo {
-  return { ...n, testimonials: normalizeTestimonials(n.testimonials), faq: normalizeFaq(n.faq) }
+  return { ...n, faq: normalizeFaq(n.faq) }
 }
 
 const inp: React.CSSProperties = {
@@ -208,7 +181,7 @@ export function NaruchnikSeoTab() {
     }
   }, [selected, naruchnici])
 
-  const update = (key: keyof NaruchnikSeo, value: string | number | TestimonialItem[] | FaqItem[]) => {
+  const update = (key: keyof NaruchnikSeo, value: string | number | FaqItem[]) => {
     setForm(f => ({ ...f, [key]: value }))
     setDirty(true)
   }
@@ -229,11 +202,9 @@ export function NaruchnikSeoTab() {
         faq_q3: form.faq_q3 || null, faq_a3: form.faq_a3 || null,
         content_body:     form.content_body     || null,
         author_bio:       form.author_bio       || null,
-        reviews_count:    form.reviews_count    ? Number(form.reviews_count)   : null,
-        avg_rating:       form.avg_rating       ? Number(form.avg_rating)      : null,
         downloads_count:  form.downloads_count  ? Number(form.downloads_count) : null,
-        // ✅ Testimonials — нормализираме преди запис
-        testimonials:     normalizeTestimonials(form.testimonials),
+        // ✅ ФИКС: reviews_count/avg_rating/testimonials премахнати от payload-а —
+        // колоните вече не съществуват в naruchnici.
       }
 
       const res = await fetch(`/api/admin/naruchnici/${selected}/seo`, {
@@ -347,10 +318,7 @@ export function NaruchnikSeoTab() {
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
                 <span>/{nar.slug}</span>
                 {nar.meta_title && <span style={{ color: '#16a34a', fontWeight: 700 }}>✓ SEO</span>}
-                {/* ✅ Показва брой отзиви в sidebar */}
-                {(nar.testimonials?.length ?? 0) > 0 && (
-                  <span style={{ color: '#f59e0b', fontWeight: 700 }}>★ {nar.testimonials!.length}</span>
-                )}
+                {/* ✅ ФИКС: брой отзиви вече се управлява в admin таб "⭐ Отзиви" (ReviewsTab) */}
               </div>
             </button>
           ))}
@@ -529,123 +497,16 @@ export function NaruchnikSeoTab() {
                   />
                   <Hint>Показва се в hero stats</Hint>
                 </FieldGroup>
-                <FieldGroup>
-                  <Label>Средна оценка (1-5)</Label>
-                  <input
-                    style={inp} type="number" step="0.1" min="1" max="5"
-                    value={form.avg_rating ?? ''}
-                    onChange={e => update('avg_rating', parseFloat(e.target.value) || 0)}
-                    onFocus={onFocus} onBlur={onBlur}
-                    placeholder="4.9"
-                  />
-                  <Hint>Schema.org AggregateRating</Hint>
-                </FieldGroup>
-                <FieldGroup>
-                  <Label>Брой оценки</Label>
-                  <input
-                    style={inp} type="number" min="0"
-                    value={form.reviews_count ?? ''}
-                    onChange={e => update('reviews_count', parseInt(e.target.value) || 0)}
-                    onFocus={onFocus} onBlur={onBlur}
-                    placeholder="847"
-                  />
-                  <Hint>Schema.org reviewCount</Hint>
-                </FieldGroup>
+                {/* ✅ ФИКС: "Средна оценка"/"Брой оценки" премахнати — колоните
+                    (avg_rating/reviews_count) вече не съществуват в naruchnici.
+                    Schema.org AggregateRating вече идва от реалната reviews
+                    таблица (виж app/naruchnik/[slug]/page.tsx). */}
               </div>
             </div>
 
-            {/* Testimonials */}
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 20 }}>
-              <SectionTitle>💬 Отзиви (Testimonials)</SectionTitle>
-              <Hint>Отзивите се показват на страницата в въртящ се карусел. Добави поне 2-3 за по-добро доверие.</Hint>
-
-              {/* ✅ Винаги рендерираме от нормализиран масив — никога null crash */}
-              {(form.testimonials ?? []).length === 0 && (
-                <div style={{ padding: '16px', marginTop: 10, marginBottom: 8, textAlign: 'center', color: '#9ca3af', fontSize: 13, background: '#f9fafb', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
-                  Няма добавени отзиви. Натисни „+ Добави отзив" по-долу.
-                </div>
-              )}
-
-              {(form.testimonials ?? []).map((t, i) => (
-                <div key={i} style={{ marginBottom: 12, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #f0f0f0', marginTop: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', marginBottom: 10, letterSpacing: '.05em', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Отзив {i + 1}</span>
-                    <button
-                      onClick={() => {
-                        const arr = [...(form.testimonials ?? [])]
-                        arr.splice(i, 1)
-                        setForm(f => ({ ...f, testimonials: arr }))
-                        setDirty(true)
-                      }}
-                      style={{ background: '#fee2e2', border: 'none', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 12, color: '#991b1b', fontFamily: 'inherit' }}>
-                      ✕ Изтрий
-                    </button>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                    <FieldGroup>
-                      <Label>Име</Label>
-                      <input style={inp} value={t.name || ''} placeholder="Мария К."
-                        onChange={e => {
-                          const arr = [...(form.testimonials ?? [])]
-                          arr[i] = { ...arr[i], name: e.target.value }
-                          setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
-                        }} onFocus={onFocus} onBlur={onBlur} />
-                    </FieldGroup>
-                    <FieldGroup>
-                      <Label>Град / Регион</Label>
-                      <input style={inp} value={t.location || ''} placeholder="Пловдив"
-                        onChange={e => {
-                          const arr = [...(form.testimonials ?? [])]
-                          arr[i] = { ...arr[i], location: e.target.value }
-                          setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
-                        }} onFocus={onFocus} onBlur={onBlur} />
-                    </FieldGroup>
-                  </div>
-                  <FieldGroup>
-                    <Label>Текст на отзива</Label>
-                    <textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={t.text || ''} placeholder="Невероятно полезен наръчник. Реколтата ми се удвои за един сезон!"
-                      onChange={e => {
-                        const arr = [...(form.testimonials ?? [])]
-                        arr[i] = { ...arr[i], text: e.target.value }
-                        setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
-                      }} onFocus={onFocus} onBlur={onBlur} />
-                  </FieldGroup>
-                  <FieldGroup>
-                    <Label>Оценка (звезди)</Label>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      {[1, 2, 3, 4, 5].map(star => (
-                        <button
-                          key={star}
-                          onClick={() => {
-                            const arr = [...(form.testimonials ?? [])]
-                            arr[i] = { ...arr[i], stars: star }
-                            setForm(f => ({ ...f, testimonials: arr })); setDirty(true)
-                          }}
-                          style={{
-                            background: 'none', border: 'none', cursor: 'pointer',
-                            fontSize: 22, padding: '2px 3px',
-                            color: (t.stars ?? 5) >= star ? '#f59e0b' : '#d1d5db',
-                            transition: 'color .1s',
-                          }}>
-                          ★
-                        </button>
-                      ))}
-                      <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>{t.stars ?? 5} / 5</span>
-                    </div>
-                  </FieldGroup>
-                </div>
-              ))}
-
-              <button
-                onClick={() => {
-                  const arr = [...(form.testimonials ?? []), { name: '', location: '', text: '', stars: 5 }]
-                  setForm(f => ({ ...f, testimonials: arr }))
-                  setDirty(true)
-                }}
-                style={{ marginTop: 8, padding: '8px 16px', background: '#f0fdf4', border: '1.5px dashed #86efac', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#16a34a', fontFamily: 'inherit', width: '100%' }}>
-                + Добави отзив
-              </button>
-            </div>
+            {/* ✅ ФИКС: секцията "Отзиви (Testimonials)" премахната изцяло —
+                testimonials колоната вече не съществува в naruchnici.
+                Управлението на отзиви е в admin таб "⭐ Отзиви" (ReviewsTab). */}
 
             {/* SEO Checklist */}
             <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: 20 }}>
@@ -681,11 +542,8 @@ export function NaruchnikSeoTab() {
                   ok: !!(form.downloads_count && form.downloads_count > 0),
                   hint: form.downloads_count ? `${form.downloads_count}` : '',
                 },
-                {
-                  label: 'Поне 1 отзив добавен',
-                  ok: (form.testimonials?.length ?? 0) > 0,
-                  hint: form.testimonials?.length ? `${form.testimonials.length} отзива` : 'няма',
-                },
+                // ✅ ФИКС: "Поне 1 отзив добавен" премахнато — вече се проверява
+                // в admin таб "⭐ Отзиви" (ReviewsTab), не тук.
               ].map(item => (
                 <div key={item.label} style={{
                   display: 'flex', alignItems: 'center', gap: 8,
@@ -708,8 +566,7 @@ export function NaruchnikSeoTab() {
                   (form.content_body?.length || 0) >= 500,
                   !!(form.author_bio && form.author_bio.length >= 50),
                   !!(form.downloads_count && form.downloads_count > 0),
-                  (form.testimonials?.length ?? 0) > 0,
-                ].filter(Boolean).length} / 7
+                ].filter(Boolean).length} / 6
               </div>
             </div>
 
