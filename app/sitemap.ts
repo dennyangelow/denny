@@ -1,14 +1,12 @@
-// app/sitemap.ts — v11
-// ✅ ПРОМЯНА спрямо v10:
-//   - Добавен export const revalidate. Без него app/sitemap.ts рискуваше да
-//     остане статично кеширан от build-а до следващия deploy — нова статия
-//     можеше да не се появи в живия sitemap.xml, докато не пуснеш нов
-//     deploy, независимо от revalidate=300 логиката на другите страници.
-//   - ФИКС: image title за блог постовете четеше p.image_alt (поле, което
-//     съществува само за affiliate продуктите), а не p.cover_image_alt
-//     (реалното поле, теглено за blog_posts) — значи алт текстът на
-//     корицата никога реално не се ползваше в image sitemap-а за блог
-//     постовете, винаги падаше на title fallback. Сега чете правилното поле.
+// app/sitemap.ts — v12
+// ✅ ПРОМЯНА спрямо v11: добавени категорийни pillar страници
+//    (/blog/domati, /blog/krastavici...) — виж app/blog/[slug]/page.tsx
+//    v4 за самата страница. Автоматично, като всичко останало тук: пита
+//    blog_categories директно, никога не се добавя ръчно. Филтрирано да
+//    показва само категории с поне 1 публикувана статия — категория без
+//    съдържание е тънка страница (thin content), не я подаваме на Google.
+//    Броят постове по категория се смята от вече изтеглените blogResult
+//    данни по-долу, без допълнителна DB заявка.
 
 import { MetadataRoute } from 'next'
 import { supabaseAdmin }  from '@/lib/supabase'
@@ -27,6 +25,12 @@ interface SlugRow {
   gallery_urls?:  (string | { url: string; alt?: string })[] | null
   title?:         string | null
   name?:          string | null
+  category?:      string | null
+}
+
+interface CategoryRow {
+  slug:       string
+  updated_at?: string | null
 }
 
 function safeDate(dateStr: string | null | undefined): Date {
@@ -60,7 +64,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ]
 
   // ── 2. Паралелни заявки ───────────────────────────────────────────────────
-  const [naruchnikResult, affiliateResult, ownProductsResult, blogResult] = await Promise.allSettled([
+  const [naruchnikResult, affiliateResult, ownProductsResult, blogResult, categoriesResult] = await Promise.allSettled([
     supabaseAdmin
       .from('naruchnici')
       .select('slug, updated_at, cover_image_url, title')
@@ -78,10 +82,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .order('sort_order'),
     supabaseAdmin
       .from('blog_posts')
-      .select('slug, updated_at, published_at, cover_image_url, cover_image_alt, title')
+      .select('slug, updated_at, published_at, cover_image_url, cover_image_alt, title, category')
       .eq('active', true)
       .eq('status', 'published')
       .order('published_at', { ascending: false }),
+    // ✅ НОВО
+    supabaseAdmin
+      .from('blog_categories')
+      .select('slug, updated_at')
+      .eq('active', true),
   ])
 
   // ── 3. Наръчници — priority 0.88, с images ───────────────────────────────
@@ -153,12 +162,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // ── 6. Блог постове — priority 0.75, между produkti и own products ───────
-  // ✅ ФИКС: p.cover_image_alt (не p.image_alt — това поле не съществува за
-  //    блог редовете, беше винаги undefined тук, значи image title винаги
-  //    падаше на title fallback).
   let blogPages: MetadataRoute.Sitemap = []
+  let blogPostRows: SlugRow[] = []
   if (blogResult.status === 'fulfilled' && blogResult.value.data) {
-    blogPages = blogResult.value.data.map((p: SlugRow) => ({
+    blogPostRows = blogResult.value.data
+    blogPages = blogPostRows.map((p: SlugRow) => ({
       url:             `${BASE_URL}/blog/${p.slug}`,
       lastModified:    safeDate(p.updated_at),
       changeFrequency: 'weekly' as const,
@@ -174,10 +182,38 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         : blogResult.value?.error)
   }
 
+  // ── 7. НОВО: Категорийни pillar страници — priority 0.8, само за
+  //    категории с поне 1 публикувана статия (избягва thin content) ───────
+  let categoryPages: MetadataRoute.Sitemap = []
+  if (categoriesResult.status === 'fulfilled' && categoriesResult.value.data) {
+    const categoriesWithPosts = (categoriesResult.value.data as CategoryRow[]).filter(c =>
+      blogPostRows.some(p => p.category === c.slug)
+    )
+    categoryPages = categoriesWithPosts.map(c => {
+      // lastModified = най-новата статия в категорията, иначе категорийната
+      // updated_at, иначе днес — за да отразява реално кога хъбът се е сменил
+      const latestPostInCategory = blogPostRows
+        .filter(p => p.category === c.slug)
+        .sort((a, b) => safeDate(b.updated_at).getTime() - safeDate(a.updated_at).getTime())[0]
+      return {
+        url:             `${BASE_URL}/blog/${c.slug}`,
+        lastModified:    safeDate(latestPostInCategory?.updated_at || c.updated_at),
+        changeFrequency: 'weekly' as const,
+        priority:         0.8,
+      }
+    })
+  } else {
+    console.error('[sitemap] Грешка категории:',
+      categoriesResult.status === 'rejected'
+        ? categoriesResult.reason
+        : categoriesResult.value?.error)
+  }
+
   return [
     ...staticPages,
     ...ownProductPages,
     ...naruchnikPages,
+    ...categoryPages,
     ...blogPages,
     ...affiliatePages,
   ]

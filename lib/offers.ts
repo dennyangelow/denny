@@ -42,6 +42,9 @@ export interface UpsellOffer {
   discount_pct?: number; bundle_price?: number; sort_order: number
   bundle_requirements?: BundleRequirement[]
   reward_qty?: number
+  reward_mode?: 'choice' | 'proportional'  // undefined/'choice' = сегашното "избери сам" поведение,
+                                            // 'proportional' = ново — авто-разбивка по съотношение
+                                            // на платените бройки, повтарящо се на всеки нов праг
   show_on_homepage?: boolean       // ✅ undefined/true = вижда се във витрината "🎁 Оферти и пакети" на
                                     //    началната (ако иначе отговаря на offersForHomepage). false = офертата
                                     //    си остава напълно активна (в количката, продуктови страници), само
@@ -258,4 +261,113 @@ export function offersForHomepage(offers: UpsellOffer[]): UpsellOffer[] {
       (o.type === 'cross_sell' || o.type === 'bundle') &&
       (o.trigger_type === 'bundle_requirements' || o.trigger_type === 'always'))
     .sort((a, b) => a.sort_order - b.sort_order)
+}
+
+// ✅ Продуктовите имена в базата са от вида "Atlas Terra — Органичен подобрител
+// на почвата" — пълно за продуктова страница, но твърде дълго за прогрес
+// банери/подаръчни pill-ове в тясната количка. Взимаме частта преди тирето.
+export function shortProductLabel(name: string): string {
+  const idx = name.indexOf('—')
+  return (idx > 0 ? name.slice(0, idx) : name).trim()
+}
+
+// ─── NEW: "Пропорционално съотношение" — за повтарящи се bundle прагове ──────
+// (напр. 300Л → 120Л подарък, разпределен по съотношението на купеното, и пак
+// на 600Л, 900Л... на всеки нов пълен праг).
+
+// ✅ Обобщение на offerIsSelfRewardAtOfferLevel, което покрива и "избери сам"/
+// "пропорционално" наградите (offer_product_id е празен там — наградата идва от
+// reward_choice_product_ids вместо от 1 фиксиран продукт).
+export function offerHasSelfRewardOverlap(offer: UpsellOffer): boolean {
+  const rewardIds = offer.offer_product_id
+    ? [offer.offer_product_id]
+    : (offer.reward_choice_product_ids || [])
+  if (rewardIds.length === 0) return false
+  return !!offer.bundle_requirements?.some(r => {
+    const pool = r.product_ids && r.product_ids.length > 0 ? r.product_ids : (r.product_id ? [r.product_id] : [])
+    return rewardIds.some(id => pool.includes(id))
+  })
+}
+
+// ✅ Колко туби подарък има право да вземе СЕГА (наработени − вече взети).
+// Изключваме собствените вече раздадени подаръци на тази оферта от "наработеното" —
+// иначе подарените туби биха се броили ВТОРИ ПЪТ към следващия праг.
+export function selfRewardAvailableQty(offer: UpsellOffer, items: OfferCartItemLike[]): number {
+  const paidItems = offerHasSelfRewardOverlap(offer)
+    ? items.filter(i => !(i.fromOffer && i.offerId === offer.id))
+    : items
+  const earned = bundleFulfillmentQty(offer, paidItems)
+  const claimed = items.filter(i => i.fromOffer && i.offerId === offer.id).reduce((s, i) => s + i.qty, 0)
+  return Math.max(0, earned - claimed)
+}
+
+// ✅ Прогрес към СЛЕДВАЩИЯ праг (модуло — след 1-ви достигнат праг, "имаш 16/15"
+// няма смисъл; вместо това показва "имаш 1/15 към следващия подарък").
+export function bundleProgressIntoCurrentSet(
+  offer: UpsellOffer, items: OfferCartItemLike[]
+): { have: number; need: number } | null {
+  if (!offer.bundle_requirements?.length) return null
+  const paidItems = offerHasSelfRewardOverlap(offer)
+    ? items.filter(i => !(i.fromOffer && i.offerId === offer.id))
+    : items
+  const progress = computeBundleProgress(offer, paidItems)
+  const p = progress[0]
+  if (!p || p.need <= 0) return null
+  return { have: p.have % p.need, need: p.need }
+}
+
+// ✅ Разпределя X туби подарък пропорционално на СЪОТНОШЕНИЕТО на платените
+// бройки в количката (largest-remainder закръгляне — сборът винаги излиза точно
+// X; при равен remainder печели продуктът с най-много купени бройки).
+export interface ProportionalRewardPick { product_id: string; qty: number }
+
+export function computeProportionalRewardSplit(
+  offer: UpsellOffer, qtyToDistribute: number, items: OfferCartItemLike[]
+): ProportionalRewardPick[] {
+  const pool = offer.reward_choice_product_ids || []
+  if (pool.length === 0 || qtyToDistribute <= 0) return []
+  const sizeLiters = offer.reward_choice_size_liters
+
+  // ✅ Всяка предходна награда е "изяла" част от платения пул — реконструираме
+  // колко точно, като мащабираме обратно нагоре състава на ВЕЧЕ взетите
+  // подаръци (те бяха изчислени пропорционално на платеното в момента на
+  // взимането им, така че обратното мащабиране възстановява точно тази част
+  // от пула). Изваждаме я, за да не "тежат" старите покупки в съотношението
+  // на СЛЕДВАЩата награда — иначе по-новите покупки се размиват от историята.
+  const req = offer.bundle_requirements?.[0]
+  const setSize = req?.qty || 0
+  const rewardPerSet = offer.reward_qty || 1
+  const scale = rewardPerSet > 0 ? setSize / rewardPerSet : 0
+  const claimedByProduct = new Map<string, number>()
+  if (scale > 0) {
+    for (const i of items) {
+      if (i.fromOffer && i.offerId === offer.id) {
+        claimedByProduct.set(i.productId, (claimedByProduct.get(i.productId) || 0) + i.qty)
+      }
+    }
+  }
+
+  const haveByProduct = pool.map(pid => {
+    const paid = items
+      .filter(i => i.productId === pid && !i.fromOffer && (!sizeLiters || Number(i.size_liters) === Number(sizeLiters)))
+      .reduce((s, i) => s + i.qty, 0)
+    const consumed = (claimedByProduct.get(pid) || 0) * scale
+    return { pid, have: Math.max(0, paid - consumed) }
+  })
+  const totalHave = haveByProduct.reduce((s, p) => s + p.have, 0)
+  if (totalHave <= 0) return []
+
+  const withFloors = haveByProduct.map(p => {
+    const exact = (p.have / totalHave) * qtyToDistribute
+    return { pid: p.pid, have: p.have, floor: Math.floor(exact), remainder: exact - Math.floor(exact) }
+  })
+  const assigned = withFloors.reduce((s, f) => s + f.floor, 0)
+  const remaining = qtyToDistribute - assigned
+
+  const order = [...withFloors].sort((a, b) => b.remainder - a.remainder || b.have - a.have)
+  const result = new Map(withFloors.map(f => [f.pid, f.floor]))
+  for (let i = 0; i < remaining && i < order.length; i++) {
+    result.set(order[i].pid, (result.get(order[i].pid) || 0) + 1)
+  }
+  return pool.map(pid => ({ product_id: pid, qty: result.get(pid) || 0 })).filter(r => r.qty > 0)
 }

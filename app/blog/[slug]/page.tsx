@@ -1,13 +1,20 @@
-// app/blog/[slug]/page.tsx — v3
-// ✅ ПРОМЯНА спрямо v2: FAQ schema вече минава през richTextToPlain() от
-//    '@/lib/blogRichText' — маха [текст](линк) markdown синтаксиса преди
-//    да влезе в JSON-LD, за да не изтече суров синтаксис в Google
-//    structured data (виж коментара в lib/blogRichText.tsx).
+// app/blog/[slug]/page.tsx — v4
+// ✅ ПРОМЯНА спрямо v3: [slug] вече обслужва ДВА различни типа страници:
+//   1) Post — ако slug-ът съвпада с blog_posts.slug (старото поведение,
+//      непроменено).
+//   2) Category pillar hub — ако slug-ът съвпада с blog_categories.slug
+//      (/blog/domati, /blog/krastavici...). НОВО в тази версия.
+//   Категорийните slug-ове (domati, krastavici...) никога не се
+//   пресичат с post slug-овете (винаги описателни, многодумни), значи
+//   няма реален риск от конфликт — но категорията се проверява ПЪРВО във
+//   всяка от трите функции по-долу, за да е детерминистично, ако все пак
+//   някога се появи съвпадение.
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
 import BlogPostBody from './BlogPostBody'
-import type { BlogPost, BlogProductEmbedBlock, BlogCategory } from '@/lib/blog'
+import BlogCategoryHub from './BlogCategoryHub'
+import type { BlogPost, BlogProductEmbedBlock, BlogCategory, BlogListPost } from '@/lib/blog'
 import { deriveExcerpt, getAllPostImages, DEFAULT_BLOG_CATEGORIES } from '@/lib/blog'
 import { richTextToPlain } from '@/lib/blogRichText'
 
@@ -18,14 +25,52 @@ const AUTHOR_NAME = 'Denny Angelow'
 const FALLBACK_OG = `${BASE_URL}/og-image.jpg`
 
 export interface ResolvedEmbedProduct {
-  key:         string   // `${product_type}:${slug}`
+  key:         string
   name:        string
   description?: string
   image_url?:  string
   price?:      number
   price_currency?: string
-  url:         string   // /produkt/slug или /products/slug
+  url:         string
   affiliate:   boolean
+}
+
+// ── НОВО: категория по slug — проверява се първо във всяка от трите
+//    функции по-долу. maybeSingle() връща null тихо, ако няма съвпадение
+//    (нормалният случай, когато slug-ът е реално post slug).
+async function getCategoryBySlug(slug: string): Promise<BlogCategory | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('blog_categories')
+      .select('*')
+      .eq('slug', slug)
+      .eq('active', true)
+      .maybeSingle()
+    if (error) throw error
+    return data
+  } catch (err) {
+    console.error('[blog/[slug]/page] getCategoryBySlug:', err)
+    return null
+  }
+}
+
+// ── НОВО: леки постове за категорийния hub — същите колони като
+//    app/blog/page.tsx getPublishedPosts(), само филтрирани по category.
+async function getCategoryPosts(categorySlug: string): Promise<BlogListPost[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('blog_posts')
+      .select('id, slug, title, excerpt, cover_image_url, cover_image_alt, category, published_at, updated_at, reading_time_minutes')
+      .eq('active', true)
+      .eq('status', 'published')
+      .eq('category', categorySlug)
+      .order('published_at', { ascending: false })
+    if (error) throw error
+    return data || []
+  } catch (err) {
+    console.error('[blog/[slug]/page] getCategoryPosts:', err)
+    return []
+  }
 }
 
 async function getPost(slug: string): Promise<BlogPost | null> {
@@ -62,8 +107,6 @@ async function getRelatedPosts(post: BlogPost): Promise<BlogPost[]> {
   }
 }
 
-// ✅ Разрешаваме product_embed блоковете към реални продуктови данни
-//    server-side — по-бързо (без клиентски fetch-и) и ISR-friendly.
 async function resolveProductEmbeds(post: BlogPost): Promise<Record<string, ResolvedEmbedProduct>> {
   const embeds = post.content.filter((b): b is BlogProductEmbedBlock => b.type === 'product_embed')
   if (embeds.length === 0) return {}
@@ -109,10 +152,17 @@ async function getCategories(): Promise<BlogCategory[]> {
   }
 }
 
+// ✅ ПРОМЯНА: сега връща и post slug-овете, и категорийните slug-ове —
+//    и двата типа страници се генерират статично.
 export async function generateStaticParams() {
   try {
-    const { data } = await supabaseAdmin.from('blog_posts').select('slug').eq('active', true).eq('status', 'published')
-    return (data || []).map(p => ({ slug: p.slug }))
+    const [postsResult, categoriesResult] = await Promise.all([
+      supabaseAdmin.from('blog_posts').select('slug').eq('active', true).eq('status', 'published'),
+      supabaseAdmin.from('blog_categories').select('slug').eq('active', true),
+    ])
+    const postParams     = (postsResult.data || []).map(p => ({ slug: p.slug }))
+    const categoryParams = (categoriesResult.data || []).map(c => ({ slug: c.slug }))
+    return [...postParams, ...categoryParams]
   } catch {
     return []
   }
@@ -122,6 +172,27 @@ export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params
+
+  // ── НОВО: категория проверена първо ──────────────────────────────────
+  const category = await getCategoryBySlug(slug)
+  if (category) {
+    const title       = `${category.label} — Блог | Denny Angelow`
+    const description = category.intro_text || `Статии за ${category.label} от Denny Angelow.`
+    const canonicalUrl = `${BASE_URL}/blog/${category.slug}`
+    return {
+      title,
+      description,
+      alternates: { canonical: canonicalUrl },
+      openGraph: {
+        title, description, url: canonicalUrl, siteName: 'Denny Angelow', locale: 'bg_BG', type: 'website',
+        images: [{ url: FALLBACK_OG, width: 1200, height: 630, alt: title }],
+      },
+      twitter: { card: 'summary_large_image', title, description, images: [FALLBACK_OG] },
+      robots: { index: true, follow: true },
+    }
+  }
+
+  // ── Съществуващата логика за post metadata, непроменена ──────────────
   const post = await getPost(slug)
   if (!post) return { title: 'Статията не е намерена' }
 
@@ -148,8 +219,49 @@ export async function generateMetadata(
   }
 }
 
-export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function BlogSlugPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
+
+  // ── НОВО: категорийна pillar страница ────────────────────────────────
+  const category = await getCategoryBySlug(slug)
+  if (category) {
+    const posts = await getCategoryPosts(category.slug)
+    const canonicalUrl = `${BASE_URL}/blog/${category.slug}`
+
+    const collectionSchema = {
+      '@context': 'https://schema.org',
+      '@type':    'CollectionPage',
+      name:        `${category.label} — Блог`,
+      description: category.intro_text || `Статии за ${category.label}`,
+      url:          canonicalUrl,
+      inLanguage:  'bg-BG',
+      hasPart: posts.map(p => ({
+        '@type':      'BlogPosting',
+        headline:      p.title,
+        url:           `${BASE_URL}/blog/${p.slug}`,
+      })),
+    }
+
+    const breadcrumbSchema = {
+      '@context': 'https://schema.org',
+      '@type':    'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Начало', item: BASE_URL },
+        { '@type': 'ListItem', position: 2, name: 'Блог',    item: `${BASE_URL}/blog` },
+        { '@type': 'ListItem', position: 3, name: category.label, item: canonicalUrl },
+      ],
+    }
+
+    return (
+      <>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionSchema) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+        <BlogCategoryHub category={category} posts={posts} />
+      </>
+    )
+  }
+
+  // ── Съществуващата логика за пост, непроменена ───────────────────────
   const post = await getPost(slug)
   if (!post) notFound()
 

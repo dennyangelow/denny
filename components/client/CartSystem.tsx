@@ -163,6 +163,8 @@ import {
   requirementsMet, offerMatches, isSelfRewardBundle, reciprocalOfferLoses,
   computeBundleProgress, bundleHasProgress, offerIsSelfRewardAtOfferLevel,
   isPairingManagedOffer, bundleFulfillmentQty, computeOfferItemPricing,
+  selfRewardAvailableQty, computeProportionalRewardSplit, bundleProgressIntoCurrentSet,
+  shortProductLabel,
 } from '@/lib/offers'
 interface AtlasProduct {
   id: string; slug: string; name: string; subtitle: string; desc: string; badge: string; emoji: string; img: string
@@ -775,18 +777,96 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
   offer: UpsellOffer; products: AtlasProduct[]; onAddToCart: (item: CartItem) => void
   fmt: (n: number) => string; cartItems: CartItem[]
 }) {
+  const isProportional = offer.reward_mode === 'proportional'
   // ✅ "Клиентът избира сам" — вместо фиксиран offer_product_id, показваме бутони с
   // няколко продукта и изчакваме изричен избор, преди да се знае кой е "продукт"/"вариант".
-  const isChoice = !!offer.reward_choice_product_ids?.length
-  const [chosenProductId, setChosenProductId] = useState('')
+  const isChoice = !isProportional && !!offer.reward_choice_product_ids?.length
+  const meta = OFFER_META[offer.type]
 
+  // ── "Пропорционално съотношение" — напр. 300Л/120Л офертата ────────────────
+  // Наградата се смята автоматично от съотношението на вече ПЛАТЕНИТЕ бройки в
+  // количката (виж selfRewardAvailableQty/computeProportionalRewardSplit в
+  // lib/offers.ts) и се повтаря на всеки нов пълен праг — не е еднократна.
+  const [justAddedProportional, setJustAddedProportional] = useState(false)
+  if (isProportional) {
+    const availableQty = selfRewardAvailableQty(offer, cartItems)
+    if (availableQty <= 0 && !justAddedProportional) return null
+
+    const sizeLiters = offer.reward_choice_size_liters
+    const splits = computeProportionalRewardSplit(offer, availableQty, cartItems)
+    const rows = splits
+      .map(s => {
+        const product = products.find(p => p.id === s.product_id)
+        const variant = product?.variants?.find(v => sizeLiters ? v.size_liters === sizeLiters : v.active !== false)
+        return product && variant ? { product, variant, qty: s.qty } : null
+      })
+      .filter((r): r is { product: AtlasProduct; variant: ProductVariant; qty: number } => !!r)
+    const totalLiters = rows.reduce((s, r) => s + (r.variant.size_liters || 0) * r.qty, 0)
+
+    const handleAddProportional = () => {
+      if (rows.length === 0) return
+      for (const r of rows) {
+        onAddToCart({
+          productId: r.product.id, variantId: r.variant.id, productName: r.product.name,
+          variantLabel: r.variant.label + ' (🎁 подарък)',
+          price: 0, comparePrice: r.variant.price,
+          qty: r.qty, emoji: r.product.emoji, img: r.product.img || '', size_liters: r.variant.size_liters,
+          fromOffer: true, offerType: 'bundle', offerId: offer.id,
+          originalPrice: r.variant.price, originalComparePrice: Number(r.variant.compare_price ?? 0),
+          originalVariantLabel: r.variant.label,
+        })
+      }
+      setJustAddedProportional(true)
+      setTimeout(() => setJustAddedProportional(false), 1800)
+    }
+
+    return (
+      <div className="offer-card-wrap" style={{ background: '#fff', border: `1.5px solid ${meta.color}22`, borderLeft: `3px solid ${meta.color}`, borderRadius: 11, display: 'flex', flexDirection: 'column' as const, gap: 7, padding: 10 }}>
+        <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, overflow: 'hidden', background: `${meta.color}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, border: `1px solid ${meta.color}20` }}>
+            {offer.image_url ? <img src={offer.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 2 }} /> : <span>{offer.emoji || meta.icon}</span>}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>{offer.title}</div>
+              {offer.badge_text && (
+                <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: offer.badge_color || meta.color, padding: '1px 6px', borderRadius: 99, flexShrink: 0 }}>{offer.badge_text}</span>
+              )}
+            </div>
+            {/* ✅ Веднъж стигнат прага, дългото обяснително описание вече не е нужно —
+                показваме кратка честитка вместо него. Пълното описание си остава на
+                прогрес банера/началната страница, докато клиентът още гради към прага. */}
+            <div style={{ fontSize: 10.5, color: meta.color, fontWeight: 700, marginTop: 2 }}>🎉 Честито! Спечели {totalLiters}Л подарък</div>
+          </div>
+        </div>
+        {rows.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 5 }}>
+            {rows.map(r => (
+              <span key={r.product.id} style={{ fontSize: 10.5, fontWeight: 700, color: '#9a3412', background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 8, padding: '3px 8px' }}>
+                {r.qty}×{r.variant.size_liters}Л {shortProductLabel(r.product.name)}
+              </span>
+            ))}
+          </div>
+        )}
+        <button onClick={handleAddProportional} disabled={rows.length === 0 || justAddedProportional}
+          style={{ height: 32, borderRadius: 9, border: 'none', background: justAddedProportional ? '#059669' : meta.color, color: '#fff', cursor: rows.length === 0 ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 800, width: '100%' }}>
+          {justAddedProportional ? '✓ Добавен' : (offer.cta_label || `+ Добави ${totalLiters}Л подарък`)}
+        </button>
+        {offer.urgency_text && (
+          <div style={{ fontSize: 10, color: '#b45309', fontWeight: 700, textAlign: 'center' as const }}>{offer.urgency_text}</div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Останалата логика — непроменена (Фиксиран продукт / Клиентът избира сам) ──
+  const [chosenProductId, setChosenProductId] = useState('')
   const product = isChoice
     ? products.find(p => p.id === chosenProductId)
     : products.find(p => p.id === offer.offer_product_id)
   const variant = isChoice
     ? product?.variants?.find(v => offer.reward_choice_size_liters ? v.size_liters === offer.reward_choice_size_liters : v.active !== false)
     : product?.variants?.find(v => offer.offer_variant_id ? v.id === offer.offer_variant_id : v.active !== false)
-  const meta = OFFER_META[offer.type]
   // ✅ Проверяваме дали НАГРАДАТА на ТАЗИ оферта вече е добавена — не просто дали продуктът съществува
   //    (важно за bundle подаръци, където офертният продукт може да е СЪЩИЯТ като изискването, напр. +1×20л подарък)
   //    За "избери сам" — наградата е "взета", ако тази оферта вече е добавила КАКЪВТО И ДА Е избран артикул.
@@ -900,6 +980,96 @@ function OfferCard({ offer, products, onAddToCart, fmt, cartItems }: {
 function BundleProgressCard({ offer, products, cartItems }: {
   offer: UpsellOffer; products: AtlasProduct[]; cartItems: CartItem[]
 }) {
+  const isProportional = offer.reward_mode === 'proportional'
+  if (isProportional) {
+    // Ако вече има готова за взимане награда — OfferCard показва картата за взимане,
+    // тук не дублираме нищо.
+    if (selfRewardAvailableQty(offer, cartItems) > 0) return null
+
+    const claimedQty = cartItems.filter(i => i.fromOffer && i.offerId === offer.id).reduce((s, i) => s + i.qty, 0)
+    const hasClaimedBefore = claimedQty > 0
+
+    const into = bundleProgressIntoCurrentSet(offer, cartItems)
+    if (!into) return null
+    // Първи път — изчакваме поне 1 добавена бройка, преди да покажем банера.
+    // Втори+ път — показваме веднага (дори на 0/15), за да не изчезва усещането
+    // за прогрес веднага след взимането на подаръка.
+    if (!hasClaimedBefore && into.have <= 0) return null
+
+    const missing = into.need - into.have
+    const pct = Math.min(100, Math.round((into.have / into.need) * 100))
+    const req = offer.bundle_requirements?.[0]
+    const names = (req?.product_ids || [])
+      .map(id => products.find(p => p.id === id)?.name)
+      .filter((n): n is string => !!n)
+      .map(shortProductLabel)
+    const sizeLiters = req?.size_liters || 0
+
+    if (hasClaimedBefore) {
+      // ✅ "Продължаващ" вариант — различен цвят (зелен, не оранжев) от
+      // първоначалната покана, кумулативни числа ("стигни 600Л общо → вземи
+      // общо 240Л"), без да повтаря дългото обяснение.
+      const rewardPerSet = (offer.reward_qty || 1) * sizeLiters
+      const setLiters = (req?.qty || 0) * sizeLiters
+      const setsClaimed = Math.max(1, Math.round(claimedQty / (offer.reward_qty || 1)))
+      const nextSetLiters = setLiters * (setsClaimed + 1)
+      const cumulativeReward = rewardPerSet * (setsClaimed + 1)
+      const missingLiters = missing * sizeLiters
+
+      // ✅ "До X€ стойност" — горна граница по НАЙ-СКЪПИЯ продукт в пула, на
+      // база РЕДОВНАТА му цена (не текуща промо цена — подаръкът е 100%
+      // безплатен независимо от активни отстъпки). Умишлено "до", не точна
+      // сума — реалният състав на наградата зависи от бъдещи покупки и все
+      // още не е финален, а "до X" винаги остава вярно твърдение.
+      const rewardTubes = sizeLiters > 0 ? cumulativeReward / sizeLiters : 0
+      const poolUnitPrices = (req?.product_ids || [])
+        .map(id => products.find(p => p.id === id)?.variants?.find(v => v.size_liters === sizeLiters)?.price)
+        .filter((p): p is number => typeof p === 'number' && p > 0)
+      const maxValue = poolUnitPrices.length > 0 ? Math.max(...poolUnitPrices) * rewardTubes : 0
+
+      return (
+        <div style={{ background: '#ecfdf5', border: '1.5px solid #a7f3d0', borderRadius: 11, padding: '10px 12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#065f46', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span>🎉</span>Стигни {nextSetLiters}Л — вземи общо {cumulativeReward}Л Подарък
+            </span>
+            <span style={{ fontSize: 10.5, fontWeight: 800, color: '#059669', flexShrink: 0 }}>{into.have}/{into.need}</span>
+          </div>
+          <div style={{ background: '#a7f3d088', borderRadius: 99, height: 6, overflow: 'hidden', marginBottom: 6 }}>
+            <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: 99, transition: 'width .4s ease' }} />
+          </div>
+          <div style={{ fontSize: 11, color: '#065f46', fontWeight: 600, lineHeight: 1.35 }}>
+            Остават <strong>{missingLiters}Л</strong> ({missing}×{sizeLiters}Л {names.join(' / ')}) за общо {cumulativeReward}Л подарък!
+            {maxValue > 0 && (
+              <span style={{ display: 'inline-block', marginLeft: 6, fontSize: 10.5, fontWeight: 800, color: '#059669' }}>
+                🏷 Спестяваш до {maxValue.toFixed(2)} €
+              </span>
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    const label = `${sizeLiters ? sizeLiters + 'Л туби' : 'бройки'}${names.length ? ' от ' + names.join(' / ') : ''} (в каквато и да е комбинация)`
+    return (
+      <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 11, padding: '10px 12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#9a3412', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span>{offer.emoji || '🎁'}</span>{offer.title}
+          </span>
+          <span style={{ fontSize: 10.5, fontWeight: 800, color: '#c2410c', flexShrink: 0 }}>{into.have}/{into.need}</span>
+        </div>
+        <div style={{ background: '#fed7aa88', borderRadius: 99, height: 6, overflow: 'hidden', marginBottom: 6 }}>
+          <div style={{ width: `${pct}%`, height: '100%', background: '#ea580c', borderRadius: 99, transition: 'width .4s ease' }} />
+        </div>
+        <div style={{ fontSize: 11, color: '#9a3412', fontWeight: 600, lineHeight: 1.35 }}>
+          Добави още <strong>{missing}</strong> × {label} и получаваш следващия подарък!
+        </div>
+      </div>
+    )
+  }
+
+  // ── Останалата логика — непроменена ──────────────────────────────────────
   const progress = computeBundleProgress(offer, cartItems)
   const unmet = progress.filter(p => p.have < p.need)
   if (unmet.length === 0) return null
@@ -1126,6 +1296,9 @@ function OffersGroup({ upsellOffers, crossSellOffers, products, onAddToCart, fmt
   // undefined и офертата грешно отпадаше от activeOffers — а ако беше единствената
   // активна оферта, ЦЯЛАТА секция се скриваше, въпреки че условието е изпълнено.
   const activeOffers = allOffers.filter(offer => {
+    if (offer.reward_mode === 'proportional') {
+      return selfRewardAvailableQty(offer, cartItems) > 0
+    }
     if (offer.reward_choice_product_ids?.length) {
       return !cartItems.some(i => i.fromOffer && i.offerId === offer.id)
     }
@@ -1408,7 +1581,20 @@ function CartDrawer({
   // ✅ Bundle-и, чиито условия още НЕ са напълно изпълнени, но клиентът вече е започнал
   // (напр. има 2 от 5 нужни 20л туби) — показваме прогрес банер, не пълната оферта.
   const bundleProgressOffers: UpsellOffer[] = ms?.cross_sell_enabled
-    ? ms.offers.filter(o => o.type === 'bundle' && o.active && o.trigger_type === 'bundle_requirements' && !offerMatches(o, items, subtotal) && bundleHasProgress(o, items))
+    ? ms.offers.filter(o => {
+        if (o.type !== 'bundle' || !o.active || o.trigger_type !== 'bundle_requirements') return false
+        if (o.reward_mode === 'proportional') {
+          // Повтарящи се прагове: показваме прогрес, докато няма ГОТОВА за взимане
+          // награда. Ако вече е взимал поне веднъж, показваме веднага (дори 0/15) —
+          // за да не изчезва усещането за прогрес след всяко взимане на подарък.
+          if (selfRewardAvailableQty(o, items) > 0) return false
+          const claimedQty = items.filter(i => i.fromOffer && i.offerId === o.id).reduce((s, i) => s + i.qty, 0)
+          if (claimedQty > 0) return true
+          const into = bundleProgressIntoCurrentSet(o, items)
+          return !!into && into.have > 0
+        }
+        return !offerMatches(o, items, subtotal) && bundleHasProgress(o, items)
+      })
     : []
 
   // ✅ Ако cross-sell И bundle (или два bundle-а) съвпаднат едновременно и предлагат ЕДИН И СЪЩ

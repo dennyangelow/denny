@@ -24,6 +24,9 @@ import SiteHeader from '@/components/layout/SiteHeader'
 // ✅ НОВО: admin-управляемата конфигурация за количката (виж lib/header-cart.ts)
 import type { HeaderCartConfig } from '@/lib/header-cart'
 import SiteFooter from '@/components/layout/SiteFooter'
+// ✅ НОВО — публична форма "Остави отзив" (винаги pending, минава през
+// /api/reviews/submit, не admin-only /api/reviews)
+import { ReviewSubmitForm } from '@/components/client/ReviewSubmitForm'
 import '@/app/homepage.css'
 
 // ✅ ФИКС: тези 2 шрифта се зареждаха през render-blocking @import вътре в
@@ -829,45 +832,55 @@ export default function NaruchnikClient({
             ))}
           </section>
 
-          {/* Testimonials — ✅ ФИКС: цялата секция вече е guard-ната зад
-              activeTestimonials.length > 0. Преди, при празен масив (вече
-              възможно след премахването на FALLBACK_TESTIMONIALS),
-              activeTestimonials[activeT] щеше да е undefined → runtime crash. */}
-          {activeTestimonials.length > 0 && (
-            <section className="n-card n-card-p" aria-label="Отзиви">
-              <div className="n-sec-lbl">💬 Какво казват читателите</div>
-              <div key={activeT} style={{ animation: 'fadeIn .3s ease' }}>
-                <p className="n-testi-quote">{activeTestimonials[activeT].text}</p>
-                <div className="n-testi-author">
-                  <div className="n-testi-avatar">
-                    {(activeTestimonials[activeT].name?.[0] || '?').toUpperCase()}
+          {/* Testimonials + форма за нов отзив — ✅ ФИКС: секцията вече е
+              ВИНАГИ видима (не само при activeTestimonials.length > 0) —
+              дори без нито един отзив, каним читателя да остави първия. */}
+          <section className="n-card n-card-p" aria-label="Отзиви">
+            <div className="n-sec-lbl">💬 Какво казват читателите</div>
+            {activeTestimonials.length > 0 && (
+              <>
+                <div key={activeT} style={{ animation: 'fadeIn .3s ease' }}>
+                  <p className="n-testi-quote">{activeTestimonials[activeT].text}</p>
+                  <div className="n-testi-author">
+                    <div className="n-testi-avatar">
+                      {(activeTestimonials[activeT].name?.[0] || '?').toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="n-testi-name">{activeTestimonials[activeT].name}</div>
+                      <div className="n-testi-loc">📍 {activeTestimonials[activeT].location}</div>
+                    </div>
+                    <div className="n-testi-stars">
+                      {/* ✅ ФИКС: показва РЕАЛНИЯ брой звезди на този отзив, не хардкоднати 5 */}
+                      {[1,2,3,4,5].map(i => (
+                        <span key={i} style={{ color: i <= (activeTestimonials[activeT].stars || 5) ? '#f59e0b' : '#e2e8f0', fontSize: 13 }}>★</span>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <div className="n-testi-name">{activeTestimonials[activeT].name}</div>
-                    <div className="n-testi-loc">📍 {activeTestimonials[activeT].location}</div>
-                  </div>
-                  <div className="n-testi-stars">
-                    {/* ✅ ФИКС: показва РЕАЛНИЯ брой звезди на този отзив, не хардкоднати 5 */}
-                    {[1,2,3,4,5].map(i => (
-                      <span key={i} style={{ color: i <= (activeTestimonials[activeT].stars || 5) ? '#f59e0b' : '#e2e8f0', fontSize: 13 }}>★</span>
+                </div>
+                {activeTestimonials.length > 1 && (
+                  <div className="n-testi-dots">
+                    {activeTestimonials.map((_, i) => (
+                      <button
+                        key={i}
+                        className={`n-tdot${i === activeT ? ' active' : ''}`}
+                        onClick={() => setActiveT(i)}
+                        aria-label={`Отзив ${i + 1}`}
+                      />
                     ))}
                   </div>
-                </div>
-              </div>
-              {activeTestimonials.length > 1 && (
-                <div className="n-testi-dots">
-                  {activeTestimonials.map((_, i) => (
-                    <button
-                      key={i}
-                      className={`n-tdot${i === activeT ? ' active' : ''}`}
-                      onClick={() => setActiveT(i)}
-                      aria-label={`Отзив ${i + 1}`}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
+                )}
+              </>
+            )}
+            {/* ✅ НОВО — публична форма "Остави отзив", затворена по подразбиране */}
+            <div style={{ marginTop: activeTestimonials.length > 0 ? 16 : 0 }}>
+              <ReviewSubmitForm
+                entityType="handbook"
+                entityId={nar.id}
+                productName={nar.title}
+                hasExistingReviews={activeTestimonials.length > 0}
+              />
+            </div>
+          </section>
 
           {/* Author bio */}
           <aside className="n-author">

@@ -13,6 +13,10 @@ interface Props {
   entityType: EntityType
   entityId:   string
   productName?: string
+  // ✅ НОВО — управлява текста на затворения бутон: "Бъди първият" звучи
+  // по-канещо, когато страницата все още няма нито един отзив, вместо
+  // голото "Остави отзив", което до празна секция изглежда безжизнено.
+  hasExistingReviews?: boolean
 }
 
 function StarPicker({ value, onChange }: { value: number; onChange: (n: number) => void }) {
@@ -31,7 +35,7 @@ function StarPicker({ value, onChange }: { value: number; onChange: (n: number) 
   )
 }
 
-export function ReviewSubmitForm({ entityType, entityId, productName }: Props) {
+export function ReviewSubmitForm({ entityType, entityId, productName, hasExistingReviews = true }: Props) {
   const [open, setOpen]       = useState(false)
   const [name, setName]       = useState('')
   const [location, setLocation] = useState('')
@@ -90,7 +94,9 @@ export function ReviewSubmitForm({ entityType, entityId, productName }: Props) {
         onClick={() => setOpen(true)}
         style={{ background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 12, padding: '12px 20px', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: '#374151', fontFamily: 'inherit' }}
       >
-        ✍️ Остави отзив{productName ? ` за ${productName}` : ''}
+        {hasExistingReviews
+          ? `✍️ Остави отзив${productName ? ` за ${productName}` : ''}`
+          : '✍️ Бъди първият, който остави отзив!'}
       </button>
     )
   }

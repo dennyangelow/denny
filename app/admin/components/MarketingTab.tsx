@@ -45,6 +45,9 @@ export interface UpsellOffer {
                           //    Означава крайна обща цена за тригер-варианта + офертния вариант заедно.
   bundle_requirements?: BundleRequirement[]  // ✅ За trigger_type='bundle_requirements' — множество условия (продукт+вариант+кол-во)
   reward_qty?: number                         // ✅ Колко бройки от offer_product_id/offer_variant_id се дават (по подразбиране 1)
+  reward_mode?: 'choice' | 'proportional'     // ✅ undefined/'choice' = сегашното "избери сам" поведение,
+                                                //    'proportional' = авто-разбивка по съотношение на платеното,
+                                                //    повтаря се на всеки нов праг (виж lib/offers.ts)
   sort_order: number
   show_on_homepage?: boolean       // ✅ undefined/true = показва се във витрината "🎁" на началната. false = скрита
                                     //    само от homepage витрината, но си остава напълно активна навсякъде другаде.
@@ -884,7 +887,9 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
               </div>
             )}
             {offer.type === 'bundle' && (() => {
-              const isChoice = !!offer.reward_choice_product_ids
+              const isProportional = offer.reward_mode === 'proportional'
+              const isChoice = !isProportional && !!offer.reward_choice_product_ids
+              const isFixed = !isProportional && !isChoice
               const chip = (active: boolean) => ({
                 display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 9,
                 border: active ? '1.5px solid #ea580c' : '1.5px solid #e2e8f0',
@@ -893,18 +898,22 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
                 cursor: 'pointer', fontFamily: 'inherit',
               })
               return (
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                  <button type="button" onClick={() => onUpdate({ reward_choice_product_ids: undefined, reward_choice_size_liters: undefined })}
-                    style={chip(!isChoice)}>Фиксиран продукт</button>
-                  <button type="button" onClick={() => onUpdate({ reward_choice_product_ids: offer.reward_choice_product_ids || [], reward_choice_size_liters: offer.reward_choice_size_liters || 20, offer_product_id: '', offer_variant_id: '' })}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' as const }}>
+                  <button type="button" onClick={() => onUpdate({ reward_mode: undefined, reward_choice_product_ids: undefined, reward_choice_size_liters: undefined })}
+                    style={chip(isFixed)}>Фиксиран продукт</button>
+                  <button type="button" onClick={() => onUpdate({ reward_mode: 'choice', reward_choice_product_ids: offer.reward_choice_product_ids || [], reward_choice_size_liters: offer.reward_choice_size_liters || 20, offer_product_id: '', offer_variant_id: '' })}
                     style={chip(isChoice)}>Клиентът избира сам</button>
+                  <button type="button" onClick={() => onUpdate({ reward_mode: 'proportional', reward_choice_product_ids: offer.reward_choice_product_ids || [], reward_choice_size_liters: offer.reward_choice_size_liters || 20, offer_product_id: '', offer_variant_id: '' })}
+                    style={chip(isProportional)}>Пропорционално съотношение</button>
                 </div>
               )
             })()}
             {offer.type === 'bundle' && offer.reward_choice_product_ids ? (
               <>
-                <Label hint="Клиентът ще види бутони с тези продукти и сам ще посочи кой иска като подарък">
-                  Измежду кои продукти да избира
+                <Label hint={offer.reward_mode === 'proportional'
+                  ? 'Тези продукти участват в автоматичното разпределение на подаръка — системата сама смята пропорцията според купеното, клиентът не избира нищо ръчно'
+                  : 'Клиентът ще види бутони с тези продукти и сам ще посочи кой иска като подарък'}>
+                  {offer.reward_mode === 'proportional' ? 'Измежду кои продукти се разпределя подаръкът' : 'Измежду кои продукти да избира'}
                 </Label>
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginBottom: 10 }}>
                   {products.map(p => {
@@ -956,7 +965,9 @@ function OfferCard({ offer, index, total, onUpdate, onDelete, onMove, products, 
             </div>
             {offer.type === 'bundle' && (
               <div style={{ maxWidth: 160 }}>
-                <Label hint="напр. 1 бр. подарък">Количество награда</Label>
+                <Label hint={offer.reward_mode === 'proportional'
+                  ? 'общо бройки подарък за ЦЕЛИЯ праг — ще се разпределят пропорционално между избраните продукти (напр. 6 бр. × 20л = 120л)'
+                  : 'напр. 1 бр. подарък'}>Количество награда</Label>
                 <Field type="number" value={offer.reward_qty || 1} onChange={v => onUpdate({ reward_qty: Math.max(1, Number(v)) })} placeholder="1" />
               </div>
             )}

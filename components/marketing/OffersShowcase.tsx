@@ -17,7 +17,7 @@ import Link from 'next/link'
 import { SafeImg } from '@/components/client/SafeImg'
 import {
   offersForProduct, offersForHomepage, computeBundleProgress,
-  offerRelatedProductIds,
+  offerRelatedProductIds, selfRewardAvailableQty, bundleProgressIntoCurrentSet,
   type UpsellOffer, type OfferCartItemLike, type ShowcaseCard,
 } from '@/lib/offers'
 
@@ -169,8 +169,11 @@ function OfferPromoCard({
   const meta = TYPE_META[offer.type] || TYPE_META.cross_sell
 
   const isBundleReq = offer.trigger_type === 'bundle_requirements' && !!offer.bundle_requirements?.length
+  const isProportional = offer.reward_mode === 'proportional'
   const progress = isBundleReq ? computeBundleProgress(offer, cartItems) : []
-  const fulfilled = isBundleReq && progress.every(p => p.have >= p.need)
+  const fulfilled = isProportional
+    ? selfRewardAvailableQty(offer, cartItems) > 0
+    : isBundleReq && progress.every(p => p.have >= p.need)
 
   // ✅ "Свободен избор" UI — само когато има ЕДНО условие с група от продукти
   // (напр. "5×20л от каквото и да е измежду Terra/Amino/Nitro") — интерактивно
@@ -358,9 +361,20 @@ function OfferPromoCard({
               </div>
             )}
 
-            {isBundleReq && !fulfilled && progress.some(p => p.have > 0) && (
+            {isBundleReq && !fulfilled && (isProportional || progress.some(p => p.have > 0)) && (
               <div className="mk-offer-progress">
-                {progress.map((p, i) => (
+                {isProportional ? (() => {
+                  const into = bundleProgressIntoCurrentSet(offer, cartItems)
+                  if (!into || into.have <= 0) return null
+                  return (
+                    <div className="mk-offer-progress-row">
+                      <div className="mk-offer-progress-bar">
+                        <div className="mk-offer-progress-fill" style={{ width: `${Math.min(100, (into.have / into.need) * 100)}%` }} />
+                      </div>
+                      <span>{into.have}/{into.need}</span>
+                    </div>
+                  )
+                })() : progress.map((p, i) => (
                   <div key={i} className="mk-offer-progress-row">
                     <div className="mk-offer-progress-bar">
                       <div className="mk-offer-progress-fill" style={{ width: `${Math.min(100, (p.have / p.need) * 100)}%` }} />

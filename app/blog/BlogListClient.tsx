@@ -1,5 +1,14 @@
 'use client'
-// app/blog/BlogListClient.tsx — v1
+// app/blog/BlogListClient.tsx — v3
+// ✅ ПРОМЯНА спрямо v2: категорийното етикетче се върна като overlay
+//    върху снимката (v2 го местеше на собствен ред НАД нея, но това
+//    разтягаше картата визуално) — само че вече в ГОРНИЯ ДЕСЕН ъгъл,
+//    не ляв (там повечето cover графики имат основния си заглавен
+//    текст), с плътен фон вместо полупрозрачен, за четимост върху
+//    каквото и да е зад него. Все още е истински <a href="/blog/[category]">
+//    (не <span>), съседен на .blog-card-link (не вложен в него) —
+//    .blog-card има position:relative, .blog-card-cat е absolute спрямо
+//    него. Виж blog.css за съответните CSS промени.
 // ✅ НОВ файл. Клиентски модел на /blog списъка, огледален на
 //    app/produkti/ProduktCatalogClient.tsx:
 //   - Категорийният филтър е чист client state (activeFilter) — инстантно
@@ -169,33 +178,54 @@ export default function BlogListClient({ posts, categories, initialVisible = BAT
           <>
             <div className="blog-grid">
               {visibleCards.map((post, i) => (
-                <a key={post.id} href={`/blog/${post.slug}`} className="blog-card">
-                  <div className="blog-card-img-wrap">
-                    {post.cover_image_url && (
-                      <SafeImg
-                        src={post.cover_image_url}
-                        alt={post.cover_image_alt || post.title}
-                        priority={activeFilter === 'all' && i === 0}
-                        width={640}
-                        height={360}
-                        quality={70}
-                        sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    )}
-                    {post.category && <span className="blog-card-cat">{categoryEmoji(post.category, categories)} {categoryLabel(post.category, categories)}</span>}
-                  </div>
-                  <div className="blog-card-body">
-                    <h2 className="blog-card-title">{post.title}</h2>
-                    <p className="blog-card-excerpt">{deriveExcerpt(post)}</p>
-                    <div className="blog-card-meta">
-                      {post.published_at && (
-                        <span>{new Date(post.published_at).toLocaleDateString('bg-BG', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                // ✅ ПРОМЯНА: .blog-card вече е <div>, не <a> — съдържа ДВЕ
+                //    отделни, съседни връзки (не вложени!): малкото
+                //    категорийно етикетче горе (сочи към новия pillar hub
+                //    /blog/[category]) и голямата връзка към самата статия.
+                //    Преди категорията беше <span> абсолютно позициониран
+                //    В ГОРНИЯ ЛЯВ ъгъл на снимката — покриваше текста на
+                //    самите cover графики (виж скрийншота). Сега е реален
+                //    <a> (не <span>), пак overlay върху снимката, но в
+                //    ГОРНИЯ ДЕСЕН ъгъл — по-безопасна зона за повечето
+                //    от cover дизайните на Denny, плюс плътен (не
+                //    полупрозрачен) фон за четимост върху каквото и да е
+                //    зад него. Структурно е СЪСЕДЕН на .blog-card-link
+                //    (не вложен в него) — .blog-card има position:relative,
+                //    .blog-card-cat е absolute спрямо него, значи е валиден
+                //    HTML (два съседни линка), не линк-в-линк.
+                <div key={post.id} className="blog-card">
+                  <a href={`/blog/${post.slug}`} className="blog-card-link">
+                    <div className="blog-card-img-wrap">
+                      {post.cover_image_url && (
+                        <SafeImg
+                          src={post.cover_image_url}
+                          alt={post.cover_image_alt || post.title}
+                          priority={activeFilter === 'all' && i === 0}
+                          width={640}
+                          height={360}
+                          quality={70}
+                          sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
                       )}
-                      {post.reading_time_minutes && <span>· {post.reading_time_minutes} мин четене</span>}
                     </div>
-                  </div>
-                </a>
+                    <div className="blog-card-body">
+                      <h2 className="blog-card-title">{post.title}</h2>
+                      <p className="blog-card-excerpt">{deriveExcerpt(post)}</p>
+                      <div className="blog-card-meta">
+                        {post.published_at && (
+                          <span>{new Date(post.published_at).toLocaleDateString('bg-BG', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                        )}
+                        {post.reading_time_minutes && <span>· {post.reading_time_minutes} мин четене</span>}
+                      </div>
+                    </div>
+                  </a>
+                  {post.category && (
+                    <a href={`/blog/${post.category}`} className="blog-card-cat">
+                      {categoryEmoji(post.category, categories)} {categoryLabel(post.category, categories)}
+                    </a>
+                  )}
+                </div>
               ))}
 
               {loading && Array.from({ length: skeletonCount }).map((_, i) => (

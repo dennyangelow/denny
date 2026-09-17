@@ -14,7 +14,9 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import type { AffiliateProduct, ProductImage } from '@/lib/affiliate'
-import { getRating, parseHowToUse, parseYouTubeEmbed, getAllImages } from '@/lib/affiliate'
+// ✅ ФИКС: getRating премахнат от импорта — вече не се вика тук (avgRating
+// идва изцяло от page.tsx/aggregateRatingData, виж по-рано в reviews проекта)
+import { parseHowToUse, parseYouTubeEmbed, getAllImages } from '@/lib/affiliate'
 import { trackAffiliateClick } from '@/lib/trackAffiliateClick'
 // ✅ НОВО: обединеният header + admin-управляемата конфигурация за
 //    количката на страници без количка (виж lib/header-cart.ts)
@@ -22,6 +24,9 @@ import SiteHeader from '@/components/layout/SiteHeader'
 import type { HeaderCartConfig } from '@/lib/header-cart'
 // ✅ НОВО: footer — тази страница нямаше footer изобщо преди
 import SiteFooter from '@/components/layout/SiteFooter'
+// ✅ НОВО — публична форма "Остави отзив" (винаги pending, минава през
+// /api/reviews/submit, не admin-only /api/reviews)
+import { ReviewSubmitForm } from '@/components/client/ReviewSubmitForm'
 
 // ✅ ФИКС: DM Sans и Cormorant Garamond вече се зареждат ВЕДНЪЖ, глобално, в
 //    app/layout.tsx чрез next/font/google — приложени като CSS променливи
@@ -271,7 +276,10 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   const diff        = difficultyBadge(product.quarantine_days)
   const lastUpdated = formatBgDate(product.updated_at || product.date_published) // ✅ #4/#9
 
-  const hasAbout = !!(product.description || bullets.length > 0 || product.full_content || warnings.length > 0 || product.vs_competitor || product.registration_number || product.manufacturer || realReviews.length > 0)
+  // ✅ ФИКС: винаги true вече — таб "About" вече винаги съдържа поне поканата
+  // за отзив (ReviewSubmitForm), дори когато продуктът няма друго съдържание
+  // и realReviews е празен, затова таба не трябва вече да може да изчезне.
+  const hasAbout = true
   const hasHowto = howToSteps.length > 0 || doseTable.length > 0
   const hasTech  = !!(product.active_substance || product.dosage || crops.length > 0 || product.quarantine_days !== undefined || manufacturer || registrationNumber || composition.length > 0)
   const hasFaq   = faqItems.length > 0
@@ -971,11 +979,13 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                     {/* ✅ НОВО: реални текстове на отзиви — видимо съдържание зад
                         Product.review schema-та в page.tsx (виж realReviews).
                         Само число без нито един реален цитат е слаб сигнал и
-                        за Google, и за читателя. */}
-                    {realReviews.length > 0 && (
-                      <div style={{ marginTop:16 }}>
-                        <h2 className="af-h2-seo">Какво казват клиентите за {product.name}</h2>
-                        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                        за Google, и за читателя. Секцията е ВИНАГИ видима
+                        (не само при realReviews.length > 0) — дори без нито
+                        един отзив, каним посетителя да остави първия. */}
+                    <div style={{ marginTop:16 }}>
+                      <h2 className="af-h2-seo">Какво казват клиентите за {product.name}</h2>
+                      {realReviews.length > 0 && (
+                        <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
                           {realReviews.slice(0, 5).map((r, i) => (
                             <div key={i} style={{ border:'1px solid #f1f5f9', borderRadius:12, padding:'12px 14px', background:'#fafaf8' }}>
                               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, marginBottom:5 }}>
@@ -990,8 +1000,15 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                             </div>
                           ))}
                         </div>
-                      </div>
-                    )}
+                      )}
+                      {/* ✅ НОВО — публична форма "Остави отзив", затворена по подразбиране */}
+                      <ReviewSubmitForm
+                        entityType="affiliate_product"
+                        entityId={product.id}
+                        productName={product.name}
+                        hasExistingReviews={realReviews.length > 0}
+                      />
+                    </div>
                   </div>
                 )}
 

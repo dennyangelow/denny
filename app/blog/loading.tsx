@@ -1,10 +1,13 @@
-// app/blog/loading.tsx
-// ✅ НОВ файл — преди нямаше собствен loading.tsx за /blog, значи Next.js
-//    падаше обратно на app/loading.tsx (homepage skeleton) при навигация
-//    насам. Затова за миг се виждаше hero/продукти skeleton, преди
-//    реалната блог листа да се появи — визуално объркващо, различен
-//    layout от целта. Skeleton-ът тук пасва 1:1 на app/blog/page.tsx:
-//    hero секция + категория чипове + грид от карти.
+// app/blog/[slug]/loading.tsx — v2
+// ✅ ПРОМЯНА спрямо v1: старият skeleton беше скициран само за статия
+//    (breadcrumb+корица+заглавие+абзаци+FAQ) — откакто /blog/[slug] вече
+//    обслужва и категорийни pillar hub-ове (/blog/domati), същият файл се
+//    показва и за тях, докато данните се зареждат, но hub-ът реално
+//    изглежда съвсем различно (hero + грид от карти, не абзаци).
+//    Тази версия е нарочно по-неутрална: горна секция (пасва еднакво на
+//    breadcrumb+заглавие ЗА СТАТИЯ и на hero заглавие+увод ЗА hub), после
+//    грид от правоъгълни блокове — достатъчно общ силует, че да не
+//    изглежда грубо разминат с нито един от двата реални резултата.
 
 const SHIMMER = `
   @keyframes shimmer {
@@ -19,39 +22,32 @@ const SHIMMER = `
   }
 `
 
-export default function BlogListLoading() {
+export default function BlogSlugLoading() {
   return (
     <div style={{ background: '#fafaf8', minHeight: '100vh' }}>
       <style>{SHIMMER}</style>
 
-      {/* ── Hero (пасва на .blog-hero) ── */}
-      <div style={{
-        background: 'linear-gradient(160deg,#f0fdf4 0%,#dcfce7 35%,#f0fdf8 65%,#ecfdf5 100%)',
-        borderBottom: '1px solid #bbf7d0', padding: '40px 24px 32px',
-      }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div className="sk" style={{ width: 120, height: 12, marginBottom: 14 }} />
-          <div className="sk" style={{ width: '55%', height: 40, marginBottom: 10 }} />
-          <div className="sk" style={{ width: '70%', height: 15, marginBottom: 18 }} />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {[80, 100, 90, 110, 85].map((w, i) => (
-              <div key={i} className="sk" style={{ width: w, height: 30, borderRadius: 22 }} />
-            ))}
-          </div>
-        </div>
+      {/* ── Горна секция — пасва еднакво добре на "breadcrumb + заглавие
+          на статия" и на "hero заглавие + увод на категория" ── */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 20px 28px' }}>
+        <div className="sk" style={{ width: 160, height: 12, marginBottom: 18 }} />
+        <div className="sk" style={{ width: '55%', height: 34, marginBottom: 10 }} />
+        <div className="sk" style={{ width: '38%', height: 34, marginBottom: 16 }} />
+        <div className="sk" style={{ width: '70%', height: 15 }} />
       </div>
 
-      {/* ── Грид карти (пасва на .blog-grid / .blog-card) ── */}
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px 60px' }}>
+      {/* ── Грид от общи правоъгълни блокове — достатъчно неутрален
+          силует: и за карти (hub), и като общ "зареждащо се съдържание"
+          placeholder преди абзаците на статия да се появят ── */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 20px 60px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 22 }}>
-          {[1, 2, 3, 4, 5, 6].map(i => (
+          {[1, 2, 3].map(i => (
             <div key={i} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, overflow: 'hidden' }}>
               <div className="sk" style={{ width: '100%', aspectRatio: '16/9', borderRadius: 0 }} />
-              <div style={{ padding: '16px 16px 18px' }}>
-                <div className="sk" style={{ width: '90%', height: 18, marginBottom: 10 }} />
-                <div className="sk" style={{ width: '100%', height: 13, marginBottom: 6 }} />
-                <div className="sk" style={{ width: '75%', height: 13, marginBottom: 14 }} />
-                <div className="sk" style={{ width: 130, height: 12 }} />
+              <div style={{ padding: '14px 16px 16px' }}>
+                <div className="sk" style={{ width: '85%', height: 16, marginBottom: 8 }} />
+                <div className="sk" style={{ width: '100%', height: 12, marginBottom: 6 }} />
+                <div className="sk" style={{ width: '70%', height: 12 }} />
               </div>
             </div>
           ))}

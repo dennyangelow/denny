@@ -22,6 +22,9 @@ import SiteFooter       from '@/components/layout/SiteFooter'
 import OffersShowcase   from '@/components/marketing/OffersShowcase'
 import type { MarketingSettings } from '@/lib/offers'
 import { buildImageList } from '@/lib/images'
+// ✅ НОВО — публична форма "Остави отзив" (винаги pending, минава през
+// /api/reviews/submit, не admin-only /api/reviews)
+import { ReviewSubmitForm } from '@/components/client/ReviewSubmitForm'
 import './own-produkt.css'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -719,20 +722,21 @@ export default function OwnProduktClient({
               </section>
             )}
 
-            {/* 4c. Реални отзиви — от обединената reviews таблица.
-                ✅ НОВО: заменя/допълва единичния product.testimonial цитат
-                с реален списък от отзиви (ако има одобрени). */}
-            {reviews.length > 0 && (
-              <section className="op-content-card op-content-card--reviews" aria-labelledby="s-reviews">
-                <h2 id="s-reviews" className="op-section-title">
-                  Какво казват клиентите
-                  {hasRealRating && (
-                    <span style={{ fontWeight: 400, fontSize: 13, color: '#6b7280', marginLeft: 8 }}>
-                      ({displayAvgRating!.toFixed(1)}/5 · {displayReviewCount} отзива)
-                    </span>
-                  )}
-                </h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* 4c. Реални отзиви — от обединената reviews таблица + форма за
+                нов отзив. ✅ Секцията вече е ВИНАГИ видима (не само при
+                reviews.length > 0) — дори без нито един отзив, каним
+                посетителя да остави първия, вместо да крием секцията. */}
+            <section className="op-content-card op-content-card--reviews" aria-labelledby="s-reviews">
+              <h2 id="s-reviews" className="op-section-title">
+                Какво казват клиентите
+                {hasRealRating && (
+                  <span style={{ fontWeight: 400, fontSize: 13, color: '#6b7280', marginLeft: 8 }}>
+                    ({displayAvgRating!.toFixed(1)}/5 · {displayReviewCount} отзива)
+                  </span>
+                )}
+              </h2>
+              {reviews.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 16 }}>
                   {reviews.slice(0, 5).map(r => (
                     <div key={r.id} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -750,8 +754,16 @@ export default function OwnProduktClient({
                     </div>
                   ))}
                 </div>
-              </section>
-            )}
+              )}
+
+              {/* ✅ НОВО — публична форма "Остави отзив", затворена по подразбиране */}
+              <ReviewSubmitForm
+                entityType="own_product"
+                entityId={product.id}
+                productName={product.name}
+                hasExistingReviews={reviews.length > 0}
+              />
+            </section>
 
             {/* 5. Дози по култура */}
             {crops.length > 0 && (
