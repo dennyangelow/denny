@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   // ── 1. Еднократно потвърждение на абонамента ──────────────────────────────
   if (messageType === 'SubscriptionConfirmation') {
-    const subscribeUrl = body.SubscribeUrl
+    const subscribeUrl = body.SubscribeURL
     if (subscribeUrl) {
       try {
         await fetch(subscribeUrl)
