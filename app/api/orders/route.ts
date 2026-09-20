@@ -1,12 +1,11 @@
-// app/api/orders/route.ts — ФИКС v6 FINAL
-// ✅ invoice_data се записва в базата данни
-// ✅ wants_invoice се записва правилно
-// ✅ Детайлен debug лог за invoice
+// app/api/orders/route.ts — v7
+// ✅ v6 → v7: изпращането минава през lib/mailer.ts (Amazon SES) вместо
+//    директно през Resend SDK. Логиката за поръчки/фактури е непроменена.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Resend } from 'resend'
 import { rateLimit, getIP } from '@/lib/rate-limit'
+import { sendEmail } from '@/lib/mailer'
 import { orderConfirmationEmail, adminNotifyEmail } from '@/lib/email-templates'
 import { COURIER_LABELS } from '@/lib/constants'
 
@@ -30,10 +29,9 @@ export async function POST(req: NextRequest) {
       payment_method, courier,
       items, subtotal, shipping, total,
       utm_source, utm_campaign,
-      invoice, // ← фактура от frontend
+      invoice,
     } = body
 
-    // Debug invoice
     console.log('🧾 Invoice received:', JSON.stringify(invoice, null, 2))
 
     // ── Валидация ──────────────────────────────────────────────────────────
@@ -141,31 +139,25 @@ export async function POST(req: NextRequest) {
       console.error('❌ Order items error:', itemsError)
     }
 
-    // ── Emails ─────────────────────────────────────────────────────────────
-    const apiKey = process.env.RESEND_API_KEY
-    if (apiKey) {
-      const resend = new Resend(apiKey)
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://dennyangelow.com'
-
-      if (customer_email?.trim()) {
-        const { subject, html } = orderConfirmationEmail({ order, items: orderItems })
-        await resend.emails.send({
-          from: 'Denny Angelow <noreply@dennyangelow.com>',
-          to: order.customer_email,
-          subject,
-          html,
-        }).catch(e => console.error('Customer email error:', e))
-      }
-
-      const adminEmail = process.env.ADMIN_EMAIL || 'support@dennyangelow.com'
-      const { subject: as, html: ah } = adminNotifyEmail({ order, items: orderItems, siteUrl })
-      await resend.emails.send({
-        from: 'System <noreply@dennyangelow.com>',
-        to: adminEmail,
-        subject: as,
-        html: ah,
-      }).catch(e => console.error('Admin email error:', e))
+    // ── Emails (през Amazon SES) ────────────────────────────────────────────
+    if (customer_email?.trim()) {
+      const { subject, html } = orderConfirmationEmail({ order, items: orderItems })
+      await sendEmail({
+        to:      order.customer_email,
+        from:    'Denny Angelow <noreply@dennyangelow.com>',
+        subject,
+        html,
+      }).catch(e => console.error('Customer email error:', e))
     }
+
+    const adminEmail = process.env.ADMIN_EMAIL || 'support@dennyangelow.com'
+    const { subject: as, html: ah } = adminNotifyEmail({ order, items: orderItems, siteUrl: process.env.NEXT_PUBLIC_SITE_URL })
+    await sendEmail({
+      to:      adminEmail,
+      from:    'System <noreply@dennyangelow.com>',
+      subject: as,
+      html:    ah,
+    }).catch(e => console.error('Admin email error:', e))
 
     console.log('✅ Order created:', order.order_number, wantsInvoice ? `| Фактура: ${invoiceData?.type}` : '')
 

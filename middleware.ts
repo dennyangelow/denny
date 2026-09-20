@@ -53,7 +53,6 @@ const PROTECTED_API_PREFIXES = [
   '/api/ginegar',
   '/api/upload',
   '/api/leads/broadcast',
-  '/api/leads/sync',
   '/api/leads',
   '/api/orders',
   '/api/marketing',

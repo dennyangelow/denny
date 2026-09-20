@@ -1,7 +1,13 @@
 'use client'
-// app/admin/components/SettingsTab.tsx — v8
-// ✅ НОВО: urgency_bar_products — отделен urgency bar само за /products/* страниците
-//    Различен от urgency_bar_text (началната страница)
+// app/admin/components/SettingsTab.tsx — v9
+// ✅ v8 → v9: ПЪЛНО премахване на Systeme.io — маха се IntegrationRow за
+//    Systeme.io, testSystemeIO функцията, systemeEnabled/togglingSysteme/
+//    testingSysteme state, "Leads sync" статус ред, Systeme.io quick link,
+//    systemeio_api от security checklist-а. "Resend" реда е преименуван на
+//    "Email автоматизации", тъй като реалният транспорт вече е Amazon SES
+//    (ключът resend_enabled е запазен само по историческа причина — виж
+//    lib/mailer.ts). Email Sequences текстът вече казва коректно
+//    "Supabase pg_cron" вместо остарялото "Vercel Cron".
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { toast } from '@/components/ui/Toast'
@@ -84,7 +90,7 @@ const SECTIONS = [
     description: 'От кой адрес/име излизат системните имейли (поръчки, лийдове)',
     keys: [
       { key: 'email_from_name', label: 'От (Имена)', type: 'text',  placeholder: 'Denny Angelow' },
-      { key: 'email_from_addr', label: 'От (Имейл)', type: 'email', placeholder: 'denny@dennyangelow.com' },
+      { key: 'email_from_addr', label: 'От (Имейл)', type: 'email', placeholder: 'support@dennyangelow.com' },
       { key: 'email_reply_to',  label: 'Reply-To',   type: 'email', placeholder: 'support@dennyangelow.com' },
     ],
   },
@@ -209,11 +215,8 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   const [expanded,   setExpanded]   = useState<Set<string>>(new Set())
   const isFirstLoad = useRef(true)
 
-  const [resendEnabled,   setResendEnabled]   = useState(true)
-  const [systemeEnabled,  setSystemeEnabled]  = useState(true)
-  const [togglingResend,  setTogglingResend]  = useState(false)
-  const [togglingSysteme, setTogglingSysteme] = useState(false)
-  const [testingSysteme,  setTestingSysteme]  = useState(false)
+  const [resendEnabled,  setResendEnabled]  = useState(true)
+  const [togglingResend, setTogglingResend] = useState(false)
 
   const dirty = useMemo(
     () => Object.keys(vals).some(k => vals[k] !== savedVals[k]),
@@ -227,8 +230,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
         if (d.settings) {
           setVals(d.settings)
           setSavedVals(d.settings)
-          setResendEnabled(d.settings.resend_enabled    !== 'false')
-          setSystemeEnabled(d.settings.systemeio_enabled !== 'false')
+          setResendEnabled(d.settings.resend_enabled !== 'false')
         }
         setLoading(false)
       })
@@ -247,17 +249,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
       toast.success(`${label} е ${next ? 'активиран' : 'деактивиран'}`)
     } catch { toast.error(`Грешка при промяна на ${label}`) }
     finally { setBusy(false) }
-  }
-
-  const testSystemeIO = async () => {
-    setTestingSysteme(true)
-    try {
-      const res = await fetch('/api/integrations/systemeio/test')
-      const d   = await res.json()
-      if (d.ok) toast.success(`✅ Systeme.io: свързан (${d.contacts ?? '?'} контакта)`)
-      else      toast.error(`❌ Systeme.io: ${d.error || 'грешка'}`)
-    } catch { toast.error('❌ Не може да се свърже с Systeme.io') }
-    finally { setTestingSysteme(false) }
   }
 
   const debouncedVals = useDebounce(vals, 2000)
@@ -580,18 +571,12 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>🔌 Интеграции</h2>
             <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.5 }}>Активирай/деактивирай без рестартиране — влиза в сила веднага.</p>
-            <IntegrationRow icon="✉️" name="Resend" description="Welcome + follow-up имейли към потребителите" enabled={resendEnabled} loading={togglingResend} statusLabel={resendEnabled ? 'Активен' : 'Изключен'} statusColor={resendEnabled ? '#16a34a' : '#6b7280'} href="https://resend.com/emails"
-              onToggle={() => toggleIntegration('resend_enabled', resendEnabled, setResendEnabled, setTogglingResend, 'Resend')} />
-            <IntegrationRow icon="🟠" name="Systeme.io" description="Синхронизира leads + автоматизации в Systeme.io" enabled={systemeEnabled} loading={togglingSysteme} statusLabel={systemeEnabled ? 'Активен' : 'Изключен'} statusColor={systemeEnabled ? '#16a34a' : '#6b7280'} href="https://systeme.io/dashboard/contacts"
-              onToggle={() => toggleIntegration('systemeio_enabled', systemeEnabled, setSystemeEnabled, setTogglingSysteme, 'Systeme.io')} />
-            <button onClick={testSystemeIO} disabled={testingSysteme || !systemeEnabled}
-              style={{ marginTop: 12, width: '100%', padding: '9px', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: (testingSysteme || !systemeEnabled) ? 'default' : 'pointer', background: systemeEnabled ? '#fff7ed' : '#f9fafb', border: `1px solid ${systemeEnabled ? '#fed7aa' : '#e5e7eb'}`, borderRadius: 9, color: systemeEnabled ? '#c2410c' : '#9ca3af', transition: 'all .2s', opacity: !systemeEnabled ? 0.5 : 1 }}>
-              {testingSysteme ? '⏳ Проверява...' : '🔗 Тествай Systeme.io връзка'}
-            </button>
+            <IntegrationRow icon="✉️" name="Email автоматизации" description="Welcome + follow-up имейли (през Amazon SES)" enabled={resendEnabled} loading={togglingResend} statusLabel={resendEnabled ? 'Активен' : 'Изключен'} statusColor={resendEnabled ? '#16a34a' : '#6b7280'} href="https://console.aws.amazon.com/ses/"
+              onToggle={() => toggleIntegration('resend_enabled', resendEnabled, setResendEnabled, setTogglingResend, 'Email автоматизации')} />
             <div style={{ marginTop: 10, background: '#f8fafc', borderRadius: 8, padding: '8px 10px', fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>
               <strong style={{ color: '#374151', display: 'block', marginBottom: 2 }}>Как работи:</strong>
-              При изтегляне на наръчник → записва се в Supabase → изпраща welcome имейл (Resend) → добавя контакт в Systeme.io.<br/>
-              <strong style={{ color: '#92400e' }}>⚠️ Env var:</strong> трябва да е точно <code>systemeio_api</code> в Vercel.
+              При изтегляне на наръчник → записва се в Supabase → изпраща welcome имейл през Amazon SES.<br/>
+              <strong style={{ color: '#92400e' }}>⚠️ Env vars:</strong> <code>SES_ACCESS_KEY_ID</code>, <code>SES_SECRET_ACCESS_KEY</code>, <code>SES_REGION</code> в Vercel.
             </div>
           </div>
 
@@ -603,8 +588,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
               { label: 'Абонати',    value: leadsCount,    color: '#0ea5e9' },
               { label: 'Framework',  value: 'Next.js 14' },
               { label: 'База данни', value: 'Supabase' },
-              { label: 'Email',      value: resendEnabled  ? '✅ Resend'     : '⏸ Resend изкл.',   color: resendEnabled  ? '#16a34a' : '#9ca3af' },
-              { label: 'Leads sync', value: systemeEnabled ? '✅ Systeme.io' : '⏸ Systeme изкл.',  color: systemeEnabled ? '#f97316' : '#9ca3af' },
+              { label: 'Email',      value: resendEnabled ? '✅ Amazon SES' : '⏸ Изключен', color: resendEnabled ? '#16a34a' : '#9ca3af' },
               { label: 'Hosting',    value: 'Vercel' },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: 13 }}>
@@ -617,7 +601,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
           {/* Email sequences */}
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>⚙️ Email Sequences</h2>
-            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.5 }}>Изпълнява се автоматично всеки час (Vercel Cron).</p>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.5 }}>Изпълнява се автоматично всеки час (Supabase pg_cron).</p>
             <div style={{ background: '#f0fdf4', borderRadius: 9, padding: '10px 12px', fontSize: 12, color: '#166534', marginBottom: 12, lineHeight: 1.6 }}>
               📅 Welcome → +2д → +5д → +10д<br/>🛒 Abandoned: след 24ч без обработка
             </div>
@@ -658,7 +642,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             {[
               { label: 'Supabase Dashboard', url: 'https://app.supabase.com',             icon: '⬡', color: '#3ecf8e' },
               { label: 'Resend Dashboard',   url: 'https://resend.com/emails',             icon: '✉', color: '#0ea5e9' },
-              { label: 'Systeme.io',         url: 'https://systeme.io/dashboard/contacts', icon: '🟠', color: '#f97316' },
+              { label: 'Amazon SES Console', url: 'https://console.aws.amazon.com/ses/',   icon: '📨', color: '#ff9900' },
               { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard',          icon: '▲', color: '#111' },
               { label: 'Главна страница',    url: '/',                                     icon: '◫', color: '#6b7280' },
             ].map(l => (
@@ -678,9 +662,9 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             <h2 style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 10 }}>⚠️ Сигурност</h2>
             {[
               ['ADMIN_SECRET',   'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
-              ['systemeio_api',  'Задай в Vercel → Env Vars с точно това име.'],
+              ['SES_ACCESS_KEY_ID / SES_SECRET_ACCESS_KEY', 'Задай в Vercel → Env Vars за Amazon SES.'],
               ['RLS в Supabase', 'Row Level Security трябва да е активирана.'],
-              ['CRON_SECRET',    'Защита на /api/leads/sequence.'],
+              ['CRON_SECRET',    'Защита на /api/leads/sequence и /api/cron/discord-fallback.'],
             ].map(([k, v]) => (
               <div key={k} style={{ marginBottom: 8, fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
                 <strong style={{ color: '#92400e', display: 'block', fontSize: 11, textTransform: 'uppercase' }}>{k}</strong>

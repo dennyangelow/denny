@@ -1,17 +1,19 @@
-// app/api/leads/sequence/route.ts — Email sequence processor (Vercel Cron)
-// Добави в vercel.json:
-// { "crons": [{ "path": "/api/leads/sequence", "schedule": "0 * * * *" }] }
+// app/api/leads/sequence/route.ts — Email sequence processor
+// ✅ Вика се от Supabase pg_cron (net.http_get) на всеки кръгъл час —
+//    вижте SQL job "email-sequence-hourly". Вече не разчита на
+//    vercel.json crons (Hobby план лимитира честотата под 1/ден).
+// ✅ Изпращането минава през lib/mailer.ts (Amazon SES), не Resend.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Resend } from 'resend'
+import { sendEmail } from '@/lib/mailer'
 import {
   followUp2Email,
   followUp5Email,
   followUp10Email,
 } from '@/lib/email-templates'
 
-// Защита — само Vercel Cron или admin може да извика
+// Защита — само Supabase pg_cron (или admin) може да извика
 function isAuthorized(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret) return true // dev mode
@@ -24,12 +26,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) {
-    return NextResponse.json({ error: 'RESEND_API_KEY не е настроен' }, { status: 500 })
-  }
-
-  const resend = new Resend(apiKey)
   const now    = new Date()
   let sent     = 0
   const errors: string[] = []
@@ -47,14 +43,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ sent: 0, message: 'Няма активни стъпки' })
     }
 
-    // За всяка стъпка (без welcome — тя се изпраща веднага)
+    // За всяка стъпка (без welcome — тя се изпраща веднага при регистрация)
     for (const step of steps.filter(s => s.step_number > 1)) {
-      // Намираме leads, които трябва да получат тази стъпка
       const targetDate = new Date(now.getTime() - step.delay_days * 86400000)
       const from = new Date(targetDate.getTime() - 3600000).toISOString() // ±1 час прозорец
       const to   = new Date(targetDate.getTime() + 3600000).toISOString()
 
-      // Leads, регистрирани в прозореца, subscribed, и не са получили тази стъпка
       const { data: leads } = await supabaseAdmin
         .from('leads')
         .select('id, email, name, naruchnik_slug')
@@ -64,7 +58,6 @@ export async function GET(req: NextRequest) {
 
       if (!leads || leads.length === 0) continue
 
-      // Изключи тези, които вече са получили тази стъпка
       const leadIds = leads.map(l => l.id)
       const { data: sentLogs } = await supabaseAdmin
         .from('email_logs')
@@ -90,14 +83,12 @@ export async function GET(req: NextRequest) {
 
           if (!emailData) continue
 
-          await resend.emails.send({
-            from: 'Denny Angelow <denny@dennyangelow.com>',
-            to: lead.email,
+          await sendEmail({
+            to:      lead.email,
             subject: emailData.subject,
-            html: emailData.html,
+            html:    emailData.html,
           })
 
-          // Записваме в log
           await supabaseAdmin.from('email_logs').insert({
             lead_id:       lead.id,
             sequence_name: 'naruchnik',
@@ -105,15 +96,14 @@ export async function GET(req: NextRequest) {
             sent_at:       now.toISOString(),
           })
 
-          // Update lead
           await supabaseAdmin.from('leads').update({
             last_email_sent_at: now.toISOString(),
           }).eq('id', lead.id)
 
           sent++
 
-          // Малка пауза за да не hit-ваме rate limit
-          await new Promise(r => setTimeout(r, 100))
+          // Малка пауза за да не удряме SES rate limit (1/сек в sandbox)
+          await new Promise(r => setTimeout(r, 150))
         } catch (e: any) {
           errors.push(`${lead.email}: ${e.message}`)
         }
@@ -132,7 +122,6 @@ export async function GET(req: NextRequest) {
     for (const order of (abandonedOrders || [])) {
       if (!order.customer_email) continue
 
-      // Проверяваме дали вече сме изпратили
       const { data: alreadySent } = await supabaseAdmin
         .from('email_logs')
         .select('id')
@@ -144,9 +133,8 @@ export async function GET(req: NextRequest) {
       if (alreadySent) continue
 
       try {
-        await resend.emails.send({
-          from: 'Denny Angelow <denny@dennyangelow.com>',
-          to: order.customer_email,
+        await sendEmail({
+          to:      order.customer_email,
           subject: `⚠️ Поръчка ${order.order_number} чака потвърждение`,
           html: `
             <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">

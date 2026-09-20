@@ -1,20 +1,19 @@
-// ФАЙЛ: app/api/leads/route.ts — v17
+// ФАЙЛ: app/api/leads/route.ts — v18
 //
-// ПОПРАВКИ v17 (спрямо v16):
-//   1. Сървърна валидация чрез lib/validation.ts (serverValidate)
-//      - Блокира disposable имейли (mailinator, yopmail, tempmail и др.)
-//      - Блокира очевидно фалшиви имейли (test@, aaa@, 1234@...)
-//      - Валидира BG телефон формат ако е подаден
-//      - Валидира имена ако са подадени
-//      - Връща { error, field } с HTTP 400 → frontend показва грешката inline
-//   2. Всичко от v16 е запазено непроменено
+// ПОПРАВКИ v18 (спрямо v17):
+//   1. ПЪЛНО премахване на Systeme.io — вече няма syncContactWithRetry,
+//      systemeio_api env var, systemeio_enabled setting, нито
+//      systemeio_* колони се пипат при insert/update тук.
+//   2. Изпращането минава през lib/mailer.ts (sendEmail) вместо директно
+//      през Resend SDK — sendEmail() ползва Amazon SES отдолу.
+//   3. Всичко останало от v17 (валидация, rate limit, upsert логика)
+//      е запазено непроменено.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Resend } from 'resend'
 import { rateLimit, getIP } from '@/lib/rate-limit'
 import { welcomeEmail } from '@/lib/email-templates'
-import { syncContactWithRetry } from '@/lib/systemeio'
+import { sendEmail } from '@/lib/mailer'
 import { serverValidate } from '@/lib/validation'
 
 export async function POST(req: NextRequest) {
@@ -36,26 +35,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Невалиден имейл', field: 'email' }, { status: 400 })
     }
 
-    // ── Директна защита — кирилски домейн (v18) ───────────────────────────────
-    // Хваща: садад@арбб.бр, test@тест.ком и всички кирилски домейни
-    // Работи независимо от validation.ts като втора линия на защита
+    // ── Директна защита — кирилски домейн ─────────────────────────────────────
     const emailDomain = email.split('@')[1] || ''
     if (/[а-яА-ЯёЁ]/.test(emailDomain)) {
       return NextResponse.json({ error: 'Невалиден имейл адрес', field: 'email' }, { status: 400 })
     }
-    // Домейнът трябва да е само латиница/цифри/тирета/точки
     if (!/^[a-zA-Z0-9][a-zA-Z0-9\-_.]*\.[a-zA-Z]{2,}$/.test(emailDomain)) {
       return NextResponse.json({ error: 'Невалиден имейл адрес', field: 'email' }, { status: 400 })
     }
 
-    // ── Директна защита — букви в телефон (v18) ───────────────────────────────
+    // ── Директна защита — букви в телефон ─────────────────────────────────────
     if (phone && /[а-яёА-ЯЁa-zA-Z]/.test(phone)) {
       return NextResponse.json({ error: 'Телефонът трябва да съдържа само цифри', field: 'phone' }, { status: 400 })
     }
 
     // ── Разширена сървърна валидация ──────────────────────────────────────────
-    // Хваща disposable домейни, фалшиви patterns, невалидни телефони
-    // Работи независимо от frontend — последна линия на защита
     const validation = serverValidate({ email, name, phone })
     if (!validation.ok) {
       return NextResponse.json(
@@ -70,27 +64,25 @@ export async function POST(req: NextRequest) {
     const cleanName  = name?.trim()  || null
     const cleanPhone = phone?.trim() || null
 
-    let resendEnabled    = true
-    let systemeioEnabled = true
+    // ── Глобален toggle за изпращане (settings таблица) ───────────────────────
+    // Ключът е останал 'resend_enabled' по историческа причина, но сега
+    // управлява изпращането като цяло (през SES), не конкретно Resend.
+    let emailSendingEnabled = true
     try {
-      const { data: rows } = await supabaseAdmin
-        .from('settings').select('key, value')
-        .in('key', ['resend_enabled', 'systemeio_enabled'])
-      for (const row of rows || []) {
-        if (row.key === 'resend_enabled')    resendEnabled    = row.value !== 'false'
-        if (row.key === 'systemeio_enabled') systemeioEnabled = row.value !== 'false'
-      }
-    } catch { /* defaults */ }
+      const { data: row } = await supabaseAdmin
+        .from('settings').select('value')
+        .eq('key', 'resend_enabled')
+        .single()
+      if (row) emailSendingEnabled = row.value !== 'false'
+    } catch { /* default: enabled */ }
 
     // ── Взимаме съществуващия запис ПРЕДИ upsert ──────────────────────────────
-    // Целта: да не презаписваме name/phone с null ако вече имат стойност
     const { data: existingLead } = await supabaseAdmin
       .from('leads')
-      .select('id, name, phone, systemeio_contact_id, systemeio_email_invalid')
+      .select('id, name, phone')
       .eq('email', cleanEmail)
       .single()
 
-    // При upsert: пазим съществуващото name/phone ако новото е null
     const upsertName  = cleanName  || existingLead?.name  || null
     const upsertPhone = cleanPhone || existingLead?.phone || null
 
@@ -130,73 +122,13 @@ export async function POST(req: NextRequest) {
       } catch { /* non-critical */ }
     }
 
-    if (resendEnabled && process.env.RESEND_API_KEY) {
+    if (emailSendingEnabled) {
       const { subject, html } = welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
-      await new Resend(process.env.RESEND_API_KEY).emails
-        .send({ from: 'Denny Angelow <denny@dennyangelow.com>', to: cleanEmail, subject, html })
-        .catch(err => console.error('[Resend]', err))
+      await sendEmail({ to: cleanEmail, subject, html })
+        .catch(err => console.error('[sendEmail welcome]', err))
     }
 
-    let systemeioStatus: 'ok' | 'skipped' | 'error' | 'invalid_email' = 'skipped'
-    let systemeioError: string | undefined
-
-    const apiKey = process.env.systemeio_api
-    if (systemeioEnabled && apiKey) {
-      const currentContactId = existingLead?.systemeio_contact_id || null
-      const isEmailInvalid   = existingLead?.systemeio_email_invalid || false
-
-      if (isEmailInvalid) {
-        systemeioStatus = 'invalid_email'
-      } else {
-        const result = await syncContactWithRetry({
-          apiKey,
-          email:         cleanEmail,
-          name:          upsertName,
-          phone:         upsertPhone,
-          contactId:     currentContactId,
-          naruchnikSlug: slug,
-        })
-
-        if (result.ok) {
-          systemeioStatus = 'ok'
-          await supabaseAdmin.from('leads').update({
-            systemeio_synced:        true,
-            systemeio_email_invalid: false,
-            systemeio_contact_id:    result.contactId || currentContactId || null,
-            systemeio_synced_at:     now,
-            updated_at:              now,
-          }).eq('email', cleanEmail)
-        } else if (result.emailInvalid) {
-          systemeioStatus = 'invalid_email'
-          systemeioError  = result.error
-          await supabaseAdmin.from('leads').update({
-            systemeio_synced:        false,
-            systemeio_email_invalid: true,
-            updated_at:              now,
-          }).eq('email', cleanEmail)
-        } else {
-          systemeioStatus = 'error'
-          systemeioError  = result.error
-          console.error('[leads] Systeme.io FAIL:', result.error)
-          await supabaseAdmin.from('leads').update({
-            systemeio_synced: false,
-            updated_at:       now,
-          }).eq('email', cleanEmail)
-          try {
-            await supabaseAdmin.from('settings').upsert(
-              { key: 'systemeio_last_error', value: `${now} | ${cleanEmail} | ${result.error}`, updated_at: now },
-              { onConflict: 'key' }
-            )
-          } catch { /* silent */ }
-        }
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      systemeio: systemeioStatus,
-      ...(systemeioError ? { systemeioError } : {}),
-    })
+    return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('[leads] Fatal:', error)
     return NextResponse.json({ error: error?.message || String(error) }, { status: 500 })
@@ -208,7 +140,6 @@ export async function GET(req: NextRequest) {
   const page       = Math.max(1, parseInt(searchParams.get('page')  || '1'))
   const limit      = Math.min(1000, parseInt(searchParams.get('limit') || '500'))
   const subscribed = searchParams.get('subscribed')
-  const synced     = searchParams.get('synced')
 
   let query = supabaseAdmin
     .from('leads').select('*', { count: 'exact' })
@@ -216,7 +147,6 @@ export async function GET(req: NextRequest) {
     .range((page - 1) * limit, page * limit - 1)
 
   if (subscribed !== null) query = query.eq('subscribed', subscribed === 'true')
-  if (synced     !== null) query = query.eq('systemeio_synced', synced === 'true')
 
   const { data, error, count } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

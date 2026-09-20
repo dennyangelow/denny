@@ -1,8 +1,9 @@
 // app/api/leads/broadcast/route.ts — масово изпращане
+// Изпращането минава през lib/mailer.ts (Amazon SES).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Resend } from 'resend'
+import { sendEmail } from '@/lib/mailer'
 
 let lastBroadcast = 0
 const COOLDOWN_MS = 10 * 60 * 1000
@@ -23,11 +24,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Темата и съдържанието са задължителни' }, { status: 400 })
     }
 
-    const apiKey = process.env.RESEND_API_KEY
-    if (!apiKey) {
-      return NextResponse.json({ error: 'RESEND_API_KEY не е настроен' }, { status: 500 })
-    }
-
     let query = supabaseAdmin.from('leads').select('email, name')
     if (onlySubscribed) query = query.eq('subscribed', true)
     if (tags && tags.length > 0) query = query.overlaps('tags', tags)
@@ -38,21 +34,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Няма подходящи абонати' }, { status: 400 })
     }
 
-    const resend  = new Resend(apiKey)
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://dennyangelow.com'
     let sent      = 0
     const errors: string[] = []
 
-    const BATCH = 10
+    // По-малки батчове и по-дълга пауза заради SES rate limit (1/сек в sandbox,
+    // по-висок след production access, но пак остава смислено да не бием на месо)
+    const BATCH = 5
     for (let i = 0; i < leads.length; i += BATCH) {
       const batch = leads.slice(i, i + BATCH)
-      await Promise.all(batch.map(async lead => {
+      for (const lead of batch) {
         try {
           const personalBody = body.replace(/\{\{name\}\}/g, lead.name || 'приятелю')
           const unsubUrl = `${siteUrl}/unsubscribe?email=${encodeURIComponent(lead.email)}`
-          await resend.emails.send({
-            from: 'Denny Angelow <denny@dennyangelow.com>',
-            to: lead.email,
+          await sendEmail({
+            to:      lead.email,
             subject,
             html: `
               <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
@@ -69,9 +65,7 @@ export async function POST(req: NextRequest) {
         } catch (e: any) {
           errors.push(`${lead.email}: ${e.message}`)
         }
-      }))
-      if (i + BATCH < leads.length) {
-        await new Promise(r => setTimeout(r, 200))
+        await new Promise(r => setTimeout(r, 150))
       }
     }
 
