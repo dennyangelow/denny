@@ -30,6 +30,7 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/leads/unsubscribe')                                        return true
   if (pathname === '/api/leads/sequence' && method === 'GET')                      return true
   if (pathname.startsWith('/api/analytics/'))                                       return true
+  if (pathname === '/api/webhooks/ses' && method === 'POST') return true
   if (pathname === '/api/admin/auth')                                               return true
   if (pathname === '/api/marketing' && method === 'GET')                           return true
   // ✅ Блог: GET е публичен (списък + единичен пост през ?slug=) — само
@@ -38,7 +39,7 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   // ✅ Категориите: GET публичен (чете ги и /blog, и admin панела) —
   //    POST/PATCH/DELETE минават под admin token-а.
   if (pathname === '/api/blog-categories' && method === 'GET')                     return true
-  return false
+  return false  
 }
 
 const PROTECTED_API_PREFIXES = [
