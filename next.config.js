@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
-// next.config.js — v5
+// next.config.js — v7
+// ✅ v6 → v7: remotePatterns + *.dennyangelow.com (за R2 custom домейн, виж по-долу)
 // ✅ v4 → v5: добавен imageSizes bucket (164px) за да не скача Next/Image
 //    директно на 256px за малките корици на наръчниците (HandbooksPanel).
 //    Виж PageSpeed "Improve image delivery" — 50 KiB спестявания.
@@ -23,6 +24,10 @@ const nextConfig = {
       { protocol: 'https', hostname: 'd1yei2z3i6k35z.cloudfront.net' },
       { protocol: 'https', hostname: '*.supabase.co' },
       { protocol: 'https', hostname: '*.r2.dev' },
+      // ✅ v7: собствен домейн за R2 снимките (напр. cdn.dennyangelow.com).
+      //    Без това next/image хвърля грешка за непозволен hostname, ако
+      //    R2_PUBLIC_URL бъде сменен от pub-xxx.r2.dev на custom домейн.
+      { protocol: 'https', hostname: '*.dennyangelow.com' },
     ],
   },
   env: {

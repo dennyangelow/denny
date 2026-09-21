@@ -1,4 +1,6 @@
-// app/robots.ts — v7
+// app/robots.ts — v8
+// ✅ v8: добавен /sitemap-images.xml (image sitemap за продуктите) към sitemap списъка.
+//        Причина: Next 14.2 игнорира `images` в app/sitemap.ts.
 // ✅ ПОПРАВКИ спрямо v6:
 //   - Добавено allow за /_next/image и /_next/static/ при '*' и Googlebot.
 //     Причина: '/*?' блокира ВСЕКИ URL с въпросителна, а next/image сервира всички
@@ -62,7 +64,8 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/admin/', '/api/'],
       },
     ],
-    sitemap: `${BASE_URL}/sitemap.xml`,
+    // ✅ v8: + image sitemap (виж app/sitemap-images.xml/route.ts)
+    sitemap: [`${BASE_URL}/sitemap.xml`, `${BASE_URL}/sitemap-images.xml`],
     host:    BASE_URL,
   }
 }
