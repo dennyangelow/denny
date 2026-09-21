@@ -440,7 +440,9 @@ export default function OwnProduktClient({
                           transition: 'border-color .15s',
                         }}
                       >
-                        <img src={img.url} alt="" loading="lazy" width={52} height={52}
+                        {/* ✅ alt вече е реален (не ""), а next/image сервира ~64-128px версия
+                            вместо цялата 1600px снимка за 52px миниатюра */}
+                        <Image src={img.url} alt={img.alt} width={52} height={52} sizes="52px"
                           style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                       </button>
                     ))}

@@ -79,6 +79,8 @@ interface Product {
   emoji?:          string
   image_url?:      string
   image_alt?:      string
+  // ✅ Допълнителни снимки (галерия) — image_url остава главна снимка
+  gallery_urls?:   (string | { url: string; alt?: string })[]
   features?:       string[]
   usage_notes?:    string
   category?:       string
@@ -258,6 +260,20 @@ async function getPageData(slug: string): Promise<{
   return { product, related, outOfStock, settings, marketingSettings, relatedArticles, reviews, aggregateRatingData }
 }
 
+// ─── Всички снимки на продукта (главна + галерия) ────────────────────────────
+// ✅ Връща абсолютни URL-и без дубликати, главната първа. Ползва се за
+// schema.org Product.image — преди там влизаше само image_url, затова
+// снимките от галерията (етикети и т.н.) не бяха обявени на Google.
+function collectProductImages(product: Pick<Product, 'image_url' | 'gallery_urls'>): string[] {
+  const urls: string[] = []
+  if (product.image_url) urls.push(product.image_url)
+  for (const entry of product.gallery_urls ?? []) {
+    const url = typeof entry === 'string' ? entry : entry?.url
+    if (url) urls.push(url)
+  }
+  return Array.from(new Set(urls.map(u => (u.startsWith('/') ? `${BASE_URL}${u}` : u))))
+}
+
 // ─── Metadata ─────────────────────────────────────────────────────────────────
 // ✅ ФИКС: params вече е Promise<{slug}> — сверено с конвенцията, вече
 // приложена в /naruchnik/[slug] и /blog/[slug] (Next.js 15).
@@ -359,12 +375,13 @@ export default async function OwnProduktPage({ params }: { params: Promise<{ slu
   } : {}
 
   // ── Schema.org: Product ───────────────────────────────────────────────────
+  const productImages = collectProductImages(product)
   const productSchema = activeVariants.length > 0 ? {
     '@context': 'https://schema.org',
     '@type':    'Product',
     name:        product.name,
     description: product.description || product.subtitle,
-    image:       product.image_url ? [product.image_url] : [],
+    image:       productImages,
     url:         canonicalUrl,
     sku:         product.slug,
     brand: {

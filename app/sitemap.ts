@@ -1,4 +1,13 @@
-// app/sitemap.ts — v12
+// app/sitemap.ts — v13
+// ✅ ПРОМЯНА спрямо v12 (снимки в sitemap-а):
+//    1. Собствените Atlas Terra продукти вече подават ВСИЧКИ снимки —
+//       главна + галерия (етикети и т.н.). Преди: само image_url.
+//    2. images вече е string[] от абсолютни URL-и — точно както изисква
+//       Next.js (MetadataRoute.Sitemap → images?: string[]). Преди се подаваха
+//       обекти {url, title}, което в XML-а излиза като <image:loc>[object Object]
+//       </image:loc>. Google така или иначе ползва само <image:loc> (title/caption
+//       са отпаднали от image sitemap спецификацията през 2022).
+//    Приложено за всички секции: продукти, наръчници, affiliate, блог.
 // ✅ ПРОМЯНА спрямо v11: добавени категорийни pillar страници
 //    (/blog/domati, /blog/krastavici...) — виж app/blog/[slug]/page.tsx
 //    v4 за самата страница. Автоматично, като всичко останало тук: пита
@@ -31,6 +40,20 @@ interface SlugRow {
 interface CategoryRow {
   slug:       string
   updated_at?: string | null
+}
+
+// ✅ v13: string[] от абсолютни, уникални URL-и (Next.js очаква images?: string[])
+function toImageUrls(list: (string | null | undefined)[]): string[] {
+  const abs = list
+    .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+    .map(u => (u.startsWith('/') ? `${BASE_URL}${u}` : u.trim()))
+  return Array.from(new Set(abs))
+}
+
+function galleryToUrls(g: SlugRow['gallery_urls']): string[] {
+  return (Array.isArray(g) ? g : [])
+    .map(e => (typeof e === 'string' ? e : e?.url))
+    .filter((u): u is string => !!u)
 }
 
 function safeDate(dateStr: string | null | undefined): Date {
@@ -77,7 +100,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .order('sort_order'),
     supabaseAdmin
       .from('products')
-      .select('slug, updated_at, image_url, name')
+      .select('slug, updated_at, image_url, image_alt, gallery_urls, name')
       .eq('active', true)
       .order('sort_order'),
     supabaseAdmin
@@ -101,9 +124,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    safeDate(n.updated_at),
       changeFrequency: 'monthly' as const,
       priority:         0.88,
-      ...(n.cover_image_url ? {
-        images: [{ url: n.cover_image_url, title: n.title || n.slug }]
-      } : {}),
+      ...(n.cover_image_url ? { images: toImageUrls([n.cover_image_url]) } : {}),
     }))
   } else {
     console.error('[sitemap] Грешка наръчници:',
@@ -116,23 +137,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   let affiliatePages: MetadataRoute.Sitemap = []
   if (affiliateResult.status === 'fulfilled' && affiliateResult.value.data) {
     affiliatePages = affiliateResult.value.data.map((p: SlugRow) => {
-      const gallery = Array.isArray(p.gallery_urls) ? p.gallery_urls : []
-      const entries = [
-        ...(p.image_url ? [{ url: p.image_url, alt: p.image_alt || undefined }] : []),
-        ...gallery.map(e => typeof e === 'string' ? { url: e, alt: undefined } : { url: e.url, alt: e.alt }),
-      ].filter(e => !!e.url)
+      const images = toImageUrls([p.image_url, ...galleryToUrls(p.gallery_urls)])
 
       return {
         url:             `${BASE_URL}/produkt/${p.slug}`,
         lastModified:    safeDate(p.updated_at),
         changeFrequency: 'monthly' as const,
         priority:         0.72,
-        ...(entries.length > 0 ? {
-          images: entries.map((e, i) => ({
-            url:   e.url,
-            title: e.alt?.trim() || (i === 0 ? (p.name || p.slug) : `${p.name || p.slug} — снимка ${i + 1}`),
-          }))
-        } : {}),
+        ...(images.length > 0 ? { images } : {}),
       }
     })
   } else {
@@ -150,9 +162,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    safeDate(p.updated_at),
       changeFrequency: 'weekly' as const,
       priority:         0.95,
-      ...(p.image_url ? {
-        images: [{ url: p.image_url, title: p.name || p.slug }]
-      } : {}),
+      // ✅ v13: главна снимка + всички от галерията (етикети и т.н.)
+      ...(() => {
+        const images = toImageUrls([p.image_url, ...galleryToUrls(p.gallery_urls)])
+        return images.length > 0 ? { images } : {}
+      })(),
     }))
   } else {
     console.error('[sitemap] Грешка собствени продукти:',
@@ -171,9 +185,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    safeDate(p.updated_at),
       changeFrequency: 'weekly' as const,
       priority:         0.75,
-      ...(p.cover_image_url ? {
-        images: [{ url: p.cover_image_url, title: p.cover_image_alt || p.title || p.slug }]
-      } : {}),
+      ...(p.cover_image_url ? { images: toImageUrls([p.cover_image_url]) } : {}),
     }))
   } else {
     console.error('[sitemap] Грешка блог постове:',

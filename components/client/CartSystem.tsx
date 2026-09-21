@@ -1506,11 +1506,40 @@ function CartDrawer({
   marketingSettings: MarketingSettings | null; currencySymbol?: string
 }) {
   const [step, setStep]               = useState<'cart' | 'checkout'>('cart')
-  const [form, setForm]               = useState({ name: '', phone: '', notes: '' })
+  const [form, setForm]               = useState({ name: '', phone: '', email: '', notes: '' })
   const [econtCity, setEcontCity]     = useState('')   // "София"
   const [econtOffice, setEcontOffice] = useState('')   // "Офис Еконт: ..."
   const [econtOfficeCode, setEcontOfficeCode] = useState('') // "1234"
   const [invoice, setInvoice]         = useState<InvoiceData>({ type: 'none' })
+
+  // ── Abandoned cart tracking ──────────────────────────────────────────────
+  // Debounced draft запис веднага щом клиентът въведе валиден имейл, докато
+  // все още има артикули в количката — преди финалния бутон "Поръчай".
+  // Без това не можем да достигнем хора, които попълват данни, но
+  // напускат преди submit (истинската "изоставена количка").
+  useEffect(() => {
+    const email = form.email.trim().toLowerCase()
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    if (!isValidEmail || items.length === 0) return
+
+    const timeoutId = setTimeout(() => {
+      fetch('/api/carts/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          name: form.name.trim() || null,
+          items: items.map(i => ({
+            product_name: `${i.productName} — ${i.variantLabel}`,
+            quantity: i.qty, unit_price: i.price,
+          })),
+          total: +items.reduce((s, i) => s + i.price * i.qty, 0).toFixed(2),
+        }),
+      }).catch(() => { /* best-effort — не пречи на checkout-а при грешка */ })
+    }, 1500) // изчакваме клиентът да спре да пише
+
+    return () => clearTimeout(timeoutId)
+  }, [form.email, form.name, items])
   const [submitting, setSubmitting]   = useState(false)
   const [done, setDone]               = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
@@ -1668,6 +1697,7 @@ function CartDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customer_name: form.name.trim(), customer_phone: form.phone.trim(),
+          customer_email: form.email.trim() || null,
           customer_city: econtCity,
           customer_address: econtOffice,
           customer_notes: notesValue,
@@ -1704,6 +1734,15 @@ function CartDrawer({
       setLastOrderTotal(+total.toFixed(2))
       setLastOrderSavings(+totalSavings.toFixed(2))
       setDone(true); onClearCart()
+
+      // Маркираме abandoned-cart drafta (ако има) като завършен — spre reminder-a
+      if (form.email.trim()) {
+        fetch('/api/carts/track', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: form.email.trim().toLowerCase() }),
+        }).catch(() => {})
+      }
 
       // ── Discord: изчакваме post-purchase решението (макс. 60с) ──────────
       // Ако няма post-purchase оферта → изпращаме след 3с (буфер за запазване на поръчката)
@@ -2083,7 +2122,8 @@ function CartDrawer({
               <div style={{ marginBottom: 13 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8 }}>👤 Данни за получателя</div>
                 <input className="cart-input" placeholder="Три имена *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} autoComplete="name" />
-                <input className="cart-input" placeholder="Телефон *" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} autoComplete="tel" style={{ marginBottom: 0 }} />
+                <input className="cart-input" placeholder="Телефон *" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} autoComplete="tel" />
+                <input className="cart-input" placeholder="Имейл (за проследяване на поръчката)" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" style={{ marginBottom: 0 }} />
               </div>
 
               {/* Офис Еконт */}

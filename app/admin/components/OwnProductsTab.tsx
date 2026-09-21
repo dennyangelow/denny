@@ -821,7 +821,9 @@ export function OwnProductsTab() {
                           folder="products"
                           label={`Добави снимка №${items.length + 2}`}
                           height={100}
-                          nameHint={editing.slug || editing.name}
+                          // ✅ Различно SEO име на файла от главната снимка:
+                          //    първата галерийна = етикет (…-etiket-xxxxx.webp), останалите …-snimka-N
+                          nameHint={`${editing.slug || editing.name}-${items.length === 0 ? 'etiket' : `snimka-${items.length + 2}`}`}
                         />
                       ) : (
                         <div style={{ fontSize: 11, color: '#9ca3af' }}>Достигнат е максимумът от {max} допълнителни снимки.</div>

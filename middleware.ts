@@ -31,6 +31,7 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/leads/sequence' && method === 'GET')                      return true
   if (pathname.startsWith('/api/analytics/'))                                       return true
   if (pathname === '/api/webhooks/ses' && method === 'POST') return true
+  if (pathname === '/api/carts/track') return true
   if (pathname === '/api/admin/auth')                                               return true
   if (pathname === '/api/marketing' && method === 'GET')                           return true
   // ✅ Блог: GET е публичен (списък + единичен пост през ?slug=) — само

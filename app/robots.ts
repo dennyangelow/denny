@@ -1,4 +1,10 @@
-// app/robots.ts — v6
+// app/robots.ts — v7
+// ✅ ПОПРАВКИ спрямо v6:
+//   - Добавено allow за /_next/image и /_next/static/ при '*' и Googlebot.
+//     Причина: '/*?' блокира ВСЕКИ URL с въпросителна, а next/image сервира всички
+//     снимки като /_next/image?url=…&w=…&q=… — т.е. Googlebot (и Bing) не можеха
+//     да заредят оптимизираните снимки при рендиране на страницата. По-дългото
+//     (по-специфично) Allow правило печели над по-късото Disallow '/*?'.
 // ✅ ПОПРАВКИ спрямо v5:
 //   - Добавен /blog/ в allow за '*' и Googlebot — новата блог секция
 // ✅ ПОПРАВКИ v5 (запазени):
@@ -16,12 +22,12 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/', '/blog/'],
+        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/', '/blog/', '/_next/image', '/_next/static/'],
         disallow: ['/admin', '/admin/', '/api/', '/unsubscribe', '/*?'],
       },
       {
         userAgent: 'Googlebot',
-        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/', '/blog/'],
+        allow: ['/', '/naruchnik/', '/produkt/', '/produkti/', '/products/', '/blog/', '/_next/image', '/_next/static/'],
         disallow: ['/admin/', '/api/', '/*?'], // ✅ КРИТИЧНА ПОПРАВКА
       },
       {
