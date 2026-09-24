@@ -1,7 +1,9 @@
-// middleware.ts — v10 (ОРИГИНАЛЕН v7 + само matcher поправка)
-// Върнат оригиналният v7 middleware без НИКАКВИ redirect промени
-// Единствена промяна: matcher върнат на оригиналния от v7
-// ✅ Добавен /api/earnings в PROTECTED_API_PREFIXES — финансов лог, admin only
+// middleware.ts — v11
+// ✅ v10 → v11: добавени публични изключения за SES SNS webhook-а
+//    (/api/webhooks/ses) и abandoned-cart tracking endpoint-а
+//    (/api/carts/track) — нито двата не носят admin cookie.
+//    /api/leads/sync вече не съществува като route, затова е премахнат
+//    от PROTECTED_API_PREFIXES.
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -30,8 +32,13 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   if (pathname === '/api/leads/unsubscribe')                                        return true
   if (pathname === '/api/leads/sequence' && method === 'GET')                      return true
   if (pathname.startsWith('/api/analytics/'))                                       return true
-  if (pathname === '/api/webhooks/ses' && method === 'POST') return true
-  if (pathname === '/api/carts/track') return true
+  // ✅ SES → SNS webhook: няма admin cookie, вика се от Amazon SNS директно.
+  //    Собствената защита е вградена в самия route (SNS subscription flow).
+  if (pathname === '/api/webhooks/ses' && method === 'POST')                       return true
+  // ✅ Abandoned-cart tracking: вика се от клиента (CartSystem.tsx) докато
+  //    пише в checkout формата, преди да има admin сесия — POST за draft
+  //    запис, DELETE при успешна поръчка. И двата остават публични.
+  if (pathname === '/api/carts/track')                                             return true
   if (pathname === '/api/admin/auth')                                               return true
   if (pathname === '/api/marketing' && method === 'GET')                           return true
   // ✅ Блог: GET е публичен (списък + единичен пост през ?slug=) — само
@@ -40,7 +47,7 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   // ✅ Категориите: GET публичен (чете ги и /blog, и admin панела) —
   //    POST/PATCH/DELETE минават под admin token-а.
   if (pathname === '/api/blog-categories' && method === 'GET')                     return true
-  return false  
+  return false
 }
 
 const PROTECTED_API_PREFIXES = [
@@ -48,7 +55,7 @@ const PROTECTED_API_PREFIXES = [
   '/api/own-products',
   '/api/affiliate-products',
   '/api/testimonials',
-  '/api/reviews',      // ← ново: обединената reviews/testimonials система
+  '/api/reviews',      // ← обединената reviews/testimonials система
   '/api/naruchnici',
   '/api/faq',
   '/api/category-links',
@@ -58,9 +65,10 @@ const PROTECTED_API_PREFIXES = [
   '/api/leads',
   '/api/orders',
   '/api/marketing',
-  '/api/earnings',     // ← ново: финансов лог, само за admin
-  '/api/blog',         // ← ново: POST/PATCH/DELETE на блог постове, само за admin (GET е публичен, виж isPublicApiRequest)
-  '/api/blog-categories', // ← ново: POST/PATCH/DELETE на категории, само за admin (GET е публичен)
+  '/api/earnings',     // ← финансов лог, само за admin
+  '/api/email-stats',  // ← open/click/bounce статистики, само за admin
+  '/api/blog',         // ← POST/PATCH/DELETE на блог постове, само за admin (GET е публичен, виж isPublicApiRequest)
+  '/api/blog-categories', // ← POST/PATCH/DELETE на категории, само за admin (GET е публичен)
 ]
 
 function isProtectedApi(pathname: string, method: string): boolean {

@@ -16,6 +16,7 @@ import { FaqTab }             from './components/FaqTab'
 // система — вече покрива и продуктите, и наръчниците, и началната)
 import { ReviewsTab }         from './components/ReviewsTab'
 import { MarketingTab }       from './components/MarketingTab'
+import { EmailStatsTab }      from './components/EmailStatsTab'
 import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
@@ -171,6 +172,7 @@ export default function AdminPage() {
           )}
 
           {tab === 'leads'        && <LeadsTab leads={leads} />}
+          {tab === 'email-stats'  && <EmailStatsTab />}
           {tab === 'content'      && <ContentTab />}
           {tab === 'blog'         && <BlogTab />}
           {tab === 'marketing'    && <MarketingTab />}

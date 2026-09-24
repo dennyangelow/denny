@@ -4,10 +4,17 @@
 
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
+// ✅ type-only import — не влачи supabaseAdmin runtime кода в клиентския
+//    бъндъл, само TypeScript формата на обекта.
+import type { ActivityEvent } from '@/lib/social-proof'
 
 interface Handbook {
   slug: string; title: string; subtitle: string
   emoji: string; color: string; image_url?: string; bg: string; badge: string
+  // ✅ НОВО — реален брой изтегляния за тази книга (от leads таблицата,
+  //    виж lib/social-proof.ts getHandbookDownloadCounts). По избор, за
+  //    да не счупи стари извиквания, докато page.tsx не го подава.
+  downloads_count?: number
 }
 
 function validateName(v: string) {
@@ -29,13 +36,43 @@ function validatePhone(v: string) {
   return ''
 }
 
-function randomDownloads() {
-  return Math.floor(Math.random() * 40 + 10)
+// ✅ ФИКС: randomDownloads()/SOCIAL_NAMES премахнати — генерираха
+//    произволно число (10-49) и произволно избрано измислено име от
+//    твърд списък за "🎉 [Име] току-що изтегли наръчник" popup-а. Сега
+//    реалните събития идват през recentActivity prop-а (виж
+//    lib/social-proof.ts getRecentActivity() — leads + orders на
+//    собствени продукти, смесени и сортирани по време).
+
+const ACTIVITY_LABEL: Record<ActivityEvent['type'], string> = {
+  download: 'току-що изтегли',
+  order:    'току-що поръча',
 }
 
-const SOCIAL_NAMES = ['Мария от Пловдив', 'Георги от Варна', 'Петя от София', 'Христо от Бургас', 'Елена от Стара Загора', 'Димитър от Русе']
-
-export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
+export function HandbooksPanel({
+  handbooks,
+  recentActivity = [],
+  totalDownloads,
+  ctaTitle,
+  ctaSubtitle,
+}: {
+  handbooks: Handbook[]
+  /** ✅ НОВО — реални последни събития (изтегляния + поръчки на собствени
+   *  продукти), от lib/social-proof.ts getRecentActivity(). Празен масив
+   *  = popup-ът просто не се показва (никога fallback към измислени данни). */
+  recentActivity?: ActivityEvent[]
+  /** ✅ НОВО — реален общ брой изтегляния (сума по всички наръчници).
+   *  Ако не е подадено, се смята от handbooks[].downloads_count. */
+  totalDownloads?: number
+  /** ✅ НОВО — settings.cta_title от админ панела (Настройки → "CTA
+   *  заглавие (долу)"). Преди тези полета се записваха, но никога не се
+   *  рендваха никъде — тук е твърдо закаченото "Вземи Наръчника Безплатно"
+   *  замествано. undefined = fallback към старото твърдо текстче, за да
+   *  не остане празна карта, ако page.tsx не го подаде. */
+  ctaTitle?: string
+  /** ✅ НОВО — settings.cta_subtitle, вече с подменено {count} и минало
+   *  през parseBold() СЪРВЪРНО в page.tsx (React nodes, не суров string). */
+  ctaSubtitle?: React.ReactNode
+}) {
   const [selectedSlug, setSelectedSlug]   = useState<string | null>(null)
   const [hbName, setHbName]               = useState('')
   const [hbEmail, setHbEmail]             = useState('')
@@ -44,20 +81,32 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
   const [hbLoading, setHbLoading]         = useState(false)
   const [hbDone, setHbDone]               = useState<{ pdfUrl: string; title: string } | null>(null)
   const [submitError, setSubmitError]     = useState('')
-  const [downloads, setDownloads]         = useState(0)
-  const [recentName, setRecentName]       = useState('')
+  const [activeEvent, setActiveEvent]     = useState<ActivityEvent | null>(null)
   const [showNotif, setShowNotif]         = useState(false)
   const [pulseBtn, setPulseBtn]           = useState(false)
 
+  const computedTotal = totalDownloads ?? handbooks.reduce((s, h) => s + (h.downloads_count || 0), 0)
+
+  // ✅ ФИКС: цикли през РЕАЛНИ събития вместо еднократен фалшив popup.
+  //    Без данни (recentActivity празен, напр. нов сайт без leads/orders
+  //    още) — просто не показва нищо, вместо да си измисля.
   useEffect(() => {
-    setDownloads(randomDownloads())
-    const timer = setTimeout(() => {
-      setRecentName(SOCIAL_NAMES[Math.floor(Math.random() * SOCIAL_NAMES.length)])
+    if (recentActivity.length === 0) return
+    let idx = 0
+    const showNext = () => {
+      setActiveEvent(recentActivity[idx % recentActivity.length])
       setShowNotif(true)
-      setTimeout(() => setShowNotif(false), 4000)
-    }, 3000)
+      setTimeout(() => setShowNotif(false), 4500)
+      idx++
+    }
+    const first    = setTimeout(showNext, 3000)
+    const interval = setInterval(showNext, 9000)
+    return () => { clearTimeout(first); clearInterval(interval) }
+  }, [recentActivity])
+
+  useEffect(() => {
     const pulse = setTimeout(() => setPulseBtn(true), 5000)
-    return () => { clearTimeout(timer); clearTimeout(pulse) }
+    return () => clearTimeout(pulse)
   }, [])
 
   const nameErr  = validateName(hbName)
@@ -127,12 +176,17 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
         transition: 'transform 0.4s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s',
         pointerEvents: 'none',
       }}>
-        <span style={{ fontSize: 20 }}>🎉</span>
-        <div>
-          <div style={{ color: '#15803d', fontWeight: 700, fontSize: 12 }}>{recentName}</div>
-          <div style={{ color: '#6b7280', fontSize: 11 }}>току-що изтегли наръчник</div>
+        <span style={{ fontSize: 20, flexShrink: 0 }}>🎉</span>
+        {/* ✅ ФИКС: реалните order/download събития могат да имат по-дълъг
+            текст от старото фиксирано "изтегли наръчник" — без minWidth:0
+            (позволява на flex детето да се свие под съдържанието си) и
+            noWrap+ellipsis тук, дълъг текст пренасяше на 2 реда, раздуваше
+            popup кутията надолу и покриваше хедъра под нея (виж скрийншота). */}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ color: '#15803d', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeEvent?.firstName}</div>
+          <div style={{ color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeEvent ? ACTIVITY_LABEL[activeEvent.type] : ''} {activeEvent?.label}</div>
         </div>
-        <div style={{ marginLeft: 'auto', background: '#dcfce7', borderRadius: 20, padding: '2px 8px', color: '#15803d', fontSize: 10, fontWeight: 800 }}>LIVE</div>
+        <div style={{ marginLeft: 'auto', flexShrink: 0, background: '#dcfce7', borderRadius: 20, padding: '2px 8px', color: '#15803d', fontSize: 10, fontWeight: 800 }}>LIVE</div>
       </div>
 
       {/* ── Хедър ── */}
@@ -142,11 +196,13 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 6 }}>
           <span style={{ fontSize: 26 }}>🎁</span>
           <div style={{ fontWeight: 900, fontSize: 20, color: '#14532d', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-            Вземи Наръчника <span style={{ color: '#16a34a' }}>Безплатно</span>
+            {ctaTitle || <>Вземи Наръчника <span style={{ color: '#16a34a' }}>Безплатно</span></>}
           </div>
         </div>
         <div style={{ color: '#6b7280', fontSize: 13 }}>
-          Над <strong style={{ color: '#15803d' }}>6 000</strong> фермери вече го изтеглиха
+          {ctaSubtitle ?? (computedTotal > 0
+            ? <>Над <strong style={{ color: '#15803d' }}>{computedTotal.toLocaleString('bg-BG')}</strong> фермери вече го изтеглиха</>
+            : <>Изтегли безплатно</>)}
         </div>
       </div>
 
@@ -390,7 +446,9 @@ export function HandbooksPanel({ handbooks }: { handbooks: Handbook[] }) {
                 } as React.CSSProperties}>{hb.subtitle}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 7 }}>
                   {'★★★★★'.split('').map((s, i) => <span key={i} style={{ color: '#f59e0b', fontSize: 11 }}>{s}</span>)}
-                  <span style={{ color: '#9ca3af', fontSize: 10.5, marginLeft: 3 }}>6 000+ изтеглени</span>
+                  {!!hb.downloads_count && (
+                    <span style={{ color: '#9ca3af', fontSize: 10.5, marginLeft: 3 }}>{hb.downloads_count.toLocaleString('bg-BG')}+ изтеглени</span>
+                  )}
                 </div>
               </div>
 

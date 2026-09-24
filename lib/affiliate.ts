@@ -1,4 +1,10 @@
-// lib/affiliate.ts — v4
+// lib/affiliate.ts — v5
+// ✅ v5: image_width/image_height + gallery_urls[].width/height — реалният
+//    пикселен размер на всяка снимка, измерен от браузъра при качване (виж
+//    ImageUpload.tsx v2). Позволява на lightbox-а да рендира снимките с
+//    next/image в реалния им размер, вместо в кутия с фиксирана пропорция.
+//    По избор навсякъде — стари продукти без тези полета просто нямат width/
+//    height в ProductImage и клиентът пада обратно към старото поведение.
 // ✅ ПОПРАВКИ спрямо v3:
 //   - Типизирани composition/mode_of_action/ph/density/storage_instructions/
 //     application_intro/featured_home/home_order — вече ги има в Supabase,
@@ -50,11 +56,16 @@ export interface AffiliateProduct {
   bullets?:        string[]
   image_url?:      string
   image_alt?:      string
+  // ✅ Реален пикселен размер на image_url, измерен при качване (виж ImageUpload.tsx).
+  //    По избор — по-стари продукти нямат тези колони попълнени.
+  image_width?:    number
+  image_height?:   number
   // ✅ Допълнителни снимки (галерия) — image_url остава главна/hero снимка.
   // Всеки елемент може да е обикновен string URL (стар формат) или обект
-  // {url, alt} с ръчен alt текст. Ако alt липсва/е празен, се генерира
-  // автоматично в getAllImages().
-  gallery_urls?:   (string | { url: string; alt?: string })[]
+  // {url, alt, width, height} с ръчен alt текст и/или реален размер. Ако alt
+  // липсва/е празен, се генерира автоматично в getAllImages(); width/height
+  // липсват при по-стари снимки, качени преди v5.
+  gallery_urls?:   (string | { url: string; alt?: string; width?: number; height?: number })[]
   emoji?:          string
   color?:          string
   badge_color?:    string
@@ -176,7 +187,9 @@ export function parseHowToUse(raw?: string): string[] {
 //    добавят след нея. Дублирани URL-и се премахват. Всяка снимка получава
 //    собствен, уникален alt текст — важно за SEO класиране в Google Images
 //    (еднакъв alt на няколко снимки обърква Google кой резултат да покаже).
-export interface ProductImage { url: string; alt: string }
+// ✅ v5: width/height по избор — присъстват само ако снимката е качена след
+//    ImageUpload.tsx v2 и браузърът реално ги е измерил при качването.
+export interface ProductImage { url: string; alt: string; width?: number; height?: number }
 
 export function getAllImages(product: AffiliateProduct): ProductImage[] {
   const seen = new Set<string>()
@@ -185,18 +198,20 @@ export function getAllImages(product: AffiliateProduct): ProductImage[] {
 
   if (product.image_url && !seen.has(product.image_url)) {
     seen.add(product.image_url)
-    images.push({ url: product.image_url, alt: baseAlt })
+    images.push({ url: product.image_url, alt: baseAlt, width: product.image_width, height: product.image_height })
   }
 
   const gallery = Array.isArray(product.gallery_urls) ? product.gallery_urls : []
   for (const entry of gallery) {
     const url       = typeof entry === 'string' ? entry : entry?.url
     const customAlt = typeof entry === 'string' ? undefined : entry?.alt
+    const width     = typeof entry === 'string' ? undefined : entry?.width
+    const height    = typeof entry === 'string' ? undefined : entry?.height
     if (!url || seen.has(url)) continue
     seen.add(url)
     // ✅ Ръчен alt текст ако е въведен и не е празен, иначе автоматично
     const autoAlt = `${baseAlt} — снимка ${images.length + 1}`
-    images.push({ url, alt: customAlt && customAlt.trim() ? customAlt.trim() : autoAlt })
+    images.push({ url, alt: customAlt && customAlt.trim() ? customAlt.trim() : autoAlt, width, height })
   }
 
   return images

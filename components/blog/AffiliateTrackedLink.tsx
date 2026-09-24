@@ -22,8 +22,17 @@ interface Props {
   slug: string
   /** Реалният партньор/търговец (напр. "agroapteki") — задължителен за
    *  affiliate_clicks таблицата, route.ts връща 400 без него. Подава се
-   *  от resolved.partner (виж app/blog/[slug]/page.tsx resolveProductEmbeds). */
+   *  от resolved.partner (виж app/blog/[slug]/page.tsx resolveProductEmbeds).
+   *  ✅ ФИКС: преди тук нямаше реален caller, който да подава partner —
+   *  fallback-ът беше "blog", значи ВСЕКИ клик от статия пишеше "blog"
+   *  като partner в базата, вместо реалния търговец. "unknown" по-долу е
+   *  само защита при наистина липсващи данни (счупен resolveProductEmbeds
+   *  ред), не постоянен заместител. */
   partner?: string
+  /** ✅ НОВО — откъде е кликнато ('blog', 'produkt-page' и т.н.), отделно
+   *  измерение от partner. Позволява статистика по канал БЕЗ да жертваш
+   *  кой е реалният мърчант (виж bySource в GET-а на affiliate-click route). */
+  source?: string
   /** true = продуктът идва от affiliate таблицата → трекваме клика за
    *  аналитика. НЕ означава rel=nofollow — href винаги е вътрешна страница. */
   sponsored: boolean
@@ -31,12 +40,12 @@ interface Props {
   className?: string
 }
 
-export function AffiliateTrackedLink({ href, slug, partner, sponsored, children, className }: Props) {
+export function AffiliateTrackedLink({ href, slug, partner, source, sponsored, children, className }: Props) {
   return (
     <a
       href={href}
       className={className}
-      onClick={() => sponsored && trackAffiliateClick(partner || 'blog', slug)}
+      onClick={() => sponsored && trackAffiliateClick(partner || 'unknown', slug, source)}
     >
       {children}
     </a>

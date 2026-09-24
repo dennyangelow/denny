@@ -1,8 +1,25 @@
 // app/api/blog/[id]/route.ts
 // ✅ PATCH  — обновява конкретен пост (admin only)
-// ✅ DELETE — изтрива конкретен пост (admin only)
+// ✅ DELETE — архивира конкретен пост (admin only) — виж ФИКС по-долу
 // ✅ GET по ID — admin only (за директно зареждане в редактора)
-// ✅ revalidatePath при промяна → /blog, /blog/[slug] и началната страница
+// ✅ revalidatePath при промяна → /blog, /blog/[slug], /blog/[category] и началната страница
+//
+// ✅ ФИКС: PATCH преди не revalidate-ваше категорийната hub страница
+//    (/blog/[category-slug]) при редакция на пост — значи ако смениш
+//    заглавие/съдържание на публикуван пост, /blog и самата статия се
+//    обновяваха веднага, но категорийният hub оставаше стар до изтичане
+//    на 300-те секунди ISR прозорец. Сега добавяме revalidatePath и за
+//    старата, и за новата категория (ако е сменена в тази редакция).
+//
+// ✅ ФИКС: DELETE преди трайно трieше реда от blog_posts — единствено
+//    място в проекта, което прави hard delete, докато продуктите и
+//    категориите последователно ползват active=false (archiving). Сменено
+//    на soft-delete за консистентност и възможност за възстановяване.
+//    GET-заявките навсякъде вече филтрират по .eq('active', true), значи
+//    нищо друго не се чупи от тази смяна.
+//
+// ✅ НОВО: auto-excerpt от първия paragraph при PATCH, ако excerpt е
+//    изчистен/липсва — виж същото обяснение в app/api/blog/route.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -22,6 +39,15 @@ export async function PATCH(
 
     if (Array.isArray(rest.content)) {
       rest.reading_time_minutes = estimateReadingTime(rest.content)
+
+      // ✅ НОВО: ако excerpt не е попълнен, изведи го от първия paragraph.
+      if (!rest.excerpt) {
+        const firstParagraph = rest.content.find((b: any) => b.type === 'paragraph')
+        if (firstParagraph?.text) {
+          const text = String(firstParagraph.text).trim()
+          rest.excerpt = text.length > 160 ? text.slice(0, 159).trimEnd() + '…' : text
+        }
+      }
     }
     if (rest.status === 'published' && !rest.published_at) {
       rest.published_at = new Date().toISOString()
@@ -34,6 +60,12 @@ export async function PATCH(
     if (Object.keys(payload).length === 0) {
       return NextResponse.json({ error: 'Няма полета за обновяване' }, { status: 400 })
     }
+
+    // ✅ Вземаме старата категория ПРЕДИ update-а, за да revalidate-нем и
+    //    стария ѝ hub, ако постът е преместен в друга категория с това
+    //    редактиране (иначе старата hub страница остава да го показва).
+    const { data: before } = await supabaseAdmin
+      .from('blog_posts').select('category').eq('id', id).maybeSingle()
 
     const { data, error } = await supabaseAdmin
       .from('blog_posts')
@@ -50,6 +82,10 @@ export async function PATCH(
     revalidatePath('/blog')
     revalidatePath('/')
     if (data?.slug) revalidatePath(`/blog/${data.slug}`)
+    if (data?.category) revalidatePath(`/blog/${data.category}`)
+    if (before?.category && before.category !== data?.category) {
+      revalidatePath(`/blog/${before.category}`)
+    }
 
     return NextResponse.json({ post: data })
   } catch (err: any) {
@@ -68,13 +104,16 @@ export async function DELETE(
 
     const { data: existing } = await supabaseAdmin
       .from('blog_posts')
-      .select('slug')
+      .select('slug, category')
       .eq('id', id)
       .single()
 
+    // ✅ ФИКС: soft-delete (active=false) вместо трайно .delete() —
+    //    консистентно с продуктите/категориите в останалата част на
+    //    проекта, и позволява възстановяване при грешка.
     const { error } = await supabaseAdmin
       .from('blog_posts')
-      .delete()
+      .update({ active: false })
       .eq('id', id)
 
     if (error) {
@@ -85,6 +124,7 @@ export async function DELETE(
     revalidatePath('/blog')
     revalidatePath('/')
     if (existing?.slug) revalidatePath(`/blog/${existing.slug}`)
+    if (existing?.category) revalidatePath(`/blog/${existing.category}`)
 
     return NextResponse.json({ ok: true })
   } catch (err: any) {

@@ -389,6 +389,15 @@ export function BlogTab() {
 
   const save = async () => {
     if (!editing) return
+    // ✅ НОВО: /blog/[slug] проверява категория ПРЕДИ пост (виж
+    //    app/blog/[slug]/page.tsx) — ако slug-ът на поста съвпада с
+    //    категориен slug, постът тихо става недостъпен (показва се
+    //    hub-ът на категорията вместо статията, без грешка). Пазим тук,
+    //    преди да стигне до базата.
+    if (editing.slug && categories.some(c => c.slug === editing.slug)) {
+      toast.error(`Slug "${editing.slug}" съвпада със съществуваща категория — избери друг`)
+      return
+    }
     setSaving(true)
     try {
       const payload = { ...editing }

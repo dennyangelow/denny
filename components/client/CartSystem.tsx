@@ -1529,6 +1529,7 @@ function CartDrawer({
         body: JSON.stringify({
           email,
           name: form.name.trim() || null,
+          phone: form.phone.trim() || null,
           items: items.map(i => ({
             product_name: `${i.productName} — ${i.variantLabel}`,
             quantity: i.qty, unit_price: i.price,
@@ -1539,7 +1540,7 @@ function CartDrawer({
     }, 1500) // изчакваме клиентът да спре да пише
 
     return () => clearTimeout(timeoutId)
-  }, [form.email, form.name, items])
+  }, [form.email, form.name, form.phone, items])
   const [submitting, setSubmitting]   = useState(false)
   const [done, setDone]               = useState(false)
   const [orderNumber, setOrderNumber] = useState('')

@@ -100,6 +100,11 @@ export interface Lead {
   phone?: string
   source: string
   naruchnik_slug?: string
+  // ✅ ФИКС: колоната реално съществува и се чете в LeadsTab.tsx/
+  //    lib/social-proof.ts, но липсваше в типа — затова навсякъде другаде
+  //    се вадеше с (l as any).naruchnici. Добавена тук, за да не трябва
+  //    повече any-cast за нея.
+  naruchnici?: string[]
   subscribed: boolean
   tags?: string[]
   engagement_score?: number

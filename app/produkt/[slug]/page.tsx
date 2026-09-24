@@ -294,7 +294,16 @@ export default async function ProduktPage({
       availability:    'https://schema.org/InStock',
       priceValidUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       url:             canonicalUrl,
-      seller: { '@type': 'Organization', name: 'AgroApteki', url: 'https://agroapteki.com' },
+      // ✅ ФИКС: преди беше твърдо закачено за "AgroApteki" за ВСЕКИ
+      //    продукт, независимо кой реален партньор/търговец продава
+      //    продукта (product.partner) — същата грешка, която коментарът
+      //    над 'brand' изрично предупреждава да не се прави за brand vs
+      //    seller. Ако някога добавиш продукт с друг partner, schema-та
+      //    щеше грешно да твърди, че AgroApteki го продава. url остава
+      //    hardcoded към agroapteki.com, докато няма реална партньор→URL
+      //    таблица в базата — засега безопасно, само ако AgroApteki е
+      //    единственият активен партньор.
+      seller: { '@type': 'Organization', name: product.partner || 'AgroApteki', url: 'https://agroapteki.com' },
     },
   } : null
 

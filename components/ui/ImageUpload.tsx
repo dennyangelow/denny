@@ -1,14 +1,20 @@
 'use client'
-// components/ui/ImageUpload.tsx — Drag & Drop + File picker + URL fallback
+// components/ui/ImageUpload.tsx — Drag & Drop + File picker + URL fallback — v2
 // ✅ Добавено: клиентска компресия/resize преди качване — по-малки файлове,
 //    по-бърз сайт, по-малко storage. Работи automatично навсякъде, където
 //    се ползва компонентът (главна снимка, галерия, наръчници и т.н.)
+// ✅ v2: onChange вече подава и реалните пикселни размери (width/height) на
+//    качения файл — браузърът и без друго ги мери, за да смали снимката
+//    преди качване, затова просто ги подаваме нагоре. Нужни са на next/image
+//    (виж AffiliateProduktClient/OwnProduktClient lightbox), за да рендира
+//    снимката с реалния ѝ размер вместо да гадае. Старият onChange(url)
+//    извикващ код продължава да работи непроменен — вторият аргумент е по избор.
 
 import { useState, useRef, useCallback } from 'react'
 
 interface Props {
   value: string
-  onChange: (url: string) => void
+  onChange: (url: string, meta?: { width: number; height: number }) => void
   folder?: string
   label?: string
   height?: number
@@ -21,14 +27,24 @@ const MAX_RAW_MB   = 15   // лимит за оригиналния файл, п
 const MAX_DIMENSION = 1600 // px по дългата страна след resize
 const WEBP_QUALITY   = 0.82
 
-// ── Смалява/компресира снимка чрез <canvas>, връща нов File (WebP) ─────────
-// GIF-ове (могат да са анимирани) се качват без промяна — canvas ще ги "убие"
-function compressImage(file: File): Promise<File> {
-  return new Promise((resolve) => {
-    if (file.type === 'image/gif') { resolve(file); return }
+// ── Смалява/компресира снимка чрез <canvas>, връща нов File (WebP) + реалния
+// пикселен размер на КРАЙНИЯ файл (важно — не на оригинала, а на това, което
+// реално се качва, за да съвпадат с точност с тава, което ще вижда next/image) ──
+// GIF-ове (могат да са анимирани) се качват без промяна — canvas ще ги "убие",
+// но размерите им пак се измерват, за да не остават без width/height.
+interface CompressedImage { file: File; width: number; height: number }
 
+function compressImage(file: File): Promise<CompressedImage> {
+  return new Promise((resolve) => {
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
+
+    if (file.type === 'image/gif') {
+      img.onload = () => { URL.revokeObjectURL(objectUrl); resolve({ file, width: img.naturalWidth, height: img.naturalHeight }) }
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve({ file, width: 0, height: 0 }) }
+      img.src = objectUrl
+      return
+    }
 
     img.onload = () => {
       URL.revokeObjectURL(objectUrl)
@@ -44,22 +60,23 @@ function compressImage(file: File): Promise<File> {
       canvas.width = width
       canvas.height = height
       const ctx = canvas.getContext('2d')
-      if (!ctx) { resolve(file); return }
+      if (!ctx) { resolve({ file, width: img.naturalWidth, height: img.naturalHeight }); return }
       ctx.drawImage(img, 0, 0, width, height)
 
       canvas.toBlob(
         blob => {
-          if (!blob) { resolve(file); return }
-          // Ако компресията не помага (малка снимка вече), пази оригинала
-          if (blob.size >= file.size) { resolve(file); return }
+          if (!blob) { resolve({ file, width: img.naturalWidth, height: img.naturalHeight }); return }
+          // Ако компресията не помага (малка снимка вече), пази оригинала —
+          // но размерите остават тези на смаленото рисуване в canvas-а (width/height по-горе)
+          if (blob.size >= file.size) { resolve({ file, width: img.naturalWidth, height: img.naturalHeight }); return }
           const newName = file.name.replace(/\.[^.]+$/, '') + '.webp'
-          resolve(new File([blob], newName, { type: 'image/webp' }))
+          resolve({ file: new File([blob], newName, { type: 'image/webp' }), width, height })
         },
         'image/webp',
         WEBP_QUALITY
       )
     }
-    img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file) }
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve({ file, width: 0, height: 0 }) }
     img.src = objectUrl
   })
 }
@@ -77,7 +94,7 @@ export function ImageUpload({ value, onChange, folder = 'products', label = 'С�
     setProgress(10)
     try {
       setProgress(20)
-      const compressed = await compressImage(file)
+      const { file: compressed, width, height } = await compressImage(file)
       setProgress(40)
 
       const fd = new FormData()
@@ -92,7 +109,8 @@ export function ImageUpload({ value, onChange, folder = 'products', label = 'С�
 
       if (!res.ok) throw new Error(data.error || 'Upload грешка')
       setProgress(100)
-      onChange(data.url)
+      // ✅ width/height подадени само ако успяхме реално да ги измерим
+      onChange(data.url, width > 0 && height > 0 ? { width, height } : undefined)
     } catch (err: any) {
       setError(err.message)
     } finally {

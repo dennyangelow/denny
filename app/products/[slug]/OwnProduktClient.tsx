@@ -276,6 +276,9 @@ export default function OwnProduktClient({
   const allImages = buildImageList(product.image_url, product.image_alt, product.gallery_urls, product.name)
   const [activeImgIdx, setActiveImgIdx] = useState(0)
   const currentImg = allImages[Math.min(activeImgIdx, Math.max(allImages.length - 1, 0))]
+  // ✅ НОВО: lightbox (уголемен преглед) — кликаш главната снимка, отваря се
+  // на цял екран със стрелки за следваща/предишна и Esc/клик навън за затваряне.
+  const [lightboxOpen, setLightboxOpen] = useState(false)
 
   // ✅ Маркетинг офертите (cross-sell/bundle) за секцията "Още по-изгодно" —
   // SSR-нати от page.tsx (initialMarketingSettings), паралелно с продуктовите
@@ -350,6 +353,20 @@ export default function OwnProduktClient({
   const displayAvgRating   = aggregateRatingData?.avg
   const displayReviewCount = aggregateRatingData?.count
 
+  // ✅ Esc затваря lightbox-а; докато е отворен, страницата зад него не се скролва
+  useEffect(() => {
+    if (!lightboxOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxOpen(false)
+      if (e.key === 'ArrowRight') setActiveImgIdx(i => (i + 1) % allImages.length)
+      if (e.key === 'ArrowLeft')  setActiveImgIdx(i => (i - 1 + allImages.length) % allImages.length)
+    }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow }
+  }, [lightboxOpen, allImages.length])
+
   const badgeClass: Record<string, string> = {
     green: 'op-eco-badge--green', blue: 'op-eco-badge--blue',
     brown: 'op-eco-badge--brown', gold: 'op-eco-badge--gold',
@@ -403,7 +420,14 @@ export default function OwnProduktClient({
                 {product.badge && (
                   <div className="op-img-badge">{product.emoji} {product.badge}</div>
                 )}
-                <div className="op-img-wrap op-img-wrap--loaded">
+                {/* ✅ Кликваема — отваря lightbox с преглед на цял екран */}
+                <button
+                  type="button"
+                  className="op-img-wrap op-img-wrap--loaded op-img-wrap--clickable"
+                  onClick={() => currentImg && setLightboxOpen(true)}
+                  aria-label="Увеличи снимката"
+                  style={{ border: 'none', padding: 0, width: '100%', cursor: currentImg ? 'zoom-in' : 'default' }}
+                >
                   {currentImg ? (
                     <Image
                       key={currentImg.url}
@@ -420,7 +444,7 @@ export default function OwnProduktClient({
                   ) : (
                     <div className="op-img-placeholder">{product.emoji || '🌱'}</div>
                   )}
-                </div>
+                </button>
 
                 {/* Лента с миниатюри — само ако има повече от 1 снимка */}
                 {allImages.length > 1 && (
@@ -883,6 +907,59 @@ export default function OwnProduktClient({
       </div>
 
       <SiteFooter settings={settings} />
+      {/* ✅ Lightbox — преглед на цял екран. Рендира се само когато е отворен. */}
+      {lightboxOpen && currentImg && (
+        <div
+          className="op-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={currentImg.alt}
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            className="op-lightbox-close"
+            aria-label="Затвори"
+            onClick={() => setLightboxOpen(false)}
+          >
+            ✕
+          </button>
+
+          {allImages.length > 1 && (
+            <button
+              type="button"
+              className="op-lightbox-nav op-lightbox-nav--prev"
+              aria-label="Предишна снимка"
+              onClick={(e) => { e.stopPropagation(); setActiveImgIdx(i => (i - 1 + allImages.length) % allImages.length) }}
+            >
+              ‹
+            </button>
+          )}
+
+          <img
+            key={currentImg.url}
+            src={currentImg.url}
+            alt={currentImg.alt}
+            className="op-lightbox-img"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {allImages.length > 1 && (
+            <button
+              type="button"
+              className="op-lightbox-nav op-lightbox-nav--next"
+              aria-label="Следваща снимка"
+              onClick={(e) => { e.stopPropagation(); setActiveImgIdx(i => (i + 1) % allImages.length) }}
+            >
+              ›
+            </button>
+          )}
+
+          {allImages.length > 1 && (
+            <div className="op-lightbox-counter">{activeImgIdx + 1} / {allImages.length}</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,17 @@
-// ФАЙЛ: app/api/leads/route.ts — v18
+// ФАЙЛ: app/api/leads/route.ts — v19
+//
+// ПОПРАВКИ v19 (спрямо v18):
+//   ✅ ФИКС: email_logs се пишеше БЕЗУСЛОВНО при всеки нов/обновен lead —
+//      преди проверката на emailSendingEnabled, дори когато превключвателят
+//      "✉️ Email автоматизации" е изключен и sendEmail() изобщо не се
+//      вика. Резултат: "Email статистики" показваше "527 пратени" при
+//      реално нула изпратени имейла (потвърдено: 0% open, 0 bounce, 0
+//      complaints едновременно — невъзможна комбинация за реално пратени
+//      имейли към стотици различни хора). Сега email_logs се пише само
+//      СЛЕД успешен sendEmail() await, вътре в emailSendingEnabled блока.
+//   ✅ add_naruchnik RPC остава безусловна (правилно — тя пази кой
+//      наръчник е изтеглил lead-ът, независимо дали welcome имейлът
+//      реално е пратен).
 //
 // ПОПРАВКИ v18 (спрямо v17):
 //   1. ПЪЛНО премахване на Systeme.io — вече няма syncContactWithRetry,
@@ -115,17 +128,25 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin
         .rpc('add_naruchnik', { p_email: cleanEmail, p_slug: slug })
         .throwOnError()
+    }
+
+    // ✅ ФИКС: email_logs се пише СЕГА само след истински успешен
+    //    sendEmail() await — не безусловно преди тази проверка. Преди
+    //    вмъкваше "sent_at" ред дори когато emailSendingEnabled е false и
+    //    sendEmail() изобщо не е викан, значи "Email статистики" броеше
+    //    lead-ове, не реално изпратени имейли.
+    if (emailSendingEnabled && lead) {
+      const { subject, html } = welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
       try {
+        await sendEmail({ to: cleanEmail, subject, html })
         await supabaseAdmin.from('email_logs').insert({
           lead_id: lead.id, sequence_name: 'naruchnik', step_number: 1, sent_at: now,
         })
-      } catch { /* non-critical */ }
-    }
-
-    if (emailSendingEnabled) {
-      const { subject, html } = welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
-      await sendEmail({ to: cleanEmail, subject, html })
-        .catch(err => console.error('[sendEmail welcome]', err))
+      } catch (err) {
+        console.error('[sendEmail welcome]', err)
+        // Нарочно НЕ пишем в email_logs при неуспех — редът там трябва
+        // да означава "реално пратено", не "опитахме се".
+      }
     }
 
     return NextResponse.json({ success: true })

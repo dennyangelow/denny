@@ -1,18 +1,18 @@
 'use client'
-// app/produkt/[slug]/AffiliateProduktClient.tsx — v6
+// app/produkt/[slug]/AffiliateProduktClient.tsx — v7
 // ✅ ПОДОБРЕНИЯ спрямо v5:
 //   1. Tab badge с брой — "❓ Въпроси (8)" показва колко съдържание има преди клик
 //   2. Цена в мобилния sticky бутон — "49.90 EUR — Виж в AgroApteki"
 //   3. Pulse анимация на бутона след 30 сек престой
 //   4. "Последно обновено" дата видима на потребителя
-//   5. Lightbox за снимката — клик отваря fullscreen <dialog>
+//   5. Lightbox за снимката — клик отваря fullscreen изглед (v7: обикновен div вместо <dialog>, по-предвидим)
 //   6. "Комбинирай с" показана под табовете на мобилно (по-видима)
 //   7. loading="lazy" на related снимките
 //   8. "👥 847 оценки" по-видимо с икона навсякъде
 //   9. formatBgDate helper за красива дата на български
-//  10. useRef за dialog (правилен API)
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import Image from 'next/image'
 import type { AffiliateProduct, ProductImage } from '@/lib/affiliate'
 // ✅ ФИКС: getRating премахнат от импорта — вече не се вика тук (avgRating
 // идва изцяло от page.tsx/aggregateRatingData, виж по-рано в reviews проекта)
@@ -217,7 +217,6 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
   const [bought,    setBought]    = useState(false)
   const [pulse,     setPulse]     = useState(false)   // ✅ #3
   const [lightbox,  setLightbox]  = useState(false)   // ✅ #5
-  const dialogRef = useRef<HTMLDialogElement>(null)    // ✅ #10
 
   // ── Галерия ────────────────────────────────────────────────────────────
   const allGalleryImages = useMemo(() => images ?? getAllImages(product), [images, product])
@@ -314,12 +313,19 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
     return () => clearTimeout(t)
   }, [])
 
-  // ✅ #5 #10 Lightbox с useRef
+  // ✅ #5 Lightbox — обикновен div, рендиран само докато е отворен
   useEffect(() => {
-    const d = dialogRef.current
-    if (!d) return
-    if (lightbox) { d.showModal() } else { if (d.open) d.close() }
-  }, [lightbox])
+    if (!lightbox) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape')     setLightbox(false)
+      if (e.key === 'ArrowRight') setActiveIdx(i => (i + 1) % gallery.length)
+      if (e.key === 'ArrowLeft')  setActiveIdx(i => (i - 1 + gallery.length) % gallery.length)
+    }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow }
+  }, [lightbox, gallery.length])
 
   const handleBuy = () => {
     const url = product.affiliate_url
@@ -346,9 +352,9 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         <a key={rel.id} href={`/produkt/${rel.slug}`} className="af-rel"
           style={{'--rc': rel.color || color} as React.CSSProperties}>
           {rel.image_url
-            ? <img src={rel.image_url} alt={rel.name}
+            ? <Image src={rel.image_url} alt={rel.name}
                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                width={40} height={40}
+                width={40} height={40} sizes="40px"
                 loading="lazy"  // ✅ #7
                 style={{ width:40, height:40, objectFit:'contain', borderRadius:8, flexShrink:0, mixBlendMode:'multiply' }} />
             : <div style={{ width:40, height:40, borderRadius:8, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>{rel.emoji || '🌿'}</div>
@@ -372,9 +378,9 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         <a key={a.slug} href={`/blog/${a.slug}`} className="af-rel"
           style={{'--rc': color} as React.CSSProperties}>
           {a.cover_image_url
-            ? <img src={a.cover_image_url} alt={a.cover_image_alt || a.title}
+            ? <Image src={a.cover_image_url} alt={a.cover_image_alt || a.title}
                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                width={40} height={40}
+                width={40} height={40} sizes="40px"
                 loading="lazy"
                 style={{ width:40, height:40, objectFit:'cover', borderRadius:8, flexShrink:0 }} />
             : <div style={{ width:40, height:40, borderRadius:8, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>📖</div>
@@ -479,14 +485,19 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
         .af-beginner{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1.5px solid #a7f3d0;border-radius:13px;padding:16px 18px;margin-bottom:14px}
         .af-beginner-title{font-size:10px;font-weight:800;color:#065f46;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px}
         .af-beginner-text{font-size:13.5px;color:#374151;line-height:1.75}
-        .af-lightbox{max-width:90vw;max-height:90vh;border:none;border-radius:18px;padding:16px;background:#0a0a0a;box-shadow:0 24px 80px rgba(0,0,0,.7);animation:fadeIn .2s ease;position:relative}
-        .af-lightbox::backdrop{background:rgba(0,0,0,.85);animation:fadeIn .2s ease}
-        .af-lightbox-img{max-width:calc(90vw - 32px);max-height:calc(90vh - 60px);object-fit:contain;display:block;border-radius:10px;margin:0 auto}
-        .af-lightbox-close{position:absolute;top:10px;right:12px;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:18px;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;font-family:inherit}
+        .af-lightbox{position:fixed;inset:0;z-index:1000;background:rgba(10,10,10,.92);display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn .18s ease}
+        .af-lightbox-img-wrap{position:relative;width:min(92vw,640px);aspect-ratio:4/5;max-height:88vh;border-radius:14px;background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden}
+        .af-lightbox-img{object-fit:contain}
+        /* ✅ Когато знаем реалния размер на снимката (width/height от базата) — тя се
+           рендира в истинската си пропорция, без резервираната 4:5 кутия по-горе */
+        .af-lightbox-img--sized{max-width:min(92vw,900px);max-height:88vh;width:auto;height:auto;object-fit:contain;display:block;border-radius:14px;background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+        .af-lightbox-close{position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:18px;width:42px;height:42px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;font-family:inherit;z-index:2}
         .af-lightbox-close:hover{background:rgba(255,255,255,.25)}
-        .af-lightbox-nav{position:absolute;bottom:-42px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:16px;color:#fff;font-size:12px;font-weight:700}
-        .af-lightbox-nav button{background:rgba(255,255,255,.12);border:none;color:#fff;font-size:20px;width:34px;height:34px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;font-family:inherit;line-height:1}
-        .af-lightbox-nav button:hover{background:rgba(255,255,255,.25)}
+        .af-lightbox-nav-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.14);border:none;color:#fff;font-size:26px;width:48px;height:48px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s;font-family:inherit;line-height:1;z-index:2}
+        .af-lightbox-nav-btn:hover{background:rgba(255,255,255,.28)}
+        .af-lightbox-nav-btn--prev{left:18px}
+        .af-lightbox-nav-btn--next{right:18px}
+        .af-lightbox-counter{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:12px;font-weight:700;background:rgba(255,255,255,.14);padding:5px 12px;border-radius:20px;z-index:2}
         .af-thumb-strip{display:flex;gap:8px;margin-top:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
         .af-thumb-strip::-webkit-scrollbar{display:none}
         .af-thumb{flex-shrink:0;width:52px;height:52px;border-radius:9px;padding:0;overflow:hidden;background:#fff;border:2px solid #e5e7eb;cursor:pointer;transition:border-color .15s,transform .15s}
@@ -551,8 +562,13 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
           .af-btn-buy{font-size:14.5px;padding:14px 16px;border-radius:12px}
           .af-related-mobile{display:block}
           .af-articles-desktop{display:none}
-          .af-lightbox{max-width:97vw;max-height:95vh;padding:12px}
-          .af-lightbox-img{max-width:calc(97vw - 24px);max-height:calc(95vh - 52px)}
+          .af-lightbox{padding:12px}
+          .af-lightbox-img-wrap{width:94vw;aspect-ratio:4/5;max-height:70vh}
+          .af-lightbox-img--sized{max-width:94vw;max-height:80vh}
+          .af-lightbox-nav-btn{width:40px;height:40px;font-size:22px}
+          .af-lightbox-nav-btn--prev{left:8px}
+          .af-lightbox-nav-btn--next{right:8px}
+          .af-lightbox-close{top:10px;right:10px;width:36px;height:36px}
         }
         @media(max-width:480px){
           .af-grid{padding:8px 10px 100px;gap:8px}
@@ -577,26 +593,49 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
       {/* Progress bar */}
       <div aria-hidden style={{ position:'fixed',top:0,left:0,height:3,zIndex:200,width:`${scrollPct}%`,background:`linear-gradient(90deg,${color},#4ade80)`,transition:'width .1s linear' }} />
 
-      {/* ✅ #5 Lightbox dialog — с навигация ако има повече от 1 снимка */}
-      {current && (
-        <dialog ref={dialogRef} className="af-lightbox"
-          onClick={e => { if (e.target === dialogRef.current) setLightbox(false) }}
-          onKeyDown={e => {
-            if (e.key === 'Escape') setLightbox(false)
-            if (e.key === 'ArrowRight') setActiveIdx(i => (i + 1) % gallery.length)
-            if (e.key === 'ArrowLeft')  setActiveIdx(i => (i - 1 + gallery.length) % gallery.length)
-          }}>
+      {/* ✅ #5 Lightbox — рендира се само докато lightbox === true */}
+      {lightbox && current && (
+        <div className="af-lightbox" role="dialog" aria-modal="true" aria-label={current.alt}
+          onClick={e => { if (e.target === e.currentTarget) setLightbox(false) }}>
           <button className="af-lightbox-close" onClick={() => setLightbox(false)} aria-label="Затвори">✕</button>
-          <img className="af-lightbox-img" src={current.url} alt={current.alt}
-            onError={() => markBroken(current.url)} />
-          {gallery.length > 1 && (
-            <div className="af-lightbox-nav">
-              <button aria-label="Предишна снимка" onClick={() => setActiveIdx(i => (i - 1 + gallery.length) % gallery.length)}>‹</button>
-              <span>{currentIdx + 1} / {gallery.length}</span>
-              <button aria-label="Следваща снимка" onClick={() => setActiveIdx(i => (i + 1) % gallery.length)}>›</button>
+          {current.width && current.height ? (
+            // ✅ Реален размер известен — точно пасваща кутия, без бели полета
+            <Image
+              key={current.url}
+              className="af-lightbox-img af-lightbox-img--sized"
+              src={current.url}
+              alt={current.alt}
+              width={current.width}
+              height={current.height}
+              sizes="(max-width: 820px) 94vw, 900px"
+              quality={90}
+              onError={() => markBroken(current.url)}
+            />
+          ) : (
+            // ✅ Стара снимка без записан размер — резервирана 4:5 кутия (fallback)
+            <div className="af-lightbox-img-wrap">
+              <Image
+                key={current.url}
+                className="af-lightbox-img"
+                src={current.url}
+                alt={current.alt}
+                fill
+                sizes="(max-width: 820px) 94vw, 640px"
+                quality={90}
+                onError={() => markBroken(current.url)}
+              />
             </div>
           )}
-        </dialog>
+          {gallery.length > 1 && (
+            <>
+              <button className="af-lightbox-nav-btn af-lightbox-nav-btn--prev" aria-label="Предишна снимка"
+                onClick={() => setActiveIdx(i => (i - 1 + gallery.length) % gallery.length)}>‹</button>
+              <button className="af-lightbox-nav-btn af-lightbox-nav-btn--next" aria-label="Следваща снимка"
+                onClick={() => setActiveIdx(i => (i + 1) % gallery.length)}>›</button>
+              <div className="af-lightbox-counter">{currentIdx + 1} / {gallery.length}</div>
+            </>
+          )}
+        </div>
       )}
 
       {/* Header — обединен компонент; количката е изключена по подразбиране
@@ -651,13 +690,15 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                 </div>
               )}
               {current ? (
-                <img
+                <Image
                   key={current.url}
                   src={current.url}
                   alt={current.alt}
                   onError={() => markBroken(current.url)}
-                  loading="eager"
+                  priority
+                  quality={85}
                   width={300} height={300}
+                  sizes="(max-width: 820px) 90vw, 300px"
                   onClick={() => setLightbox(true)}
                   style={{ width:'100%',maxHeight:300,objectFit:'contain',borderRadius:12,display:'block',mixBlendMode:'multiply',cursor:'zoom-in' }}
                 />
@@ -682,7 +723,7 @@ export default function AffiliateProduktClient({ product, related, avgRating, re
                     className={`af-thumb${i === currentIdx ? ' active' : ''}`}
                     style={{ '--tc': color } as React.CSSProperties}
                   >
-                    <img src={img.url} alt="" loading="lazy" width={52} height={52} />
+                    <Image src={img.url} alt={img.alt} loading="lazy" width={52} height={52} sizes="52px" />
                   </button>
                 ))}
               </div>

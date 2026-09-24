@@ -33,6 +33,7 @@ export const NAV_ITEMS = [
   { id: 'analytics',    icon: '▲',  label: 'Аналитика'    },
   { id: 'orders',       icon: '◫',  label: 'Поръчки'      },
   { id: 'leads',        icon: '◉',  label: 'Email листа'  },
+  { id: 'email-stats',  icon: '📊', label: 'Email статистики' },
   { id: 'content',      icon: '✦',  label: 'Продукти'     },
   { id: 'blog',         icon: '📝', label: 'Блог'         },
   { id: 'marketing',    icon: '📣', label: 'Маркетинг'    },

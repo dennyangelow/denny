@@ -128,9 +128,15 @@ function ProductEmbed({
         </div>
         {resolved.description && <p className="bp-product-card-desc">{resolved.description}</p>}
         {block.pitch && <p className="bp-product-card-pitch">{renderRichText(block.pitch)}</p>}
+        {/* ✅ ФИКС: partner идва вече реално от resolved.partner (виж
+            page.tsx resolveProductEmbeds), не от несъществуващ fallback.
+            source="blog" разграничава тези кликове от преките кликове на
+            /produkt/[slug] в статистиката. */}
         <AffiliateTrackedLink
           href={resolved.url}
           slug={resolved.key.split(':')[1]}
+          partner={resolved.partner}
+          source="blog"
           sponsored={resolved.affiliate}
           className="bp-product-card-btn"
         >
@@ -164,6 +170,8 @@ function ProductEmbed({
         <AffiliateTrackedLink
           href={resolved.url}
           slug={resolved.key.split(':')[1]}
+          partner={resolved.partner}
+          source="blog"
           sponsored={resolved.affiliate}
           className="bp-product-embed-btn"
         >

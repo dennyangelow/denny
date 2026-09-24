@@ -10,7 +10,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, name, items, total } = await req.json()
+    const { email, name, phone, items, total } = await req.json()
     if (!email || typeof email !== 'string' || !email.includes('@')) {
       return NextResponse.json({ error: 'Невалиден имейл' }, { status: 400 })
     }
@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
         {
           email:      cleanEmail,
           name:       name || null,
+          phone:      phone || null,
           items:      items || [],
           total:      total || 0,
           updated_at: now,

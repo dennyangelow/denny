@@ -1,8 +1,20 @@
-// app/api/analytics/affiliate-click/route.ts — v9
+// app/api/analytics/affiliate-click/route.ts — v10
 // ✅ ПОПРАВКИ v9 (спрямо v8):
 //   - bgDateNDaysAgo(): премахнат hardcoded '+03:00' offset (грешен зимата при UTC+2)
 //     → Ново: парсира като UTC полунощ на БГ датата + setUTCDate() → toBulgarianDate()
 //     → Работи правилно и лято (UTC+3) и зима (UTC+2) без DST проблеми
+//
+// ✅ НОВО v10: 'source' поле — откъде е дошъл кликът (напр. 'blog',
+//    'produkt-page'), ОТДЕЛНО от 'partner' (кой е реалният търговец).
+//    Преди AffiliateTrackedLink.tsx нямаше начин да подаде реалния
+//    partner ОТ статия в блога — резултатът беше, че всеки affiliate клик
+//    от статия пишеше partner='blog' в базата (защото нямаше друг начин
+//    да се различи източникът), губейки реалната партньорска атрибуция.
+//    Сега partner винаги е реалният търговец, а source носи канала —
+//    вижте bySource по-долу в GET.
+//
+//    ⚠️ ИЗИСКВА нова колона в Supabase — пусни веднъж:
+//      alter table affiliate_clicks add column if not exists source text;
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -70,11 +82,17 @@ function sanitizeSlug(raw: unknown): string | null {
   return s
 }
 
+function sanitizeSource(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'string') return null
+  const s = raw.trim().toLowerCase().slice(0, 40)
+  return s.length > 0 ? s : null
+}
+
 // ─── POST — записва клик ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
-    const { partner, product_slug } = body
+    const { partner, product_slug, source } = body
 
     if (!partner || typeof partner !== 'string') {
       return NextResponse.json({ success: false, error: 'Missing partner' }, { status: 400 })
@@ -97,6 +115,7 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin.from('affiliate_clicks').insert({
       partner:      partner.trim().slice(0, 60),
       product_slug: slug,
+      source:       sanitizeSource(source),
       ip_address:   ip,
       user_agent:   ua || null,
       referrer:     req.headers.get('referer') || null,
@@ -185,9 +204,10 @@ export async function GET() {
         .neq('product_slug', '-'),
 
       // Детайли за 90 дни (за chart + per-product breakdown)
+      // ✅ НОВО: added 'source' към select-а за bySource breakdown-а.
       supabaseAdmin
         .from('affiliate_clicks')
-        .select('partner, product_slug, created_at')
+        .select('partner, product_slug, source, created_at')
         .gte('created_at', since90Utc)
         .not('product_slug', 'is', null)
         .neq('product_slug', '')
@@ -207,6 +227,9 @@ export async function GET() {
 
     const byPartner:      Record<string, number> = {}
     const byProduct:      Record<string, number> = {}
+    // ✅ НОВО — брой кликове по source ('blog', 'produkt-page', '(direct)'
+    //    за стари/непопълнени редове преди тази промяна).
+    const bySource:        Record<string, number> = {}
     const productDetails: Record<string, { total: number; last30: number; last7: number; today: number }> = {}
     const byDay:          Record<string, number> = {}
     const byHour:         Record<number, number> = {}
@@ -222,9 +245,11 @@ export async function GET() {
       const bgDay     = toBulgarianDate(clickDate)   // ✅ БГ дата
       const product   = rawSlug.trim()
       const partner   = click.partner?.trim() || '(unknown)'
+      const source    = (click as any).source?.trim() || '(direct)'
 
       byPartner[partner] = (byPartner[partner] || 0) + 1
       byProduct[product] = (byProduct[product] || 0) + 1
+      bySource[source]   = (bySource[source]   || 0) + 1
 
       if (!slugsByPartner[partner]) slugsByPartner[partner] = new Set()
       slugsByPartner[partner].add(product)
@@ -264,6 +289,12 @@ export async function GET() {
       .slice(0, 10)
       .map(([name, count]) => ({ name, count }))
 
+    // ✅ НОВО — топ канали, същия shape като topPartners, за лесен reuse
+    //    в UI (напр. AnalyticsTab.tsx може да рендва идентична таблица).
+    const topSources = Object.entries(bySource)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, count]) => ({ name, count }))
+
     const slugsByPartnerArr: Record<string, string[]> = {}
     Object.entries(slugsByPartner).forEach(([p, s]) => {
       slugsByPartnerArr[p] = Array.from(s)
@@ -291,9 +322,11 @@ export async function GET() {
       last90days:  total90,    // ✅ Точен брой за 90д (ново поле)
       byProduct,
       byPartner,
+      bySource,        // ✅ НОВО
       productDetails,
       topProducts,
       topPartners,
+      topSources,       // ✅ НОВО
       dailyChart,
       hourlyChart,
       slugsByPartner: slugsByPartnerArr,
@@ -303,8 +336,8 @@ export async function GET() {
     console.error('[affiliate-click GET]', err)
     return NextResponse.json({
       total: 0, last30days: 0, last7days: 0, today: 0, last90days: 0,
-      byProduct: {}, byPartner: {}, productDetails: {},
-      topProducts: [], topPartners: [], dailyChart: [], hourlyChart: [],
+      byProduct: {}, byPartner: {}, bySource: {}, productDetails: {},
+      topProducts: [], topPartners: [], topSources: [], dailyChart: [], hourlyChart: [],
       slugsByPartner: {},
     }, { headers: { 'Cache-Control': 'no-store' } })
   }

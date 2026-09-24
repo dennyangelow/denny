@@ -2,6 +2,12 @@
 // ✅ GET  — публичен (за началната страница — middleware го пропуска)
 // ✅ POST — admin only (защитено от middleware)
 // ✅ revalidatePath('/') при POST — новият продукт веднага се появява на началната страница
+//
+// ✅ ФИКС: същият проблем като в app/api/blog/route.ts — auto-slug
+//    fallback-ът ползваше replace(/[^\w-]/g, ''), който маха всяка
+//    кирилска буква от name-а. За продукт с кирилско име и без ръчно
+//    въведен slug това даваше практически празен/счупен slug. Премахнато
+//    в полза на изричен, задължителен slug.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -30,14 +36,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
 
-    // Auto-генерация на slug от name ако не е подаден
-    if (!body.slug && body.name) {
-      body.slug = body.name
-        .toLowerCase()
-        .replace(/\s+/g, '-')
-        .replace(/[^\w-]/g, '')
-        .replace(/--+/g, '-')
-    }
+    // ✅ ФИКС: auto-генерацията от name беше премахната — чупеше
+    //    кирилски имена (виж коментара горе). Slug вече се изисква явно.
     if (!body.slug) {
       return NextResponse.json({ error: 'Slug е задължителен' }, { status: 400 })
     }

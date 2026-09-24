@@ -1,14 +1,23 @@
-// app/blog/[slug]/page.tsx — v4
-// ✅ ПРОМЯНА спрямо v3: [slug] вече обслужва ДВА различни типа страници:
+// app/blog/[slug]/page.tsx — v5
+// ✅ ПРОМЯНА спрямо v4: [slug] вече обслужва ДВА различни типа страници:
 //   1) Post — ако slug-ът съвпада с blog_posts.slug (старото поведение,
 //      непроменено).
 //   2) Category pillar hub — ако slug-ът съвпада с blog_categories.slug
-//      (/blog/domati, /blog/krastavici...). НОВО в тази версия.
+//      (/blog/domati, /blog/krastavici...).
 //   Категорийните slug-ове (domati, krastavici...) никога не се
 //   пресичат с post slug-овете (винаги описателни, многодумни), значи
 //   няма реален риск от конфликт — но категорията се проверява ПЪРВО във
 //   всяка от трите функции по-долу, за да е детерминистично, ако все пак
-//   някога се появи съвпадение.
+//   някога се появи съвпадение. (BlogTab.tsx вече също пази при запис —
+//   виж collision проверката в save().)
+//
+// ✅ НОВО v5: ResolvedEmbedProduct вече носи и 'partner' за affiliate
+//    продукти — преди липсваше, а AffiliateTrackedLink.tsx разчиташе на
+//    resolved.partner точно по коментар, който никога не се сбъдваше.
+//    Резултат преди: всеки клик от статия пишеше partner='blog' в
+//    affiliate_clicks вместо реалния търговец (напр. agroapteki) — сега
+//    се пази реалната атрибуция, а откъде е кликнато носи отделното
+//    поле 'source' (виж BlogPostBody.tsx → AffiliateTrackedLink).
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -33,6 +42,10 @@ export interface ResolvedEmbedProduct {
   price_currency?: string
   url:         string
   affiliate:   boolean
+  /** ✅ НОВО — реалният партньор/търговец (напр. "agroapteki") за
+   *  affiliate продукти, за коректно tracking-attribution в
+   *  AffiliateTrackedLink.tsx. undefined за "own" продукти (Atlas Terra). */
+  partner?:    string
 }
 
 // ── НОВО: категория по slug — проверява се първо във всяка от трите
@@ -122,6 +135,8 @@ async function resolveProductEmbeds(post: BlogPost): Promise<Record<string, Reso
       result[`affiliate:${p.slug}`] = {
         key: `affiliate:${p.slug}`, name: p.name, description: p.subtitle || p.description,
         image_url: p.image_url, price: p.price, price_currency: p.price_currency,
+        // ✅ НОВО — виж коментара до ResolvedEmbedProduct по-горе.
+        partner: p.partner,
         url: `/produkt/${p.slug}`, affiliate: true,
       }
     })

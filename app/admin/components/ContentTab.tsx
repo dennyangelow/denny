@@ -1075,7 +1075,15 @@ export function ContentTab() {
                 {cfg.imageField && (
                   <ImageUpload
                     value={editing[cfg.imageField] || ''}
-                    onChange={url => set(cfg.imageField!, url)}
+                    onChange={(url, meta) => {
+                      set(cfg.imageField!, url)
+                      // ✅ Реален пикселен размер — засега само за афилиейт продуктите
+                      // (image_width/image_height колони, виж SQL миграцията).
+                      if (subTab === 'affiliate') {
+                        set('image_width',  meta?.width)
+                        set('image_height', meta?.height)
+                      }
+                    }}
                     folder={cfg.imageFolder || 'uploads'}
                     label={cfg.logoField ? 'Главна снимка (вдясно в секцията)' : 'Снимка'}
                     height={160}
@@ -1100,10 +1108,14 @@ export function ContentTab() {
                   const max: number = cfg.galleryMax ?? 4
                   const raw: any[] = Array.isArray(editing[galleryKey]) ? editing[galleryKey] : []
                   // ✅ нормализираме към {url, alt} — толерантно към стар string[] формат
-                  const items: { url: string; alt: string }[] = raw.map(entry =>
-                    typeof entry === 'string' ? { url: entry, alt: '' } : { url: entry.url, alt: entry.alt || '' }
+                  const items: { url: string; alt: string; width?: number; height?: number }[] = raw.map(entry =>
+                    typeof entry === 'string'
+                      ? { url: entry, alt: '' }
+                      : { url: entry.url, alt: entry.alt || '', width: entry.width, height: entry.height }
                   )
-                  const addUrl    = (url: string)         => set(galleryKey, [...items, { url, alt: '' }])
+                  // ✅ meta (реален пикселен размер) — по избор, идва от ImageUpload v2
+                  const addUrl    = (url: string, meta?: { width: number; height: number }) =>
+                    set(galleryKey, [...items, { url, alt: '', width: meta?.width, height: meta?.height }])
                   const removeAt  = (i: number)            => set(galleryKey, items.filter((_, idx) => idx !== i))
                   const updateAlt = (i: number, alt: string) => set(galleryKey, items.map((it, idx) => idx === i ? { ...it, alt } : it))
                   const mainAltHint = editing.image_alt || editing.name || editing.title || 'продукт'
