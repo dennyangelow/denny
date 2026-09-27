@@ -1,6 +1,12 @@
 ﻿// lib/validation.ts — v7
 // ПОПРАВКИ v7:
 //   1. Typo fix: "ime" → "имe" в validateName (смесено BG/EN)
+//
+// ⚠️ Този файл се импортва и от CLIENT компоненти (HandbooksPanel.tsx,
+//    NaruchnikClient.tsx, BlogHandbookEmbed.tsx) за инстантен UX feedback —
+//    затова НИКОГА не добавяй тук нещо, което тегли Node-специфични модули
+//    (dns, fs, crypto и т.н.). MX/DNS проверката живее в lib/mx-check.ts
+//    (server-only, само app/api/leads/route.ts я вика) — виж бележката там.
 
 export function validateName(name: string): string {
   const v = name.trim()

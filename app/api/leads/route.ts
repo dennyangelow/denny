@@ -1,4 +1,15 @@
-// ФАЙЛ: app/api/leads/route.ts — v20
+// ФАЙЛ: app/api/leads/route.ts — v21
+//
+// ПОПРАВКИ v21 (спрямо v20):
+//   ✅ НОВО: MX проверка (hasValidMx от lib/mx-check.ts — ОТДЕЛЕН server-only
+//      файл, НЕ lib/validation.ts, защото последният се импортва и от client
+//      компоненти и dns/promises чупи client build-а) — хваща синтактично
+//      валидни, но несъществуващи домейни (напр. "asdas@aasdasd.bg") —
+//      serverValidate() ги пропускаше, защото проверява само ФОРМАТ, не дали
+//      домейнът реално приема поща. Fail-open при timeout/DNS проблем (виж
+//      коментара в lib/mx-check.ts) — не блокира реален потребител заради
+//      наша инфраструктурна грешка, само заради категорично несъществуващ
+//      домейн.
 //
 // ПОПРАВКИ v20 (спрямо v19):
 //   ✅ Welcome имейлът вече минава през enrollAndRunFirstStep() (lib/
@@ -24,6 +35,7 @@ import { rateLimit, getIP } from '@/lib/rate-limit'
 import { welcomeEmail } from '@/lib/email-templates'
 import { sendEmail } from '@/lib/mailer'
 import { serverValidate } from '@/lib/validation'
+import { hasValidMx } from '@/lib/mx-check'
 import { enrollAndRunFirstStep } from '@/lib/automations'
 
 export async function POST(req: NextRequest) {
@@ -59,6 +71,15 @@ export async function POST(req: NextRequest) {
     const validation = serverValidate({ email, name, phone })
     if (!validation.ok) {
       return NextResponse.json({ error: validation.error, field: validation.field }, { status: 400 })
+    }
+
+    // ✅ НОВО: домейнът минава regex-а по-горе, но реално съществува ли?
+    // (напр. "aasdasd.bg" — синтактично идеален, никога регистриран домейн)
+    if (!(await hasValidMx(email))) {
+      return NextResponse.json(
+        { error: 'Имейл домейнът не изглежда да съществува. Провери за грешка в него.', field: 'email' },
+        { status: 400 },
+      )
     }
 
     const slug       = naruchnik_slug || 'super-domati'
