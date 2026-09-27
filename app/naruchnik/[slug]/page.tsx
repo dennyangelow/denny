@@ -111,7 +111,12 @@ export async function generateMetadata(
   const { nar }  = await getNaruchnik(slug)
   if (!nar) return { title: 'Наръчник не е намерен' }
 
-  const title       = nar.meta_title || `${nar.title} — Безплатен PDF Наръчник | Denny Angelow`
+  // ✅ ФИКС: старият fallback ("{title} — Безплатен PDF Наръчник | Denny
+  // Angelow") лесно минаваше 70 символа за по-дълги заглавия като
+  // "Наръчник за Краставици ( Високи Добиви )" — Google режеше опашката в
+  // резултатите. По-кратък fallback; за пълен контрол попълни meta_title
+  // в admin панела за всеки наръчник (виж чат препоръката за точен текст).
+  const title       = nar.meta_title || `${nar.title} — Безплатен PDF | Denny Angelow`
   const description = nar.meta_description || nar.description
     || `Изтегли безплатно "${nar.title}" — практично ръководство за по-здрави растения и рекордна реколта.`
   const canonicalUrl = `${BASE_URL}/naruchnik/${nar.slug}`
