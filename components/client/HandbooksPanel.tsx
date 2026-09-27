@@ -28,7 +28,18 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import type { ActivityEvent } from '@/lib/social-proof'
-import { validateName, validateEmail, validatePhone } from '@/lib/leadValidation'
+// ✅ ФИКС: преди беше lib/leadValidation.ts — отделен, по-хлабав набор
+//    правила (напр. телефон само "≥9 цифри", без горна граница; име само
+//    "≥2 символа", без regex за букви). NaruchnikClient.tsx вече ползва
+//    lib/validation.ts директно (същите функции, които /api/leads reales
+//    server-side чрез serverValidate) — двете форми за СЪЩИЯ /api/leads
+//    endpoint проверяваха различни неща. Пример: телефон "0888123456789012"
+//    (16 цифри) минаваше client-side тук, но сървърът го отхвърля
+//    (макс. 15) — виж фикса на submitHandbook по-долу за какво се случваше
+//    след това. lib/leadValidation.ts вече не се използва никъде — можеш
+//    да го изтриеш от репото (BlogHandbookEmbed.tsx, ако/когато го
+//    построиш, да импортва directly оттук).
+import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 
 interface Handbook {
   slug: string; title: string; subtitle: string
@@ -115,10 +126,25 @@ export function HandbooksPanel({
     if (!isValid) return
     setHbLoading(true); setSubmitError('')
     try {
-      await fetch('/api/leads', {
+      // ✅ ФИКС: преди резултатът от тази заявка изобщо не се проверяваше —
+      //    ако serverValidate() в /api/leads/route.ts отхвърли лийда
+      //    (disposable email, фалшив pattern, телефон извън 7-15 цифри...),
+      //    кодът продължаваше все едно нищо не е станало и потребителят пак
+      //    получаваше PDF-а. Резултат: реален, изтеглящ потребител, за
+      //    когото НЯМА запазен lead в базата — тих data loss, невидим и в
+      //    двете посоки (не виждаш грешка, а и нямаш контакта). Сега се
+      //    държи като NaruchnikClient.tsx — проверява res.ok, показва
+      //    submitError и НЕ сваля файла при отхвърлен лийд.
+      const leadRes  = await fetch('/api/leads', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: hbEmail.trim(), name: hbName.trim(), phone: hbPhone.trim(), source: 'naruchnik', naruchnik_slug: slug }),
       })
+      const leadData = await leadRes.json().catch(() => ({}))
+      if (!leadRes.ok) {
+        setSubmitError(leadData.error || 'Грешка при изпращане. Провери данните и опитай пак.')
+        setHbLoading(false)
+        return
+      }
       const res  = await fetch(`/api/naruchnici?slug=${encodeURIComponent(slug)}`)
       const data = await res.json()
       const nar  = (data.naruchnici || [])[0]
@@ -180,9 +206,10 @@ export function HandbooksPanel({
           </div>
         </div>
         <div style={{ color: '#6b7280', fontSize: 13 }}>
-          {ctaSubtitle ?? (computedTotal > 0
-            ? <>Над <strong style={{ color: '#15803d' }}>{computedTotal.toLocaleString('bg-BG')}</strong> фермери вече го изтеглиха</>
-            : <>Изтегли сега</>)}
+          {/* ✅ ФИКС: fallback-ът вече не повтаря computedTotal — същото
+              число вече стои в trust банера долу в списъка. Тук е чисто
+              описание на стойността, не втора бройка. */}
+          {ctaSubtitle ?? <>Пълни схеми на торене и защита — готови за прилагане още днес</>}
         </div>
       </div>
 

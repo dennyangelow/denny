@@ -16,7 +16,12 @@
 // разграничава тези лийдове от 'naruchnik'/'naruchnik_page' в аналитиките.
 
 import { useState } from 'react'
-import { validateName, validateEmail, validatePhone } from '@/lib/leadValidation'
+// ✅ ФИКС: беше lib/leadValidation.ts — третото място (заедно с
+// HandbooksPanel.tsx преди фикса) с по-хлабави правила от тези, които
+// /api/leads реално налага server-side (serverValidate в lib/validation.ts).
+// Сега и трите форми към /api/leads (HandbooksPanel, NaruchnikClient,
+// BlogHandbookEmbed) ползват едни и същи функции — виж чат бележката.
+import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 
 export interface ResolvedHandbook {
   slug:             string
@@ -59,7 +64,11 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
     setStatus('loading')
     setErrorMsg('')
     try {
-      await fetch('/api/leads', {
+      // ✅ ФИКС: преди резултатът не се проверяваше — при отхвърлен от
+      // сървъра лийд (виж serverValidate) потребителят пак получаваше PDF-а,
+      // без нищо да се запише в leads. Същият бъг като в HandbooksPanel.tsx,
+      // оправен по същия начин тук.
+      const leadRes = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -67,6 +76,12 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
           source: 'blog', naruchnik_slug: handbook.slug,
         }),
       })
+      const leadData = await leadRes.json().catch(() => ({}))
+      if (!leadRes.ok) {
+        setStatus('error')
+        setErrorMsg(leadData.error || 'Грешка при изпращане. Провери данните и опитай пак.')
+        return
+      }
       const res  = await fetch(`/api/naruchnici?slug=${encodeURIComponent(handbook.slug)}`)
       const data = await res.json()
       const nar  = (data.naruchnici || [])[0]

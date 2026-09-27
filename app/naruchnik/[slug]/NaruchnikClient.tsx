@@ -190,7 +190,11 @@ export default function NaruchnikClient({
     transition: 'border-color .2s, background .2s',
   })
 
-  const dlK = downloadsCount >= 1000 ? `${Math.floor(downloadsCount / 1000)} 000+` : `${downloadsCount}+`
+  // ✅ ФИКС: преди закръгляше НАДОЛУ до хилядата (1336 → "1 000+"), докато
+  //    HandbooksPanel на началната страница показва точното число (1336+)
+  //    за същия наръчник — потребител, който гледа и двете страници, вижда
+  //    две различни цифри за едно и също нещо. Сега и тук е точното число.
+  const dlK = downloadsCount > 0 ? `${downloadsCount.toLocaleString('bg-BG')}+` : ''
 
   // ✅ ФИКС: преди беше твърдо "85K+ последователи" в JSX-а долу, докато
   //    началната страница чете settings.social_proof_items и там числото
@@ -252,13 +256,19 @@ export default function NaruchnikClient({
           <div className="n-form-head">
             <span style={{ fontSize: 40, display: 'block', marginBottom: 8, position: 'relative' }}>🎁</span>
             <h3 className="n-f-title">Изтегли Безплатно</h3>
+            {/* ✅ ФИКС: преди повтаряше "Над {dlK} фермери..." — същото
+                изречение, което вече стои в social-proof блока директно
+                под формата (виж по-долу). Сега показва каква е реалната
+                стойност на ТОЗИ наръчник вместо второ копие на числото. */}
             <p className="n-f-sub">
-              Над <strong>{dlK}</strong> фермери вече го изтеглиха.<br />Получи своя екземпляр — веднага.
+              {nar.subtitle || 'Получи своя екземпляр — веднага.'}
             </p>
           </div>
           <div className="n-urgency">
-            <span className="n-urg-dot" />
-            🔥 Достъпен безплатно — само попълни формата
+            {/* ✅ ФИКС: преди "🔥 Достъпен безплатно — само попълни формата" —
+                fire емоджи + думата "безплатно" за трети път на страницата.
+                Просто честна инструкция какво следва. */}
+            ⚡ 3 кратки полета — сваляш веднага
           </div>
           <div className="n-f-body">
             {/* Ime */}
@@ -310,7 +320,7 @@ export default function NaruchnikClient({
               className={`n-cta ${loading ? 'n-cta-loading' : isValid ? 'n-cta-ready' : 'n-cta-inactive'}`}
               onClick={handleSubmit} disabled={loading || !isValid}
             >
-              {loading ? '⏳ Подготвям...' : isValid ? '📥 Изтегли Безплатно →' : '📋 Попълни всички полета'}
+              {loading ? '⏳ Подготвям...' : isValid ? '📥 Изтегли Сега →' : '📋 Попълни всички полета'}
             </button>
           </div>
           <div className="n-f-trust">
@@ -725,7 +735,10 @@ export default function NaruchnikClient({
             ) : (
               <div className="nh-img-ph">{emoji}</div>
             )}
-            <span className="nh-free">БЕЗПЛАТНО</span>
+            {/* ✅ ФИКС: премахната .nh-free лентата "БЕЗПЛАТНО" върху
+                снимката — точно вдясно, 2 клетки по-нататък, hero
+                статистиката вече казва "PDF / безплатно". Второто
+                копие върху снимката беше чисто повторение. */}
 
             {/* Лента с миниатюри — само ако има повече от 1 снимка */}
             {gallery.length > 1 && (
@@ -765,7 +778,7 @@ export default function NaruchnikClient({
               </div>
               {hasRealRating && (
                 <div className="nh-stat">
-                  <span className="nh-stat-v">{avgRating}/5</span>
+                  <span className="nh-stat-v">{avgRating.toFixed(1)}/5</span>
                   <span className="nh-stat-l">оценка</span>
                 </div>
               )}
@@ -788,7 +801,7 @@ export default function NaruchnikClient({
           <div className="n-social-proof" style={{ marginBottom: 0 }}>
             <div className="n-sp-row"><span className="n-sp-icon">👨‍🌾</span><span className="n-sp-text">Над {dlK} фермери вече го изтеглиха</span></div>
             {hasRealRating && (
-              <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
+              <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating.toFixed(1)}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
             )}
           </div>
         )}
@@ -805,7 +818,7 @@ export default function NaruchnikClient({
                 <div className="n-stars">
                   {[1,2,3,4,5].map(i => <span key={i} className="n-star">★</span>)}
                 </div>
-                <span style={{ fontSize: 13, color: '#374151', fontWeight: 700 }}>{avgRating}/5</span>
+                <span style={{ fontSize: 13, color: '#374151', fontWeight: 700 }}>{avgRating.toFixed(1)}/5</span>
                 <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
                   ({reviewsCount.toLocaleString('bg-BG')} отзива)
                 </span>
@@ -932,7 +945,7 @@ export default function NaruchnikClient({
             <div className="n-social-proof">
               <div className="n-sp-row"><span className="n-sp-icon">👨‍🌾</span><span className="n-sp-text">Над {dlK} фермери вече го изтеглиха</span></div>
               {hasRealRating && (
-                <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
+                <div className="n-sp-row"><span className="n-sp-icon">⭐</span><span className="n-sp-text">Оценка {avgRating.toFixed(1)}/5 от {reviewsCount.toLocaleString('bg-BG')} читатели</span></div>
               )}
               <div className="n-sp-row"><span className="n-sp-icon">🌿</span><span className="n-sp-text">Препоръчан от Denny Angelow</span></div>
               <div className="n-sp-row"><span className="n-sp-icon">🔒</span><span className="n-sp-text">Сигурно — без спам, без риск</span></div>
@@ -950,7 +963,7 @@ export default function NaruchnikClient({
             </button>
           ) : (
             <button className="n-mob-open" onClick={scrollToForm}>
-              📥 Изтегли Безплатно →
+              📥 Изтегли Сега →
             </button>
           )}
         </div>

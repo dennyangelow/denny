@@ -29,7 +29,7 @@ const SECTIONS = [
       { key: 'hero_warning',         label: 'Warning кутия (под subtitle)',            type: 'text',     placeholder: 'Не рискувай да изхвърлиш продукцията...', hint: 'Показва се в червена кутия с ⚠️' },
       { key: 'hero_subtitle',        label: 'Подзаглавие (под заглавието)',            type: 'textarea', placeholder: 'Без болести, без гниене...', hint: 'Поддържа **bold** форматиране' },
       { key: 'cta_title',            label: 'CTA заглавие (долу)',                     type: 'text',     placeholder: 'Изтегли И Двата Наръчника Напълно Безплатно' },
-      { key: 'cta_subtitle',         label: 'CTA подзаглавие (долу)',                 type: 'textarea', placeholder: 'Над 6 000 фермери вече ги изтеглиха...', hint: 'Поддържа **bold** форматиране' },
+      { key: 'cta_subtitle',         label: 'CTA подзаглавие (долу)',                 type: 'textarea', placeholder: 'Пълни схеми за торене по фази, ранно разпознаване на болести...', hint: 'Поддържа **bold** форматиране. Съвет: не повтаряй тук броя фермери — числото вече стои в trust реда под списъка с наръчници.' },
       { key: 'footer_about_text',    label: 'Текст в Footer',                         type: 'textarea', placeholder: 'Помагам на фермери да отглеждат...' },
     ],
   },
