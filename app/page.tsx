@@ -125,6 +125,7 @@ interface SiteSettings {
 }
 
 interface Handbook {
+  id?: string
   slug: string; title: string; subtitle: string
   emoji: string; color: string; bg: string; badge: string; image_url?: string
   image_alt?: string
@@ -617,6 +618,7 @@ async function getPageData() {
     // ── Handbooks ─────────────────────────────────────────────────────────────
     const handbooks: Handbook[] = handbookRows?.length
       ? handbookRows.map((n: Record<string, unknown>) => ({
+          id:       String(n.id || ''),
           slug:     String(n.slug || ''),
           title:    String(n.title || ''),
           subtitle: String(n.subtitle || ''),
@@ -629,6 +631,11 @@ async function getPageData() {
           image_url: String(n.cover_image_url || ''),
           image_alt: String(n.image_alt || `${n.title} — безплатен PDF наръчник от Denny Angelow`),
           description:     String(n.description || ''),
+          // ⚠️ downloads_count/avg_rating/reviews_count тук са СУРОВИТЕ
+          // (потенциално фиктивни) колони от naruchnici — HomePage() по-долу
+          // ги презаписва с реални стойности (leads COUNT + reviews таблица)
+          // веднага след getPageData(). Оставени тук само като fallback за
+          // кода, който извиква getPageData() директно без този презапис.
           downloads_count: Number(n.downloads_count) || 0,
           avg_rating:      n.avg_rating   ? Number(n.avg_rating)   : undefined,
           reviews_count:   n.reviews_count ? Number(n.reviews_count) : undefined,
@@ -856,16 +863,36 @@ export default async function HomePage() {
     getHandbookDownloadCounts(),
   ])
 
+  // ✅ НОВО: реален рейтинг за наръчниците, взет от reviews таблицата
+  // (getAggregateRatingsBatch вече се ползва за atlasProducts/affiliateProducts
+  // по-горе — идентична логика тук). handbooksRaw[i].avg_rating/reviews_count
+  // идваха директно от naruchnici колоните — потвърдено ръчно въведени/
+  // неактуализирани числа, същия проблем като downloads_count. Заявено
+  // отделно (не блокира горния Promise.all), защото се нуждае от id-тата,
+  // които стават известни едва след getPageData().
+  const handbookIds = handbooksRaw.map(h => h.id).filter(Boolean) as string[]
+  const handbookRatings = handbookIds.length > 0
+    ? await getAggregateRatingsBatch('handbook', handbookIds)
+    : new Map<string, { avg: number; count: number }>()
+
   // ✅ ФИКС: handbooks[i].downloads_count идваше от naruchnici.downloads_count
   //    в базата — потвърдено фиктивно статично число (6800/4200), напълно
   //    откъснато от реалността. Презаписваме го тук с реалното преброяване
   //    от leads (потвърдено 1:1 срещу Email листа → Аналитики: 2243/1331/
   //    3574 общо). Ако slug-ът липсва от realDownloadCounts (нов наръчник,
   //    още без нито едно изтегляне) → 0, не старото фиктивно число.
-  const handbooks = handbooksRaw.map(h => ({
-    ...h,
-    downloads_count: realDownloadCounts[h.slug] || 0,
-  }))
+  //    avg_rating/reviews_count — аналогично, презаписани с реалните от
+  //    reviews таблицата; undefined (не 0/0) ако все още няма нито един
+  //    одобрен отзив, за да остане honest guard-ът в HandbooksPanel скрит.
+  const handbooks = handbooksRaw.map(h => {
+    const rating = h.id ? handbookRatings.get(h.id) : undefined
+    return {
+      ...h,
+      downloads_count: realDownloadCounts[h.slug] || 0,
+      avg_rating:      rating && rating.avg > 0 ? rating.avg : undefined,
+      reviews_count:   rating && rating.count > 0 ? rating.count : undefined,
+    }
+  })
 
   const trustItems  = safeJson<{ icon: string; text: string; sub?: string }[]>(settings.trust_strip_items, [])
   const socialItems = safeJson<{ number: string; label: string }[]>(settings.social_proof_items, [])

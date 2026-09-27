@@ -1,26 +1,22 @@
-// ФАЙЛ: app/api/leads/route.ts — v19
+// ФАЙЛ: app/api/leads/route.ts — v20
+//
+// ПОПРАВКИ v20 (спрямо v19):
+//   ✅ Welcome имейлът вече минава през enrollAndRunFirstStep() (lib/
+//      automations.ts) вместо директен sendEmail() тук. Докато workflow-a
+//      "Naruchnik — Welcome серия" (виж migrations/001_workflows.sql) е
+//      неактивен в базата — поведението е ИДЕНТИЧНО на v19 (fallback по-
+//      долу праща старото welcomeEmail() директно). Активираш ли
+//      workflow-а от Настройки → Автоматизации, автоматично минаваш на
+//      конфигурируемата серия (welcome + followup 2/5/10), без нова
+//      промяна тук.
 //
 // ПОПРАВКИ v19 (спрямо v18):
-//   ✅ ФИКС: email_logs се пишеше БЕЗУСЛОВНО при всеки нов/обновен lead —
-//      преди проверката на emailSendingEnabled, дори когато превключвателят
-//      "✉️ Email автоматизации" е изключен и sendEmail() изобщо не се
-//      вика. Резултат: "Email статистики" показваше "527 пратени" при
-//      реално нула изпратени имейла (потвърдено: 0% open, 0 bounce, 0
-//      complaints едновременно — невъзможна комбинация за реално пратени
-//      имейли към стотици различни хора). Сега email_logs се пише само
-//      СЛЕД успешен sendEmail() await, вътре в emailSendingEnabled блока.
-//   ✅ add_naruchnik RPC остава безусловна (правилно — тя пази кой
-//      наръчник е изтеглил lead-ът, независимо дали welcome имейлът
-//      реално е пратен).
+//   ✅ email_logs се пишеше БЕЗУСЛОВНО при всеки нов/обновен lead — сега
+//      само СЛЕД успешен sendEmail() await.
 //
 // ПОПРАВКИ v18 (спрямо v17):
-//   1. ПЪЛНО премахване на Systeme.io — вече няма syncContactWithRetry,
-//      systemeio_api env var, systemeio_enabled setting, нито
-//      systemeio_* колони се пипат при insert/update тук.
-//   2. Изпращането минава през lib/mailer.ts (sendEmail) вместо директно
-//      през Resend SDK — sendEmail() ползва Amazon SES отдолу.
-//   3. Всичко останало от v17 (валидация, rate limit, upsert логика)
-//      е запазено непроменено.
+//   1. ПЪЛНО премахване на Systeme.io.
+//   2. Изпращането минава през lib/mailer.ts (sendEmail) → Amazon SES.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -28,6 +24,7 @@ import { rateLimit, getIP } from '@/lib/rate-limit'
 import { welcomeEmail } from '@/lib/email-templates'
 import { sendEmail } from '@/lib/mailer'
 import { serverValidate } from '@/lib/validation'
+import { enrollAndRunFirstStep } from '@/lib/automations'
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req)
@@ -43,12 +40,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { email, name, phone, source, utm_source, utm_campaign, utm_medium, naruchnik_slug } = body
 
-    // ── Основна проверка ──────────────────────────────────────────────────────
     if (!email || !email.includes('@') || email.length > 255) {
       return NextResponse.json({ error: 'Невалиден имейл', field: 'email' }, { status: 400 })
     }
 
-    // ── Директна защита — кирилски домейн ─────────────────────────────────────
     const emailDomain = email.split('@')[1] || ''
     if (/[а-яА-ЯёЁ]/.test(emailDomain)) {
       return NextResponse.json({ error: 'Невалиден имейл адрес', field: 'email' }, { status: 400 })
@@ -57,18 +52,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Невалиден имейл адрес', field: 'email' }, { status: 400 })
     }
 
-    // ── Директна защита — букви в телефон ─────────────────────────────────────
     if (phone && /[а-яёА-ЯЁa-zA-Z]/.test(phone)) {
       return NextResponse.json({ error: 'Телефонът трябва да съдържа само цифри', field: 'phone' }, { status: 400 })
     }
 
-    // ── Разширена сървърна валидация ──────────────────────────────────────────
     const validation = serverValidate({ email, name, phone })
     if (!validation.ok) {
-      return NextResponse.json(
-        { error: validation.error, field: validation.field },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: validation.error, field: validation.field }, { status: 400 })
     }
 
     const slug       = naruchnik_slug || 'super-domati'
@@ -78,8 +68,6 @@ export async function POST(req: NextRequest) {
     const cleanPhone = phone?.trim() || null
 
     // ── Глобален toggle за изпращане (settings таблица) ───────────────────────
-    // Ключът е останал 'resend_enabled' по историческа причина, но сега
-    // управлява изпращането като цяло (през SES), не конкретно Resend.
     let emailSendingEnabled = true
     try {
       const { data: row } = await supabaseAdmin
@@ -89,7 +77,6 @@ export async function POST(req: NextRequest) {
       if (row) emailSendingEnabled = row.value !== 'false'
     } catch { /* default: enabled */ }
 
-    // ── Взимаме съществуващия запис ПРЕДИ upsert ──────────────────────────────
     const { data: existingLead } = await supabaseAdmin
       .from('leads')
       .select('id, name, phone')
@@ -99,7 +86,6 @@ export async function POST(req: NextRequest) {
     const upsertName  = cleanName  || existingLead?.name  || null
     const upsertPhone = cleanPhone || existingLead?.phone || null
 
-    // Upsert — при конфликт на email обновяваме данните
     const { data: lead, error } = await supabaseAdmin
       .from('leads')
       .upsert(
@@ -130,22 +116,36 @@ export async function POST(req: NextRequest) {
         .throwOnError()
     }
 
-    // ✅ ФИКС: email_logs се пише СЕГА само след истински успешен
-    //    sendEmail() await — не безусловно преди тази проверка. Преди
-    //    вмъкваше "sent_at" ред дори когато emailSendingEnabled е false и
-    //    sendEmail() изобщо не е викан, значи "Email статистики" броеше
-    //    lead-ове, не реално изпратени имейли.
     if (emailSendingEnabled && lead) {
-      const { subject, html } = welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
+      // ✅ enrollAndRunFirstStep проверява дали има АКТИВЕН workflow за
+      //    'naruchnik_download' — ако да, записва lead-а и праща стъпка 1
+      //    (welcome) веднага синхронно тук, следващите стъпки поема
+      //    hourly tick-а (виж app/api/automations/tick/route.ts).
       try {
-        await sendEmail({ to: cleanEmail, subject, html })
-        await supabaseAdmin.from('email_logs').insert({
-          lead_id: lead.id, sequence_name: 'naruchnik', step_number: 1, sent_at: now,
-        })
+        await enrollAndRunFirstStep('naruchnik_download', lead.id, { naruchnik_slug: slug })
       } catch (err) {
-        console.error('[sendEmail welcome]', err)
-        // Нарочно НЕ пишем в email_logs при неуспех — редът там трябва
-        // да означава "реално пратено", не "опитахме се".
+        console.error('[automations] enrollAndRunFirstStep failed:', err)
+      }
+
+      // ── Fallback — старото директно изпращане, само ако workflow-ът
+      //    НЕ е активиран. Премахни целия този блок, щом активираш
+      //    workflow-а трайно от Настройки → Автоматизации.
+      const { count: activeWorkflowCount } = await supabaseAdmin
+        .from('workflows')
+        .select('id', { count: 'exact', head: true })
+        .eq('trigger_type', 'naruchnik_download')
+        .eq('active', true)
+
+      if (!activeWorkflowCount) {
+        const { subject, html } = welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
+        try {
+          await sendEmail({ to: cleanEmail, subject, html })
+          await supabaseAdmin.from('email_logs').insert({
+            lead_id: lead.id, sequence_name: 'naruchnik', step_number: 1, sent_at: now,
+          })
+        } catch (err) {
+          console.error('[sendEmail welcome fallback]', err)
+        }
       }
     }
 

@@ -1,26 +1,20 @@
 'use client'
-// app/admin/components/BlogTab.tsx — v2
-// ✅ ПРОМЯНА спрямо v1: добавен 'table' block type (BLOCK_TYPE_LABELS,
-//    newBlock(), TableBlockEditor) — истинска таблица за сравнения вместо
-//    bullet списък, вижте съответната промяна в app/blog/[slug]/
-//    BlogPostBody.tsx (case 'table') и blog.css (.bp-table*).
-//    ⚠️ ИЗИСКВА добавка в lib/blog.ts — виж бележката до BlogBlock export-а
-//    там (не е включена в този файл, защото lib/blog.ts не ми е предоставен).
+// app/admin/components/BlogTab.tsx — v3
+// ✅ ПРОМЯНА спрямо v2: добавен 'handbook_embed' block type (BLOCK_TYPE_LABELS,
+//    newBlock(), HandbookEmbedBlockEditor) — вгражда конкретен безплатен
+//    наръчник по средата на статия, с picker dropdown от активните
+//    наръчници (тегли се веднъж при mount от GET /api/naruchnici — същия
+//    публичен endpoint, който вече ползва HandbooksPanel/homepage).
+//    Виж съответната промяна в app/blog/[slug]/page.tsx
+//    (resolveHandbookEmbeds) и BlogPostBody.tsx (case 'handbook_embed').
+//    ⚠️ ИЗИСКВА добавка в lib/blog.ts (вече включена — виж v5 там).
 //
 // Admin таб за блог постовете. Съдържанието се пази като масив от типизирани
-// блокове (paragraph/heading/image/quote/list/table/product_embed/faq) — не
-// суров HTML — за да контролираме напълно рендъринга на публичната страница
-// (Next/Image, lazy loading, product карти), точно както описано в
-// lib/blog.ts и в SQL коментарите на blog_posts таблицата.
-//
-// Визуалният и функционален модел (inp стил, focusGreen/blurGray, save/del/
-// list rendering, ImageUpload/toast usage) следва 1:1 ContentTab.tsx, за да
-// не изглежда като чуждо тяло в admin панела.
-//
-// ⚠️ Добави таб запис в lib/constants.ts (виж коментара в Sidebar.tsx):
-//     { id: 'blog', label: 'Блог', icon: '📝' }
-//   и добави <BlogTab /> в switch/if-а, който рендва активния таб в
-//   app/admin/page.tsx (аналогично на <ContentTab />).
+// блокове (paragraph/heading/image/quote/list/table/product_embed/
+// handbook_embed/faq) — не суров HTML — за да контролираме напълно
+// рендъринга на публичната страница (Next/Image, lazy loading, product
+// карти), точно както описано в lib/blog.ts и в SQL коментарите на
+// blog_posts таблицата.
 
 import { useState, useEffect, useCallback } from 'react'
 import { ImageUpload } from '@/components/ui/ImageUpload'
@@ -54,34 +48,46 @@ function emptyPost(): Partial<BlogPost> {
   }
 }
 
+// ✅ НОВО — минимален shape на наръчник за picker-а. Идва директно от
+//    GET /api/naruchnici (публичен endpoint), не се нуждае от отделен
+//    admin-only route.
+interface HandbookOption { slug: string; title: string }
+
 // ─── Block Editor ───────────────────────────────────────────────────────────
 const BLOCK_TYPE_LABELS: Record<BlogBlock['type'], string> = {
-  paragraph:     '¶ Параграф',
-  heading:       '# Заглавие',
-  image:         '🖼️ Снимка',
-  quote:         '❝ Цитат',
-  list:          '• Списък',
-  table:         '▦ Таблица',
-  product_embed: '🛒 Продуктова карта',
-  faq:           '❓ FAQ',
+  paragraph:      '¶ Параграф',
+  heading:        '# Заглавие',
+  image:          '🖼️ Снимка',
+  quote:          '❝ Цитат',
+  list:           '• Списък',
+  table:          '▦ Таблица',
+  product_embed:  '🛒 Продуктова карта',
+  handbook_embed: '📘 Наръчник',
+  faq:            '❓ FAQ',
 }
 
 function newBlock(type: BlogBlock['type']): BlogBlock {
   switch (type) {
-    case 'paragraph':     return { type, text: '' }
-    case 'heading':       return { type, level: 2, text: '' }
-    case 'image':         return { type, url: '', alt: '', caption: '' }
-    case 'quote':         return { type, text: '', author: '' }
-    case 'list':          return { type, ordered: false, items: [] }
-    // ✅ НОВ — стартираме с 2 колони, за да не гледаш празен блок без
-    //    насока какво да пишеш; можеш да добавиш/махнеш колони отдолу.
+    case 'paragraph':      return { type, text: '' }
+    case 'heading':        return { type, level: 2, text: '' }
+    case 'image':          return { type, url: '', alt: '', caption: '' }
+    case 'quote':          return { type, text: '', author: '' }
+    case 'list':           return { type, ordered: false, items: [] }
     case 'table':          return { type, headers: ['Показател', 'Стойност'], rows: [] }
-    case 'product_embed': return { type, product_type: 'own', slug: '', note: '', pitch: '' }
-    case 'faq':           return { type, items: [] }
+    case 'product_embed':  return { type, product_type: 'own', slug: '', note: '', pitch: '' }
+    // ✅ НОВО
+    case 'handbook_embed': return { type, slug: '', note: '' }
+    case 'faq':            return { type, items: [] }
   }
 }
 
-function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: BlogBlock[]) => void }) {
+function BlockEditor({
+  blocks, onChange, handbookOptions,
+}: {
+  blocks: BlogBlock[]
+  onChange: (b: BlogBlock[]) => void
+  handbookOptions: HandbookOption[]
+}) {
   const update = (idx: number, block: BlogBlock) => onChange(blocks.map((b, i) => (i === idx ? block : b)))
   const remove = (idx: number) => onChange(blocks.filter((_, i) => i !== idx))
   const move   = (idx: number, dir: -1 | 1) => {
@@ -195,14 +201,6 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
               <input value={block.note || ''} placeholder="Кратък badge таг над картата (по избор, напр. „За здрава почва“)"
                 onChange={e => update(idx, { ...block, note: e.target.value })}
                 style={{ ...inp, fontSize: 13 }} onFocus={focusGreen} onBlur={blurGray} />
-              {/* ✅ НОВО: pitch — за разлика от note (кратък 2-4 думен badge)
-                  и продуктовото описание (генерично, идва от products
-                  таблицата, еднакво навсякъде), pitch е убедителен/
-                  образователен текст, специфичен точно за тази статия —
-                  свързва аргумента от текста току-що прочетен с избора на
-                  този продукт. Рендира се под описанието, преди бутона
-                  (виж .bp-product-embed-pitch / .bp-product-card-pitch в
-                  blog.css). Поддържа [текст](линк) синтаксис. */}
               <textarea rows={3} value={block.pitch || ''}
                 placeholder="Убедителен/обяснителен текст (по избор) — защо точно този продукт пасва тук, в контекста на статията..."
                 onChange={e => update(idx, { ...block, pitch: e.target.value })}
@@ -210,18 +208,20 @@ function BlockEditor({ blocks, onChange }: { blocks: BlogBlock[]; onChange: (b: 
               <div style={{ fontSize: 11, color: '#9ca3af' }}>
                 Пиши тук защо ИМЕННО в контекста на този параграф от статията този продукт е логичният избор — различно е от общото описание на продукта, което идва от продуктовите данни.
               </div>
-              {/* ✅ ФИКС: текстът тук лъжеше за реалното поведение след
-                  промяната в AffiliateTrackedLink.tsx — линкът към
-                  /produkt/[slug] вече НЕ получава rel="sponsored nofollow"
-                  (той е вътрешна страница на сайта, не директен линк към
-                  мърчанта — виж коментара в самия AffiliateTrackedLink.tsx).
-                  Остарял helper текст в admin панела, който противоречи на
-                  кода, е по-лошо от липсващ — подвежда точно човека, който
-                  трябва да разчита на него. */}
               <div style={{ fontSize: 11, color: '#9ca3af' }}>
                 На публичната страница линкът винаги е обикновен вътрешен линк (без <code>nofollow</code>) — реалният линк към мърчанта е отделен бутон "Купи" на самата продуктова страница.
               </div>
             </div>
+          )}
+
+          {/* ✅ НОВО */}
+          {block.type === 'handbook_embed' && (
+            <HandbookEmbedBlockEditor
+              slug={block.slug}
+              note={block.note || ''}
+              options={handbookOptions}
+              onChange={v => update(idx, { ...block, ...v })}
+            />
           )}
 
           {block.type === 'faq' && (
@@ -250,12 +250,46 @@ const miniBtn: React.CSSProperties = {
   color: '#374151', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
 }
 
-// ✅ НОВ — редактор за 'table' блока. Колоните се управляват като текст,
-// по едно заглавие на ред (същия UX модел като 'list' items), а редовете
-// са repeat-able групи от input-и — по един на колона, за да не се
-// налага ръчно броене на запетаи/разделители при много колони. При
-// промяна на броя колони изравняваме дължината на вече въведените
-// редове (padding/truncate), за да не се разминат индексите при рендър.
+// ✅ НОВ — picker за 'handbook_embed'. Dropdown, не свободен текст (за
+// разлика от product_embed slug полето) — за наръчниците списъкът е
+// малък (в момента 2), а dropdown елиминира изцяло риска от печатна
+// грешка в slug-а (product_embed slug-овете имат десетки продукти, там
+// dropdown би бил тромав; тук е точно обратното). Ако наръчникът,
+// записан в блока, вече не е сред активните options (изтрит/архивиран),
+// показваме предупреждение вместо тихо да изчезне.
+function HandbookEmbedBlockEditor({
+  slug, note, options, onChange,
+}: {
+  slug: string
+  note: string
+  options: HandbookOption[]
+  onChange: (v: { slug: string; note: string }) => void
+}) {
+  const isOrphan = slug && options.length > 0 && !options.some(o => o.slug === slug)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <select value={slug} onChange={e => onChange({ slug: e.target.value, note })} style={inp}>
+        <option value="">— Избери наръчник —</option>
+        {options.map(o => (
+          <option key={o.slug} value={o.slug}>{o.title}</option>
+        ))}
+      </select>
+      {isOrphan && (
+        <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>
+          ⚠ Slug „{slug}" не е сред активните наръчници — избери отново или провери дали не е архивиран.
+        </div>
+      )}
+      <input value={note} placeholder='Badge над картата (по избор, напр. "Свързан безплатен наръчник")'
+        onChange={e => onChange({ slug, note: e.target.value })}
+        style={{ ...inp, fontSize: 13 }} onFocus={focusGreen} onBlur={blurGray} />
+      <div style={{ fontSize: 11, color: '#9ca3af' }}>
+        Показва компактна карта с корица, заглавие и бутон "Свали безплатно" точно на това място в статията — читателят въвежда име/имейл/телефон inline, без да напуска страницата.
+      </div>
+    </div>
+  )
+}
+
+// ─── редактор за 'table' блока ──────────────────────────────────────────
 function TableBlockEditor({
   headers, rows, onChange,
 }: {
@@ -352,11 +386,13 @@ export function BlogTab() {
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<Partial<BlogPost> | null>(null)
   const [saving,  setSaving]  = useState(false)
-  // ✅ Категориите вече идват от blog_categories таблицата, не hardcoded.
   const [categories, setCategories] = useState<BlogCategory[]>([])
-  // ✅ Три под-таба: Постове (по подразбиране) / Категории / SEO и здраве —
-  //    категориите вече не са toggle вътре в пост, а самостоятелен екран.
   const [tab, setTab] = useState<'posts' | 'categories' | 'health'>('posts')
+  // ✅ НОВО — за handbook_embed picker-а. Публичен endpoint, не забавя
+  //    основното зареждане (успоредно, отделен useEffect); при грешка
+  //    просто остава празен списък — dropdown-ът показва само "— Избери
+  //    наръчник —", block editor-ът не гърми.
+  const [handbookOptions, setHandbookOptions] = useState<HandbookOption[]>([])
 
   const loadCategories = useCallback(async () => {
     try {
@@ -366,6 +402,17 @@ export function BlogTab() {
       setCategories(data.categories || [])
     } catch (e: any) {
       toast.error('Грешка при зареждане на категориите: ' + e.message)
+    }
+  }, [])
+
+  const loadHandbookOptions = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/naruchnici')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setHandbookOptions((data.naruchnici || []).map((n: any) => ({ slug: n.slug, title: n.title })))
+    } catch (e: any) {
+      console.error('[BlogTab] loadHandbookOptions:', e.message)
     }
   }, [])
 
@@ -383,17 +430,12 @@ export function BlogTab() {
     }
   }, [])
 
-  useEffect(() => { load(); loadCategories() }, [load, loadCategories])
+  useEffect(() => { load(); loadCategories(); loadHandbookOptions() }, [load, loadCategories, loadHandbookOptions])
 
   const set = (key: keyof BlogPost, val: any) => setEditing(prev => prev ? { ...prev, [key]: val } : null)
 
   const save = async () => {
     if (!editing) return
-    // ✅ НОВО: /blog/[slug] проверява категория ПРЕДИ пост (виж
-    //    app/blog/[slug]/page.tsx) — ако slug-ът на поста съвпада с
-    //    категориен slug, постът тихо става недостъпен (показва се
-    //    hub-ът на категорията вместо статията, без грешка). Пазим тук,
-    //    преди да стигне до базата.
     if (editing.slug && categories.some(c => c.slug === editing.slug)) {
       toast.error(`Slug "${editing.slug}" съвпада със съществуваща категория — избери друг`)
       return
@@ -439,15 +481,6 @@ export function BlogTab() {
     <div style={{ padding: '16px 14px', boxSizing: 'border-box', maxWidth: '100%' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}
         @media(max-width:768px){.blog-edit-panel{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;max-height:100vh!important;border-radius:0!important;z-index:200;overflow-y:auto}}
-        /* ✅ ФИКС: grid-template-columns преди беше inline style с фиксирано
-           "minmax(0,1fr) min(480px,100%)" при editing, БЕЗ media query да
-           го събаря обратно на 1 колона на мобилен. Edit панелът и без това
-           става position:fixed overlay на мобилен (правилото по-горе) —
-           значи "втората колона" на grid-а реално е празна там, но
-           дефиницията ѝ продължаваше да притиска/разтяга списъчната
-           колона отвъд екрана. Сега на мобилен грид-ът винаги е 1 колона;
-           2-колонният layout важи само на desktop (>768px), където и
-           двете колони реално се виждат една до друга. */
         .blog-tab-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media(min-width:769px){.blog-tab-grid--editing{grid-template-columns:minmax(0,1fr) min(480px,100%)}}
       `}</style>
@@ -464,13 +497,6 @@ export function BlogTab() {
         )}
       </div>
 
-      {/* ── Под-табове ───────────────────────────────────────────────────────
-          ✅ ФИКС: на тесен екран сборната ширина на трите бутона (особено
-          с по-големи бройки постове/категории) надвишаваше viewport-а и
-          нямаше как да се пренесат — редът просто изтичаше извън екрана и
-          бутащ целия admin панел в хоризонтален скрол. Сега лентата сама
-          скролва хоризонтално (overflowX auto + nowrap), без да разтяга
-          родителя, и скролбарът е скрит за по-чист вид. */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)', overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
         {([
           { id: 'posts',      label: `Постове (${posts.length})` },
@@ -493,18 +519,6 @@ export function BlogTab() {
       {tab === 'posts' && (
       <div className={`blog-tab-grid${editing ? ' blog-tab-grid--editing' : ''}`}>
 
-        {/* List
-            ✅ ФИКС: тази обвивка е ДИРЕКТНОТО дете на .blog-tab-grid (CSS
-            grid). Grid клетките по подразбиране НЕ могат да се свият под
-            min-content ширината на съдържанието си (automatic minimum
-            size), освен ако самата клетка няма overflow!=visible или
-            explicit minWidth:0. Заглавието на поста по-долу е
-            `whiteSpace:'nowrap'` — на дълго заглавие това принуждаваше
-            цялата grid колона (а с нея и целия admin panel) да се
-            разшири извън viewport-а на мобилен, избутвайки бутоните
-            "Редактирай"/"✕" физически извън видимия екран. minWidth:0
-            тук връща контрола на вложения `overflow:hidden` картов
-            контейнер и на flex:1/minWidth:0 на реда с бутоните. */}
         <div style={{ minWidth: 0 }}>
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             {loading ? (
@@ -548,7 +562,6 @@ export function BlogTab() {
           </div>
         </div>
 
-        {/* Editor panel */}
         {editing && (
           <div className="blog-edit-panel" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20, maxHeight: '88vh', overflowY: 'auto', overflowX: 'hidden', minWidth: 0, position: 'sticky', top: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -558,7 +571,6 @@ export function BlogTab() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-              {/* Статус */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>Статус</label>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -619,7 +631,6 @@ export function BlogTab() {
                   placeholder="торене, калций, домати" style={inp} onFocus={focusGreen} onBlur={blurGray} />
               </div>
 
-              {/* SEO divider */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
                 <div style={{ height: 1, flex: 1, background: '#e5e7eb' }} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 99, padding: '3px 10px' }}>🔍 SEO</span>
@@ -638,7 +649,6 @@ export function BlogTab() {
                   style={{ ...inp, resize: 'vertical' }} onFocus={focusGreen} onBlur={blurGray} />
               </div>
 
-              {/* Affiliate divider */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
                 <div style={{ height: 1, flex: 1, background: '#e5e7eb' }} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 99, padding: '3px 10px' }}>🔗 Affiliate</span>
@@ -666,14 +676,13 @@ export function BlogTab() {
                   placeholder="kristalon, ridomil-gold" style={{ ...inp, fontFamily: 'monospace', fontSize: 13 }} onFocus={focusGreen} onBlur={blurGray} />
               </div>
 
-              {/* Content divider */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
                 <div style={{ height: 1, flex: 1, background: '#e5e7eb' }} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 99, padding: '3px 10px' }}>✍️ Съдържание</span>
                 <div style={{ height: 1, flex: 1, background: '#e5e7eb' }} />
               </div>
 
-              <BlockEditor blocks={editing.content || []} onChange={v => set('content', v)} />
+              <BlockEditor blocks={editing.content || []} onChange={v => set('content', v)} handbookOptions={handbookOptions} />
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>

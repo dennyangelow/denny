@@ -1,50 +1,41 @@
-// app/blog/[slug]/BlogPostBody.tsx — v6
-// ✅ ПРОМЯНА спрямо v5:
-//   4) НОВ 'table' block type — истинска <table> за сравнения (напр.
-//      хуминови vs фулвови киселини, сравнение на продукти), вместо
-//      bullet списък. Виж case 'table' в Block(). Изисква съответна
-//      добавка в BlogBlock union-а (lib/blog.ts), admin block editor-а
-//      (BlogTab.tsx) и стилове (blog.css) — виж коментарите там.
-//
-// ✅ ПРОМЯНА спрямо v4:
-//   1) FIX бутони: ctaLabel за "own" продукти преди беше твърдо закачен
-//      за низа "Atlas Terra" независимо кой продукт реално е embed-нат —
-//      при два product_embed блока в статия (напр. базова формула + AMINO)
-//      двата CTA бутона показваха идентичен текст. Сега вземаме кратко
-//      име от resolved.name (частта преди " — ", ако има такова тире),
-//      затова "Atlas Terra" и "Atlas Terra AMINO" вече се различават.
-//   2) FIX layout: съседни product_embed блокове в content масива преди
-//      се рендираха един под друг (всеки взимаше пълна ширина + собствен
-//      margin). Добавена groupContentBlocks() — открива поредици от 2+
-//      съседни product_embed блока и ги обединява в общ .bp-product-row
-//      grid контейнер (2 колони desktop, 1 колона mobile под 640px).
-//      Единичен product_embed (без съсед) продължава да ползва старото
-//      хоризонтално .bp-product-embed оформление — непроменено, нисък риск.
-//   3) НОВ "card" вариант на ProductEmbed — вертикална карта с badge
-//      ribbon (от block.note), квадратна снимка, hover elevation — по-
-//      маркетингов вид за showcase реда. Активира се само за групите.
+// app/blog/[slug]/BlogPostBody.tsx — v7
+// ✅ ПРОМЯНА спрямо v6:
+//   1) НОВ case 'handbook_embed' — рендва <BlogHandbookEmbed> за ръчно
+//      вградени наръчник CTA-та в текста на статията.
+//   2) НОВА fallback карта в края на статията (след .bp-share, преди
+//      related) — само ако постът НЯМА нито един ръчен handbook_embed,
+//      но page.tsx е намерил наръчник за категорията му (fallbackHandbook).
+//   3) НОВ Table of Contents — collapsible <details>, показва се само при
+//      3+ heading блока (за по-кратки статии е излишен шум). id-тата
+//      идват от СПОДЕЛЕНАТА slugifyHeading (вече в lib/blog.ts, не
+//      дублирана локално тук — виж v6 бележката).
+//   4) НОВО "Обновено на" в .bp-meta — показва се само когато updated_at
+//      реално се различава от published_at (>1 ден разлика), за да не
+//      показва фиктивна "обновена" дата при обикновен re-save без реална
+//      промяна на съдържанието.
 
 import { SafeImg } from '@/components/client/SafeImg'
 import { FaqAccordion } from '@/components/blog/FaqAccordion'
 import { AffiliateTrackedLink } from '@/components/blog/AffiliateTrackedLink'
+import { BlogHandbookEmbed } from '@/components/blog/BlogHandbookEmbed'
+import type { ResolvedHandbook } from '@/components/blog/BlogHandbookEmbed'
 import { renderRichText } from '@/lib/blogRichText'
 import type { BlogPost, BlogBlock, BlogCategory } from '@/lib/blog'
-import { categoryLabel, categoryEmoji } from '@/lib/blog'
+import { categoryLabel, categoryEmoji, slugifyHeading, extractToc } from '@/lib/blog'
 import type { ResolvedEmbedProduct } from './page'
 
 interface Props {
-  post:             BlogPost
-  related:          BlogPost[]
-  resolvedProducts: Record<string, ResolvedEmbedProduct>
-  canonicalUrl:     string
-  categories:       BlogCategory[]
+  post:              BlogPost
+  related:           BlogPost[]
+  resolvedProducts:  Record<string, ResolvedEmbedProduct>
+  resolvedHandbooks: Record<string, ResolvedHandbook>
+  fallbackHandbook:  ResolvedHandbook | null
+  canonicalUrl:      string
+  categories:        BlogCategory[]
 }
 
-type ProductEmbedBlock = Extract<BlogBlock, { type: 'product_embed' }>
-
-function slugifyHeading(text: string): string {
-  return text.toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s+/g, '-').slice(0, 60)
-}
+type ProductEmbedBlock  = Extract<BlogBlock, { type: 'product_embed' }>
+type HandbookEmbedBlock = Extract<BlogBlock, { type: 'handbook_embed' }>
 
 // ✅ Групира content масива в сегменти: обикновени единични блокове +
 //    "редове" от 2+ съседни product_embed блокове. Само local reshuffle
@@ -90,20 +81,12 @@ function ProductEmbed({
 }) {
   if (!resolved) return null
 
-  // ✅ Кратко име за CTA — "Atlas Terra AMINO — Аминокиселини..." → "Atlas Terra AMINO"
   const shortName  = resolved.name.split(' — ')[0].trim()
   const priceLabel = resolved.price ? ` — ${resolved.price.toFixed(2)} ${resolved.price_currency || 'EUR'}` : ''
   const ctaLabel = resolved.affiliate
     ? `🔗 Виж продукта${priceLabel}`
     : `🌿 Разгледай ${shortName}${priceLabel}`
 
-  // ✅ НОВО поле pitch (по избор): убедителен/образователен текст, който
-  //    ТИ пишеш конкретно за тази статия — за разлика от resolved.description
-  //    (генерично описание на продукта, идва от products таблицата и е
-  //    еднакво навсякъде), pitch обяснява защо ИМЕННО тук, в контекста на
-  //    точно този параграф от статията, продуктът е логичният избор.
-  //    Рендира се под описанието, преди CTA бутона. Поддържа renderRichText
-  //    ([текст](линк) синтаксис), точно като paragraph/list/quote блоковете.
   if (variant === 'card') {
     return (
       <div className="bp-product-card">
@@ -128,10 +111,6 @@ function ProductEmbed({
         </div>
         {resolved.description && <p className="bp-product-card-desc">{resolved.description}</p>}
         {block.pitch && <p className="bp-product-card-pitch">{renderRichText(block.pitch)}</p>}
-        {/* ✅ ФИКС: partner идва вече реално от resolved.partner (виж
-            page.tsx resolveProductEmbeds), не от несъществуващ fallback.
-            source="blog" разграничава тези кликове от преките кликове на
-            /produkt/[slug] в статистиката. */}
         <AffiliateTrackedLink
           href={resolved.url}
           slug={resolved.key.split(':')[1]}
@@ -185,9 +164,11 @@ function ProductEmbed({
 function Block({
   block,
   resolvedProducts,
+  resolvedHandbooks,
 }: {
   block: BlogBlock
   resolvedProducts: Record<string, ResolvedEmbedProduct>
+  resolvedHandbooks: Record<string, ResolvedHandbook>
 }) {
   switch (block.type) {
     case 'paragraph':
@@ -223,15 +204,15 @@ function Block({
         : <ul>{block.items.map((it, i) => <li key={i}>{renderRichText(it)}</li>)}</ul>
     case 'product_embed':
       return <ProductEmbed block={block} resolved={resolvedProducts[`${block.product_type}:${block.slug}`]} />
+    case 'handbook_embed': {
+      const b = block as HandbookEmbedBlock
+      const resolved = resolvedHandbooks[b.slug]
+      if (!resolved) return null
+      return <BlogHandbookEmbed handbook={resolved} note={b.note} variant="context" />
+    }
     case 'faq':
       return <FaqAccordion items={block.items} />
     case 'table':
-      // ✅ НОВ блок тип — истинска <table> вместо bullet списък за
-      // сравнения (хуминови/фулвови, продуктови таблици и т.н.). Мобилен
-      // подход: хоризонтален скрол на самата таблица (.bp-table-wrap),
-      // не "картонизиране" на редовете — по-надежден за произволен брой
-      // колони и по-четим за реални данни. Първата колона е sticky, за да
-      // остане етикетът видим при скрол настрани (виж blog.css).
       return (
         <div className="bp-table-wrap">
           <table className="bp-table">
@@ -256,15 +237,50 @@ function Block({
   }
 }
 
-export default function BlogPostBody({ post, related, resolvedProducts, canonicalUrl, categories }: Props) {
+// ✅ НОВО — само collapsible <details>, без JS state (по-евтино, работи
+//    и без hydration). Отворено по подразбиране на desktop чувства ли се
+//    прекалено натрапчиво? Не — статиите тук са дълги, TOC-ът реално
+//    помага за ориентация, а <details open> е познат UI patern.
+function TableOfContents({ content }: { content: BlogBlock[] }) {
+  const toc = extractToc(content)
+  if (toc.length < 3) return null
+
+  return (
+    <details className="bp-toc" open>
+      <summary>Съдържание</summary>
+      <ul className="bp-toc-list">
+        {toc.map(entry => (
+          <li key={entry.id} className={entry.level === 3 ? 'bp-toc-h3' : undefined}>
+            <a href={`#${entry.id}`}>{entry.text}</a>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export default function BlogPostBody({
+  post, related, resolvedProducts, resolvedHandbooks, fallbackHandbook, canonicalUrl, categories,
+}: Props) {
   const publishedDate = post.published_at
     ? new Date(post.published_at).toLocaleDateString('bg-BG', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null
+
+  // ✅ НОВО — само ако реално има значима разлика (>1 ден), за да не
+  //    показва "Обновено на [същия ден]" при незначителен re-save.
+  const showUpdated = !!(post.updated_at && post.published_at &&
+    new Date(post.updated_at).getTime() - new Date(post.published_at).getTime() > DAY_MS)
+  const updatedDate = showUpdated
+    ? new Date(post.updated_at!).toLocaleDateString('bg-BG', { day: 'numeric', month: 'long', year: 'numeric' })
     : null
 
   const shareText = encodeURIComponent(post.title)
   const shareUrl   = encodeURIComponent(canonicalUrl)
 
   const segments = groupContentBlocks(post.content)
+  const hasManualHandbookEmbed = post.content.some(b => b.type === 'handbook_embed')
 
   return (
     <div className="bp-wrap">
@@ -291,6 +307,7 @@ export default function BlogPostBody({ post, related, resolvedProducts, canonica
       <div className="bp-meta">
         <span className="bp-meta-item">✍️ {post.author_name || 'Denny Angelow'}</span>
         {publishedDate && <span className="bp-meta-item">📅 {publishedDate}</span>}
+        {updatedDate && <span className="bp-meta-item">🔄 Обновено на {updatedDate}</span>}
         {post.reading_time_minutes && <span className="bp-meta-item">⏱️ {post.reading_time_minutes} мин четене</span>}
         {post.category && <span className="bp-meta-item">{categoryEmoji(post.category, categories)} {categoryLabel(post.category, categories)}</span>}
       </div>
@@ -301,6 +318,8 @@ export default function BlogPostBody({ post, related, resolvedProducts, canonica
           <span>Тази статия съдържа партньорски (affiliate) линкове. Ако купиш през тях, може да получим комисионна — без допълнителни разходи за теб.</span>
         </div>
       )}
+
+      <TableOfContents content={post.content} />
 
       <div className="bp-content">
         {segments.map(seg =>
@@ -316,10 +335,17 @@ export default function BlogPostBody({ post, related, resolvedProducts, canonica
               ))}
             </div>
           ) : (
-            <Block key={seg.key} block={seg.block} resolvedProducts={resolvedProducts} />
+            <Block key={seg.key} block={seg.block} resolvedProducts={resolvedProducts} resolvedHandbooks={resolvedHandbooks} />
           )
         )}
       </div>
+
+      {/* ✅ НОВО — автоматична fallback карта. Показва се САМО ако статията
+          няма нито един ръчно вграден handbook_embed И page.tsx е намерил
+          активен наръчник за категорията на поста. */}
+      {!hasManualHandbookEmbed && fallbackHandbook && (
+        <BlogHandbookEmbed handbook={fallbackHandbook} variant="fallback" />
+      )}
 
       <div className="bp-share">
         <a href={`https://www.facebook.com/sharer/sharer.php?u=${shareUrl}`} target="_blank" rel="noopener" aria-label="Сподели във Facebook">FB</a>

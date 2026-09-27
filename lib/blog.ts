@@ -1,12 +1,21 @@
-// lib/blog.ts — v4
-// ✅ ПРОМЯНА спрямо v3: добавено intro_text? поле към BlogCategory — уводен
-//    текст, показван на новата pillar страница /blog/[category-slug] (виж
-//    app/blog/[slug]/page.tsx и новия BlogCategoryHub.tsx). Реалният
-//    източник е intro_text колоната в blog_categories (виж
-//    add_category_intro.sql) — DEFAULT_BLOG_CATEGORIES по-долу е само
-//    fallback, същият модел като label/emoji досега.
+// lib/blog.ts — v5
+// ✅ ПРОМЯНА спрямо v4:
+//   1) НОВ 'handbook_embed' block type — контекстуално вграждане на
+//      безплатен наръчник по средата на статия (огледало на
+//      product_embed). Виж resolveHandbookEmbeds() в app/blog/[slug]/
+//      page.tsx и case 'handbook_embed' в BlogPostBody.tsx.
+//   2) ФИКС: DEFAULT_BLOG_CATEGORIES липсваше категорията 'osnovi'
+//      (Основи на почвата) — реалната blog_categories таблица вече я
+//      съдържа (sort_order 0), и вече има публикуван пост в нея
+//      ("Хуминови и фулвови киселини..."). Fallback списъкът трябваше да
+//      е 1:1 огледало на таблицата — ако Supabase заявката някога fail-не
+//      (мрежа/timeout), кодът пада на този fallback и категорията щеше
+//      тихо да "изчезне" от филтрите и от hub страницата, а постът в нея
+//      да стане "orphan category" (виж BlogHealthPanel.tsx). Добавена е
+//      сега, копирана 1:1 (slug/label/emoji/sort_order/intro_text) от
+//      blog_categories_rows export-а.
 //
-// (останалата част от файла непроменена спрямо v3)
+// (останалата част от файла непроменена спрямо v4)
 
 export type BlogBlockType =
   | 'paragraph'
@@ -16,6 +25,7 @@ export type BlogBlockType =
   | 'list'
   | 'table'
   | 'product_embed'
+  | 'handbook_embed'
   | 'faq'
 
 export interface BlogParagraphBlock { type: 'paragraph'; text: string }
@@ -36,6 +46,17 @@ export interface BlogProductEmbedBlock {
   note?: string
   pitch?: string
 }
+// ✅ НОВО — вграден CTA за конкретен безплатен наръчник, по slug от
+//    naruchnici таблицата. За разлика от product_embed, тук няма
+//    product_type (наръчниците не се делят на affiliate/own) и няма pitch
+//    (текстът "защо точно този наръчник" рядко е нужен — самото заглавие
+//    на наръчника обикновено казва достатъчно). note е по избор, за
+//    кратък badge над картата (напр. "Свързан безплатен наръчник").
+export interface BlogHandbookEmbedBlock {
+  type: 'handbook_embed'
+  slug: string
+  note?: string
+}
 export interface BlogFaqBlock {
   type: 'faq'
   items: { q: string; a: string }[]
@@ -49,6 +70,7 @@ export type BlogBlock =
   | BlogListBlock
   | BlogTableBlock
   | BlogProductEmbedBlock
+  | BlogHandbookEmbedBlock
   | BlogFaqBlock
 
 export interface BlogPost {
@@ -95,23 +117,30 @@ export interface BlogCategory {
   emoji:       string
   sort_order?: number
   active?:     boolean
-  // ✅ НОВО — уводен текст за pillar страницата /blog/[category-slug].
+  // ✅ уводен текст за pillar страницата /blog/[category-slug].
   //    Незадължително нарочно — стари редове без попълнена колона просто
   //    не показват уводен параграф, вместо да гръмне рендирането.
   intro_text?: string
 }
 
+// ⚠️ Дръж този списък 1:1 синхронизиран с реалните редове в
+//    blog_categories (slug/label/emoji/sort_order/intro_text) — той е
+//    fallback за реален production сценарий (DB заявка fail-va), не
+//    декоративен списък. При добавяне/премахване на категория през
+//    админ панела, огледай промяната и тук.
 export const DEFAULT_BLOG_CATEGORIES: BlogCategory[] = [
+  { slug: 'osnovi',     label: 'Основи на почвата',   emoji: '🟫🌱', sort_order: 0,
+    intro_text: 'Основите на всяко успешно отглеждане не са в тора, който купуваш, а в почвата, върху която разчиташ. Тук разглеждаме структура, pH, хумус, микробиом и всичко останало, което определя дали хранителните елементи изобщо стигат до корена.' },
   { slug: 'domati',     label: 'Домати',              emoji: '🍅', sort_order: 1,
     intro_text: 'Всичко за отглеждането на домати — от схема на торене по фази, през разпознаване на болести, до разстояние на засаждане и разликите между оранжерийно и полско производство.' },
   { slug: 'krastavici', label: 'Краставици',          emoji: '🥒', sort_order: 2,
     intro_text: 'Практически ръководства за отглеждане на краставици — торене, поливане, болести и вредители, специфични за културата.' },
   { slug: 'torene',     label: 'Торене',              emoji: '🌱', sort_order: 3,
-    intro_text: 'Универсални принципи на торене, независещи от конкретна култура.' },
+    intro_text: 'Универсални принципи на торене, независещи от конкретна култура — какво е NPK, как се чете етикет на тор, кога течен и кога гранулиран тор е правилният избор.' },
   { slug: 'oranzherii', label: 'Оранжерии',           emoji: '🏡', sort_order: 4,
-    intro_text: 'Инфраструктура и климат контрол за оранжерийно производство.' },
+    intro_text: 'Инфраструктура и климат контрол за оранжерийно производство — вентилация, покритие, температурен режим и всичко, което е еднакво независимо от културата вътре.' },
   { slug: 'bolesti',    label: 'Болести и вредители', emoji: '🐛', sort_order: 5,
-    intro_text: 'Обща теория за болести и вредители, независеща от конкретна култура.' },
+    intro_text: 'Обща теория за болести и вредители — как действат фунгицидите като клас, защо е важна ротацията на препарати, как да разпознаеш проблем навреме.' },
   { slug: 'novini',     label: 'Новини',              emoji: '📰', sort_order: 6,
     intro_text: 'Новини и съобщения от Denny Angelow.' },
 ]
@@ -157,4 +186,22 @@ export function getAllPostImages(post: BlogPost): { url: string; alt: string }[]
     if (g?.url) images.push({ url: g.url, alt: g.alt || `${post.title} — снимка ${i + 2}` })
   })
   return images
+}
+
+// ✅ НОВО — извлича {id, text, level} за всеки heading блок в статия, в
+//    реда, в който се срещат. Използва се от Table of Contents-а
+//    (BlogPostBody.tsx) — id-то трябва да е ИДЕНТИЧНО с това, което
+//    slugifyHeading() генерира при самото рендиране на h2/h3, иначе TOC
+//    линковете сочат към нищо. Държим slugify логиката тук, СПОДЕЛЕНА,
+//    вместо дублирана на две места, за да не се разминат някой ден.
+export function slugifyHeading(text: string): string {
+  return text.toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s+/g, '-').slice(0, 60)
+}
+
+export interface TocEntry { id: string; text: string; level: 2 | 3 }
+
+export function extractToc(content: BlogBlock[]): TocEntry[] {
+  return content
+    .filter((b): b is BlogHeadingBlock => b.type === 'heading')
+    .map(b => ({ id: slugifyHeading(b.text), text: b.text, level: b.level }))
 }

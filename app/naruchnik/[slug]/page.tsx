@@ -1,5 +1,17 @@
-// app/naruchnik/[slug]/page.tsx — v16
-// ✅ ПОПРАВКИ спрямо v15:
+// app/naruchnik/[slug]/page.tsx — v17
+// ✅ ПОПРАВКИ спрямо v16:
+//   - downloadsCount (показания на екрана в NaruchnikClient) вече идва от
+//     getHandbookDownloadCounts() — реално преброяване от `leads`, същата
+//     функция, която вече ползва началната страница (app/page.tsx). Преди
+//     идваше от nar.downloads_count — потвърдено ръчно/фиктивно число,
+//     различно от homepage числото за СЪЩИЯ наръчник (виж чат бележката).
+//   - Схема данните (interactionStatistic) вече също ползват това реално
+//     число, не nar.downloads — `nar.downloads` се оказа счупен брояч,
+//     заседнал на 2-4 въпреки хиляди реални лийда, значи schema почти
+//     никога не носеше interactionStatistic. nar.downloads/downloads_count
+//     остават в типа само за обратна съвместимост на админ панела.
+//
+// ✅ ПОПРАВКИ спрямо v15 (запазени):
 //   - ПРЕМАХНАТИ фалшивите fallback-и `|| 4.9` / `|| 847` / `|| 6000` —
 //     отиваха БЕЗ проверка направо в Book schema (aggregateRating/
 //     interactionStatistic), т.е. Google получаваше измислени 4.9★/847
@@ -7,9 +19,6 @@
 //   - Рейтингът/отзивите вече идват от новата обединена `reviews` таблица
 //     (lib/reviews.ts), не от nar.avg_rating/nar.reviews_count (които бяха
 //     ръчно въведени, силно завишени числа спрямо реалните тестимониали).
-//   - interactionStatistic (сваляния) вече взима РЕАЛНИЯ tracked брояч
-//     `nar.downloads`, не маркетинговото `downloads_count` — схема данните
-//     трябва да са верни, за разлика от показания на екрана маркетинг текст.
 //   - aggregateRating/interactionStatistic вече се включват в schema-та
 //     САМО ако има реални данни (hasRealRating / downloads > 0) — никога
 //     повече фабрикувани стойности.
@@ -24,6 +33,12 @@ import { getSettings } from '@/lib/settings'
 import { getHeaderCartConfig } from '@/lib/header-cart'
 // ✅ НОВО — обединената reviews система
 import { getReviews, getAggregateRating, hasRealRating } from '@/lib/reviews'
+// ✅ НОВО — реалният брой изтегляния, преброен от leads (идентично на
+// homepage HomePage() — виж бележката при downloadsCount по-долу). Преди
+// тази страница показваше nar.downloads_count (ръчно, фиктивно число) на
+// екрана, докато началната страница вече показва реалното от leads —
+// двете страници показваха различни числа за един и същ наръчник.
+import { getHandbookDownloadCounts } from '@/lib/social-proof'
 
 export const revalidate = 3600
 
@@ -175,19 +190,21 @@ export default async function NaruchnikPage({
   ])
   if (!nar) notFound()
 
-  const [realReviews, aggregateRatingData] = await Promise.all([
+  const [realReviews, aggregateRatingData, realDownloadCounts] = await Promise.all([
     getReviews('handbook', nar.id),
     getAggregateRating('handbook', nar.id),
+    getHandbookDownloadCounts(),
   ])
 
   const headerCart = getHeaderCartConfig(settings, 'naruchnik')
 
   const canonicalUrl   = `${BASE_URL}/naruchnik/${nar.slug}`
-  // ⚠️ downloads_count е маркетингово число, ръчно въведено в admin панела —
-  // остава за екрана (виж бележка при NaruchnikClient по-долу), но НЕ отива
-  // в schema.org markup — там ползваме само реалния tracked брояч.
-  const downloadsCount = nar.downloads_count || 0
-  const realDownloads  = nar.downloads || 0
+  // ✅ ФИКС: едно и също реално число навсякъде — на екрана (NaruchnikClient),
+  // в schema-та (interactionStatistic) и на началната страница за същия
+  // наръчник. nar.downloads_count/nar.downloads остават в типа само за
+  // обратна съвместимост на стария админ панел, никъде повече не се четат.
+  const downloadsCount = realDownloadCounts[nar.slug] || 0
+  const realDownloads  = downloadsCount
 
   const allImages       = buildImageList(nar.cover_image_url, nar.image_alt, nar.gallery_urls, `${nar.title} — PDF наръчник`)
   const ogImage         = allImages[0]?.url || `${BASE_URL}/og-image.jpg`
@@ -263,8 +280,8 @@ export default async function NaruchnikPage({
     }
   }
 
-  // ✅ interactionStatistic — САМО ако имаме реален tracked брой сваляния
-  // (не маркетинговото downloads_count)
+  // ✅ interactionStatistic — САМО ако имаме реален брой сваляния (от leads,
+  // не маркетинговото downloads_count и не счупения nar.downloads брояч)
   if (realDownloads > 0) {
     bookSchema.interactionStatistic = {
       '@type':              'InteractionCounter',

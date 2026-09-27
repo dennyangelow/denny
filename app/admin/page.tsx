@@ -1,12 +1,17 @@
 'use client'
-// app/admin/page.tsx — v7
+// app/admin/page.tsx — v8
+// ✅ v8: 'leads' и 'email-stats' табовете обединени в един 📧 EmailTab
+//    (виж app/admin/components/EmailTab.tsx) — Automations вече също
+//    живее там (подтаб), не в Маркетинг. Активният tab id е 'email' —
+//    виж бележката в lib/constants.ts, която трябва да се обнови ръчно
+//    (NAV_ITEMS: 'leads' + 'email-stats' → един ред с id 'email').
 // ✅ v7: onOpenCustomer от DashboardTab → превключва на Поръчки и отваря CustomerProfileModal
 
 import { useState, useEffect, useCallback } from 'react'
 import { Sidebar }            from './components/Sidebar'
 import { DashboardTab }       from './components/DashboardTab'
 import { OrdersTab }          from './components/OrdersTab'
-import { LeadsTab }           from './components/LeadsTab'
+import { EmailTab }           from './components/EmailTab'
 import { ContentTab }         from './components/ContentTab'
 import { BlogTab }            from './components/BlogTab'
 import { AnalyticsTab }       from './components/AnalyticsTab'
@@ -16,7 +21,6 @@ import { FaqTab }             from './components/FaqTab'
 // система — вече покрива и продуктите, и наръчниците, и началната)
 import { ReviewsTab }         from './components/ReviewsTab'
 import { MarketingTab }       from './components/MarketingTab'
-import { EmailStatsTab }      from './components/EmailStatsTab'
 import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
@@ -171,8 +175,10 @@ export default function AdminPage() {
             />
           )}
 
-          {tab === 'leads'        && <LeadsTab leads={leads} />}
-          {tab === 'email-stats'  && <EmailStatsTab />}
+          {/* ✅ v8: заменя старите отделни 'leads' и 'email-stats' —
+              EmailTab вътрешно решава кой подтаб (Листа/Статистики/
+              Автоматизации) да покаже. */}
+          {(tab as string) === 'email' && <EmailTab leads={leads} />}
           {tab === 'content'      && <ContentTab />}
           {tab === 'blog'         && <BlogTab />}
           {tab === 'marketing'    && <MarketingTab />}

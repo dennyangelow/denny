@@ -1,47 +1,43 @@
 'use client'
 
-// components/client/HandbooksPanel.tsx
+// components/client/HandbooksPanel.tsx — v5
+// ✅ ПРОМЯНА спрямо v4:
+//   1) Handbook вече приема avg_rating/reviews_count (реални, от lib/reviews.ts
+//      getAggregateRatingsBatch — виж page.tsx). Звездите се показват САМО
+//      ако и двете са реални (>0) — идентичен стандарт на hasRealRating() в
+//      NaruchnikClient.tsx/naruchnik/page.tsx. Преди бяха твърди ★★★★★ без
+//      подкрепящи данни — същият тип проблем, заради който по-рано махнахме
+//      фалшивата "изтича след..." спешност.
+//   2) Премахнати повторните "БЕЗПЛАТНО" пилюли — на картата, в потвърждението
+//      във формата, и думата "безплатно" в долния trust ред. Остават точно
+//      2 споменавания в целия панел: заглавието горе и footer-а долу.
+//      Причина: 7 повторения на "безплатно" в едно UI парче реално понижава
+//      доверието, не го увеличава.
+//   3. ФИКС (искане на потребителя): reset() вече НЕ изчиства
+//      hbName/hbEmail/hbPhone. При избор на ВТОРИЯ наръчник след успешно
+//      сваляне на първия, формата идва предпопълнена и вече валидирана
+//      (зелени "✓ Добре" отметки) — един клик върху "Изтегли", не
+//      препечатване на трите полета отново. downloadedSlugs проследява кои
+//      наръчници вече са свалени в тази сесия, за да покажем "✓ Свален"
+//      индикатор в списъка вместо да предполагаме, че потребителят помни.
+//   4) Card subtitle остава единственото описателно поле на всяка карта —
+//      виж бележката в чат отговора за препоръчания нов copy текст, който
+//      да се въведе в admin панела (subtitle колоната на naruchnici) — не е
+//      частта от кода, а съдържание, което трябва да редактираш в базата.
 
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
-// ✅ type-only import — не влачи supabaseAdmin runtime кода в клиентския
-//    бъндъл, само TypeScript формата на обекта.
 import type { ActivityEvent } from '@/lib/social-proof'
+import { validateName, validateEmail, validatePhone } from '@/lib/leadValidation'
 
 interface Handbook {
   slug: string; title: string; subtitle: string
   emoji: string; color: string; image_url?: string; bg: string; badge: string
-  // ✅ НОВО — реален брой изтегляния за тази книга (от leads таблицата,
-  //    виж lib/social-proof.ts getHandbookDownloadCounts). По избор, за
-  //    да не счупи стари извиквания, докато page.tsx не го подава.
   downloads_count?: number
+  // ✅ НОВО — реални, от reviews таблицата (getAggregateRatingsBatch('handbook', ids))
+  avg_rating?: number
+  reviews_count?: number
 }
-
-function validateName(v: string) {
-  if (!v.trim()) return 'Името е задължително'
-  if (v.trim().length < 2) return 'Въведи поне 2 символа'
-  return ''
-}
-function validateEmail(v: string) {
-  const val = v.trim().toLowerCase()
-  if (!val) return 'Имейлът е задължителен'
-  // Блокира кирилица и unicode при въвеждане
-  for (let i = 0; i < val.length; i++) { if (val.charCodeAt(i) > 127) return 'Само латиница — без кирилица' }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val)) return 'Невалиден имейл адрес'
-  return ''
-}
-function validatePhone(v: string) {
-  if (!v.trim()) return 'Телефонът е задължителен'
-  if (v.replace(/\D/g, '').length < 9) return 'Въведи валиден телефон'
-  return ''
-}
-
-// ✅ ФИКС: randomDownloads()/SOCIAL_NAMES премахнати — генерираха
-//    произволно число (10-49) и произволно избрано измислено име от
-//    твърд списък за "🎉 [Име] току-що изтегли наръчник" popup-а. Сега
-//    реалните събития идват през recentActivity prop-а (виж
-//    lib/social-proof.ts getRecentActivity() — leads + orders на
-//    собствени продукти, смесени и сортирани по време).
 
 const ACTIVITY_LABEL: Record<ActivityEvent['type'], string> = {
   download: 'току-що изтегли',
@@ -56,21 +52,9 @@ export function HandbooksPanel({
   ctaSubtitle,
 }: {
   handbooks: Handbook[]
-  /** ✅ НОВО — реални последни събития (изтегляния + поръчки на собствени
-   *  продукти), от lib/social-proof.ts getRecentActivity(). Празен масив
-   *  = popup-ът просто не се показва (никога fallback към измислени данни). */
   recentActivity?: ActivityEvent[]
-  /** ✅ НОВО — реален общ брой изтегляния (сума по всички наръчници).
-   *  Ако не е подадено, се смята от handbooks[].downloads_count. */
   totalDownloads?: number
-  /** ✅ НОВО — settings.cta_title от админ панела (Настройки → "CTA
-   *  заглавие (долу)"). Преди тези полета се записваха, но никога не се
-   *  рендваха никъде — тук е твърдо закаченото "Вземи Наръчника Безплатно"
-   *  замествано. undefined = fallback към старото твърдо текстче, за да
-   *  не остане празна карта, ако page.tsx не го подаде. */
   ctaTitle?: string
-  /** ✅ НОВО — settings.cta_subtitle, вече с подменено {count} и минало
-   *  през parseBold() СЪРВЪРНО в page.tsx (React nodes, не суров string). */
   ctaSubtitle?: React.ReactNode
 }) {
   const [selectedSlug, setSelectedSlug]   = useState<string | null>(null)
@@ -84,12 +68,12 @@ export function HandbooksPanel({
   const [activeEvent, setActiveEvent]     = useState<ActivityEvent | null>(null)
   const [showNotif, setShowNotif]         = useState(false)
   const [pulseBtn, setPulseBtn]           = useState(false)
+  // ✅ НОВО — кои наръчници вече са свалени в тази сесия (за "✓ Свален" бадж
+  //    в списъка и за да знаем кога да предпопълним, а не изчистим формата)
+  const [downloadedSlugs, setDownloadedSlugs] = useState<Set<string>>(new Set())
 
   const computedTotal = totalDownloads ?? handbooks.reduce((s, h) => s + (h.downloads_count || 0), 0)
 
-  // ✅ ФИКС: цикли през РЕАЛНИ събития вместо еднократен фалшив popup.
-  //    Без данни (recentActivity празен, напр. нов сайт без leads/orders
-  //    още) — просто не показва нищо, вместо да си измисля.
   useEffect(() => {
     if (recentActivity.length === 0) return
     let idx = 0
@@ -116,10 +100,13 @@ export function HandbooksPanel({
 
   const touch = (field: keyof typeof touched) => setTouched(t => ({ ...t, [field]: true }))
 
+  // ✅ ФИКС: преди изчистваше и hbName/hbEmail/hbPhone — потребителят
+  //    трябваше да препечата трите полета за ВСЕКИ следващ наръчник, въпреки
+  //    че вече са валидирани от първото сваляне. Сега reset() пипа само
+  //    selectedSlug/hbDone/submitError — данните остават, "✓ Добре" отметките
+  //    остават зелени, и вторият наръчник е буквално един клик.
   const reset = () => {
     setHbDone(null); setSelectedSlug(null)
-    setHbName(''); setHbEmail(''); setHbPhone('')
-    setTouched({ name: false, email: false, phone: false })
     setSubmitError('')
   }
 
@@ -137,6 +124,7 @@ export function HandbooksPanel({
       const nar  = (data.naruchnici || [])[0]
       if (nar?.pdf_url) {
         setHbDone({ pdfUrl: nar.pdf_url, title: nar.title })
+        setDownloadedSlugs(prev => new Set(prev).add(slug))
         const a = document.createElement('a')
         a.href = nar.pdf_url; a.download = nar.title + '.pdf'; a.target = '_blank'
         document.body.appendChild(a); a.click(); document.body.removeChild(a)
@@ -145,7 +133,6 @@ export function HandbooksPanel({
     setHbLoading(false)
   }
 
-  // Светла тема — полета
   const fieldStyle = (err: string, isTouched: boolean) => ({
     padding: '13px 16px',
     borderRadius: 12,
@@ -177,22 +164,15 @@ export function HandbooksPanel({
         pointerEvents: 'none',
       }}>
         <span style={{ fontSize: 20, flexShrink: 0 }}>🎉</span>
-        {/* ✅ ФИКС: реалните order/download събития могат да имат по-дълъг
-            текст от старото фиксирано "изтегли наръчник" — без minWidth:0
-            (позволява на flex детето да се свие под съдържанието си) и
-            noWrap+ellipsis тук, дълъг текст пренасяше на 2 реда, раздуваше
-            popup кутията надолу и покриваше хедъра под нея (виж скрийншота). */}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ color: '#15803d', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeEvent?.firstName}</div>
           <div style={{ color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeEvent ? ACTIVITY_LABEL[activeEvent.type] : ''} {activeEvent?.label}</div>
         </div>
-        <div style={{ marginLeft: 'auto', flexShrink: 0, background: '#dcfce7', borderRadius: 20, padding: '2px 8px', color: '#15803d', fontSize: 10, fontWeight: 800 }}>LIVE</div>
+        <div style={{ marginLeft: 'auto', flexShrink: 0, background: '#dcfce7', borderRadius: 20, padding: '2px 8px', color: '#15803d', fontSize: 10, fontWeight: 800 }}>НА ЖИВО</div>
       </div>
 
       {/* ── Хедър ── */}
       <div style={{ textAlign: 'center', marginBottom: 16 }}>
-      
-
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 6 }}>
           <span style={{ fontSize: 26 }}>🎁</span>
           <div style={{ fontWeight: 900, fontSize: 20, color: '#14532d', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
@@ -202,7 +182,7 @@ export function HandbooksPanel({
         <div style={{ color: '#6b7280', fontSize: 13 }}>
           {ctaSubtitle ?? (computedTotal > 0
             ? <>Над <strong style={{ color: '#15803d' }}>{computedTotal.toLocaleString('bg-BG')}</strong> фермери вече го изтеглиха</>
-            : <>Изтегли безплатно</>)}
+            : <>Изтегли сега</>)}
         </div>
       </div>
 
@@ -224,9 +204,11 @@ export function HandbooksPanel({
             📥 Изтегли отново
           </a>
           <br />
-          <button onClick={reset} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 13, textDecoration: 'underline', marginTop: 4 }}>
-            ← Вземи и другия наръчник
-          </button>
+          {handbooks.some(h => !downloadedSlugs.has(h.slug)) && (
+            <button onClick={reset} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 13, textDecoration: 'underline', marginTop: 4 }}>
+              ← Вземи и другия наръчник (1 клик, данните са запазени)
+            </button>
+          )}
         </div>
 
       /* ── Форма ── */
@@ -244,22 +226,28 @@ export function HandbooksPanel({
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: hb.color, fontSize: 10, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.07em', marginBottom: 3 }}>{hb.badge}</div>
-                  <div style={{ color: '#14532d', fontWeight: 800, fontSize: 13, lineHeight: 1.3, marginBottom: 4 }}>{hb.title}</div>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#dcfce7', borderRadius: 6, padding: '2px 8px' }}>
-                    <span style={{ color: '#15803d', fontSize: 10, fontWeight: 800 }}>✦ НАПЪЛНО БЕЗПЛАТНО</span>
-                  </div>
+                  <div style={{ color: '#14532d', fontWeight: 800, fontSize: 13, lineHeight: 1.3 }}>{hb.title}</div>
                 </div>
                 <button onClick={() => setSelectedSlug(null)} style={{ background: '#f3f4f6', border: '1.5px solid #e5e7eb', color: '#6b7280', borderRadius: 8, width: 28, height: 28, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
               </div>
             )
           })()}
 
-          <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 16 }}>⚡</span>
-            <span style={{ color: '#374151', fontSize: 12, lineHeight: 1.4 }}>
-              Попълни само <strong style={{ color: '#15803d' }}>3 полета</strong> и наръчникът се сваля <strong style={{ color: '#14532d' }}>веднага</strong> — без регистрация
-            </span>
-          </div>
+          {isValid ? (
+            <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>✓</span>
+              <span style={{ color: '#374151', fontSize: 12, lineHeight: 1.4 }}>
+                Данните ти вече са попълнени — просто натисни <strong style={{ color: '#14532d' }}>Изтегли</strong>
+              </span>
+            </div>
+          ) : (
+            <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>⚡</span>
+              <span style={{ color: '#374151', fontSize: 12, lineHeight: 1.4 }}>
+                Попълни само <strong style={{ color: '#15803d' }}>3 полета</strong> и наръчникът се сваля <strong style={{ color: '#14532d' }}>веднага</strong> — без регистрация
+              </span>
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {/* Ime */}
@@ -333,21 +321,18 @@ export function HandbooksPanel({
                 letterSpacing: '-0.01em',
               }}
             >
-              {hbLoading ? '⏳ Подготвям наръчника...' : isValid ? '📥 Изтегли Безплатно Сега →' : '📋 Попълни всички полета'}
+              {hbLoading ? '⏳ Подготвям наръчника...' : isValid ? '📥 Изтегли Сега →' : '📋 Попълни всички полета'}
             </button>
-
-         
           </div>
         </div>
 
       /* ── Списък наръчници ── */
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-        
-
-          {/* Карти */}
-          {handbooks.map((hb, idx) => (
+          {handbooks.map((hb, idx) => {
+            const hasRealRating = !!(hb.avg_rating && hb.reviews_count && hb.avg_rating > 0 && hb.reviews_count > 0)
+            const alreadyDownloaded = downloadedSlugs.has(hb.slug)
+            return (
             <button
               key={hb.slug}
               onClick={() => setSelectedSlug(hb.slug)}
@@ -365,7 +350,7 @@ export function HandbooksPanel({
                 overflow: 'hidden',
                 boxShadow: '0 2px 14px rgba(22,163,74,0.07)',
                 minHeight: 100,
-                animation: pulseBtn && idx === 0 ? 'subtlePulse 2.5s ease-in-out infinite' : 'none',
+                animation: pulseBtn && idx === 0 && !alreadyDownloaded ? 'subtlePulse 2.5s ease-in-out infinite' : 'none',
               } as React.CSSProperties}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-3px)'
@@ -378,7 +363,6 @@ export function HandbooksPanel({
                 e.currentTarget.style.borderColor = '#d1fae5'
               }}
             >
-              {/* Корица — заоблени леви ъгли */}
               <div style={{
                 width: 82, height: 108, flexShrink: 0,
                 overflow: 'hidden', position: 'relative',
@@ -391,25 +375,7 @@ export function HandbooksPanel({
                     alt={hb.title}
                     width={82}
                     height={108}
-                    // ✅ ФИКС LCP (v3): Chrome DevTools Performance trace потвърди
-                    // реалния LCP елемент — `h1.hero-title` (ТЕКСТ, не картинка!).
-                    // priority={idx<2} държеше 2 картинки на fetchpriority="high",
-                    // които на throttled мрежа се бореха за bandwidth точно с
-                    // Cormorant шрифта на H1-ката (виж layout.tsx) — trace-ът показа
-                    // 1170ms закъснение точно заради тази конкуренция. priority само
-                    // на idx===0 пази картинката discoverable (Next/Image best
-                    // practice за над-сгъва съдържание), без да троши bandwidth-а,
-                    // от който реално се нуждае LCP текстът.
                     priority={idx === 0}
-                    // ✅ ФИКС "Improve image delivery" — 50 KiB спестявания.
-                    // Без sizes, Next/Image избира следващия наличен bucket от
-                    // imageSizes (256px) за реален displayed размер ~144-164px
-                    // на мобилно (DPR emulation). sizes="82px" казва точния
-                    // CSS размер → Next пресмята правилния bucket (виж и
-                    // next.config.js, добавен е 164px bucket). quality={50}
-                    // (понижено от 65) маха и последните ~4.6 KiB — на 82px
-                    // реален displayed размер компресионната разлика между
-                    // 50 и 65 е практически невидима за корица на наръчник.
                     sizes="82px"
                     quality={50}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
@@ -421,11 +387,9 @@ export function HandbooksPanel({
                 ) : (
                   <span style={{ fontSize: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>{hb.emoji}</span>
                 )}
-                {/* Цветна лента вляво */}
                 <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: `linear-gradient(180deg, ${hb.color}, ${hb.color}88)` }} />
               </div>
 
-              {/* Текст */}
               <div style={{ flex: 1, padding: '13px 14px 13px 15px', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                   <div style={{
@@ -434,9 +398,15 @@ export function HandbooksPanel({
                     textTransform: 'uppercase' as const,
                     borderRadius: 5, padding: '2px 7px', border: `1px solid ${hb.color}35`,
                   }}>{hb.badge}</div>
-                  <div style={{ background: '#dcfce7', color: '#15803d', fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', borderRadius: 5, padding: '2px 7px', border: '1px solid #a7f3d0' }}>
-                    БЕЗПЛАТНО
-                  </div>
+                  {/* ✅ ФИКС: махнат отделен "БЕЗПЛАТНО" бадж тук — заглавието
+                      горе и footer-ът долу вече го казват; на всяка карта е
+                      трето/четвърто повторение. При свалян наръчник показваме
+                      вместо това честен статус. */}
+                  {alreadyDownloaded && (
+                    <div style={{ background: '#dcfce7', color: '#15803d', fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', borderRadius: 5, padding: '2px 7px', border: '1px solid #a7f3d0' }}>
+                      ✓ СВАЛЕН
+                    </div>
+                  )}
                 </div>
                 <div style={{ color: '#14532d', fontWeight: 800, fontSize: 14.5, lineHeight: 1.25, marginBottom: 5 }}>{hb.title}</div>
                 <div style={{
@@ -444,15 +414,24 @@ export function HandbooksPanel({
                   overflow: 'hidden', display: '-webkit-box',
                   WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                 } as React.CSSProperties}>{hb.subtitle}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 7 }}>
-                  {'★★★★★'.split('').map((s, i) => <span key={i} style={{ color: '#f59e0b', fontSize: 11 }}>{s}</span>)}
+                {/* ✅ ФИКС: звезди само ако hasRealRating (реални avg_rating/
+                    reviews_count от reviews таблицата) — иначе просто броя
+                    сваляния, без измислен рейтинг. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 7, flexWrap: 'wrap' }}>
+                  {hasRealRating && (
+                    <>
+                      <span style={{ color: '#f59e0b', fontSize: 11, fontWeight: 700 }}>★ {hb.avg_rating!.toFixed(1)}/5</span>
+                      <span style={{ color: '#d1d5db', fontSize: 10 }}>·</span>
+                      <span style={{ color: '#9ca3af', fontSize: 10.5 }}>{hb.reviews_count!.toLocaleString('bg-BG')} отзива</span>
+                      {!!hb.downloads_count && <span style={{ color: '#d1d5db', fontSize: 10 }}>·</span>}
+                    </>
+                  )}
                   {!!hb.downloads_count && (
-                    <span style={{ color: '#9ca3af', fontSize: 10.5, marginLeft: 3 }}>{hb.downloads_count.toLocaleString('bg-BG')}+ изтеглени</span>
+                    <span style={{ color: '#9ca3af', fontSize: 10.5 }}>{hb.downloads_count.toLocaleString('bg-BG')}+ изтеглени</span>
                   )}
                 </div>
               </div>
 
-              {/* CTA */}
               <div style={{ width: 50, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5, flexShrink: 0, paddingRight: 8 }}>
                 <div style={{
                   width: 36, height: 36, borderRadius: '50%',
@@ -464,14 +443,18 @@ export function HandbooksPanel({
                 <span style={{ color: hb.color, fontSize: 8, fontWeight: 800, letterSpacing: '0.05em' }}>ВЗЕМИ</span>
               </div>
             </button>
-          ))}
+          )})}
 
-          {/* Bottom urgency — жълт тон за светла тема */}
-          <div style={{ textAlign: 'center', marginTop: 4, padding: '9px 12px', background: '#fef9f0', border: '1.5px solid #fde68a', borderRadius: 10 }}>
-            <span style={{ color: '#92400e', fontSize: 11, fontWeight: 700 }}>
-              ⏰ Предложението е безплатно само докато трае — не чакай!
-            </span>
-          </div>
+          {/* ✅ ФИКС: премахната думата "безплатно" тук — вече е казана горе
+              (заглавие) и долу (footer trust ред); тук остава само реалния
+              брояч + честната "без уловки" реплика. */}
+          {computedTotal > 0 && (
+            <div style={{ textAlign: 'center', marginTop: 4, padding: '9px 12px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10 }}>
+              <span style={{ color: '#166534', fontSize: 11, fontWeight: 700 }}>
+                ✓ {computedTotal.toLocaleString('bg-BG')}+ фермери вече изтеглиха — без уловки, без спам
+              </span>
+            </div>
+          )}
         </div>
       )}
 

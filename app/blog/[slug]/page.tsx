@@ -1,31 +1,25 @@
-// app/blog/[slug]/page.tsx — v5
-// ✅ ПРОМЯНА спрямо v4: [slug] вече обслужва ДВА различни типа страници:
-//   1) Post — ако slug-ът съвпада с blog_posts.slug (старото поведение,
-//      непроменено).
-//   2) Category pillar hub — ако slug-ът съвпада с blog_categories.slug
-//      (/blog/domati, /blog/krastavici...).
-//   Категорийните slug-ове (domati, krastavici...) никога не се
-//   пресичат с post slug-овете (винаги описателни, многодумни), значи
-//   няма реален риск от конфликт — но категорията се проверява ПЪРВО във
-//   всяка от трите функции по-долу, за да е детерминистично, ако все пак
-//   някога се появи съвпадение. (BlogTab.tsx вече също пази при запис —
-//   виж collision проверката в save().)
-//
-// ✅ НОВО v5: ResolvedEmbedProduct вече носи и 'partner' за affiliate
-//    продукти — преди липсваше, а AffiliateTrackedLink.tsx разчиташе на
-//    resolved.partner точно по коментар, който никога не се сбъдваше.
-//    Резултат преди: всеки клик от статия пишеше partner='blog' в
-//    affiliate_clicks вместо реалния търговец (напр. agroapteki) — сега
-//    се пази реалната атрибуция, а откъде е кликнато носи отделното
-//    поле 'source' (виж BlogPostBody.tsx → AffiliateTrackedLink).
+// app/blog/[slug]/page.tsx — v6
+// ✅ ПРОМЯНА спрямо v5:
+//   1) НОВО resolveHandbookEmbeds() — огледало на resolveProductEmbeds(),
+//      тегли редовете от naruchnici таблицата за всеки 'handbook_embed'
+//      block, срещнат в post.content (виж lib/blog.ts v5).
+//   2) НОВО resolveFallbackHandbook() — ако постът НЯМА нито един ръчно
+//      вграден handbook_embed, но категорията му има активен наръчник
+//      (naruchnici.category === post.category), BlogPostBody показва
+//      автоматична карта в края на статията вместо статията да остане
+//      без нито един lead capture CTA. Приоритет: sort_order, после
+//      created_at — ако в бъдеще има повече от 1 наръчник за категория.
+//   (останалата част от v5 — категорийната pillar логика и т.н. — непроменена)
+
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
 import BlogPostBody from './BlogPostBody'
 import BlogCategoryHub from './BlogCategoryHub'
-import type { BlogPost, BlogProductEmbedBlock, BlogCategory, BlogListPost } from '@/lib/blog'
+import type { BlogPost, BlogProductEmbedBlock, BlogHandbookEmbedBlock, BlogCategory, BlogListPost } from '@/lib/blog'
 import { deriveExcerpt, getAllPostImages, DEFAULT_BLOG_CATEGORIES } from '@/lib/blog'
 import { richTextToPlain } from '@/lib/blogRichText'
+import type { ResolvedHandbook } from '@/components/blog/BlogHandbookEmbed'
 
 export const revalidate = 300
 
@@ -42,15 +36,9 @@ export interface ResolvedEmbedProduct {
   price_currency?: string
   url:         string
   affiliate:   boolean
-  /** ✅ НОВО — реалният партньор/търговец (напр. "agroapteki") за
-   *  affiliate продукти, за коректно tracking-attribution в
-   *  AffiliateTrackedLink.tsx. undefined за "own" продукти (Atlas Terra). */
   partner?:    string
 }
 
-// ── НОВО: категория по slug — проверява се първо във всяка от трите
-//    функции по-долу. maybeSingle() връща null тихо, ако няма съвпадение
-//    (нормалният случай, когато slug-ът е реално post slug).
 async function getCategoryBySlug(slug: string): Promise<BlogCategory | null> {
   try {
     const { data, error } = await supabaseAdmin
@@ -67,8 +55,6 @@ async function getCategoryBySlug(slug: string): Promise<BlogCategory | null> {
   }
 }
 
-// ── НОВО: леки постове за категорийния hub — същите колони като
-//    app/blog/page.tsx getPublishedPosts(), само филтрирани по category.
 async function getCategoryPosts(categorySlug: string): Promise<BlogListPost[]> {
   try {
     const { data, error } = await supabaseAdmin
@@ -135,7 +121,6 @@ async function resolveProductEmbeds(post: BlogPost): Promise<Record<string, Reso
       result[`affiliate:${p.slug}`] = {
         key: `affiliate:${p.slug}`, name: p.name, description: p.subtitle || p.description,
         image_url: p.image_url, price: p.price, price_currency: p.price_currency,
-        // ✅ НОВО — виж коментара до ResolvedEmbedProduct по-горе.
         partner: p.partner,
         url: `/produkt/${p.slug}`, affiliate: true,
       }
@@ -156,6 +141,58 @@ async function resolveProductEmbeds(post: BlogPost): Promise<Record<string, Reso
   return result
 }
 
+// ✅ НОВО — резолва всеки 'handbook_embed' block, срещнат в статията,
+//    срещу naruchnici таблицата. Ключът е директно slug-ът (за разлика
+//    от resolveProductEmbeds, тук няма affiliate/own разделение).
+async function resolveHandbookEmbeds(post: BlogPost): Promise<Record<string, ResolvedHandbook>> {
+  const embeds = post.content.filter((b): b is BlogHandbookEmbedBlock => b.type === 'handbook_embed')
+  if (embeds.length === 0) return {}
+
+  const slugs = Array.from(new Set(embeds.map(e => e.slug)))
+  const { data, error } = await supabaseAdmin
+    .from('naruchnici')
+    .select('slug, title, subtitle, cover_image_url, emoji, color')
+    .in('slug', slugs)
+    .eq('active', true)
+
+  if (error) {
+    console.error('[blog/[slug]/page] resolveHandbookEmbeds:', error)
+    return {}
+  }
+
+  const result: Record<string, ResolvedHandbook> = {}
+  ;(data || []).forEach((h: any) => { result[h.slug] = h })
+  return result
+}
+
+// ✅ НОВО — ако постът няма НИТО ЕДИН ръчно вграден handbook_embed,
+//    проверяваме дали категорията му има свързан активен наръчник
+//    (naruchnici.category === post.category, вече използвано поле — виж
+//    app/page.tsx handbooks мапинга). Ако да, BlogPostBody показва
+//    компактна fallback карта в края на статията — така никоя статия не
+//    остава без нито един lead capture CTA, дори авторът да забрави да
+//    вгради ръчно.
+async function resolveFallbackHandbook(post: BlogPost): Promise<ResolvedHandbook | null> {
+  const hasManualEmbed = post.content.some(b => b.type === 'handbook_embed')
+  if (hasManualEmbed || !post.category) return null
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('naruchnici')
+      .select('slug, title, subtitle, cover_image_url, emoji, color')
+      .eq('category', post.category)
+      .eq('active', true)
+      .order('sort_order', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (error) throw error
+    return data || null
+  } catch (err) {
+    console.error('[blog/[slug]/page] resolveFallbackHandbook:', err)
+    return null
+  }
+}
+
 async function getCategories(): Promise<BlogCategory[]> {
   try {
     const { data, error } = await supabaseAdmin
@@ -167,8 +204,6 @@ async function getCategories(): Promise<BlogCategory[]> {
   }
 }
 
-// ✅ ПРОМЯНА: сега връща и post slug-овете, и категорийните slug-ове —
-//    и двата типа страници се генерират статично.
 export async function generateStaticParams() {
   try {
     const [postsResult, categoriesResult] = await Promise.all([
@@ -188,7 +223,6 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const { slug } = await params
 
-  // ── НОВО: категория проверена първо ──────────────────────────────────
   const category = await getCategoryBySlug(slug)
   if (category) {
     const title       = `${category.label} — Блог | Denny Angelow`
@@ -207,7 +241,6 @@ export async function generateMetadata(
     }
   }
 
-  // ── Съществуващата логика за post metadata, непроменена ──────────────
   const post = await getPost(slug)
   if (!post) return { title: 'Статията не е намерена' }
 
@@ -237,7 +270,6 @@ export async function generateMetadata(
 export default async function BlogSlugPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
 
-  // ── НОВО: категорийна pillar страница ────────────────────────────────
   const category = await getCategoryBySlug(slug)
   if (category) {
     const posts = await getCategoryPosts(category.slug)
@@ -276,13 +308,14 @@ export default async function BlogSlugPage({ params }: { params: Promise<{ slug:
     )
   }
 
-  // ── Съществуващата логика за пост, непроменена ───────────────────────
   const post = await getPost(slug)
   if (!post) notFound()
 
-  const [related, resolvedProducts, categories] = await Promise.all([
+  const [related, resolvedProducts, resolvedHandbooks, fallbackHandbook, categories] = await Promise.all([
     getRelatedPosts(post),
     resolveProductEmbeds(post),
+    resolveHandbookEmbeds(post),
+    resolveFallbackHandbook(post),
     getCategories(),
   ])
 
@@ -333,7 +366,15 @@ export default async function BlogSlugPage({ params }: { params: Promise<{ slug:
       {faqSchema && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
 
-      <BlogPostBody post={post} related={related} resolvedProducts={resolvedProducts} canonicalUrl={canonicalUrl} categories={categories} />
+      <BlogPostBody
+        post={post}
+        related={related}
+        resolvedProducts={resolvedProducts}
+        resolvedHandbooks={resolvedHandbooks}
+        fallbackHandbook={fallbackHandbook}
+        canonicalUrl={canonicalUrl}
+        categories={categories}
+      />
     </>
   )
 }

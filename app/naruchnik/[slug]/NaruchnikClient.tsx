@@ -192,6 +192,20 @@ export default function NaruchnikClient({
 
   const dlK = downloadsCount >= 1000 ? `${Math.floor(downloadsCount / 1000)} 000+` : `${downloadsCount}+`
 
+  // ✅ ФИКС: преди беше твърдо "85K+ последователи" в JSX-а долу, докато
+  //    началната страница чете settings.social_proof_items и там числото
+  //    може да е различно (напр. 100K) — същият тип разминаване като
+  //    downloads_count преди фикса. Сега чете от същото settings поле,
+  //    значи няма как двете страници да покажат различен брой едновременно.
+  const followersLabel = (() => {
+    try {
+      const items = settings?.social_proof_items
+        ? JSON.parse(settings.social_proof_items) as { number: string; label: string }[]
+        : []
+      return items.find(i => i.label === 'последователи')?.number || '85K'
+    } catch { return '85K' }
+  })()
+
   const scrollToForm = () => {
     setMobileFormOpen(true)
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -887,7 +901,7 @@ export default function NaruchnikClient({
             <div className="n-author-av">🌱</div>
             <div>
               <div className="n-author-name">Denny Angelow</div>
-              <div className="n-author-role">Агро Консултант · 8+ год. опит · 85K+ последователи</div>
+              <div className="n-author-role">Агро Консултант · 8+ год. опит · {followersLabel}+ последователи</div>
               <p className="n-author-bio">
                 {nar.author_bio || 'Агро консултант с дългогодишен опит в отглеждането на зеленчуци. Помага на хиляди фермери да постигнат рекордна реколта с органични методи и правилна защита на растенията.'}
               </p>

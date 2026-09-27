@@ -1,22 +1,24 @@
-// app/api/leads/sequence/route.ts — Email sequence processor
-// ✅ Вика се от Supabase pg_cron (net.http_get) на всеки кръгъл час —
-//    вижте SQL job "email-sequence-hourly". Вече не разчита на
-//    vercel.json crons (Hobby план лимитира честотата под 1/ден).
-// ✅ Изпращането минава през lib/mailer.ts (Amazon SES), не Resend.
+// app/api/leads/sequence/route.ts — v3
+// ✅ ПРОМЯНА спрямо v2: naruchnik-специфичният sequence блок (стъпки 2/5/10
+//    по email_sequence_steps) е ПРЕМАХНАТ оттук — сега живее в
+//    app/api/automations/tick/route.ts (виж lib/automations.ts), защото
+//    вече е конфигурируем от админ панела ("Naruchnik — Welcome серия"
+//    workflow) вместо hardcoded тук. Двата endpoint-а да текат ЕДНОВРЕМЕННО
+//    щеше да дублира имейли — оставяш само единия активен за naruchnik.
+//
+//    Abandoned order + abandoned cart логиката ОСТАВА тук непроменена —
+//    все още не са мигрирани към новия workflow модел (Фаза 3 от плана).
+//
+// ⚠️ Викан от Supabase pg_cron hourly, успоредно с новия
+//    /api/automations/tick — виж бележката там за добавяне на втори cron job.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendEmail } from '@/lib/mailer'
-import {
-  followUp2Email,
-  followUp5Email,
-  followUp10Email,
-} from '@/lib/email-templates'
 
-// Защита — само Supabase pg_cron (или admin) може да извика
 function isAuthorized(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) return true // dev mode
+  if (!cronSecret) return true
   const auth = req.headers.get('authorization')
   return auth === `Bearer ${cronSecret}`
 }
@@ -31,85 +33,6 @@ export async function GET(req: NextRequest) {
   const errors: string[] = []
 
   try {
-    // Вземаме активните sequence стъпки
-    const { data: steps } = await supabaseAdmin
-      .from('email_sequence_steps')
-      .select('*')
-      .eq('active', true)
-      .eq('sequence_name', 'naruchnik')
-      .order('step_number')
-
-    if (!steps || steps.length === 0) {
-      return NextResponse.json({ sent: 0, message: 'Няма активни стъпки' })
-    }
-
-    // За всяка стъпка (без welcome — тя се изпраща веднага при регистрация)
-    for (const step of steps.filter(s => s.step_number > 1)) {
-      const targetDate = new Date(now.getTime() - step.delay_days * 86400000)
-      const from = new Date(targetDate.getTime() - 3600000).toISOString() // ±1 час прозорец
-      const to   = new Date(targetDate.getTime() + 3600000).toISOString()
-
-      const { data: leads } = await supabaseAdmin
-        .from('leads')
-        .select('id, email, name, naruchnik_slug')
-        .eq('subscribed', true)
-        .gte('downloaded_at', from)
-        .lte('downloaded_at', to)
-
-      if (!leads || leads.length === 0) continue
-
-      const leadIds = leads.map(l => l.id)
-      const { data: sentLogs } = await supabaseAdmin
-        .from('email_logs')
-        .select('lead_id')
-        .eq('sequence_name', 'naruchnik')
-        .eq('step_number', step.step_number)
-        .in('lead_id', leadIds)
-
-      const alreadySentIds = new Set((sentLogs || []).map(l => l.lead_id))
-      const toSend = leads.filter(l => !alreadySentIds.has(l.id))
-
-      for (const lead of toSend) {
-        try {
-          let emailData: { subject: string; html: string } | null = null
-
-          if (step.template === 'followup_2') {
-            emailData = followUp2Email({ email: lead.email, name: lead.name || undefined, slug: lead.naruchnik_slug || 'super-domati' })
-          } else if (step.template === 'followup_5') {
-            emailData = followUp5Email({ email: lead.email, name: lead.name || undefined })
-          } else if (step.template === 'followup_10') {
-            emailData = followUp10Email({ email: lead.email, name: lead.name || undefined })
-          }
-
-          if (!emailData) continue
-
-          await sendEmail({
-            to:      lead.email,
-            subject: emailData.subject,
-            html:    emailData.html,
-          })
-
-          await supabaseAdmin.from('email_logs').insert({
-            lead_id:       lead.id,
-            sequence_name: 'naruchnik',
-            step_number:   step.step_number,
-            sent_at:       now.toISOString(),
-          })
-
-          await supabaseAdmin.from('leads').update({
-            last_email_sent_at: now.toISOString(),
-          }).eq('id', lead.id)
-
-          sent++
-
-          // Малка пауза за да не удряме SES rate limit (1/сек в sandbox)
-          await new Promise(r => setTimeout(r, 150))
-        } catch (e: any) {
-          errors.push(`${lead.email}: ${e.message}`)
-        }
-      }
-    }
-
     // Abandoned order check — поръчки "new" > 24 часа без обработка
     const abandonedCutoff = new Date(now.getTime() - 24 * 3600000).toISOString()
     const { data: abandonedOrders } = await supabaseAdmin
