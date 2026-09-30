@@ -16,12 +16,19 @@ const TEMPLATE_OPTIONS = [
   { key: 'naruchnik_followup2',  label: 'Naruchnik — Follow-up ден 2' },
   { key: 'naruchnik_followup5',  label: 'Naruchnik — Follow-up ден 5' },
   { key: 'naruchnik_followup10', label: 'Naruchnik — Follow-up ден 10' },
+  // ✅ НОВО — виж lib/automations.ts v3 / lib/email-templates.ts
+  { key: 'abandoned_order',      label: 'Изоставена поръчка' },
+  { key: 'abandoned_cart',       label: 'Изоставена количка' },
 ]
 
 const TRIGGER_OPTIONS = [
   { value: 'naruchnik_download', label: '📗 Изтегли наръчник', ready: true },
-  { value: 'order_placed',       label: '🛒 Направена поръчка', ready: false },
-  { value: 'cart_abandoned',     label: '🛍️ Изоставена количка', ready: false },
+  // ✅ НОВО — вече "poll" тригери (виж pollTriggers() в lib/automations.ts
+  //    v3): само ЕДИН cron (/api/automations/tick) ги обхожда, без нужда
+  //    от отделен cron job. Заглавието не е "събитие", а условие, което
+  //    се проверява всеки час.
+  { value: 'order_placed',       label: '🛒 Поръчка, заседнала >24ч', ready: true },
+  { value: 'cart_abandoned',     label: '🛍️ Количка, изоставена >2ч', ready: true },
   { value: 'tag_added',          label: '🏷️ Добавен таг', ready: false },
   { value: 'manual',             label: '✋ Ръчно (broadcast)', ready: false },
 ]

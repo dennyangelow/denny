@@ -1,10 +1,20 @@
 'use client'
-// app/admin/page.tsx — v8
+// app/admin/page.tsx — v9
+// ✅ ПОПРАВКИ v9 (спрямо v8):
+//   ✅ Премахнат собствения 30-минутен setInterval(fetchAll) — useAdminData
+//      вече си има ВЪТРЕШЕН 2-минутен auto-refresh (виж hooks/useAdminData.ts
+//      v16, последния useEffect там). Двата тайм-съра работеха успоредно —
+//      всеки fetchAll() извикваше orders+leads+analytics+page-views наведнъж,
+//      значи админ панелът правеше двойно повече заявки, отколкото трябва,
+//      без никаква полза (2-минутният вече покрива нуждата от свежи данни).
+//   ✅ Махнат `(tab as string) === 'email'` — lib/constants.ts NAV_ITEMS вече
+//      съдържа { id: 'email', ... }, значи TabId вече включва 'email' по
+//      конструкция; кастът беше от по-стара версия на constants.ts и вече
+//      не върши нищо, само крие евентуална бъдеща типова грешка.
+//
 // ✅ v8: 'leads' и 'email-stats' табовете обединени в един 📧 EmailTab
 //    (виж app/admin/components/EmailTab.tsx) — Automations вече също
-//    живее там (подтаб), не в Маркетинг. Активният tab id е 'email' —
-//    виж бележката в lib/constants.ts, която трябва да се обнови ръчно
-//    (NAV_ITEMS: 'leads' + 'email-stats' → един ред с id 'email').
+//    живее там (подтаб), не в Маркетинг.
 // ✅ v7: onOpenCustomer от DashboardTab → превключва на Поръчки и отваря CustomerProfileModal
 
 import { useState, useEffect, useCallback } from 'react'
@@ -17,16 +27,12 @@ import { BlogTab }            from './components/BlogTab'
 import { AnalyticsTab }       from './components/AnalyticsTab'
 import { SettingsTab }        from './components/SettingsTab'
 import { FaqTab }             from './components/FaqTab'
-// ✅ ФИКС: TestimonialsTab заменен от ReviewsTab (обединената reviews
-// система — вече покрива и продуктите, и наръчниците, и началната)
 import { ReviewsTab }         from './components/ReviewsTab'
 import { MarketingTab }       from './components/MarketingTab'
 import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
 import type { TabId }         from '@/lib/constants'
 import type { Order }         from '@/lib/supabase'
-
-const AUTO_REFRESH_MS = 30 * 60 * 1000 // 30 мин — не прекъсва sync
 
 // ─── Loading screen ──────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -112,11 +118,10 @@ export default function AdminPage() {
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
 
-  // Auto-refresh every 5 минути
-  useEffect(() => {
-    const timer = setInterval(fetchAll, AUTO_REFRESH_MS)
-    return () => clearInterval(timer)
-  }, [fetchAll])
+  // ✅ ФИКС: премахнат отделен 30-мин setInterval(fetchAll) — useAdminData
+  // вече си прави собствен 2-минутен auto-refresh вътрешно (без setLoading,
+  // без unmount на екрана). Двата тайм-съра дублираха едни и същи 4 заявки
+  // (orders/leads/analytics/page-views), без причина.
 
   // Close mobile sidebar on tab change
   useEffect(() => { setMobileOpen(false) }, [tab])
@@ -175,10 +180,9 @@ export default function AdminPage() {
             />
           )}
 
-          {/* ✅ v8: заменя старите отделни 'leads' и 'email-stats' —
-              EmailTab вътрешно решава кой подтаб (Листа/Статистики/
-              Автоматизации) да покаже. */}
-          {(tab as string) === 'email' && <EmailTab leads={leads} />}
+          {/* ✅ ФИКС: без `as string` кастa — 'email' вече е част от TabId
+              директно от lib/constants.ts NAV_ITEMS. */}
+          {tab === 'email'        && <EmailTab leads={leads} />}
           {tab === 'content'      && <ContentTab />}
           {tab === 'blog'         && <BlogTab />}
           {tab === 'marketing'    && <MarketingTab />}

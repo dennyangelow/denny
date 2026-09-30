@@ -26,6 +26,9 @@
 import { Metadata }      from 'next'
 import { notFound }      from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
+// ✅ НОВО: jsonLd() escape-ва "<" в JSON-LD изхода — JSON.stringify() само не го прави, и текст като "</script><script>evil</script>" в meta_description/
+// author_bio/FAQ отговор би затворил тага и изпълнил произволен JS за всеки посетител (stored XSS).
+import { jsonLd } from '@/lib/jsonld'
 import NaruchnikClient   from './NaruchnikClient'
 import type { Testimonial } from './NaruchnikClient'
 import { buildImageList } from '@/lib/images'
@@ -360,15 +363,15 @@ export default async function NaruchnikPage({
   return (
     <>
       <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(bookSchema) }} />
+        dangerouslySetInnerHTML={{ __html: jsonLd(bookSchema) }} />
       <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
+        dangerouslySetInnerHTML={{ __html: jsonLd(articleSchema) }} />
       {faqSchema && (
         <script type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+          dangerouslySetInnerHTML={{ __html: jsonLd(faqSchema) }} />
       )}
       <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+        dangerouslySetInnerHTML={{ __html: jsonLd(breadcrumbSchema) }} />
 
       <NaruchnikClient
         nar={nar}

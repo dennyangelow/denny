@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { ADMIN_COOKIE, verifySessionToken } from '@/lib/admin-session'
 
 const loginAttempts = new Map<string, { count: number; until: number }>()
 
@@ -76,14 +77,20 @@ function isProtectedApi(pathname: string, method: string): boolean {
   return PROTECTED_API_PREFIXES.some(p => pathname.startsWith(p))
 }
 
-function isValidToken(req: NextRequest): boolean {
+// ✅ ФИКС: преди сравняваше cookie-то директно с ADMIN_SECRET (самата
+// парола, съхранена в cookie — изтекло cookie = изтекла парола, никакъв
+// TTL, изтичане само чрез смяна на паролата). Сега проверява подписан
+// сесиен токен (lib/admin-session.ts) — не разкрива паролата в cookie-то,
+// изтича сам по себе си, и Edge-съвместим (crypto.subtle), затова
+// middleware вече е async.
+async function isValidToken(req: NextRequest): Promise<boolean> {
   const secret = process.env.ADMIN_SECRET
   if (!secret) return true
-  const token = req.cookies.get('admin_token')?.value
-  return token === secret
+  const token = req.cookies.get(ADMIN_COOKIE)?.value
+  return verifySessionToken(token, secret)
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const method = req.method
 
@@ -96,7 +103,7 @@ export function middleware(req: NextRequest) {
   }
 
   if (isProtectedApi(pathname, method)) {
-    if (!isValidToken(req)) {
+    if (!(await isValidToken(req))) {
       return NextResponse.json(
         { error: 'Неоторизиран достъп' },
         { status: 401, headers: { 'WWW-Authenticate': 'Cookie' } }
@@ -120,7 +127,7 @@ export function middleware(req: NextRequest) {
     return new NextResponse('Too many requests', { status: 429 })
   }
 
-  if (isValidToken(req)) {
+  if (await isValidToken(req)) {
     loginAttempts.delete(ip)
     return securityHeaders(NextResponse.next())
   }

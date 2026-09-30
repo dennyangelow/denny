@@ -7,6 +7,10 @@ import { useSearchParams } from 'next/navigation'
 function UnsubscribeContent() {
   const params = useSearchParams()
   const email  = params.get('email') || ''
+  // ✅ НОВО: token идва в самия линк (виж lib/unsubscribe-token.ts,
+  // buildUnsubscribeUrl) — без него /api/leads/unsubscribe вече отказва
+  // заявката (виж route.ts v2).
+  const token  = params.get('token') || ''
   const [status, setStatus]   = useState<'idle'|'loading'|'done'|'error'>('idle')
   const [reason, setReason]   = useState('')
 
@@ -17,7 +21,7 @@ function UnsubscribeContent() {
       const res = await fetch('/api/leads/unsubscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, reason: reason || undefined }),
+        body: JSON.stringify({ email, token, reason: reason || undefined }),
       })
       setStatus(res.ok ? 'done' : 'error')
     } catch { setStatus('error') }

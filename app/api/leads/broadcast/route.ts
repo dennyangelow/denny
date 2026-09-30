@@ -1,9 +1,16 @@
-// app/api/leads/broadcast/route.ts — масово изпращане
+// app/api/leads/broadcast/route.ts — v2
 // Изпращането минава през lib/mailer.ts (Amazon SES).
+//
+// ПОПРАВКИ v2 (спрямо v1):
+//   ✅ Unsubscribe линкът в footer-а вече носи подписан &token= (lib/
+//      unsubscribe-token.ts) — /api/leads/unsubscribe/route.ts v2 вече
+//      изисква валиден token, иначе всеки линк с чужд email щеше да
+//      отписва произволен контакт без проверка.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendEmail } from '@/lib/mailer'
+import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 
 let lastBroadcast = 0
 const COOLDOWN_MS = 10 * 60 * 1000
@@ -46,7 +53,9 @@ export async function POST(req: NextRequest) {
       for (const lead of batch) {
         try {
           const personalBody = body.replace(/\{\{name\}\}/g, lead.name || 'приятелю')
-          const unsubUrl = `${siteUrl}/unsubscribe?email=${encodeURIComponent(lead.email)}`
+          // ✅ ФИКС: преди беше просто `${siteUrl}/unsubscribe?email=...` —
+          // сега носи и подписан token, който route-ът вече изисква.
+          const unsubUrl = await buildUnsubscribeUrl(siteUrl, lead.email)
           await sendEmail({
             to:      lead.email,
             subject,

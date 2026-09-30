@@ -14,6 +14,8 @@ import { supabaseAdmin } from '@/lib/supabase'
 // (виж produkti/page.tsx фикса) — p.rating/p.review_count/p.avg_rating от
 // products/affiliate_products се оказаха ръчно въведени, неподкрепени числа.
 import { getAggregateRatingsBatch } from '@/lib/reviews'
+// ✅ НОВО: jsonLd() escape-ва "<" в JSON-LD изхода — виж бележката в lib/jsonld.ts
+import { jsonLd } from '@/lib/jsonld'
 import { HeaderClient } from '@/components/client/HeaderClient'
 // ✅ НОВО: заменя хардкоднатия footer по-долу (виж бележката преди <footer>)
 import SiteFooter from '@/components/layout/SiteFooter'
@@ -1143,16 +1145,16 @@ export default async function HomePage() {
       <DeferredHomepageCSS />
 
       {/* ── SEO Schema Scripts ── */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionPageSchema) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(naruchnikListSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(collectionPageSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(naruchnikListSchema) }} />
       {productListSchema && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productListSchema) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(productListSchema) }} />
       )}
       {atlasProductsSchema && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(atlasProductsSchema) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(atlasProductsSchema) }} />
       )}
       {faqPageSchema && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqPageSchema) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(faqPageSchema) }} />
       )}
 
       <style suppressHydrationWarning>{`
@@ -1247,7 +1249,7 @@ export default async function HomePage() {
               <div className="hero-learn-grid">
                 <div className="hero-learn-item">
                   <span className="hero-learn-icon" style={{ background: '#fef3c7' }}>{"📅"}</span>
-                  <span>{"Кога и как да садиш и третираш"}</span>
+                  <span>{"Как да подготвим почвата"}</span>
                 </div>
                 <div className="hero-learn-item">
                   <span className="hero-learn-icon" style={{ background: '#dcfce7' }}>{"🌿"}</span>
@@ -1255,19 +1257,19 @@ export default async function HomePage() {
                 </div>
                 <div className="hero-learn-item">
                   <span className="hero-learn-icon" style={{ background: '#fee2e2' }}>{"🛡️"}</span>
-                  <span>{"Как да предпазиш от болести"}</span>
+                  <span>{"Как да предпазим от болести"}</span>
                 </div>
                 <div className="hero-learn-item">
                   <span className="hero-learn-icon" style={{ background: '#e0f2fe' }}>{"💧"}</span>
-                  <span>{"Напояване и поливен режим"}</span>
+                  <span>{"7-те златни правила за поливане"}</span>
                 </div>
                 <div className="hero-learn-item">
-                  <span className="hero-learn-icon" style={{ background: '#f3e8ff' }}>{"🪴"}</span>
-                  <span>{"Подвързване и оформяне на стъблото"}</span>
+                  <span className="hero-learn-icon" style={{ background: '#f3e8ff' }}>{"🔍"}</span>
+                  <span>{"Диагностична таблица — симптом → причина → решение"}</span>
                 </div>
                 <div className="hero-learn-item">
                   <span className="hero-learn-icon" style={{ background: '#dcfce7' }}>{"🏆"}</span>
-                  <span>{"Стъпки за рекордна реколта"}</span>
+                  <span>{"Стъпки за рекорден добив без грешки и загуби"}</span>
                 </div>
               </div>
             </div>

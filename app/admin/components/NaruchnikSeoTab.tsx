@@ -29,8 +29,12 @@ interface NaruchnikSeo {
   faq_q3?: string; faq_a3?: string
   content_body?: string
   author_bio?: string
-  downloads_count?: number
-  // ✅ ФИКС: reviews_count/avg_rating/testimonials премахнати — колоните вече
+  // ✅ ФИКС: downloads_count премахнато от тук — никъде на сайта вече не се
+  // чете (виж app/page.tsx / app/naruchnik/[slug]/page.tsx — и двата взимат
+  // реалния брой от leads чрез getHandbookDownloadCounts(), не от тази
+  // ръчно въвеждана колона). Полето продължава да съществува в базата само
+  // за историческа съвместимост — никой UI вече не го показва или пипа.
+  // reviews_count/avg_rating/testimonials премахнати — колоните вече
   // не съществуват в naruchnici (DROP COLUMN). Отзивите за наръчници вече
   // живеят изцяло в admin таб "⭐ Отзиви" (ReviewsTab), таблица reviews.
 }
@@ -202,8 +206,7 @@ export function NaruchnikSeoTab() {
         faq_q3: form.faq_q3 || null, faq_a3: form.faq_a3 || null,
         content_body:     form.content_body     || null,
         author_bio:       form.author_bio       || null,
-        downloads_count:  form.downloads_count  ? Number(form.downloads_count) : null,
-        // ✅ ФИКС: reviews_count/avg_rating/testimonials премахнати от payload-а —
+        // ✅ ФИКС: downloads_count/reviews_count/avg_rating/testimonials премахнати от payload-а —
         // колоните вече не съществуват в naruchnici.
       }
 
@@ -485,23 +488,11 @@ export function NaruchnikSeoTab() {
                 <Hint>Google E-E-A-T: Experience, Expertise, Authority, Trust. Показва на Google, че авторът е специалист.</Hint>
               </FieldGroup>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
-                <FieldGroup>
-                  <Label>Брой изтегляния</Label>
-                  <input
-                    style={inp} type="number" min="0"
-                    value={form.downloads_count ?? ''}
-                    onChange={e => update('downloads_count', parseInt(e.target.value) || 0)}
-                    onFocus={onFocus} onBlur={onBlur}
-                    placeholder="6000"
-                  />
-                  <Hint>Показва се в hero stats</Hint>
-                </FieldGroup>
-                {/* ✅ ФИКС: "Средна оценка"/"Брой оценки" премахнати — колоните
-                    (avg_rating/reviews_count) вече не съществуват в naruchnici.
-                    Schema.org AggregateRating вече идва от реалната reviews
-                    таблица (виж app/naruchnik/[slug]/page.tsx). */}
-              </div>
+              {/* ✅ ФИКС: "Брой изтегляния" полето премахнато изцяло — никой
+                  на сайта вече не го чете (виж бележката в interface-а
+                  по-горе). "Средна оценка"/"Брой оценки" вече ги нямаше —
+                  и двете идват от реалната reviews таблица вместо от
+                  ръчно въвеждани колони тук. */}
             </div>
 
             {/* ✅ ФИКС: секцията "Отзиви (Testimonials)" премахната изцяло —
@@ -537,11 +528,9 @@ export function NaruchnikSeoTab() {
                   ok: !!(form.author_bio && form.author_bio.length >= 50),
                   hint: '',
                 },
-                {
-                  label: 'Брой изтегляния зададен',
-                  ok: !!(form.downloads_count && form.downloads_count > 0),
-                  hint: form.downloads_count ? `${form.downloads_count}` : '',
-                },
+                // ✅ ФИКС: "Брой изтегляния зададен" премахнато от чеклиста —
+                // самото поле вече не съществува във формата (виж бележката
+                // по-горе); score-ът долу вече е от 5, не от 6.
                 // ✅ ФИКС: "Поне 1 отзив добавен" премахнато — вече се проверява
                 // в admin таб "⭐ Отзиви" (ReviewsTab), не тук.
               ].map(item => (
@@ -565,8 +554,7 @@ export function NaruchnikSeoTab() {
                   (form.faq ?? []).filter(f => f.q?.trim() && f.a?.trim()).length >= 3,
                   (form.content_body?.length || 0) >= 500,
                   !!(form.author_bio && form.author_bio.length >= 50),
-                  !!(form.downloads_count && form.downloads_count > 0),
-                ].filter(Boolean).length} / 6
+                ].filter(Boolean).length} / 5
               </div>
             </div>
 

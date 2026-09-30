@@ -1,6 +1,26 @@
-// ФАЙЛ: app/api/leads/[id]/route.ts — v2
+// ФАЙЛ: app/api/leads/[id]/route.ts — v3
 //
-// ПОПРАВКИ v2:
+// ПОПРАВКИ v3 (спрямо v2):
+//   ✅ Всички systemeio_* полета и логика МАХНАТИ — Systeme.io е изцяло
+//      премахнат от проекта (виж leads/route.ts v18 коментара). Преди
+//      ALLOWED whitelist-а и merge логиката още пишеха systemeio_blocked/
+//      systemeio_synced/systemeio_email_invalid/systemeio_contact_id при
+//      всяка смяна на имейл — мъртъв код, който подвеждаше при четене.
+//      Колоните в базата остават (виж SQL бележка долу) — само кодът вече
+//      не ги пипа.
+//
+// ⚠️ БАЗА ДАННИ: ако искаш да изчистиш и самите колони от `leads`
+// таблицата (не са грешка да си останат, просто са мъртво тегло), пусни
+// в Supabase SQL editor:
+//   ALTER TABLE leads
+//     DROP COLUMN IF EXISTS systemeio_blocked,
+//     DROP COLUMN IF EXISTS systemeio_synced,
+//     DROP COLUMN IF EXISTS systemeio_email_invalid,
+//     DROP COLUMN IF EXISTS systemeio_contact_id;
+// Направи го само СЛЕД като си сигурен, че никой друг route/скрипт вече
+// не ги чете (grep целия проект за "systemeio" преди да трием колони).
+//
+// ПОПРАВКИ v2 (запазени):
 //   1. При PATCH с нов имейл, ако имейлът вече съществува в базата (409/23505):
 //      MERGE логика — запазваме по-добрите данни от двата записа,
 //      изтриваме стария дублиран запис, обновяваме текущия.
@@ -33,7 +53,7 @@ export async function PATCH(
   }
 
   // Позволени полета за обновяване (whitelist за сигурност)
-const ALLOWED = ['email', 'name', 'phone', 'subscribed', 'systemeio_blocked'] as const
+  const ALLOWED = ['email', 'name', 'phone', 'subscribed'] as const
 
   const updates: Record<string, unknown> = {}
   for (const key of ALLOWED) {
@@ -67,12 +87,9 @@ const ALLOWED = ['email', 'name', 'phone', 'subscribed', 'systemeio_blocked'] as
       return NextResponse.json({ error: 'Контактът не е намерен' }, { status: 404 })
     }
 
-    // Ако имейлът не се е сменил → само маркираме за нов sync
+    // Ако имейлът не се е сменил → нищо специално, продължаваме към обикновения update
     if (newEmail === currentLead.email) {
-      updates.systemeio_synced        = false
-      updates.systemeio_email_invalid = false
-      updates.updated_at              = now
-      // Продължаваме към обикновения update по-долу
+      updates.updated_at = now
     } else {
       // Проверяваме дали новият имейл вече съществува
       const { data: existingLead } = await supabaseAdmin
@@ -114,17 +131,13 @@ const ALLOWED = ['email', 'name', 'phone', 'subscribed', 'systemeio_blocked'] as
         const { data: mergedLead, error: mergeError } = await supabaseAdmin
           .from('leads')
           .update({
-            name:                    mergedName,
-            phone:                   mergedPhone,
-            naruchnici:              mergedSlugs.length > 0 ? mergedSlugs : existingSlugs,
-            tags:                    mergedTags.length > 0 ? mergedTags : existingTags,
-            created_at:              mergedCreatedAt,
-            subscribed:              existingLead.subscribed || currentLead.subscribed,
-            // Ресетваме за нов sync (обновените данни трябва да се качат)
-            systemeio_synced:        false,
-            systemeio_email_invalid: false,
-            systemeio_contact_id:    existingLead.systemeio_contact_id || null,
-            updated_at:              now,
+            name:       mergedName,
+            phone:      mergedPhone,
+            naruchnici: mergedSlugs.length > 0 ? mergedSlugs : existingSlugs,
+            tags:       mergedTags.length > 0 ? mergedTags : existingTags,
+            created_at: mergedCreatedAt,
+            subscribed: existingLead.subscribed || currentLead.subscribed,
+            updated_at: now,
           })
           .eq('id', existingLead.id)
           .select()
@@ -152,11 +165,8 @@ const ALLOWED = ['email', 'name', 'phone', 'subscribed', 'systemeio_blocked'] as
       }
 
       // ── Новият имейл не съществува → обикновена смяна ────────────────────
-      updates.email                   = newEmail
-      updates.systemeio_synced        = false
-      updates.systemeio_email_invalid = false
-      updates.systemeio_contact_id    = null  // стар contact-ът е за друг имейл
-      updates.updated_at              = now
+      updates.email      = newEmail
+      updates.updated_at = now
     }
   } else {
     updates.updated_at = now

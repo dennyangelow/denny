@@ -26,7 +26,10 @@ function footer(email: string) {
   `
 }
 
-function wrapper(content: string) {
+// ✅ v2: unsubscribe footer само ако е подаден email. Преди footer('') даваше линк
+//    /unsubscribe?email= (празен) във followUp2/5/10 → отписването не работеше, а в
+//    транзакционни имейли (потвърждение на поръчка) не му е мястото изобщо.
+function wrapper(content: string, email?: string) {
   return `
     <div style="font-family:'DM Sans',sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
       <div style="background:linear-gradient(135deg,#0f1f16,#1b4332);padding:28px 32px;text-align:center">
@@ -36,7 +39,7 @@ function wrapper(content: string) {
       <div style="padding:28px 32px">
         ${content}
       </div>
-      ${footer('')}
+      ${email ? footer(email) : ''}
     </div>
   `
 }
@@ -119,7 +122,7 @@ export function followUp2Email({ email, name, slug = 'super-domati' }: EmailPara
     <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:16px 0 0">
       Имаш въпрос за торовете? Отговори директно на този имейл — четем всяко писмо.
     </p>
-  `)
+  `, email)
 
   return { subject, html }
 }
@@ -149,7 +152,7 @@ export function followUp5Email({ email, name }: EmailParams) {
       В наръчника има цял раздел за напояването с точни количества и честота по сезон.
       Ако все още не си го изтеглил — <a href="${siteUrl}" style="color:#16a34a;font-weight:700">вземи го тук</a>.
     </p>
-  `)
+  `, email)
 
   return { subject, html }
 }
@@ -191,10 +194,53 @@ export function followUp10Email({ email, name }: EmailParams) {
     <p style="font-size:12px;color:#9ca3af;text-align:center;margin:8px 0 0">
       Безплатна доставка при поръчка над 60 € | Еконт / Спиди
     </p>
-  `)
+  `, email)
 
   return { subject, html }
 }
+// ─── Изоставена поръчка (status='new' >24ч) — poll тригер, viz lib/automations.ts ──
+export function abandonedOrderEmail({ email, name, context }: EmailParams & { context?: any }) {
+  const orderNumber = context?.order_number || ''
+  const subject = `⚠️ Поръчка ${orderNumber} чака потвърждение`
+  const html = wrapper(`
+    <p style="font-size:16px;font-weight:700;color:#111;margin:0 0 12px">${greeting(name)}</p>
+    <p style="font-size:14px;color:#4b5563;line-height:1.65;margin:0 0 16px">
+      Поръчката ти <strong>${orderNumber}</strong> е при нас, но все още чака обработка.
+      Ако имаш въпроси или искаш да промениш нещо — пиши ни директно, отговаряме на всеки имейл.
+    </p>
+    <div style="text-align:center;margin:20px 0">
+      <a href="mailto:support@dennyangelow.com" style="display:inline-block;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border-radius:12px;padding:14px 28px;text-decoration:none;font-weight:800;font-size:15px">
+        Свържи се с нас →
+      </a>
+    </div>
+  `, email)
+  return { subject, html }
+}
+
+// ─── Изоставена количка (>2ч, неконвертирана) — poll тригер ──────────────────
+export function abandonedCartEmail({ email, name, context }: EmailParams & { context?: any }) {
+  const items: { product_name: string; quantity: number }[] = context?.items || []
+  const total = Number(context?.total || 0)
+  const subject = '🛒 Забрави нещо в количката си?'
+  const itemsHtml = items.map(i => `<li style="font-size:14px;margin-bottom:6px">${i.product_name} × ${i.quantity}</li>`).join('')
+  const html = wrapper(`
+    <p style="font-size:16px;font-weight:700;color:#111;margin:0 0 12px">${greeting(name)}</p>
+    <p style="font-size:14px;color:#4b5563;line-height:1.65;margin:0 0 16px">
+      Забеляза, че си оставил/а следните продукти в количката си:
+    </p>
+    <div style="background:#f9fafb;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:14px">
+      <ul style="padding-left:20px;margin:0">${itemsHtml}</ul>
+      <p style="margin-top:10px;font-weight:800;border-top:1px solid #eee;padding-top:8px">Общо: ${total.toFixed(2)} €</p>
+    </div>
+    <div style="text-align:center;margin:20px 0">
+      <a href="${siteUrl}/#products" style="display:inline-block;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border-radius:12px;padding:14px 28px;text-decoration:none;font-weight:800;font-size:15px">
+        Довърши поръчката →
+      </a>
+    </div>
+  `, email)
+  return { subject, html }
+}
+
 // Код за потвърждение на поръчка (към клиента)
 export function orderConfirmationEmail({ order, items }: any) {
   const subject = `Поръчка #${order.order_number} — Denny Angelow`
