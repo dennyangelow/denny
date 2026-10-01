@@ -391,18 +391,51 @@
 }
 .bp-handbook-embed-form {
   margin-top: 14px; padding-top: 14px; border-top: 1px dashed #bbf7d0;
-  display: flex; flex-direction: column; gap: 8px; max-width: 340px;
+  display: flex; flex-direction: column; gap: 8px; max-width: 100%;
 }
+/* ✅ НОВО — на достатъчно широк екран, полетата минават в ред от 3 вместо
+   тясна 340px колонка (която изглеждаше "сбутана" встрани с много празно
+   пространство вдясно — виж чат бележката). bp-handbook-field обвива
+   всяко input+грешка двойка, за да може grid-ът да ги подреди коректно
+   едно под друго В РАМКИТЕ на своята колона, не разхвърляно. */
+@media (min-width: 640px) {
+  .bp-handbook-embed-form {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px 12px;
+    align-items: start;
+  }
+  .bp-handbook-embed-err--wide { grid-column: 1 / -1; }
+  .bp-handbook-embed-btn--submit { grid-column: 1 / -1; }
+}
+.bp-handbook-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .bp-handbook-embed-input {
   padding: 10px 12px; border-radius: 9px; border: 1.5px solid #d1fae5;
   font-family: inherit; font-size: 14px; outline: none; background: #fff;
+  width: 100%; box-sizing: border-box;
 }
 .bp-handbook-embed-input:focus { border-color: #16a34a; }
-.bp-handbook-embed-err { font-size: 11.5px; color: #dc2626; margin-top: -4px; }
+.bp-handbook-embed-err { font-size: 11.5px; color: #dc2626; }
 .bp-handbook-embed--done { display: flex; align-items: center; gap: 12px; }
+/* ✅ НОВО — trust ред, огледало на HandbooksPanel.tsx footer-а, за да не
+   изглежда картата по-"гола" от наръчник секцията на началната страница. */
+.bp-handbook-embed-trust {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 4px; font-size: 11px; color: #6b7280;
+}
+.bp-handbook-embed-trust span:nth-child(even) { color: #d1d5db; }
 @media (max-width: 480px) {
-  .bp-handbook-embed-body { flex-direction: column; align-items: flex-start; }
-  .bp-handbook-embed-img { width: 100%; height: 120px; }
+  /* ✅ ФИКС: преди .bp-handbook-embed-img беше width:100%;height:120px с
+     object-fit:cover — коричните снимки на наръчниците са PORTRAIT (книга),
+     не landscape. При пълна ширина и фиксирана ниска височина, cover
+     режеше корицата до случаен среден фрагмент от дизайна (виж чат
+     скрийншот) вместо да я показва смислено. Сега стои центрирана, в
+     същото portrait съотношение като на desktop (64:84), само уголемена —
+     изглежда еднакво на всички breakpoint-и. */
+  .bp-handbook-embed-body { flex-direction: column; align-items: center; text-align: center; }
+  .bp-handbook-embed-img { width: 112px; height: 147px; margin: 0 auto; }
+  .bp-handbook-embed-form { max-width: 100%; margin-left: auto; margin-right: auto; }
 }
 
 /* ── Table of Contents ──────────────────────────────────────────────────── */

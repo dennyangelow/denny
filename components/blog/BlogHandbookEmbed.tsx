@@ -1,26 +1,19 @@
 'use client'
-// components/blog/BlogHandbookEmbed.tsx — v1
-// ✅ НОВ файл. Контекстуален CTA за безплатен наръчник, вграден по средата
-//    (или в края) на блог статия — 'handbook_embed' block type (виж
-//    lib/blog.ts) или автоматичен fallback (виж BlogPostBody.tsx).
-//
-// Умишлено НЕ reuse-ва цялото HandbooksPanel.tsx 1:1 — тук няма нужда от
-// social-proof ticker/списък с няколко наръчника едновременно; вместо това
-// е компактна, единична карта, огледало на .bp-product-embed визуално
-// (за консистентност с останалите вградени карти в статия), с малка inline
-// форма, която се появява при клик — вместо да отваря отделен модал/да
-// пренасочва към началната страница.
-//
-// Изпраща по SЪЩИЯ /api/leads endpoint, значи попада в СЪЩИЯ leads
-// pipeline (systeme.io sync, welcome email automation) — source: 'blog'
-// разграничава тези лийдове от 'naruchnik'/'naruchnik_page' в аналитиките.
+// components/blog/BlogHandbookEmbed.tsx — v3
+// ✅ ПРОМЯНА спрямо v2:
+//   1) Трите полета (име/имейл/телефон) вече са обвити по едно в
+//      <div className="bp-handbook-field"> — нужно, за да може CSS grid-ът
+//      (виж blog.css) да ги подреди в ред от 3 на широк екран, вместо
+//      тясна 340px колонка, която на desktop изглеждаше "сбутана" встрани
+//      с много празно пространство (виж чат скрийншот). Всяко поле носи
+//      грешката си ПОД себе си в собствения grid item — не разчита на
+//      ред в DOM-а за визуално подреждане.
+//   2) Добавен trust ред долу ("🔒 Без спам · Директно сваляне ·
+//      Безплатно") — същата microcopy, която HandbooksPanel.tsx вече
+//      показва на началната страница. Преди картата изглеждаше "по-гола"
+//      от наръчник секцията на началната, без видима причина да е така.
 
 import { useState } from 'react'
-// ✅ ФИКС: беше lib/leadValidation.ts — третото място (заедно с
-// HandbooksPanel.tsx преди фикса) с по-хлабави правила от тези, които
-// /api/leads реално налага server-side (serverValidate в lib/validation.ts).
-// Сега и трите форми към /api/leads (HandbooksPanel, NaruchnikClient,
-// BlogHandbookEmbed) ползват едни и същи функции — виж чат бележката.
 import { validateName, validateEmail, validatePhone } from '@/lib/validation'
 
 export interface ResolvedHandbook {
@@ -35,9 +28,6 @@ export interface ResolvedHandbook {
 interface Props {
   handbook: ResolvedHandbook
   note?: string
-  /** 'context' = вграден по средата на статията (стандартен размер).
-   *  'fallback' = автоматичната карта в края на статия без ръчен embed —
-   *  визуално идентична, само с различен горен badge текст. */
   variant?: 'context' | 'fallback'
 }
 
@@ -58,16 +48,18 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
 
   const color = handbook.color || '#16a34a'
 
+  const triggerDownload = (pdfUrl: string, title: string) => {
+    const a = document.createElement('a')
+    a.href = pdfUrl; a.download = `${title}.pdf`; a.target = '_blank'
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  }
+
   const submit = async () => {
     setTouched(true)
     if (!isValid) return
     setStatus('loading')
     setErrorMsg('')
     try {
-      // ✅ ФИКС: преди резултатът не се проверяваше — при отхвърлен от
-      // сървъра лийд (виж serverValidate) потребителят пак получаваше PDF-а,
-      // без нищо да се запише в leads. Същият бъг като в HandbooksPanel.tsx,
-      // оправен по същия начин тук.
       const leadRes = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -82,13 +74,18 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
         setErrorMsg(leadData.error || 'Грешка при изпращане. Провери данните и опитай пак.')
         return
       }
+
+      if (leadData.naruchnik?.pdf_url) {
+        triggerDownload(leadData.naruchnik.pdf_url, leadData.naruchnik.title || handbook.title)
+        setStatus('done')
+        return
+      }
+
       const res  = await fetch(`/api/naruchnici?slug=${encodeURIComponent(handbook.slug)}`)
       const data = await res.json()
       const nar  = (data.naruchnici || [])[0]
       if (nar?.pdf_url) {
-        const a = document.createElement('a')
-        a.href = nar.pdf_url; a.download = `${nar.title || handbook.title}.pdf`; a.target = '_blank'
-        document.body.appendChild(a); a.click(); document.body.removeChild(a)
+        triggerDownload(nar.pdf_url, nar.title || handbook.title)
         setStatus('done')
       } else {
         setStatus('error'); setErrorMsg('Проблем при зареждане на файла. Опитай пак.')
@@ -142,41 +139,56 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
 
       {(status === 'form' || status === 'loading' || status === 'error') && (
         <div className="bp-handbook-embed-form">
-          <input
-            className="bp-handbook-embed-input"
-            placeholder="Име"
-            value={name}
-            onChange={e => setName(e.target.value)}
-          />
-          {touched && nameErr && <span className="bp-handbook-embed-err">{nameErr}</span>}
+          <div className="bp-handbook-field">
+            <input
+              className="bp-handbook-embed-input"
+              placeholder="Име"
+              aria-label="Име и фамилия"
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+            {touched && nameErr && <span className="bp-handbook-embed-err">{nameErr}</span>}
+          </div>
 
-          <input
-            className="bp-handbook-embed-input"
-            placeholder="Имейл"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-          />
-          {touched && emailErr && <span className="bp-handbook-embed-err">{emailErr}</span>}
+          <div className="bp-handbook-field">
+            <input
+              className="bp-handbook-embed-input"
+              placeholder="Имейл"
+              aria-label="Имейл адрес"
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+            {touched && emailErr && <span className="bp-handbook-embed-err">{emailErr}</span>}
+          </div>
 
-          <input
-            className="bp-handbook-embed-input"
-            placeholder="Телефон"
-            value={phone}
-            onChange={e => setPhone(e.target.value)}
-          />
-          {touched && phoneErr && <span className="bp-handbook-embed-err">{phoneErr}</span>}
+          <div className="bp-handbook-field">
+            <input
+              className="bp-handbook-embed-input"
+              placeholder="Телефон"
+              aria-label="Телефонен номер"
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+            />
+            {touched && phoneErr && <span className="bp-handbook-embed-err">{phoneErr}</span>}
+          </div>
 
-          {status === 'error' && <span className="bp-handbook-embed-err">{errorMsg}</span>}
+          {status === 'error' && <span className="bp-handbook-embed-err bp-handbook-embed-err--wide">{errorMsg}</span>}
 
           <button
             type="button"
-            className="bp-handbook-embed-btn"
+            className="bp-handbook-embed-btn bp-handbook-embed-btn--submit"
             style={{ background: status === 'loading' ? '#9ca3af' : color }}
             disabled={status === 'loading'}
             onClick={submit}
           >
             {status === 'loading' ? '⏳ Подготвям...' : '📥 Изтегли сега →'}
           </button>
+
+          <div className="bp-handbook-embed-trust">
+            <span>🔒 Без спам</span><span>·</span><span>Директно сваляне</span><span>·</span><span>Безплатно</span>
+          </div>
         </div>
       )}
     </div>

@@ -149,9 +149,19 @@ async function resolveHandbookEmbeds(post: BlogPost): Promise<Record<string, Res
   if (embeds.length === 0) return {}
 
   const slugs = Array.from(new Set(embeds.map(e => e.slug)))
+  // ✅ ФИКС: select('*') вместо изрично изброени колони — ако реалната
+  //    naruchnici схема няма точно 'subtitle'/'emoji'/'color' под тези
+  //    имена, изричният select гърми с Postgres грешка ("column does not
+  //    exist"), хваща се тихо по-долу и връща {} → нищо не се рендва, без
+  //    видима грешка на страницата (точно симптомът, който докладва).
+  //    select('*') е същият pattern, който вече работи доказано в
+  //    /api/naruchnici (GET) и в BlogTab picker-а — няма начин да гръмне
+  //    заради име на колона. mapRow() по-долу е "отбранителен" точно
+  //    защото различни места в кода досега са предполагали различни имена
+  //    (виж бележката в mapRow).
   const { data, error } = await supabaseAdmin
     .from('naruchnici')
-    .select('slug, title, subtitle, cover_image_url, emoji, color')
+    .select('*')
     .in('slug', slugs)
     .eq('active', true)
 
@@ -161,8 +171,24 @@ async function resolveHandbookEmbeds(post: BlogPost): Promise<Record<string, Res
   }
 
   const result: Record<string, ResolvedHandbook> = {}
-  ;(data || []).forEach((h: any) => { result[h.slug] = h })
+  ;(data || []).forEach((h: any) => { result[h.slug] = mapRow(h) })
   return result
+}
+
+// ✅ НОВО — "отбранително" мапване на суров naruchnici ред към
+//    ResolvedHandbook. Различни места в кодовата база исторически са
+//    предполагали различни имена за коричната снимка (sitemap.ts очаква
+//    cover_image_url, HandbooksPanel.tsx Handbook интерфейсът очаква
+//    image_url) — вместо да гадаем кое е вярно, поддържаме и двете.
+function mapRow(h: any): ResolvedHandbook {
+  return {
+    slug:             h.slug,
+    title:            h.title,
+    subtitle:         h.subtitle ?? h.description ?? undefined,
+    cover_image_url:  h.cover_image_url ?? h.image_url ?? undefined,
+    emoji:            h.emoji ?? undefined,
+    color:            h.color ?? undefined,
+  }
 }
 
 // ✅ НОВО — ако постът няма НИТО ЕДИН ръчно вграден handbook_embed,
@@ -179,14 +205,14 @@ async function resolveFallbackHandbook(post: BlogPost): Promise<ResolvedHandbook
   try {
     const { data, error } = await supabaseAdmin
       .from('naruchnici')
-      .select('slug, title, subtitle, cover_image_url, emoji, color')
+      .select('*')
       .eq('category', post.category)
       .eq('active', true)
       .order('sort_order', { ascending: true })
       .limit(1)
       .maybeSingle()
     if (error) throw error
-    return data || null
+    return data ? mapRow(data) : null
   } catch (err) {
     console.error('[blog/[slug]/page] resolveFallbackHandbook:', err)
     return null

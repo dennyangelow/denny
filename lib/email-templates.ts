@@ -1,4 +1,29 @@
-// lib/email-templates.ts
+// lib/email-templates.ts — v2
+//
+// ПОПРАВКИ v2 (спрямо v1):
+//   ✅ Unsubscribe линкът вече носи подписан &token= (lib/unsubscribe-token.ts)
+//      — /api/leads/unsubscribe/route.ts v2 вече изисква валиден token,
+//      иначе всеки, който познае/открадне чужд email, може да го отпише.
+//      Това прави unsubLink()/footer() async (crypto.subtle е async) —
+//      wrapper() е СПЕЦИАЛНО оставен sync и взима готов footerHtml низ,
+//      за да не стане async и orderConfirmationEmail/adminNotifyEmail
+//      (които не пращат unsub линк изобщо и нямат нужда от await верига).
+//      Засегнатите функции (welcomeEmail, followUp2/5/10Email,
+//      abandonedOrderEmail, abandonedCartEmail) вече са async — виж
+//      call site-овете в lib/automations.ts и app/api/leads/route.ts.
+//   ✅ welcomeEmail() "Вътре ще намериш" списъкът твърдеше неща, които ги
+//      няма в реалните PDF-и — "пълен календар" (реално е схема по фази),
+//      "органични методи" (PDF-ите дават и химична защита — Ридомил Голд,
+//      Топаз, Кораген и т.н.), и "тайните на двойния добив" (недоказано,
+//      никъде не се появява такова число). Пренаписано да отговаря на
+//      реалното съдържание — вярно е и за двата наръчника (домати/
+//      краставици), защото функцията е generic по slug.
+//   ✅ followUp10Email() препоръчваше "Органичен фунгицид" и "Течен хумат
+//      + фулвати" — и двете не съществуват в реалния каталог (виж
+//      lib/marketing-data.ts PRODUCTS). Заменени с трите продукта, които
+//      реално са в каталога (Амалгерол, Турбо Рут, Калитех).
+
+import { createUnsubscribeToken } from '@/lib/unsubscribe-token'
 
 interface EmailParams {
   email: string
@@ -12,24 +37,27 @@ function greeting(name?: string) {
   return name ? `Здравей, ${name}!` : 'Здравей!'
 }
 
-function unsubLink(email: string) {
-  return `${siteUrl}/unsubscribe?email=${encodeURIComponent(email)}`
+async function unsubLink(email: string): Promise<string> {
+  const token = await createUnsubscribeToken(email)
+  return `${siteUrl}/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`
 }
 
-function footer(email: string) {
+async function footer(email: string): Promise<string> {
   return `
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0">
     <p style="font-size:12px;color:#9ca3af;text-align:center">
       Получаваш този имейл, защото се регистрира на dennyangelow.com.<br>
-      <a href="${unsubLink(email)}" style="color:#9ca3af">Отпиши се тук</a>
+      <a href="${await unsubLink(email)}" style="color:#9ca3af">Отпиши се тук</a>
     </p>
   `
 }
 
-// ✅ v2: unsubscribe footer само ако е подаден email. Преди footer('') даваше линк
-//    /unsubscribe?email= (празен) във followUp2/5/10 → отписването не работеше, а в
-//    транзакционни имейли (потвърждение на поръчка) не му е мястото изобщо.
-function wrapper(content: string, email?: string) {
+// ✅ wrapper() остава СИНХРОНЕН нарочно — взима вече готов footerHtml низ
+// (изчислен от извикващата функция с await footer(email)), вместо сам да
+// вика async footer() вътрешно. Това пази orderConfirmationEmail() (която
+// вика wrapper() без email, без unsub линк) синхронна — без ripple ефект
+// към нейния неизвестен на мен caller.
+function wrapper(content: string, footerHtml: string = '') {
   return `
     <div style="font-family:'DM Sans',sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
       <div style="background:linear-gradient(135deg,#0f1f16,#1b4332);padding:28px 32px;text-align:center">
@@ -39,14 +67,15 @@ function wrapper(content: string, email?: string) {
       <div style="padding:28px 32px">
         ${content}
       </div>
-      ${email ? footer(email) : ''}
+      ${footerHtml}
     </div>
   `
 }
 
 // ─── Welcome (Step 1) ───────────────────────────────────────────────
-export function welcomeEmail({ email, name, slug = 'super-domati' }: EmailParams) {
+export async function welcomeEmail({ email, name, slug = 'super-domati' }: EmailParams) {
   const downloadUrl = `${siteUrl}/naruchnik/${slug}?email=${encodeURIComponent(email)}${name ? `&name=${encodeURIComponent(name)}` : ''}`
+  const unsubUrl     = await unsubLink(email)
 
   const subject = name
     ? `${name}, ето твоя наръчник! 📗`
@@ -76,11 +105,11 @@ export function welcomeEmail({ email, name, slug = 'super-domati' }: EmailParams
           <p style="font-size:11px;font-weight:800;color:#15803d;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px">Вътре ще намериш:</p>
           <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px">
             ${[
-              'Пълен календар за торене и третиране',
-              'Кои продукти работят наистина',
-              'Борба с болестите — органични методи',
-              'Грешките, които убиват реколтата',
-              'Тайните на двойния добив от един декар',
+              'Пълна схема на торене по фази — от разсад до беритба',
+              'Кои продукти реално работят, с точни дози',
+              'Разпознаване на болести и неприятели по конкретни симптоми',
+              'Най-честите грешки, които коства реколтата',
+              'Химичен и биологичен вариант за всяка стъпка',
             ].map(i => `<li style="font-size:13.5px;color:#166534;font-weight:500">✓ ${i}</li>`).join('')}
           </ul>
         </div>
@@ -92,7 +121,7 @@ export function welcomeEmail({ email, name, slug = 'super-domati' }: EmailParams
 
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:0">
       <p style="font-size:12px;color:#9ca3af;text-align:center;padding:16px 32px">
-        Ако не желаеш да получаваш повече имейли: <a href="${unsubLink(email)}" style="color:#9ca3af">отпиши се тук</a>.
+        Ако не желаеш да получаваш повече имейли: <a href="${unsubUrl}" style="color:#9ca3af">отпиши се тук</a>.
       </p>
     </div>
   `
@@ -101,7 +130,7 @@ export function welcomeEmail({ email, name, slug = 'super-domati' }: EmailParams
 }
 
 // ─── Follow-up Day 2 ────────────────────────────────────────────────
-export function followUp2Email({ email, name, slug = 'super-domati' }: EmailParams) {
+export async function followUp2Email({ email, name, slug = 'super-domati' }: EmailParams) {
   const subject = '📌 Прочете ли Глава 2 от наръчника?'
   const downloadUrl = `${siteUrl}/naruchnik/${slug}?email=${encodeURIComponent(email)}${name ? `&name=${encodeURIComponent(name)}` : ''}`
 
@@ -122,13 +151,13 @@ export function followUp2Email({ email, name, slug = 'super-domati' }: EmailPara
     <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:16px 0 0">
       Имаш въпрос за торовете? Отговори директно на този имейл — четем всяко писмо.
     </p>
-  `, email)
+  `, await footer(email))
 
   return { subject, html }
 }
 
 // ─── Follow-up Day 5 ────────────────────────────────────────────────
-export function followUp5Email({ email, name }: EmailParams) {
+export async function followUp5Email({ email, name }: EmailParams) {
   const subject = '🌱 Тази грешка убива 80% от доматите...'
 
   const html = wrapper(`
@@ -152,16 +181,20 @@ export function followUp5Email({ email, name }: EmailParams) {
       В наръчника има цял раздел за напояването с точни количества и честота по сезон.
       Ако все още не си го изтеглил — <a href="${siteUrl}" style="color:#16a34a;font-weight:700">вземи го тук</a>.
     </p>
-  `, email)
+  `, await footer(email))
 
   return { subject, html }
 }
 
 // ─── Follow-up Day 10 ───────────────────────────────────────────────
-export function followUp10Email({ email, name }: EmailParams) {
+export async function followUp10Email({ email, name }: EmailParams) {
   const subject = '🍅 Как е реколтата? + специална оферта'
   const shopUrl = `${siteUrl}/#products`
 
+  // ✅ ФИКС: преди тук стояха "Органичен фунгицид" / "Течен хумат +
+  // фулвати" — нито едно от двете не съществува в реалния каталог (виж
+  // lib/marketing-data.ts). Заменени с продуктите, които реално се
+  // продават под тези имена.
   const html = wrapper(`
     <p style="font-size:16px;font-weight:700;color:#111;margin:0 0 12px">${greeting(name)}</p>
     <p style="font-size:14px;color:#4b5563;line-height:1.65;margin:0 0 16px">
@@ -173,9 +206,9 @@ export function followUp10Email({ email, name }: EmailParams) {
     </p>
     <div style="display:grid;gap:12px;margin:20px 0">
       ${[
-        { emoji: '🌿', name: 'Atlas Terra Биостимулатор', desc: 'Укрепва корените, повишава имунитета' },
-        { emoji: '🧪', name: 'Течен хумат + фулвати', desc: 'Подобрява усвояването на хранителни вещества' },
-        { emoji: '🛡️', name: 'Органичен фунгицид', desc: 'Защита от фитофтора без химия' },
+        { emoji: '🌿', name: 'Амалгерол', desc: '100% природен биостимулатор — щит срещу стреса на растението' },
+        { emoji: '🌱', name: 'Турбо Рут', desc: 'Стимулира бързото вкореняване на разсада' },
+        { emoji: '🛡️', name: 'Калитех', desc: 'Калциев биостимулатор — предпазва от върхово гниене' },
       ].map(p => `
         <div style="display:flex;gap:14px;align-items:flex-start;background:#f8fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px">
           <span style="font-size:26px">${p.emoji}</span>
@@ -194,12 +227,13 @@ export function followUp10Email({ email, name }: EmailParams) {
     <p style="font-size:12px;color:#9ca3af;text-align:center;margin:8px 0 0">
       Безплатна доставка при поръчка над 60 € | Еконт / Спиди
     </p>
-  `, email)
+  `, await footer(email))
 
   return { subject, html }
 }
+
 // ─── Изоставена поръчка (status='new' >24ч) — poll тригер, viz lib/automations.ts ──
-export function abandonedOrderEmail({ email, name, context }: EmailParams & { context?: any }) {
+export async function abandonedOrderEmail({ email, name, context }: EmailParams & { context?: any }) {
   const orderNumber = context?.order_number || ''
   const subject = `⚠️ Поръчка ${orderNumber} чака потвърждение`
   const html = wrapper(`
@@ -213,12 +247,12 @@ export function abandonedOrderEmail({ email, name, context }: EmailParams & { co
         Свържи се с нас →
       </a>
     </div>
-  `, email)
+  `, await footer(email))
   return { subject, html }
 }
 
 // ─── Изоставена количка (>2ч, неконвертирана) — poll тригер ──────────────────
-export function abandonedCartEmail({ email, name, context }: EmailParams & { context?: any }) {
+export async function abandonedCartEmail({ email, name, context }: EmailParams & { context?: any }) {
   const items: { product_name: string; quantity: number }[] = context?.items || []
   const total = Number(context?.total || 0)
   const subject = '🛒 Забрави нещо в количката си?'
@@ -237,15 +271,17 @@ export function abandonedCartEmail({ email, name, context }: EmailParams & { con
         Довърши поръчката →
       </a>
     </div>
-  `, email)
+  `, await footer(email))
   return { subject, html }
 }
 
 // Код за потвърждение на поръчка (към клиента)
+// ✅ Остава СИНХРОННА — не праща unsub линк (транзакционен имейл), wrapper()
+// тук се вика без footerHtml, значи няма нужда от await верига.
 export function orderConfirmationEmail({ order, items }: any) {
   const subject = `Поръчка #${order.order_number} — Denny Angelow`
-  
-  const itemsHtml = items.map((i: any) => 
+
+  const itemsHtml = items.map((i: any) =>
     `<li style="font-size:14px;margin-bottom:8px"><strong>${i.product_name}</strong> (x${i.quantity}) — ${i.total_price.toFixed(2)} €</li>`
   ).join('')
 
@@ -259,15 +295,15 @@ export function orderConfirmationEmail({ order, items }: any) {
     </div>
     <p style="font-size:13px;color:#6b7280">Доставка до: ${order.customer_city}, ${order.customer_address}</p>
   `)
-  
+
   return { subject, html }
 }
 
 // Код за известие към теб (админа)
 export function adminNotifyEmail({ order, items }: any) {
   const subject = `НОВА ПОРЪЧКА: #${order.order_number} (${order.customer_name})`
-  
-  const itemsHtml = items.map((i: any) => 
+
+  const itemsHtml = items.map((i: any) =>
     `<li>${i.product_name} (x${i.quantity})</li>`
   ).join('')
 
@@ -281,6 +317,6 @@ export function adminNotifyEmail({ order, items }: any) {
     <ul>${itemsHtml}</ul>
     <p><strong>Обща сума:</strong> ${order.total.toFixed(2)} €</p>
   `
-  
+
   return { subject, html }
 }

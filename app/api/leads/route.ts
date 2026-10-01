@@ -1,33 +1,15 @@
-// ФАЙЛ: app/api/leads/route.ts — v21
+// ФАЙЛ: app/api/leads/route.ts — v23
 //
-// ПОПРАВКИ v21 (спрямо v20):
-//   ✅ НОВО: MX проверка (hasValidMx от lib/mx-check.ts — ОТДЕЛЕН server-only
-//      файл, НЕ lib/validation.ts, защото последният се импортва и от client
-//      компоненти и dns/promises чупи client build-а) — хваща синтактично
-//      валидни, но несъществуващи домейни (напр. "asdas@aasdasd.bg") —
-//      serverValidate() ги пропускаше, защото проверява само ФОРМАТ, не дали
-//      домейнът реално приема поща. Fail-open при timeout/DNS проблем (виж
-//      коментара в lib/mx-check.ts) — не блокира реален потребител заради
-//      наша инфраструктурна грешка, само заради категорично несъществуващ
-//      домейн.
-//
-// ПОПРАВКИ v20 (спрямо v19):
-//   ✅ Welcome имейлът вече минава през enrollAndRunFirstStep() (lib/
-//      automations.ts) вместо директен sendEmail() тук. Докато workflow-a
-//      "Naruchnik — Welcome серия" (виж migrations/001_workflows.sql) е
-//      неактивен в базата — поведението е ИДЕНТИЧНО на v19 (fallback по-
-//      долу праща старото welcomeEmail() директно). Активираш ли
-//      workflow-а от Настройки → Автоматизации, автоматично минаваш на
-//      конфигурируемата серия (welcome + followup 2/5/10), без нова
-//      промяна тук.
-//
-// ПОПРАВКИ v19 (спрямо v18):
-//   ✅ email_logs се пишеше БЕЗУСЛОВНО при всеки нов/обновен lead — сега
-//      само СЛЕД успешен sendEmail() await.
-//
-// ПОПРАВКИ v18 (спрямо v17):
-//   1. ПЪЛНО премахване на Systeme.io.
-//   2. Изпращането минава през lib/mailer.ts (sendEmail) → Amazon SES.
+// ПОПРАВКИ v23 (спрямо v22):
+//   ✅ Когато заявката носи naruchnik_slug, отговорът вече включва
+//      { naruchnik: { pdf_url, title } } директно — преди клиентът (вижa
+//      BlogHandbookEmbed.tsx/HandbooksPanel.tsx) правеше ВТОРИ round-trip
+//      (GET /api/naruchnici?slug=X) само за да вземе pdf_url СЛЕД като
+//      POST-ът вече е минал успешно. Едно мрежово заключено "чакане"
+//      по-малко точно в момента, в който потребителят гледа spinner-а
+//      преди изтеглянето — забележимо при бавна мобилна връзка.
+//      Старите извиквачи (които продължават да правят отделен GET) не
+//      се чупят — полето е чисто добавка, не премахва нищо съществуващо.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -73,7 +55,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error, field: validation.field }, { status: 400 })
     }
 
-    // ✅ НОВО: домейнът минава regex-а по-горе, но реално съществува ли?
+    // ✅ домейнът минава regex-а по-горе, но реално съществува ли?
     // (напр. "aasdasd.bg" — синтактично идеален, никога регистриран домейн)
     if (!(await hasValidMx(email))) {
       return NextResponse.json(
@@ -158,7 +140,7 @@ export async function POST(req: NextRequest) {
         .eq('active', true)
 
       if (!activeWorkflowCount) {
-        const { subject, html } = welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
+        const { subject, html } = await welcomeEmail({ email: cleanEmail, name: upsertName ?? undefined, slug })
         try {
           await sendEmail({ to: cleanEmail, subject, html })
           await supabaseAdmin.from('email_logs').insert({
@@ -170,7 +152,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true })
+    // ✅ НОВО v23 — директно в отговора на POST-а, за да спестим на
+    //    клиента втория GET round-trip. select('*') (не изрично изброени
+    //    колони) — виж bp-handbook-embed резолвъра в app/blog/[slug]/
+    //    page.tsx за защо: грешно предположено име на колона иначе гърми
+    //    тихо. maybeSingle() вместо single() — ако slug-ът не съществува
+    //    (edge case), просто връща null, не чупи целия POST отговор.
+    let naruchnik: { pdf_url: string; title: string } | null = null
+    if (slug) {
+      try {
+        const { data: narData } = await supabaseAdmin
+          .from('naruchnici')
+          .select('pdf_url, title')
+          .eq('slug', slug)
+          .eq('active', true)
+          .maybeSingle()
+        if (narData?.pdf_url) naruchnik = { pdf_url: narData.pdf_url, title: narData.title }
+      } catch (err) {
+        console.error('[leads] naruchnik lookup failed:', err)
+      }
+    }
+
+    return NextResponse.json({ success: true, naruchnik })
   } catch (error: any) {
     console.error('[leads] Fatal:', error)
     return NextResponse.json({ error: error?.message || String(error) }, { status: 500 })

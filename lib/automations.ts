@@ -42,7 +42,10 @@ import {
   abandonedCartEmail,
 } from '@/lib/email-templates'
 
-type TemplateFn = (p: { email: string; name?: string; slug?: string; context?: Record<string, any> }) => { subject: string; html: string }
+// ✅ ФИКС: връщан тип вече е Promise — welcomeEmail/followUp*/abandoned*
+// станаха async (виж lib/email-templates.ts v2 — unsubscribe линкът сега
+// носи подписан token, а изчисляването му е async).
+type TemplateFn = (p: { email: string; name?: string; slug?: string; context?: Record<string, any> }) => Promise<{ subject: string; html: string }>
 
 // ✅ Добавяй нов ред тук ВИНАГИ заедно с нов ред в AutomationsTab.tsx (TEMPLATE_OPTIONS).
 export const TEMPLATE_REGISTRY: Record<string, TemplateFn> = {
@@ -267,7 +270,8 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
     return { sent: false, error: await recordFailure(enr, `непознат template_key: ${step.template_key}`) }
   }
 
-  const { subject, html } = templateFn({
+  // ✅ ФИКС: templateFn вече е async — виж бележката при TemplateFn по-горе.
+  const { subject, html } = await templateFn({
     email,
     name: enr.leads?.name || undefined,
     slug: enr.context?.naruchnik_slug,
