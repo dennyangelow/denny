@@ -73,7 +73,7 @@ const SECTIONS = [
     id: 'currency', group: 'Бизнес', label: '💶 Валута',
     description: 'Код и символ на валутата, показвани до всяка цена в сайта',
     keys: [
-      { key: 'currency',        label: 'Валута (код)',        type: 'text', placeholder: 'BGN', hint: 'Напр. BGN, EUR, USD' },
+      { key: 'currency',        label: 'Валута (код)',        type: 'text', placeholder: 'EUR', hint: 'ISO код, напр. EUR (България е в еврозоната от 01.01.2026)' },
       { key: 'currency_symbol', label: 'Символ за показване', type: 'text', placeholder: '€',   hint: 'Показва се след сумата — €, лв., $' },
     ],
   },

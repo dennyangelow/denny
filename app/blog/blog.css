@@ -348,11 +348,22 @@
 .bp-related-title { font-size: 11px; font-weight: 800; color: #9ca3af; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 16px; }
 
 /* ── Sharing ─────────────────────────────────────────────────────────────── */
-.bp-share { display: flex; gap: 8px; margin: 28px 0; }
-.bp-share a {
-  width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
-  background: #f0fdf4; border: 1px solid #bbf7d0; color: #16a34a; text-decoration: none; font-size: 14px; font-weight: 700;
+/* ✅ ПРОМЯНА v2 — .bp-share вече е ShareBar.tsx (истински икони, брандирани
+   цветове) вместо суров текст "FB"/"WA"/"VB" в еднакви зелени квадратчета.
+   Виж чат бележката защо изглеждаше като недовършен плейсхолдър. */
+.bp-share { margin: 28px 0; }
+.bp-share-label { display: block; font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+.bp-share-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bp-share-btn {
+  width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  text-decoration: none; border: none; cursor: pointer; transition: transform .15s, box-shadow .15s;
 }
+.bp-share-btn:hover { transform: translateY(-2px); }
+.bp-share-btn--fb   { background: #1877F2; color: #fff; }
+.bp-share-btn--wa   { background: #25D366; color: #fff; }
+.bp-share-btn--vb   { background: #7360F2; color: #fff; }
+.bp-share-btn--copy { background: #f3f4f6; color: #374151; border: 1.5px solid #e5e7eb; }
+.bp-share-copied { font-size: 12.5px; font-weight: 700; color: #16a34a; }
 
 @media (max-width: 640px) {
   .bp-title { font-size: 26px; }
@@ -388,7 +399,21 @@
   display: inline-flex; align-items: center; gap: 6px; color: #fff;
   border: none; padding: 9px 16px; border-radius: 9px; font-size: 13px;
   font-weight: 700; cursor: pointer; font-family: inherit;
+  width: auto; flex-shrink: 0; white-space: nowrap;
 }
+/* ✅ НОВО — бутон + trust текст в общ ред, вместо бутонът да се опъва на
+   цялата ширина (grid-column:1/-1 изглеждаше прекалено дълго на desktop —
+   виж чат бележката). wrap, за да не се чупи на тесен екран. */
+.bp-handbook-embed-cta-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; margin-top: 4px;
+}
+.bp-handbook-embed-cta-row--wide { grid-column: 1 / -1; margin-top: 2px; }
+.bp-handbook-embed-trust {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  font-size: 11px; color: #6b7280;
+}
+.bp-handbook-embed-trust span:nth-child(even) { color: #d1d5db; }
 .bp-handbook-embed-form {
   margin-top: 14px; padding-top: 14px; border-top: 1px dashed #bbf7d0;
   display: flex; flex-direction: column; gap: 8px; max-width: 100%;
@@ -406,7 +431,6 @@
     align-items: start;
   }
   .bp-handbook-embed-err--wide { grid-column: 1 / -1; }
-  .bp-handbook-embed-btn--submit { grid-column: 1 / -1; }
 }
 .bp-handbook-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .bp-handbook-embed-input {
@@ -417,14 +441,6 @@
 .bp-handbook-embed-input:focus { border-color: #16a34a; }
 .bp-handbook-embed-err { font-size: 11.5px; color: #dc2626; }
 .bp-handbook-embed--done { display: flex; align-items: center; gap: 12px; }
-/* ✅ НОВО — trust ред, огледало на HandbooksPanel.tsx footer-а, за да не
-   изглежда картата по-"гола" от наръчник секцията на началната страница. */
-.bp-handbook-embed-trust {
-  grid-column: 1 / -1;
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-top: 4px; font-size: 11px; color: #6b7280;
-}
-.bp-handbook-embed-trust span:nth-child(even) { color: #d1d5db; }
 @media (max-width: 480px) {
   /* ✅ ФИКС: преди .bp-handbook-embed-img беше width:100%;height:120px с
      object-fit:cover — коричните снимки на наръчниците са PORTRAIT (книга),

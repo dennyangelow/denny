@@ -1,5 +1,13 @@
 'use client'
-// app/admin/login/page.tsx
+// app/admin/login/page.tsx — v2
+// ✅ v1 → v2:
+//    1. Проверката "има ли ADMIN_SECRET" вече е GET /api/admin/auth (не брои като
+//       опит за вход). Преди това страницата изпращаше POST с парола "__check__"
+//       при всяко отваряне — всяко зареждане/опресняване хабеше 1 от 5-те
+//       разрешени опита за 15 мин и можеше да те заключи сам.
+//    2. Параметърът ?from= се приема само ако е вътрешен път (започва с един "/").
+//       Преди това router.replace(from) допускаше https://външен-сайт (open redirect
+//       след вход — фишинг линк с твоя домейн).
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -12,17 +20,16 @@ function LoginContent() {
   const [lockout, setLockout]   = useState(0)
   const router = useRouter()
   const params = useSearchParams()
-  const from   = params.get('from') || '/admin'
+  // ✅ v2: само вътрешни пътища ("/нещо"), без "//хост" и "/\\хост"
+  const rawFrom = params.get('from') || '/admin'
+  const from    = /^\/(?![\/\\])/.test(rawFrom) ? rawFrom : '/admin'
 
-  // Проверява дали ADMIN_SECRET е зададен — ако не е, директно пуска
+  // Проверява дали панелът е в "отворен" режим (локално, без ADMIN_SECRET).
+  // ✅ v2: GET — не минава през rate limit-а за опити за вход.
   useEffect(() => {
-    fetch('/api/admin/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: '__check__' }),
-    })
+    fetch('/api/admin/auth', { method: 'GET', cache: 'no-store' })
       .then(r => r.json())
-      .then(d => { if (d.ok) setNoSecret(true) })
+      .then(d => { if (d.open) setNoSecret(true) })
       .catch(() => {})
   }, [])
 

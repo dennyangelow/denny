@@ -1,4 +1,14 @@
-// middleware.ts — v11
+// middleware.ts — v12
+// ✅ v11 → v12 (сигурност):
+//    1. '/api/admin' е в PROTECTED_API_PREFIXES. Преди v12 маршрути като
+//       /api/admin/naruchnici и /api/admin/naruchnici/[id]/seo НЕ съвпадаха с
+//       никой префикс и минаваха през общото "if (pathname.startsWith('/api'))
+//       → next()" без вход — т.е. всеки можеше да чете наръчниците и да
+//       променя meta/FAQ/съдържание на живия сайт. /api/admin/auth остава
+//       публичен (проверява се по-рано в isPublicApiRequest).
+//    2. Липсващ ADMIN_SECRET вече НЕ отваря админа в production (fail-closed).
+//       Локално (NODE_ENV !== 'production') остава отворено, както преди —
+//       точно както вече прави app/api/admin/auth/route.ts.
 // ✅ v10 → v11: добавени публични изключения за SES SNS webhook-а
 //    (/api/webhooks/ses) и abandoned-cart tracking endpoint-а
 //    (/api/carts/track) — нито двата не носят admin cookie.
@@ -70,6 +80,7 @@ const PROTECTED_API_PREFIXES = [
   '/api/email-stats',  // ← open/click/bounce статистики, само за admin
   '/api/blog',         // ← POST/PATCH/DELETE на блог постове, само за admin (GET е публичен, виж isPublicApiRequest)
   '/api/blog-categories', // ← POST/PATCH/DELETE на категории, само за admin (GET е публичен)
+  '/api/admin',        // ← v12: всички /api/admin/* освен /api/admin/auth (то е публично по-горе)
 ]
 
 function isProtectedApi(pathname: string, method: string): boolean {
@@ -85,7 +96,8 @@ function isProtectedApi(pathname: string, method: string): boolean {
 // middleware вече е async.
 async function isValidToken(req: NextRequest): Promise<boolean> {
   const secret = process.env.ADMIN_SECRET
-  if (!secret) return true
+  // v12: без secret → отворено САМО при локална разработка, никога в production
+  if (!secret) return process.env.NODE_ENV !== 'production'
   const token = req.cookies.get(ADMIN_COOKIE)?.value
   return verifySessionToken(token, secret)
 }

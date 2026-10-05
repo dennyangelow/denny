@@ -1,17 +1,16 @@
 'use client'
-// components/blog/BlogHandbookEmbed.tsx — v3
-// ✅ ПРОМЯНА спрямо v2:
-//   1) Трите полета (име/имейл/телефон) вече са обвити по едно в
-//      <div className="bp-handbook-field"> — нужно, за да може CSS grid-ът
-//      (виж blog.css) да ги подреди в ред от 3 на широк екран, вместо
-//      тясна 340px колонка, която на desktop изглеждаше "сбутана" встрани
-//      с много празно пространство (виж чат скрийншот). Всяко поле носи
-//      грешката си ПОД себе си в собствения grid item — не разчита на
-//      ред в DOM-а за визуално подреждане.
-//   2) Добавен trust ред долу ("🔒 Без спам · Директно сваляне ·
-//      Безплатно") — същата microcopy, която HandbooksPanel.tsx вече
-//      показва на началната страница. Преди картата изглеждаше "по-гола"
-//      от наръчник секцията на началната, без видима причина да е така.
+// components/blog/BlogHandbookEmbed.tsx — v5
+// ✅ ПРОМЯНА спрямо v4:
+//   1) Submit бутонът: "Изтегли сега →" → "Изпрати ми наръчника →" —
+//      по-лично, назовава конкретно какво получава (наръчника), и не
+//      повтаря "безплатно", вече казано два пъти по-нагоре в картата
+//      (баджа + заглавието).
+//   2) Trust редът: "Без спам · Директно сваляне · Безплатно" →
+//      "Без спам · Отписване по всяко време · Веднага в пощата ти" —
+//      "Безплатно" махнато (същото повторение), заменено с два реда,
+//      които реално адресират причините някой да се колебае да остави
+//      имейл/телефон: страх от спам завинаги (отписване по всяко време)
+//      и несигурност дали наистина получава файла веднага.
 
 import { useState } from 'react'
 import { validateName, validateEmail, validatePhone } from '@/lib/validation'
@@ -32,6 +31,14 @@ interface Props {
 }
 
 type Status = 'idle' | 'form' | 'loading' | 'done' | 'error'
+
+function TrustRow() {
+  return (
+    <div className="bp-handbook-embed-trust">
+      <span>🔒 Без спам</span><span>·</span><span>Отписване по всяко време</span><span>·</span><span>Веднага в пощата ти</span>
+    </div>
+  )
+}
 
 export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props) {
   const [status, setStatus] = useState<Status>('idle')
@@ -130,9 +137,12 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
           {handbook.subtitle && <p className="bp-handbook-embed-sub">{handbook.subtitle}</p>}
 
           {status === 'idle' && (
-            <button type="button" className="bp-handbook-embed-btn" style={{ background: color }} onClick={() => setStatus('form')}>
-              📥 Свали безплатно →
-            </button>
+            <div className="bp-handbook-embed-cta-row">
+              <button type="button" className="bp-handbook-embed-btn" style={{ background: color }} onClick={() => setStatus('form')}>
+                📥 Свали безплатно →
+              </button>
+              <TrustRow />
+            </div>
           )}
         </div>
       </div>
@@ -176,18 +186,17 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
 
           {status === 'error' && <span className="bp-handbook-embed-err bp-handbook-embed-err--wide">{errorMsg}</span>}
 
-          <button
-            type="button"
-            className="bp-handbook-embed-btn bp-handbook-embed-btn--submit"
-            style={{ background: status === 'loading' ? '#9ca3af' : color }}
-            disabled={status === 'loading'}
-            onClick={submit}
-          >
-            {status === 'loading' ? '⏳ Подготвям...' : '📥 Изтегли сега →'}
-          </button>
-
-          <div className="bp-handbook-embed-trust">
-            <span>🔒 Без спам</span><span>·</span><span>Директно сваляне</span><span>·</span><span>Безплатно</span>
+          <div className="bp-handbook-embed-cta-row bp-handbook-embed-cta-row--wide">
+            <button
+              type="button"
+              className="bp-handbook-embed-btn"
+              style={{ background: status === 'loading' ? '#9ca3af' : color }}
+              disabled={status === 'loading'}
+              onClick={submit}
+            >
+              {status === 'loading' ? '⏳ Подготвям...' : '📥 Изпрати ми наръчника →'}
+            </button>
+            <TrustRow />
           </div>
         </div>
       )}

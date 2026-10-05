@@ -1,11 +1,18 @@
-// app/api/admin/auth/route.ts — v2
+// app/api/admin/auth/route.ts — v3
 //
-// ПОПРАВКИ v2 (спрямо v1):
-//   ✅ Cookie-то вече е подписан сесиен токен (lib/admin-session.ts), не
-//      самата ADMIN_SECRET парола.
+// ПОПРАВКИ v3 (спрямо v2):
+//   ✅ НОВ GET — връща { open: boolean } и НЕ минава през rate limit-а.
+//      open е true само при локална разработка без ADMIN_SECRET. Login страницата
+//      (app/admin/login/page.tsx v2) го вика вместо да праща POST с парола
+//      "__check__", който хабеше 1 от 5-те опита за вход при всяко отваряне
+//      на страницата.
+//
+// ПОПРАВКИ v2 (запазени):
+//   ✅ Cookie-то е подписан сесиен токен (lib/admin-session.ts), не самата
+//      ADMIN_SECRET парола.
 //   ✅ Липсващ ADMIN_SECRET в production → 503 (вход блокиран), не "open mode".
-//      Локално (NODE_ENV !== 'production') без secret всичко остава отворено,
-//      както преди — middleware.ts прави същото.
+//      Локално (NODE_ENV !== 'production') без secret всичко остава отворено —
+//      middleware.ts v12 прави същото.
 //   ✅ Паролата се сравнява без timing разлики.
 //   ✅ Невалидно тяло на заявката не гърми с 500.
 //
@@ -18,6 +25,12 @@ import { rateLimit, getIP } from '@/lib/rate-limit'
 import {
   ADMIN_COOKIE, SESSION_TTL_SEC, createSessionToken, passwordMatches,
 } from '@/lib/admin-session'
+
+// ─── GET — само статус, без да брои като опит за вход ────────────────────────
+export async function GET() {
+  const open = !process.env.ADMIN_SECRET && process.env.NODE_ENV !== 'production'
+  return NextResponse.json({ open }, { headers: { 'Cache-Control': 'no-store' } })
+}
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req)

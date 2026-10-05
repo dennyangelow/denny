@@ -32,7 +32,7 @@ export const NAV_ITEMS = [
   { id: 'dashboard',    icon: '▦',  label: 'Дашборд'      },
   { id: 'analytics',    icon: '▲',  label: 'Аналитика'    },
   { id: 'orders',       icon: '◫',  label: 'Поръчки'      },
-  { id: 'email',        icon: '📊', label: 'Email' },
+  { id: 'email',        icon: '📧', label: 'Email' },
   { id: 'content',      icon: '✦',  label: 'Продукти'     },
   { id: 'blog',         icon: '📝', label: 'Блог'         },
   { id: 'marketing',    icon: '📣', label: 'Маркетинг'    },

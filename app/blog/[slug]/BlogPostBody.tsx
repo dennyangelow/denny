@@ -19,6 +19,7 @@ import { FaqAccordion } from '@/components/blog/FaqAccordion'
 import { AffiliateTrackedLink } from '@/components/blog/AffiliateTrackedLink'
 import { BlogHandbookEmbed } from '@/components/blog/BlogHandbookEmbed'
 import type { ResolvedHandbook } from '@/components/blog/BlogHandbookEmbed'
+import { ShareBar } from '@/components/blog/ShareBar'
 import { renderRichText } from '@/lib/blogRichText'
 import type { BlogPost, BlogBlock, BlogCategory } from '@/lib/blog'
 import { categoryLabel, categoryEmoji, slugifyHeading, extractToc } from '@/lib/blog'
@@ -276,9 +277,6 @@ export default function BlogPostBody({
     ? new Date(post.updated_at!).toLocaleDateString('bg-BG', { day: 'numeric', month: 'long', year: 'numeric' })
     : null
 
-  const shareText = encodeURIComponent(post.title)
-  const shareUrl   = encodeURIComponent(canonicalUrl)
-
   const segments = groupContentBlocks(post.content)
   const hasManualHandbookEmbed = post.content.some(b => b.type === 'handbook_embed')
 
@@ -347,11 +345,7 @@ export default function BlogPostBody({
         <BlogHandbookEmbed handbook={fallbackHandbook} variant="fallback" />
       )}
 
-      <div className="bp-share">
-        <a href={`https://www.facebook.com/sharer/sharer.php?u=${shareUrl}`} target="_blank" rel="noopener" aria-label="Сподели във Facebook">FB</a>
-        <a href={`https://wa.me/?text=${shareText}%20${shareUrl}`} target="_blank" rel="noopener" aria-label="Сподели във WhatsApp">WA</a>
-        <a href={`https://viber.im/forward?text=${shareText}%20${shareUrl}`} target="_blank" rel="noopener" aria-label="Сподели във Viber">VB</a>
-      </div>
+      <ShareBar url={canonicalUrl} title={post.title} />
 
       {related.length > 0 && (
         <div className="bp-related">

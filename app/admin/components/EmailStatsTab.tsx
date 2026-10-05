@@ -1,5 +1,11 @@
 'use client'
-// app/admin/components/EmailStatsTab.tsx — v1
+// app/admin/components/EmailStatsTab.tsx — v2
+//
+// ФИКС v2 (спрямо v1): sequenceStats идва вече с уникален `id` (композитен
+// key от /api/email-stats v2 — виж бележката там), не просто `step`. Преди
+// React key={s.step} сблъскваше "стъпка 1" на РАЗЛИЧНИ workflow-и (welcome
+// серия / изоставена поръчка / изоставена количка) в един ред с грешни
+// числа. Сега key={s.id}, а label вече идва готов с името на workflow-а.
 //
 // Показва данните, които /api/webhooks/ses вече пише в базата: open/click
 // rate по sequence стъпка, bounce/complaint брой (30 дни), и фунел на
@@ -8,7 +14,7 @@
 import { useState, useEffect } from 'react'
 
 interface SequenceStat {
-  step: number; label: string
+  id: string; label: string
   sent: number; opened: number; clicked: number
   openRate: number; clickRate: number
 }
@@ -89,7 +95,7 @@ export function EmailStatsTab() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {data.sequenceStats.map(s => (
-              <div key={s.step}>
+              <div key={s.id}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
                   <span style={{ fontWeight: 700, color: '#111' }}>{s.label}</span>
                   <span style={{ color: '#9ca3af' }}>{s.sent} пратени</span>

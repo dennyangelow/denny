@@ -1,4 +1,8 @@
 // app/page.tsx  ←  SERVER COMPONENT (без 'use client')
+// ✅ ПРОМЯНА: Book схемата — priceCurrency BGN→EUR, без измислена datePublished, без празно image;
+//    ItemList на партньорските продукти — само вътрешни /produkt/[slug] адреси и без вложен Product
+//    (Product разметката живее на страниците на продуктите); "Над 6 500 фермери" в SEO_DEFAULTS е
+//    заменено с {count} (реалните сваляния) — без реални данни числото просто отпада.
 // v4 — Критични и важни подобрения:
 //   ✅ Singleton supabaseAdmin от lib/supabase.ts (не се вика createClient при всяка заявка)
 //   ✅ affiliate_clicks — SQL GROUP BY вместо 5000 реда в паметта
@@ -758,10 +762,10 @@ async function getPageData() {
 // ─── SEO Defaults ──────────────────────────────────────────────────────────────
 const SEO_DEFAULTS = {
   title:             'Denny Angelow — Домати, Краставици, Торове и Агро Наръчници',
-  description:       'Безплатни PDF наръчници за домати и краставици. Биостимулатори Atlas Terra, Ginegar найлон. Над 6 500 фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.',
+  description:       'Безплатни PDF наръчници за домати и краставици. Биостимулатори Atlas Terra, Ginegar найлон. Над {count} фермери вече използват съветите на Дени Ангелов — агро консултант с 8+ години опит.',
   keywords:          'домати, отглеждане на домати, торене на домати, болести по домати, мана по домати, Tuta absoluta, върхово гниене на домати, домати в оранжерия, наръчник за домати, краставици, отглеждане на краставици, торене на краставици, наръчник за краставици, Atlas Terra, биостимулатори, органично торене, течни торове, хуминови киселини, аминокиселини за растения, NPK торове, Амалгерол, Калитех, Кристалон зелен, Прев-Голд, Ридомил Голд, Синейс 480, мана по растения, трипс по домати, белокрилки, акари, фунгицид за домати, инсектицид биологичен, без карантина, оранжерия, найлон за оранжерия, Ginegar, израелски найлон, полиетилен за оранжерия, поливни системи, капково напояване, земеделие България, агро консултант, Denny Angelow, безплатен агро наръчник, рекордна реколта, органично земеделие, биологично земеделие, фермери България',
   og_title:          'Denny Angelow — Безплатни Наръчници за Домати и Краставици',
-  og_description:    'Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над 6 500 фермери вече го използват.',
+  og_description:    'Изтегли безплатно и научи как да отгледаш едри, здрави домати и краставици. Над {count} фермери вече го използват.',
   og_image:          '/og-image.jpg',
   og_image_alt:      'Denny Angelow — Агро Наръчници за Домати и Краставици',
   twitter_title:     'Denny Angelow — Безплатни Агро Наръчници',
@@ -794,12 +798,18 @@ export async function generateMetadata(): Promise<Metadata> {
     .split(',').map((k: string) => k.trim()).filter(Boolean)
 
   const totalDownloads = handbooks.reduce((sum, n) => sum + (realDownloadCounts[n.slug] || 0), 0)
-  const displayCount   = totalDownloads > 0 ? totalDownloads.toLocaleString('bg') : '6 500'
+  // ✅ ФИКС: без реални данни НЕ показваме измислено число — изречението просто
+  //    губи "Над N" (виж fillCount по-долу).
+  const displayCount   = totalDownloads > 0 ? totalDownloads.toLocaleString('bg') : ''
+  const fillCount = (txt: string) =>
+    displayCount
+      ? txt.replace('{count}', displayCount)
+      : txt.replace(/Над \{count\} фермери/g, 'Фермери').replace('{count}', '')
 
   const title       = s.seo_title       || SEO_DEFAULTS.title
-  const description = (s.seo_description || SEO_DEFAULTS.description).replace('{count}', displayCount)
+  const description = fillCount(s.seo_description || SEO_DEFAULTS.description)
   const ogTitle       = s.og_title         || SEO_DEFAULTS.og_title
-  const ogDescription = (s.og_description  || SEO_DEFAULTS.og_description).replace('{count}', displayCount)
+  const ogDescription = fillCount(s.og_description  || SEO_DEFAULTS.og_description)
   const ogImage       = s.og_image
     ? (s.og_image.startsWith('http') ? s.og_image : `${BASE_URL}${s.og_image}`)
     : `${BASE_URL}${SEO_DEFAULTS.og_image}`
@@ -957,14 +967,13 @@ export default async function HomePage() {
         name:                 n.title,
         description:          n.description || '',
         url:                  `${BASE_URL}/naruchnik/${n.slug}`,
-        image:                n.image_url || '',
+        ...(n.image_url ? { image: n.image_url } : {}),
         inLanguage:          'bg',
         isAccessibleForFree:  true,
         genre:               'Agriculture / Gardening',
-        datePublished:       '2024-01-01',
         author:    { '@type': 'Person',       name: 'Denny Angelow', url: BASE_URL, jobTitle: 'Агро Консултант' },
         publisher: { '@type': 'Organization', name: 'Denny Angelow', url: BASE_URL },
-        offers: { '@type': 'Offer', price: '0', priceCurrency: 'BGN', availability: 'https://schema.org/InStock' },
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR', availability: 'https://schema.org/InStock' },
         ...(n.avg_rating && n.reviews_count ? {
           aggregateRating: {
             '@type': 'AggregateRating',
@@ -986,50 +995,20 @@ export default async function HomePage() {
   const productListSchema = affiliateProducts.length > 0 ? {
     '@context':    'https://schema.org',
     '@type':       'ItemList',
-    name:          'Препоръчани Агро Продукти от Denny Angelow',
-    description:   'Торове, биостимулатори и препарати препоръчани от агро консултант Denny Angelow',
+    name:          'Препоръчани агро продукти на Denny Angelow',
+    description:   'Торове, биостимулатори и растителна защита, препоръчани от агро консултант Denny Angelow',
     url:           BASE_URL,
     numberOfItems: affiliateProducts.length,
+    // ✅ ФИКС: преди всеки ListItem носеше вложен Product с url = партньорския
+    //    (външен) линк или, при липса, началната страница. Product разметката
+    //    живее на собствените страници /produkt/[slug] (с цена, отзиви, условия
+    //    за доставка/връщане) — тук е нужен само списък с ВЪТРЕШНИ адреси.
     itemListElement: affiliateProducts.map((p, i) => ({
-      '@type':    'ListItem',
-      position:    i + 1,
-      name:        p.name,
-      url:         p.affiliate_url || BASE_URL,
-      item: {
-        '@type':      'Product',
-        name:          p.name,
-        description:   p.seo_description || p.description || '',
-        image:         p.image_url || '',
-        url:           p.affiliate_url || BASE_URL,
-        ...(p.seo_keywords ? { keywords: p.seo_keywords } : {}),
-        brand: { '@type': 'Brand', name: p.partner || 'Agroapteki' },
-        // ✅ ФИКС: премахнат хардкоднат фалшив `review` (5★, "препоръчан от
-        // Denny Angelow" еднакво за всеки продукт) — Google третира Review/
-        // AggregateRating markup като отзиви от трети страни, не описание
-        // от продавача; риск от manual action. Вместо това — реален
-        // агрегатен рейтинг, САМО ако продуктът реално има такъв (виж
-        // reviews миграцията, която махна фалшивите DB defaults 5.0/1).
-        ...(p.rating && p.review_count && p.rating > 0 && p.review_count > 0 ? {
-          aggregateRating: {
-            '@type':     'AggregateRating',
-            ratingValue:  p.rating,
-            reviewCount:  p.review_count,
-            bestRating:   5,
-            worstRating:  1,
-          },
-        } : {}),
-        ...(p.price ? {
-          offers: {
-            '@type':          'Offer',
-            price:             Number(p.price).toFixed(2),
-            priceCurrency:     p.price_currency || 'EUR',
-            availability:      'https://schema.org/InStock',
-            priceValidUntil:   new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            url:               `${BASE_URL}/produkt/${p.slug}`,
-            seller: { '@type': 'Organization', name: 'Agroapteki', url: 'https://agroapteki.com' },
-          },
-        } : {}),
-      },
+      '@type':   'ListItem',
+      position:   i + 1,
+      name:       p.name,
+      url:        `${BASE_URL}/produkt/${p.slug}`,
+      ...(p.image_url ? { image: p.image_url } : {}),
     })),
   } : null
 
@@ -1269,7 +1248,7 @@ export default async function HomePage() {
                 </div>
                 <div className="hero-learn-item">
                   <span className="hero-learn-icon" style={{ background: '#dcfce7' }}>{"🏆"}</span>
-                  <span>{"Стъпки за рекорден добив без грешки и загуби"}</span>
+                  <span>{"Стъпки за рекорден добив без грешки и загуби  "}</span>
                 </div>
               </div>
             </div>

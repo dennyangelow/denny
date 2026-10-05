@@ -1,4 +1,12 @@
-// lib/automations.ts — v3
+// lib/automations.ts — v4
+//
+// ПРОМЕНИ спрямо v3:
+//   ✅ abandoned_carts.reminded_at вече СЕ пише след успешен cart-reminder
+//      имейл (виж блока точно след email_logs insert-а по-долу) — преди
+//      това не ставаше никъде, значи email-stats "Получили reminder"
+//      винаги показваше 0 и pollTriggers() намираше същата количка отново
+//      и отново на всеки tick (безвредно заради enrollLead() dedup-а, но
+//      грешна статистика).
 //
 // ПРОМЕНИ спрямо v1 (открити при одит на реалните данни):
 //   ✅ Engine-ът вече НЕ праща на отписани (leads.subscribed=false) — v1 изобщо
@@ -293,6 +301,18 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
     sent_at:       now,
   })
   await supabaseAdmin.from('leads').update({ last_email_sent_at: now }).eq('id', enr.lead_id)
+
+  // ✅ ФИКС: abandoned_carts.reminded_at никога не се пишеше оттук — значи
+  //    email-stats "Получили reminder" статистиката винаги показваше 0, а
+  //    pollTriggers() намираше същата количка отново и отново на всеки
+  //    tick (безвредно благодарение на enrollLead() dedup-а, но излишно).
+  //    /api/carts/track POST нарочно НУЛИРА reminded_at при всяко
+  //    редактиране на количката (нов шанс за reminder) — тук е мястото,
+  //    където то реално се маркира "пратено", симетрично на това.
+  if (enr.context?.cart_id) {
+    await supabaseAdmin.from('abandoned_carts')
+      .update({ reminded_at: now }).eq('id', enr.context.cart_id)
+  }
 
   const { data: nextStep } = await supabaseAdmin
     .from('workflow_steps').select('delay_days')
