@@ -1,5 +1,6 @@
 'use client'
-// app/admin/components/OrderModal.tsx — v8
+// app/admin/components/OrderModal.tsx — v9
+// ✅ v9: бутон 🗑 за трайно изтриване (отваря DeleteOrdersDialog в OrdersTab през onDelete)
 // ✅ Детайли таб: всички offer типове се маркират в таблицата (⚡ PP, ⬆️ Upsell, 🔀 Cross)
 // ✅ Детайли таб: чист финансов breakdown (subtotal без PP + PP добавка + доставка = общо)
 // ✅ Детайли таб: notes показват само реалните бележки без системните маркери
@@ -20,6 +21,7 @@ interface Props {
   onStatusChange:  (id: string, status: string) => Promise<void>
   onPaymentChange: (id: string, ps: string) => Promise<void>
   onOpenCustomer?: (phone: string) => void
+  onDelete?: (order: Order) => void
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -111,7 +113,7 @@ function StatusTimeline({ currentStatus }: { currentStatus: string }) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function OrderModal({ order, onClose, onStatusChange, onPaymentChange, onOpenCustomer }: Props) {
+export function OrderModal({ order, onClose, onStatusChange, onPaymentChange, onOpenCustomer, onDelete }: Props) {
   const { fmt: formatPrice } = useCurrency()
   const [savingStatus,   setSavingStatus]   = useState(false)
   const [savingPayment,  setSavingPayment]  = useState(false)
@@ -321,6 +323,9 @@ export function OrderModal({ order, onClose, onStatusChange, onPaymentChange, on
                 <button className="act" onClick={handlePrint} style={{ background: '#f9fafb', color: '#374151', borderColor: '#e5e7eb' }}>🖨</button>
                 <button className="act" onClick={() => { window.location.href = `tel:${order.customer_phone}` }} style={{ background: '#f0fdf4', color: '#16a34a', borderColor: '#bbf7d0' }}>📞</button>
                 <button className="act" onClick={copyAddress} style={{ background: '#f0f9ff', color: '#0ea5e9', borderColor: '#bae6fd' }}>📋 Адрес</button>
+                {onDelete && (
+                  <button className="act" onClick={() => onDelete(order)} title="Изтрий завинаги" style={{ background: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }}>🗑</button>
+                )}
                 <button className="m-close" onClick={onClose}>✕</button>
               </div>
             </div>

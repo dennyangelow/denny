@@ -1,4 +1,36 @@
-// lib/automations.ts — v4
+// lib/automations.ts — v7
+//
+// ПРОМЕНИ спрямо v6:
+//   ✅ sendEmail() сега връща { messageId } (lib/mailer.ts v3 / lib/ses.ts
+//      v4) — пазим го в email_logs.ses_message_id. Без това,
+//      app/api/webhooks/ses/route.ts не може да различи кое ТОЧНО писмо е
+//      било отворено/кликнато, когато lead-ът е получил няколко писма от
+//      серията — досега винаги се ъпдейтваше "последният пратен" ред,
+//      независимо кое реално е отворено.
+//      ⚠️ Изисква SQL: ALTER TABLE email_logs ADD COLUMN ses_message_id text;
+//      (виж миграцията, дадена отделно в чата). Без тази колона insert-ът
+//      просто игнорира полето (Supabase не гърми на непозната колона в
+//      .insert() само ако схемата вече я има — та трябва да пуснеш SQL-а
+//      ПРЕДИ да качиш този файл).
+//
+// ПРОМЕНИ спрямо v5 — Мега план: пълна база-само темплейти + часове + условия:
+//   ✅ ПРЕМАХНАТ TEMPLATE_REGISTRY fallback изцяло. Писмата ВИНАГИ идват от
+//      email_templates таблицата (библиотека, редактируема от админ панела).
+//      Няма вече "код по подразбиране" — 6-те стари темплейта се местят в
+//      базата еднократно чрез SQL insert (виж migration-а, даден в чата).
+//      Липсващ ред в email_templates за даден template_key = грешка,
+//      записана през recordFailure() (стъпката не може да прати нищо).
+//   ✅ НОВО: delay_hours — забавянето на стъпка вече е delay_days*24+delay_hours
+//      часа, не само цели дни. Позволява "3 часа след" без да чакаш цял ден.
+//   ✅ НОВО: conditions (jsonb на workflow_steps) — условия преди изпращане:
+//      require_tag/exclude_tag (по lead.tags), min_days_since_last_order/
+//      has_bought_product/total_spent_gte (по lead_order_stats изгледа —
+//      виж SQL migration-а), require_opened_previous_step/
+//      require_clicked_previous_step (по email_logs), и
+//      skip_if_purchased_since_enrollment (излиза от ЦЯЛАТА автоматизация,
+//      не само тази стъпка — целта е постигната, клиентът купи междувременно).
+//      Условие, което не е изпълнено за "require_*" → стъпката се ПРЕСКАЧА
+//      (напредва current_step без изпращане), не праща грешка.
 //
 // ПРОМЕНИ спрямо v3:
 //   ✅ abandoned_carts.reminded_at вече СЕ пише след успешен cart-reminder
@@ -35,38 +67,14 @@
 //      пратим — не само в момента на enrollment-а. Ако междувременно се е
 //      потвърдила/конвертирала, enrollment излиза, вместо да продължи да
 //      праща "довърши поръчката" на вече платил клиент.
-//
-// Фаза 1 умишлено НЕ пипа съдържанието на имейлите — TEMPLATE_REGISTRY сочи
-// към email-templates.ts. Редактор на съдържание = Фаза 3.
 
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendEmail } from '@/lib/mailer'
-import {
-  welcomeEmail,
-  followUp2Email,
-  followUp5Email,
-  followUp10Email,
-  abandonedOrderEmail,
-  abandonedCartEmail,
-} from '@/lib/email-templates'
+import { buildCustomEmail } from '@/lib/email-templates'
 
-// ✅ ФИКС: връщан тип вече е Promise — welcomeEmail/followUp*/abandoned*
-// станаха async (виж lib/email-templates.ts v2 — unsubscribe линкът сега
-// носи подписан token, а изчисляването му е async).
-type TemplateFn = (p: { email: string; name?: string; slug?: string; context?: Record<string, any> }) => Promise<{ subject: string; html: string }>
-
-// ✅ Добавяй нов ред тук ВИНАГИ заедно с нов ред в AutomationsTab.tsx (TEMPLATE_OPTIONS).
-export const TEMPLATE_REGISTRY: Record<string, TemplateFn> = {
-  naruchnik_welcome:    welcomeEmail,
-  naruchnik_followup2:  followUp2Email,
-  naruchnik_followup5:  followUp5Email,
-  naruchnik_followup10: followUp10Email,
-  // ✅ НОВО (poll тригери) — виж abandonedOrderEmail/abandonedCartEmail в
-  //    lib/email-templates.ts. context.order_id / context.cart_id идват от
-  //    pollTriggers() по-долу, templateFn ги ползва за да сложи реалните
-  //    продукти/сума в текста (не generic "имаш нещо в количката").
-  abandoned_order:       abandonedOrderEmail,
-  abandoned_cart:        abandonedCartEmail,
+/** delay_days + delay_hours → общо милисекунди. Единна формула, ползвана навсякъде. */
+function delayMs(delayDays: number | null | undefined, delayHours: number | null | undefined): number {
+  return ((Number(delayDays) || 0) * 24 + (Number(delayHours) || 0)) * 3600000
 }
 
 interface EnrollmentRow {
@@ -79,7 +87,21 @@ interface EnrollmentRow {
   //    { naruchnik_slug } за изтегляне, { order_id } за order_placed,
   //    { cart_id, items, total } за cart_abandoned.
   context: Record<string, any>
-  leads?: { email: string; name?: string | null; subscribed?: boolean | null } | null
+  created_at: string
+  leads?: { email: string; name?: string | null; subscribed?: boolean | null; tags?: string[] | null } | null
+}
+
+interface LeadOrderStats {
+  order_count: number
+  last_order_at: string | null
+  total_spent: number
+  products_bought: string[]
+}
+
+async function getLeadOrderStats(email: string): Promise<LeadOrderStats | null> {
+  const { data } = await supabaseAdmin
+    .from('lead_order_stats').select('*').eq('email', email.toLowerCase()).maybeSingle()
+  return data as LeadOrderStats | null
 }
 
 const MAX_SEND_ATTEMPTS = 3
@@ -99,9 +121,8 @@ export async function enrollLead(
   for (const wf of workflows || []) {
     // delay на първата стъпка → кога е дължима (0 = веднага)
     const { data: first } = await supabaseAdmin
-      .from('workflow_steps').select('delay_days')
+      .from('workflow_steps').select('delay_days, delay_hours')
       .eq('workflow_id', wf.id).eq('step_number', 1).eq('active', true).maybeSingle()
-    const firstDelay = Number(first?.delay_days) || 0
 
     // ignoreDuplicates + .select(): само наистина новосъздаден ред се връща
     const { data, error } = await supabaseAdmin.from('workflow_enrollments')
@@ -110,7 +131,7 @@ export async function enrollLead(
           workflow_id:  wf.id,
           lead_id:      leadId,
           current_step: 0,
-          next_run_at:  new Date(Date.now() + firstDelay * 86400000).toISOString(),
+          next_run_at:  new Date(Date.now() + delayMs(first?.delay_days, first?.delay_hours)).toISOString(),
           status:       'active',
           context,
         },
@@ -218,6 +239,86 @@ async function recordFailure(enr: EnrollmentRow, message: string): Promise<strin
   return `опит ${attempts}/${MAX_SEND_ATTEMPTS}${giveUp ? ', отказано' : ''}: ${message}`
 }
 
+interface StepConditions {
+  require_tag?: string
+  exclude_tag?: string
+  min_days_since_last_order?: number
+  has_bought_product?: string          // substring match (case-insensitive) в product_name
+  total_spent_gte?: number
+  require_opened_previous_step?: boolean
+  require_clicked_previous_step?: boolean
+  skip_if_purchased_since_enrollment?: boolean
+}
+
+/**
+ * Оценява conditions (jsonb на стъпката) срещу текущото състояние на лийда.
+ * - 'exit'  → цялата автоматизация спира (целта е постигната/вече неактуална)
+ * - 'skip'  → тази стъпка не се праща, но enrollment-ът продължава напред
+ * - 'send'  → всички условия са изпълнени, пращаме
+ */
+async function checkConditions(
+  step: { conditions?: StepConditions | null; step_number: number; workflow_id: string },
+  enr: EnrollmentRow
+): Promise<{ action: 'send' | 'skip' | 'exit'; reason?: string }> {
+  const c = step.conditions || {}
+  if (Object.keys(c).length === 0) return { action: 'send' }
+
+  const email = enr.leads?.email
+  const tags  = enr.leads?.tags || []
+
+  // ✅ Излизаща проверка първо — ако клиентът вече е купил след enrollment-а,
+  // целта на цялата серия е постигната, спираме я напълно.
+  if (c.skip_if_purchased_since_enrollment && email) {
+    const stats = await getLeadOrderStats(email)
+    if (stats?.last_order_at && new Date(stats.last_order_at) > new Date(enr.created_at)) {
+      return { action: 'exit', reason: 'купил е междувременно — целта е постигната' }
+    }
+  }
+
+  if (c.require_tag && !tags.includes(c.require_tag)) {
+    return { action: 'skip', reason: `няма таг "${c.require_tag}"` }
+  }
+  if (c.exclude_tag && tags.includes(c.exclude_tag)) {
+    return { action: 'skip', reason: `има изключващ таг "${c.exclude_tag}"` }
+  }
+
+  if ((c.min_days_since_last_order || c.has_bought_product || c.total_spent_gte) && email) {
+    const stats = await getLeadOrderStats(email)
+    if (c.min_days_since_last_order) {
+      const lastOrder = stats?.last_order_at ? new Date(stats.last_order_at) : null
+      const daysSince = lastOrder ? (Date.now() - lastOrder.getTime()) / 86400000 : Infinity
+      if (daysSince < c.min_days_since_last_order) {
+        return { action: 'skip', reason: `последна поръчка преди < ${c.min_days_since_last_order} дни` }
+      }
+    }
+    if (c.has_bought_product) {
+      const needle = c.has_bought_product.toLowerCase()
+      const bought = (stats?.products_bought || []).some(p => p.toLowerCase().includes(needle))
+      if (!bought) return { action: 'skip', reason: `не е купувал "${c.has_bought_product}"` }
+    }
+    if (c.total_spent_gte && (stats?.total_spent || 0) < c.total_spent_gte) {
+      return { action: 'skip', reason: `похарчено < ${c.total_spent_gte}` }
+    }
+  }
+
+  if (c.require_opened_previous_step || c.require_clicked_previous_step) {
+    const { data: prevLog } = await supabaseAdmin
+      .from('email_logs').select('opened_at, clicked_at')
+      .eq('lead_id', enr.lead_id)
+      .eq('sequence_name', `workflow:${step.workflow_id}`)
+      .eq('step_number', step.step_number - 1)
+      .maybeSingle()
+    if (c.require_opened_previous_step && !prevLog?.opened_at) {
+      return { action: 'skip', reason: 'предходното писмо не е отворено' }
+    }
+    if (c.require_clicked_previous_step && !prevLog?.clicked_at) {
+      return { action: 'skip', reason: 'няма клик в предходното писмо' }
+    }
+  }
+
+  return { action: 'send' }
+}
+
 async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: string }> {
   if (!(await claim(enr))) return { sent: false }   // друг изпълнител го държи / още не е дължим
 
@@ -273,32 +374,67 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
     }
   }
 
-  const templateFn = TEMPLATE_REGISTRY[step.template_key]
-  if (!templateFn) {
-    return { sent: false, error: await recordFailure(enr, `непознат template_key: ${step.template_key}`) }
+  // ✅ НОВО (v6) — условия на стъпката (conditions jsonb). 'exit' спира
+  // ЦЯЛАТА автоматизация, 'skip' напредва без да праща тази стъпка.
+  const verdict = await checkConditions(step, enr)
+  if (verdict.action === 'exit') {
+    await supabaseAdmin.from('workflow_enrollments')
+      .update({ status: 'exited', last_error: verdict.reason || null, updated_at: now }).eq('id', enr.id)
+    return { sent: false }
+  }
+  if (verdict.action === 'skip') {
+    const { data: afterSkip } = await supabaseAdmin
+      .from('workflow_steps').select('delay_days, delay_hours')
+      .eq('workflow_id', enr.workflow_id).eq('step_number', nextStepNumber + 1).eq('active', true)
+      .maybeSingle()
+    await supabaseAdmin.from('workflow_enrollments').update({
+      current_step: nextStepNumber,
+      next_run_at:  afterSkip ? new Date(Date.now() + delayMs(afterSkip.delay_days, afterSkip.delay_hours)).toISOString() : now,
+      status:       afterSkip ? 'active' : 'completed',
+      last_error:   `прескочена стъпка ${nextStepNumber}: ${verdict.reason || ''}`.trim(),
+      updated_at:   now,
+    }).eq('id', enr.id)
+    return { sent: false }
   }
 
-  // ✅ ФИКС: templateFn вече е async — виж бележката при TemplateFn по-горе.
-  const { subject, html } = await templateFn({
+  // ✅ v6 — ВИНАГИ от базата (email_templates), никакъв код fallback повече.
+  // Библиотеката е единственият източник на съдържание — виж SQL migration-а
+  // за еднократния пренос на старите 6 темплейта.
+  const { data: tpl } = await supabaseAdmin
+    .from('email_templates')
+    .select('subject, body_html')
+    .eq('template_key', step.template_key)
+    .maybeSingle()
+
+  if (!tpl?.subject || !tpl?.body_html) {
+    return { sent: false, error: await recordFailure(enr, `темплейт "${step.template_key}" липсва в библиотеката`) }
+  }
+
+  const { subject, html } = await buildCustomEmail({
+    subjectTemplate:  tpl.subject,
+    bodyHtmlTemplate: tpl.body_html,
     email,
     name: enr.leads?.name || undefined,
     slug: enr.context?.naruchnik_slug,
-    // ✅ НОВО — abandonedOrderEmail/abandonedCartEmail четат items/total/
-    //    order_number оттук (виж pollTriggers() по-горе за какво пълни context).
     context: enr.context,
   })
 
+  // ✅ v7 — messageId се пази в email_logs.ses_message_id по-долу, за да
+  // може webhook-ът (Open/Click) да мачва ТОЧНО това писмо, не "последното".
+  let messageId: string | undefined
   try {
-    await sendEmail({ to: email, subject, html })
+    const result = await sendEmail({ to: email, subject, html })
+    messageId = result.messageId
   } catch (sendErr: any) {
     return { sent: false, error: await recordFailure(enr, `sendEmail: ${sendErr?.message || sendErr}`) }
   }
 
   await supabaseAdmin.from('email_logs').insert({
-    lead_id:       enr.lead_id,
-    sequence_name: `workflow:${enr.workflow_id}`,
-    step_number:   step.step_number,
-    sent_at:       now,
+    lead_id:        enr.lead_id,
+    sequence_name:  `workflow:${enr.workflow_id}`,
+    step_number:    step.step_number,
+    sent_at:        now,
+    ses_message_id: messageId || null,
   })
   await supabaseAdmin.from('leads').update({ last_email_sent_at: now }).eq('id', enr.lead_id)
 
@@ -315,13 +451,13 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
   }
 
   const { data: nextStep } = await supabaseAdmin
-    .from('workflow_steps').select('delay_days')
+    .from('workflow_steps').select('delay_days, delay_hours')
     .eq('workflow_id', enr.workflow_id).eq('step_number', nextStepNumber + 1).eq('active', true)
     .maybeSingle()
 
   await supabaseAdmin.from('workflow_enrollments').update({
     current_step: nextStepNumber,
-    next_run_at:  nextStep ? new Date(Date.now() + Number(nextStep.delay_days) * 86400000).toISOString() : now,
+    next_run_at:  nextStep ? new Date(Date.now() + delayMs(nextStep.delay_days, nextStep.delay_hours)).toISOString() : now,
     status:       nextStep ? 'active' : 'completed',
     attempts:     0,
     last_error:   null,
@@ -342,7 +478,7 @@ export async function enrollAndRunFirstStep(
 
   const { data: enrollments } = await supabaseAdmin
     .from('workflow_enrollments')
-    .select('*, leads(email, name, subscribed)')
+    .select('*, leads(email, name, subscribed, tags)')
     .eq('lead_id', leadId).in('workflow_id', workflowIds).eq('status', 'active')
 
   for (const enr of (enrollments || []) as EnrollmentRow[]) {
@@ -368,7 +504,7 @@ export async function processDueEnrollments(
 
   const { data: due } = await supabaseAdmin
     .from('workflow_enrollments')
-    .select('*, leads(email, name, subscribed)')
+    .select('*, leads(email, name, subscribed, tags)')
     .eq('status', 'active')
     .lte('next_run_at', new Date().toISOString())
     .order('next_run_at', { ascending: true })

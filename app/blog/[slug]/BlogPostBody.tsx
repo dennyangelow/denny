@@ -1,4 +1,14 @@
-// app/blog/[slug]/BlogPostBody.tsx — v7
+// app/blog/[slug]/BlogPostBody.tsx — v8
+// ✅ v8 (спрямо v7) — props на компонента са съвместими с v7 (related вече
+//    приема и по-лек BlogListPost[] — BlogPost[] също е валиден):
+//   • Disclosure банерът се показва, ако има affiliate флаг ИЛИ affiliate
+//     продукт в съдържанието (преди зависеше само от ръчния флаг → 3 поста
+//     съдържаха affiliate продукти без банер). Добавено е и пояснение, когато
+//     се представят собствени продукти на автора.
+//   • Заглавията получават уникални id-та (headingIdMap) — идентични с преди
+//     за уникални заглавия; дублирани не чупят TOC линковете.
+//   • postSlug се подава на BlogHandbookEmbed → атрибуция на leads по статия.
+//   • НОВО: кутия "За автора" (доверие/E-E-A-T) — стиловете са в blog.css v+.
 // ✅ ПРОМЯНА спрямо v6:
 //   1) НОВ case 'handbook_embed' — рендва <BlogHandbookEmbed> за ръчно
 //      вградени наръчник CTA-та в текста на статията.
@@ -21,13 +31,13 @@ import { BlogHandbookEmbed } from '@/components/blog/BlogHandbookEmbed'
 import type { ResolvedHandbook } from '@/components/blog/BlogHandbookEmbed'
 import { ShareBar } from '@/components/blog/ShareBar'
 import { renderRichText } from '@/lib/blogRichText'
-import type { BlogPost, BlogBlock, BlogCategory } from '@/lib/blog'
-import { categoryLabel, categoryEmoji, slugifyHeading, extractToc } from '@/lib/blog'
+import type { BlogPost, BlogBlock, BlogCategory, BlogListPost } from '@/lib/blog'
+import { categoryLabel, categoryEmoji, slugifyHeading, extractToc, headingIdMap, hasAffiliateEmbeds, hasOwnProductEmbeds } from '@/lib/blog'
 import type { ResolvedEmbedProduct } from './page'
 
 interface Props {
   post:              BlogPost
-  related:           BlogPost[]
+  related:           BlogListPost[]
   resolvedProducts:  Record<string, ResolvedEmbedProduct>
   resolvedHandbooks: Record<string, ResolvedHandbook>
   fallbackHandbook:  ResolvedHandbook | null
@@ -166,16 +176,20 @@ function Block({
   block,
   resolvedProducts,
   resolvedHandbooks,
+  headingIds,
+  postSlug,
 }: {
   block: BlogBlock
   resolvedProducts: Record<string, ResolvedEmbedProduct>
   resolvedHandbooks: Record<string, ResolvedHandbook>
+  headingIds: Map<BlogBlock, string>
+  postSlug: string
 }) {
   switch (block.type) {
     case 'paragraph':
       return <p>{renderRichText(block.text)}</p>
     case 'heading': {
-      const id = slugifyHeading(block.text)
+      const id = headingIds.get(block) || slugifyHeading(block.text)
       return block.level === 2 ? <h2 id={id}>{block.text}</h2> : <h3 id={id}>{block.text}</h3>
     }
     case 'image':
@@ -209,7 +223,7 @@ function Block({
       const b = block as HandbookEmbedBlock
       const resolved = resolvedHandbooks[b.slug]
       if (!resolved) return null
-      return <BlogHandbookEmbed handbook={resolved} note={b.note} variant="context" />
+      return <BlogHandbookEmbed handbook={resolved} note={b.note} variant="context" postSlug={postSlug} />
     }
     case 'faq':
       return <FaqAccordion items={block.items} />
@@ -277,8 +291,16 @@ export default function BlogPostBody({
     ? new Date(post.updated_at!).toLocaleDateString('bg-BG', { day: 'numeric', month: 'long', year: 'numeric' })
     : null
 
-  const segments = groupContentBlocks(post.content)
-  const hasManualHandbookEmbed = post.content.some(b => b.type === 'handbook_embed')
+  const content  = post.content || []
+  const segments = groupContentBlocks(content)
+  const hasManualHandbookEmbed = content.some(b => b.type === 'handbook_embed')
+  const headingIds = headingIdMap(content)
+
+  // ✅ v8: disclosure — по реалното съдържание, не само по ръчния флаг
+  const hasAffiliate = !!post.has_affiliate_links || hasAffiliateEmbeds(content)
+  const hasOwn = hasOwnProductEmbeds(content) &&
+    content.some(b => b.type === 'product_embed' && b.product_type === 'own' && !!resolvedProducts[`own:${b.slug}`])
+  const authorName = post.author_name || 'Denny Angelow'
 
   return (
     <div className="bp-wrap">
@@ -310,14 +332,18 @@ export default function BlogPostBody({
         {post.category && <span className="bp-meta-item">{categoryEmoji(post.category, categories)} {categoryLabel(post.category, categories)}</span>}
       </div>
 
-      {post.has_affiliate_links && (
+      {(hasAffiliate || hasOwn) && (
         <div className="bp-disclosure">
           <span>ℹ️</span>
-          <span>Тази статия съдържа партньорски (affiliate) линкове. Ако купиш през тях, може да получим комисионна — без допълнителни разходи за теб.</span>
+          <span>
+            {hasAffiliate && 'Тази статия съдържа партньорски (affiliate) линкове. Ако купиш през тях, може да получим комисионна — без допълнителни разходи за теб.'}
+            {hasAffiliate && hasOwn && ' '}
+            {hasOwn && 'В статията са представени и собствени продукти на автора.'}
+          </span>
         </div>
       )}
 
-      <TableOfContents content={post.content} />
+      <TableOfContents content={content} />
 
       <div className="bp-content">
         {segments.map(seg =>
@@ -333,7 +359,7 @@ export default function BlogPostBody({
               ))}
             </div>
           ) : (
-            <Block key={seg.key} block={seg.block} resolvedProducts={resolvedProducts} resolvedHandbooks={resolvedHandbooks} />
+            <Block key={seg.key} block={seg.block} resolvedProducts={resolvedProducts} resolvedHandbooks={resolvedHandbooks} headingIds={headingIds} postSlug={post.slug} />
           )
         )}
       </div>
@@ -342,8 +368,23 @@ export default function BlogPostBody({
           няма нито един ръчно вграден handbook_embed И page.tsx е намерил
           активен наръчник за категорията на поста. */}
       {!hasManualHandbookEmbed && fallbackHandbook && (
-        <BlogHandbookEmbed handbook={fallbackHandbook} variant="fallback" />
+        <BlogHandbookEmbed handbook={fallbackHandbook} variant="fallback" postSlug={post.slug} />
       )}
+
+      {/* ✅ v8 — "За автора": видим сигнал за опит и доверие (E-E-A-T).
+          Текстът отразява вече публикуваното на сайта (агро консултант,
+          8+ години опит) — не добавя нови твърдения. */}
+      <aside className="bp-author" aria-label="За автора">
+        <div className="bp-author-badge" aria-hidden="true">🌱</div>
+        <div className="bp-author-body">
+          <p className="bp-author-name">{authorName}</p>
+          <p className="bp-author-role">Агро консултант · 8+ години опит</p>
+          <p className="bp-author-text">
+            Практични съвети за домати, краставици и торене — изпробвани в реални условия, не преписани от интернет.{' '}
+            <a href="/blog">Още статии в блога →</a>
+          </p>
+        </div>
+      </aside>
 
       <ShareBar url={canonicalUrl} title={post.title} />
 

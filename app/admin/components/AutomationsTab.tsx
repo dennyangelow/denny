@@ -1,5 +1,11 @@
 'use client'
-// app/admin/components/AutomationsTab.tsx — v1 (Фаза 1)
+// app/admin/components/AutomationsTab.tsx — v2
+//
+// ПОПРАВКИ v2 (спрямо v1):
+//   ✅ TEMPLATE_OPTIONS вече идва от lib/email-template-keys.ts (общ
+//      източник с EmailTemplatesTab.tsx/app/api/admin/email-templates/*) —
+//      преди живееше само тук с коментар "добавяй нов ред ВИНАГИ заедно с
+//      lib/automations.ts", лесно за разминаване между два независими файла.
 //
 // Списъчен UI (не drag-drop canvas — виж Фаза 5 в мега плана, само ако
 // наистина потрябва по-късно) за CRUD на workflows от app/api/automations/
@@ -8,18 +14,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from '@/components/ui/Toast'
+import { TEMPLATE_KEYS } from '@/lib/email-template-keys'
 
-// ✅ Трябва да съвпада 1:1 с TEMPLATE_REGISTRY в lib/automations.ts —
-//    добавяй нов ред тук ВИНАГИ заедно с нов ред там.
-const TEMPLATE_OPTIONS = [
-  { key: 'naruchnik_welcome',    label: 'Naruchnik — Welcome (ден 0)' },
-  { key: 'naruchnik_followup2',  label: 'Naruchnik — Follow-up ден 2' },
-  { key: 'naruchnik_followup5',  label: 'Naruchnik — Follow-up ден 5' },
-  { key: 'naruchnik_followup10', label: 'Naruchnik — Follow-up ден 10' },
-  // ✅ НОВО — виж lib/automations.ts v3 / lib/email-templates.ts
-  { key: 'abandoned_order',      label: 'Изоставена поръчка' },
-  { key: 'abandoned_cart',       label: 'Изоставена количка' },
-]
+// ✅ v2: извлечено от lib/email-template-keys.ts — виж коментара по-горе.
+//    Добавяй нов темплейт САМО там + в lib/automations.ts TEMPLATE_REGISTRY.
+const TEMPLATE_OPTIONS = TEMPLATE_KEYS.map(t => ({ key: t.key, label: t.label }))
 
 const TRIGGER_OPTIONS = [
   { value: 'naruchnik_download', label: '📗 Изтегли наръчник', ready: true },

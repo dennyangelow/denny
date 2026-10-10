@@ -1,8 +1,36 @@
-// app/layout.tsx — v4
-// ✅ ПРОМЕНИ спрямо v3:
-//   - AUTHOR_* и ORG_* константи → телефон/имейл/sameAs на едно място
-//   - Person и Organization schema ползват общите константи — без copy-paste
-//   - Всички v3 подобрения запазени (Service schema, speakable, AI meta)
+// app/layout.tsx — v5
+// ✅ ПРОМЕНИ спрямо v4:
+//   - КРИТИЧЕН ФИКС: и двата next/font/google извиквания искаха subsets
+//     БЕЗ 'cyrillic' ('latin' за Cormorant, 'latin'+'latin-ext' за DM Sans).
+//     Сайтът е 100% на български — целият текст е кирилица. Без cyrillic
+//     subset, self-hosted-натият .woff2 файл физически няма нито една
+//     кирилска буква в себе си → браузърът мълчаливо пада на системния
+//     fallback (Georgia/Times за Cormorant, system sans за DM Sans) за
+//     АБСОЛЮТНО ВСЕКИ текст на сайта. Най-видимо на Cormorant заглавията
+//     (стилизиран display serif срещу плосък generic serif — драстична
+//     разлика), по-малко забележимо на DM Sans body текста (generic sans
+//     прилича достатъчно на DM Sans на пръв поглед).
+//   - Cormorant Garamond: Google Fonts предлага cyrillic/cyrillic-ext
+//     subset-и за това семейство → добавено `'cyrillic'` към subsets.
+//   - DM Sans: ⚠️ Google Fonts потвърждава, че DM Sans поддържа САМО
+//     "Latin Extended" — няма кирилски subset за това семейство изобщо,
+//     при никаква конфигурация. Добавянето на 'cyrillic' тук би хвърлило
+//     build грешка (invalid subset за фонта). Няма "фикс" за DM Sans чрез
+//     subsets — единственият начин body текстът да ползва ИСТИНСКИ custom
+//     шрифт с кирилица е да се смени семейството с друго, което поддържа
+//     кирилица (напр. Manrope, Inter, PT Sans, Golos Text, Unbounded,
+//     Montserrat — всички имат cyrillic subset в Google Fonts). Оставено
+//     засега непипнато — визуална промяна на целия сайт, за решаване от
+//     Denny, не нещо, което да сменя мълчаливо тук.
+//   - ⚠️ ВАЖНО: добавянето на cyrillic subset за Cormorant ПРОМЕНЯ
+//     build-специфичния content hash на .woff2 файла → ръчният
+//     <link rel="preload"> по-долу (с хардкоднат стар хеш
+//     025300517b6a8ae5) вече сочи към НЕСЪЩЕСТВУВАЩ файл след този build.
+//     Това не чупи страницата (просто губиш preload оптимизацията мълчаливо),
+//     но трябва да се оправи: след build/deploy, отвори DevTools → Network,
+//     филтрирай по "woff2", намери НОВИЯ Cormorant 700 файл (ще е различен
+//     хеш, вероятно с наставка -s.p.woff2 заради добавения subset) и смени
+//     href-а в preload линка по-долу.
 
 import type { Metadata } from 'next'
 import { Suspense }      from 'react'
@@ -28,8 +56,11 @@ const BASE_URL = 'https://dennyangelow.com'
 //       ЕДИНСТВЕНО с font-weight:700 — тегло 600 премахнато изцяло
 //       (никога не се рендва никъде).
 //    3) display:'swap' (виж коментара по-долу за desktop "дебел шрифт" бъга).
+// ✅ v5: 'cyrillic' добавено — виж коментара горе защо е критично за
+//    българския сайт. Добавен е и 'latin-ext' (безплатно, същото семейство
+//    субсет), за да покрие и редките латински диакритици, ако някога влязат.
 const cormorant = Cormorant_Garamond({
-  subsets:  ['latin'],
+  subsets:  ['latin', 'latin-ext', 'cyrillic'],
   weight:   ['700'],
   variable: '--font-cormorant',
   display:  'swap',
@@ -43,6 +74,10 @@ const cormorant = Cormorant_Garamond({
 //    така че AffiliateProduktClient.tsx вече не зарежда собствено копие.
 //    Имената на CSS променливите (--font-dm-sans, --font-cormorant) трябва да
 //    съвпадат навсякъде, където се ползва var(--font-dm-sans)/var(--font-cormorant).
+// ⚠️ v5: 'cyrillic' НЕ е добавено тук — DM Sans няма такъв subset в Google
+//    Fonts (потвърдено на fonts.google.com/specimen/DM+Sans — само "Latin
+//    Extended"). Body текстът продължава да пада на системния sans fallback
+//    за кирилица, докато не се смени семейството (виж бележката горе).
 const dmSans = DM_Sans({
   subsets:  ['latin', 'latin-ext'],
   weight:   ['300', '400', '500', '600', '700', '800', '900'],
@@ -348,18 +383,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             НЕ помогна (виж 2-рия trace, все още false). Затова тук ръчен
             preload на точния файл — гарантирано работи, не зависи от
             next/font-ови heuristics.
-            ⚠️ ВАЖНО за поддръжка: хешът в href-а (025300517b6a8ae5) е
-            build-специфичен content hash. Остана ИДЕНТИЧЕН между последните
-            2 build-а, защото Cormorant конфигурацията (subsets/weight) не се
-            е променяла — но ако някога промениш weight/subsets на Cormorant
-            в layout.tsx, или ъпгрейднеш Next.js, хешът ще се смени и този
-            preload линк ще сочи към несъществуващ файл (тихо се проваля —
-            не чупи страницата, просто губиш оптимизацията). След такава
-            промяна: build, отвори DevTools→Network, филтрирай по "woff2",
-            намери новия Cormorant файл, обнови href-а тук. */}
+            ⚠️ ВАЖНО за поддръжка (виж и бележката в v5 header-а): хешът в
+            href-а (025300517b6a8ae5) е build-специфичен content hash,
+            обвързан с избраните subsets/weight. v5 ДОБАВИ cyrillic+latin-ext
+            subset-и към Cormorant → този хеш СЕ Е ПРОМЕНИЛ в новия build.
+            СЛЕД deploy: DevTools → Network → филтър "woff2" → намери новия
+            Cormorant 700 файл → обнови href-а тук. Докато не го направиш,
+            preload-ът просто сочи в празно (тихо губиш оптимизацията —
+            не чупи страницата, @font-face-ът зарежда шрифта нормално и
+            без него, просто малко по-късно). */}
         <link
           rel="preload"
-          href="/_next/static/media/025300517b6a8ae5-s.woff2"
+          href="/_next/static/media/025300517b6a8ae5-s.p.woff2"
           as="font"
           type="font/woff2"
           crossOrigin="anonymous"

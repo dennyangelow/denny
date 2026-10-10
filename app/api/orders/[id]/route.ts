@@ -1,5 +1,11 @@
-// app/api/orders/[id]/route.ts — v7
-// ✅ v6 → v7:
+// app/api/orders/[id]/route.ts — v8
+// ✅ v7 → v8: tracking имейла (при "изпратена") вече използва ЕДИНИЯ подател
+//    от Настройки вместо твърдо закодираното 'Denny Angelow <noreply@...>'
+//    — виж app/api/orders/route.ts v9 за същия фикс на поръчковите писма.
+//    `from` вече не се подава → lib/mailer.ts сам хваща buildFromHeader()
+//    от settings таблицата (email_from_name/email_from_addr).
+//
+// v7 (запазено непроменено):
 //   1. Данните в tracking имейла (име на клиент, номер на поръчка, номер за
 //      проследяване) се escape-ват. Името идва от публичната форма за поръчка —
 //      преди това можеше да съдържа HTML/линкове, които се вграждаха в имейла.
@@ -125,12 +131,11 @@ export async function PATCH(
 
     if (error) throw error
 
-    // Tracking имейл при shipped (през Amazon SES)
+    // Tracking имейл при shipped (през Amazon SES, подателят от Настройки)
     if (body.status === 'shipped' && data.customer_email && body.tracking_number) {
       const courierLabel = data.courier === 'speedy' ? 'Спиди' : 'Еконт'
       await sendEmail({
         to:   data.customer_email,
-        from: 'Denny Angelow <noreply@dennyangelow.com>',
         subject: `🚚 Поръчка ${String(data.order_number ?? '').replace(/[\r\n]/g, ' ')} е изпратена`,
         html: `
           <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">

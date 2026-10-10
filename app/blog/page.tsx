@@ -1,31 +1,21 @@
-// app/blog/page.tsx — v4
-// ✅ ПРОМЯНА спрямо v3: изцяло клиентски модел, огледален на
-//    /produkti (ProduktCatalogClient.tsx):
-//   - getPublishedPosts() тегли САМО леките колони (BlogListPost) — без
-//     'content'. Преди .select('*') теглеше пълното тяло на всяка статия
-//     (paragraphs/product_embeds/faq...) само за да покажем заглавие/
-//     excerpt/корица в картата — излишен трансфер, който растеше с всяка
-//     нова, по-богата статия.
-//   - Категорийният филтър вече НЕ живее в URL-а (?category=) — премахнат
-//     searchParams изцяло. Филтрирането е чист client state в
-//     BlogListClient — инстантно, без reload. Премахва нуждата от
-//     изключение в robots.txt за '/*?' правилото.
-//   - Pagination (?page=) също отпада — заменено с infinite scroll batch
-//     reveal в BlogListClient (същия getBoundingClientRect() подход като
-//     ProduktCatalogClient).
-//   - metadata вече е статичен export (не generateMetadata) — /blog е
-//     винаги един и същ URL, без вариации, за които да генерираме различен
-//     title/canonical.
-//   - Discovery на статиите е изцяло през app/sitemap.ts (виж sitemap.ts
-//     v11 за revalidate фикса) — "Всички статии" блокът в BlogListClient
-//     е за реални посетители + допълнителна crawl подсигуровка, не
-//     основен механизъм.
+// app/blog/page.tsx — v5
+// ✅ ПРОМЯНА спрямо v4:
+//   • <title>: "| Denny Angelow" е махнат от низа — root layout.tsx има
+//     title.template '%s | Denny Angelow', така че преди заглавието излизаше
+//     "... | Denny Angelow | Denny Angelow". OG/Twitter заглавията (не се
+//     темплейтват) запазват марката.
+//   • alternates.types → RSS feed-ът (/blog/rss.xml) е обявен в <head>.
+//   • JSON-LD: '<' се escape-ва (\u003c) — </script> в заглавие не може да
+//     счупи страницата.
+// ✅ v4: изцяло клиентски модел, огледален на /produkti (ProduktCatalogClient):
+//   - getPublishedPosts() тегли САМО леките колони (BlogListPost) — без 'content'.
+//   - Категорийният филтър е чист client state (без ?category= в URL-а).
+//   - Infinite scroll batch reveal вместо ?page=.
+//   - metadata е статичен export.
+//   - Discovery на статиите е през app/sitemap.ts.
 //
-// ⚠️ БЕЛЕЖКА: header-ът (SiteHeader) и неговата количка-конфигурация
-//    (getSettings() + getHeaderCartConfig('blog')) НЕ живеят тук —
-//    app/blog/layout.tsx вече рендва SiteHeader за целия /blog route
-//    group (списък + /blog/[slug]), значи settings се тегли ТАМ, веднъж,
-//    вместо дублирано във всяка страница под /blog.
+// ⚠️ header-ът (SiteHeader) и количка-конфигурацията живеят в
+//    app/blog/layout.tsx за целия /blog route group.
 import { Metadata } from 'next'
 import { supabaseAdmin } from '@/lib/supabase'
 import BlogListClient from './BlogListClient'
@@ -38,21 +28,26 @@ const BASE_URL    = 'https://dennyangelow.com'
 const AUTHOR_NAME = 'Denny Angelow'
 const FALLBACK_OG = `${BASE_URL}/og-image.jpg`
 
-const PAGE_TITLE = 'Блог — Съвети за домати, краставици и торене | Denny Angelow'
-const PAGE_DESC  = 'Практични статии за отглеждане на домати и краставици, торене, болести и оранжерии — от агро консултант с 8+ години опит.'
+// ✅ Без марка — добавя се от title.template в app/layout.tsx
+const PAGE_TITLE    = 'Блог — Съвети за домати, краставици и торене'
+const PAGE_TITLE_OG = `${PAGE_TITLE} | Denny Angelow`
+const PAGE_DESC     = 'Практични статии за отглеждане на домати и краставици, торене, болести и оранжерии — от агро консултант с 8+ години опит.'
 
-// ✅ Статичен metadata export — /blog вече е винаги един и същ URL, без
-//    ?category=/?page= варианти, значи няма нужда от generateMetadata().
+const jsonLd = (o: unknown) => JSON.stringify(o).replace(/</g, '\\u003c')
+
 export const metadata: Metadata = {
   title:       PAGE_TITLE,
   description: PAGE_DESC,
-  alternates: { canonical: `${BASE_URL}/blog` },
-  openGraph: {
-    title: PAGE_TITLE, description: PAGE_DESC, url: `${BASE_URL}/blog`,
-    siteName: 'Denny Angelow', locale: 'bg_BG', type: 'website',
-    images: [{ url: FALLBACK_OG, width: 1200, height: 630, alt: PAGE_TITLE }],
+  alternates: {
+    canonical: `${BASE_URL}/blog`,
+    types: { 'application/rss+xml': `${BASE_URL}/blog/rss.xml` },
   },
-  twitter: { card: 'summary_large_image', title: PAGE_TITLE, description: PAGE_DESC, images: [FALLBACK_OG] },
+  openGraph: {
+    title: PAGE_TITLE_OG, description: PAGE_DESC, url: `${BASE_URL}/blog`,
+    siteName: 'Denny Angelow', locale: 'bg_BG', type: 'website',
+    images: [{ url: FALLBACK_OG, width: 1200, height: 630, alt: PAGE_TITLE_OG }],
+  },
+  twitter: { card: 'summary_large_image', title: PAGE_TITLE_OG, description: PAGE_DESC, images: [FALLBACK_OG] },
   robots: { index: true, follow: true },
 }
 
@@ -71,8 +66,7 @@ async function getCategories(): Promise<BlogCategory[]> {
   }
 }
 
-// ✅ ЛЕКА заявка — само колоните, нужни за картите в списъка. 'content'
-//    (пълното тяло на статията) НЕ се тегли тук.
+// ✅ ЛЕКА заявка — само колоните, нужни за картите в списъка. 'content' НЕ се тегли.
 async function getPublishedPosts(): Promise<BlogListPost[]> {
   try {
     const { data, error } = await supabaseAdmin
@@ -100,8 +94,7 @@ export default async function BlogListPage() {
     url:          `${BASE_URL}/blog`,
     inLanguage:  'bg-BG',
     publisher: { '@type': 'Person', name: AUTHOR_NAME, url: BASE_URL },
-    // ✅ до 20 в schema-та (не всичките, ако постовете станат стотици) —
-    //    Google и без друго открива всяка статия през app/sitemap.ts.
+    // до 20 в schema-та — Google открива всяка статия през app/sitemap.ts
     blogPost: posts.slice(0, 20).map(p => ({
       '@type':       'BlogPosting',
       headline:       p.title,
@@ -122,8 +115,8 @@ export default async function BlogListPage() {
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(blogSchema) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(blogSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(breadcrumbSchema) }} />
 
       <BlogListClient posts={posts} categories={categories} initialVisible={9} />
     </>

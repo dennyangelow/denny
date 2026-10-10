@@ -1,5 +1,12 @@
 'use client'
-// app/blog/BlogListClient.tsx — v3
+// app/blog/BlogListClient.tsx — v4
+// ✅ v4 (спрямо v3):
+//   • Infinite scroll: cleanup на ефекта вече нулира loadingGuardRef/loading.
+//     Преди, ако се смени филтърът в 250-те ms закъснение, timeout-ът се
+//     чистеше, но guard-ът оставаше true → скелетите оставаха завинаги и
+//     повече нищо не се зареждаше. (Проявява се при >9 поста.)
+//   • Линкът към категорията върху картата се показва само ако категорията
+//     е активна (в `categories`). Архивирана категория → /blog/<slug> дава 404.
 // ✅ ПРОМЯНА спрямо v2: категорийното етикетче се върна като overlay
 //    върху снимката (v2 го местеше на собствен ред НАД нея, но това
 //    разтягаше картата визуално) — само че вече в ГОРНИЯ ДЕСЕН ъгъл,
@@ -115,6 +122,9 @@ export default function BlogListClient({ posts, categories, initialVisible = BAT
     return () => {
       observer.disconnect()
       if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current)
+      // ✅ v4: ако ефектът се прекрати по средата на закъснението — освободи guard-а
+      loadingGuardRef.current = false
+      setLoading(false)
     }
   }, [hasMore, loadMore])
 
@@ -220,7 +230,7 @@ export default function BlogListClient({ posts, categories, initialVisible = BAT
                       </div>
                     </div>
                   </a>
-                  {post.category && (
+                  {post.category && categories.some(c => c.slug === post.category) && (
                     <a href={`/blog/${post.category}`} className="blog-card-cat">
                       {categoryEmoji(post.category, categories)} {categoryLabel(post.category, categories)}
                     </a>

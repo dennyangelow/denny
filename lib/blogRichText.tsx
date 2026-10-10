@@ -1,4 +1,7 @@
-// lib/blogRichText.tsx — v1
+// lib/blogRichText.tsx — v2
+// ✅ v2: "вътрешен" линк е само път, започващ с ЕДИН "/" — "//домейн" и
+//    "/\\домейн" вече НЕ минават за вътрешни (браузърът ги третира като
+//    външни адреси → open redirect/липсващ rel). Останалото е непроменено.
 // ✅ Малка, безопасна помощна функция за inline линкове вътре в blog
 //    content текст (paragraph, list items, quote, faq answers).
 //
@@ -34,7 +37,7 @@ export function renderRichText(text: string): React.ReactNode {
     }
 
     const [, label, href] = match
-    const isInternal = href.startsWith('/')
+    const isInternal = /^\/(?![\/\\])/.test(href)
     const isExternal = href.startsWith('https://')
 
     if (isInternal || isExternal) {

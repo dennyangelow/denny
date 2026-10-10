@@ -1,20 +1,24 @@
-// app/api/email-stats/route.ts — v2
+// app/api/email-stats/route.ts — v3
 //
-// ФИКС v2 (спрямо v1): v1 групираше sequenceStats само по step_number —
-// "стъпка 1" на naruchnik welcome-серията, "стъпка 1" на изоставена поръчка
-// и "стъпка 1" на изоставена количка всички имат step_number=1, значи се
-// сливаха в ЕДИН ред с невярни числа. Сега групираме по композитен key
-// `${sequence_name}::${step_number}` и показваме истинското име на
-// workflow-а (взето от workflows таблицата — новите email_logs редове имат
-// sequence_name='workflow:<uuid>'). Старите редове с sequence_name='naruchnik'
-// (отпреди новия engine) пазят LEGACY_STEP_LABELS fallback.
+// ПОПРАВКИ v3 (спрямо v2) — "подобри статистиките както трябва":
+//   ✅ НОВО: workflowStats — active/completed/exited броячи ПО workflow
+//      (не само глобален open/click rate по стъпка). Вика се вече по
+//      workflows+workflow_enrollments, не само email_logs. Включва до 3
+//      примерни last_error съобщения за "exited" enrollments — преди
+//      грешката "Email address is not verified..." (SES sandbox) се
+//      виждаше само в CSV експорт от Supabase, никъде в самия админ панел.
+//   ✅ НОВО: abandonedCarts.conversionRate — % от drafts, станали реална
+//      поръчка (converted/total*100), вместо само суровите 4 числа —
+//      по-бърз поглед дали фунела изобщо работи.
 //
 // Агрегира данните, които webhook-ът (/api/webhooks/ses) вече пише:
 //   - email_logs.opened_at / clicked_at → open/click rate по стъпка
 //   - leads.unsubscribe_reason ('hard_bounce' / 'spam_complaint') → bounce статистика
 //   - abandoned_carts → фунел на изоставените колички
+//   - workflows + workflow_enrollments → статус/грешки по автоматизация
 //
-// Admin-only (защитен през middleware.ts PROTECTED_API_PREFIXES).
+// Admin-only (защитен през middleware.ts — всеки /api/* освен изрично
+// публичните изключения в isPublicApiRequest()).
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -50,7 +54,6 @@ export async function GET() {
       for (const wf of wfs || []) workflowNames.set(wf.id, wf.name)
     }
 
-    // ✅ ФИКС: композитен key вместо чист step_number
     const byKey = new Map<string, { label: string; sent: number; opened: number; clicked: number }>()
     for (const log of logs || []) {
       const key = `${log.sequence_name}::${log.step_number}`
@@ -85,9 +88,6 @@ export async function GET() {
     const totalClicked = sequenceStats.reduce((s, r) => s + r.clicked, 0)
 
     // ── Bounce / complaint (последните 30 дни) ────────────────────────────
-    // ✅ unsubscribe_reason колоната може да липсва на живата база (виж
-    // migrations/004_leads_missing_columns.sql) — Promise.allSettled
-    // деградира gracefully до 0 вместо да счупи целия endpoint с 500.
     const [hbRes, cmRes] = await Promise.allSettled([
       supabaseAdmin.from('leads').select('*', { count: 'exact', head: true })
         .eq('unsubscribe_reason', 'hard_bounce').gte('updated_at', since30d),
@@ -116,6 +116,34 @@ export async function GET() {
       .eq('converted', false)
       .is('reminded_at', null)
 
+    // ── ✅ НОВО v3: статус по workflow (active/completed/exited + грешки) ──
+    const { data: workflows } = await supabaseAdmin
+      .from('workflows')
+      .select('id, name, trigger_type, active')
+
+    const { data: enrollments } = await supabaseAdmin
+      .from('workflow_enrollments')
+      .select('workflow_id, status, last_error')
+
+    const workflowStats = (workflows || []).map(wf => {
+      const rows      = (enrollments || []).filter(e => e.workflow_id === wf.id)
+      const active    = rows.filter(e => e.status === 'active').length
+      const completed = rows.filter(e => e.status === 'completed').length
+      const exitedRows = rows.filter(e => e.status === 'exited')
+      const sampleErrors = Array.from(new Set(
+        exitedRows.map(e => e.last_error).filter((e): e is string => !!e)
+      )).slice(0, 3)
+
+      return {
+        id: wf.id,
+        name: wf.name,
+        triggerType: wf.trigger_type,
+        active: wf.active,
+        enrollments: { active, completed, exited: exitedRows.length },
+        sampleErrors,
+      }
+    })
+
     return NextResponse.json({
       sequenceStats,
       totals: {
@@ -130,11 +158,14 @@ export async function GET() {
         complaints,
       },
       abandonedCarts: {
-        total:     draftsTotal ?? 0,
-        converted: converted   ?? 0,
-        reminded:  reminded    ?? 0,
-        pending:   pending     ?? 0,
+        total:          draftsTotal ?? 0,
+        converted:      converted   ?? 0,
+        reminded:       reminded    ?? 0,
+        pending:        pending     ?? 0,
+        // ✅ v3: % от drafts, станали реална поръчка
+        conversionRate: (draftsTotal ?? 0) > 0 ? +(((converted ?? 0) / (draftsTotal ?? 1)) * 100).toFixed(1) : 0,
       },
+      workflowStats,
     })
   } catch (error: any) {
     console.error('[email-stats] error:', error)

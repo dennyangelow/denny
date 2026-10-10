@@ -1,5 +1,8 @@
 'use client'
-// app/admin/components/OrdersTab.tsx — v10
+// app/admin/components/OrdersTab.tsx — v11
+// ✅ v11: Трайно изтриване на поръчки (единично от модала + масово с чекбоксове) през
+//    <DeleteOrdersDialog> → POST /api/orders/purge (трие и свързаните клиенти/колички/leads по избор).
+//    Бутон "Избери всички N резултата" — за да изтриеш всички тестови поръчки наведнъж.
 // ✅ v10: Инлайн call-queue блокът е заменен с общ shared <CallQueueCard>
 //    (./CallQueueCard) — вече има snooze (+3д/+7д) и готово (✓) бутони.
 // ✅ v9: Date range filter за таблицата с поръчки (preset + custom от/до)
@@ -20,6 +23,7 @@ import { ProductStatsSection } from './ProductStatsSection'
 import { CustomerProfileModal } from './CustomerProfileModal'
 import { normalizeBgPhone } from './customerUtils'
 import { CallQueueCard } from './CallQueueCard'
+import { DeleteOrdersDialog } from './DeleteOrdersDialog'
 
 const PAGE_SIZE = 15
 
@@ -298,6 +302,7 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
   const [density, setDensity]          = useState<'comfortable' | 'compact'>('comfortable')
   const [isMobile, setIsMobile]        = useState(false)
   const [sendingMissed, setSendingMissed] = useState(false)
+  const [toDelete, setToDelete]        = useState<Order[] | null>(null)
 
   // ── Date range filter за таблицата ────────────────────────────────────────
   type DatePreset = 'all' | 'today' | '7d' | '30d' | '90d' | 'custom'
@@ -433,6 +438,17 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
   })
   const toggleAll = () => setChecked(checked.size === paginated.length ? new Set() : new Set(paginated.map(o => o.id)))
+  const selectAllFiltered = () => setChecked(new Set(filtered.map(o => o.id)))
+
+  // След успешно изтриване: махаме поръчките от списъка и от всички отворени прозорци
+  const handleDeleted = (deletedIds: string[]) => {
+    const gone = new Set(deletedIds)
+    if (setOrders) setOrders(prev => prev.filter(o => !gone.has(o.id)))
+    else window.location.reload()
+    setChecked(prev => new Set([...prev].filter(id => !gone.has(id))))
+    setSelected(prev => (prev && gone.has(prev.id) ? null : prev))
+    setPage(1)
+  }
 
   const applyBulk = useCallback(async () => {
     if (!bulkStatus || checked.size === 0) return
@@ -849,6 +865,16 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
             style={{ background: '#065f46', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, opacity: (!bulkStatus || bulkLoading) ? .5 : 1 }}>
             {bulkLoading ? 'Обновява...' : '✓ Приложи'}
           </button>
+          {checked.size < filtered.length && (
+            <button onClick={selectAllFiltered}
+              style={{ background: '#fff', border: '1px solid #bbf7d0', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
+              Избери всички {filtered.length}
+            </button>
+          )}
+          <button onClick={() => setToDelete(orders.filter(o => checked.has(o.id)))}
+            style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+            🗑 Изтрий {checked.size}
+          </button>
           <button onClick={() => setChecked(new Set())}
             style={{ background: 'transparent', border: '1px solid #bbf7d0', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: '#6b7280' }}>
             Изчисти
@@ -1027,6 +1053,15 @@ export function OrdersTab({ orders, onStatusChange, onPaymentChange, initialOrde
             setSelected(prev => prev ? { ...prev, payment_status: ps as Order['payment_status'] } : null)
           }}
           onOpenCustomer={(phone) => setCustomerPhone(phone)}
+          onDelete={(order) => setToDelete([order])}
+        />
+      )}
+
+      {toDelete && (
+        <DeleteOrdersDialog
+          orders={toDelete}
+          onClose={() => setToDelete(null)}
+          onDeleted={handleDeleted}
         />
       )}
 

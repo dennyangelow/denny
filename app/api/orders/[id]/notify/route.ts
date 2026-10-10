@@ -1,4 +1,15 @@
-// app/api/orders/[id]/notify/route.ts — v6
+// app/api/orders/[id]/notify/route.ts — v7
+// ✅ v6 → v7 (сигурност; ендпойнтът е ПУБЛИЧЕН — вика се от checkout без вход):
+//   1. Rate limit по IP (30 заявки / 10 мин) — преди всеки, който знае order id,
+//      можеше да спами Discord канала безкрайно с force:true.
+//   2. post_purchase_item се валидира: количество 1–100, цени 0–100 000, име ≤ 200.
+//      Преди отрицателна цена (напр. total_price: -500) НАМАЛЯВАШЕ общата сума на
+//      поръчката. Невалиден артикул се пропуска (не се записва) вместо да става 0.
+//   3. Стойностите на Discord полетата се режат до 1024 символа (лимит на Discord) —
+//      иначе дълга бележка/много артикули връщаха 400 и съобщението не излизаше.
+//
+// ⚠️ ЦЕНАТА на post-purchase артикула все още идва от клиента (в рамките на
+//    границите горе). Истинска защита = сървърът да я взима от офертата/продукта.
 // ✅ post_purchase_item: браузърът изпраща PP артикула тук → сървърът го записва в DB
 //    (без нужда от PATCH /api/orders/[id] — той е protected с admin auth)
 // ✅ force=true заобикаля discord_sent check (PP винаги изпраща ново съобщение)
@@ -6,11 +17,24 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { rateLimit, getIP } from '@/lib/rate-limit'
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+/** Валидна цена 0–100 000 или null. */
+function money(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+  return Number.isFinite(n) && n >= 0 && n <= 100000 ? round2(n) : null
+}
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const rl = rateLimit(`notify:${getIP(req)}`, { limit: 30, window: 600 })
+  if (!rl.success) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(rl.resetIn) } })
+  }
+
   try {
     const orderId = params.id
     const body = await req.json().catch(() => ({}))
@@ -37,7 +61,15 @@ export async function POST(
     // ── 3. ✅ PP артикул: записваме в DB преди Discord ────────────────────────
     // Браузърът изпраща post_purchase_item вместо да вика PATCH (който е admin-only)
     const ppItemPayload = body.post_purchase_item
-    if (ppItemPayload && ppItemPayload.product_name) {
+    // ✅ v7: чистим и валидираме PP артикула преди да го пипаме в DB
+    const ppName  = typeof ppItemPayload?.product_name === 'string' ? ppItemPayload.product_name.trim().slice(0, 200) : ''
+    const ppQty   = Math.min(100, Math.max(1, parseInt(String(ppItemPayload?.quantity ?? 1), 10) || 1))
+    const ppUnit  = money(ppItemPayload?.unit_price)
+    const ppTotal = money(ppItemPayload?.total_price ?? ppUnit)
+    if (ppItemPayload && (!ppName || ppUnit === null || ppTotal === null)) {
+      console.warn(`Discord notify: невалиден post_purchase_item за ${orderId} — пропуснат`)
+    }
+    if (ppName && ppUnit !== null && ppTotal !== null) {
       // Проверяваме дали вече е добавен (prevent duplicate при retry)
       const alreadyAdded = (order.order_items || []).some((i: any) =>
         (i.product_name || '').startsWith('[POST-PURCHASE]')
@@ -48,12 +80,10 @@ export async function POST(
           .from('order_items')
           .insert({
             order_id:     orderId,
-            product_name: ppItemPayload.product_name.startsWith('[POST-PURCHASE]')
-              ? ppItemPayload.product_name
-              : `[POST-PURCHASE] ${ppItemPayload.product_name}`,
-            quantity:    ppItemPayload.quantity    ?? 1,
-            unit_price:  ppItemPayload.unit_price  ?? 0,
-            total_price: ppItemPayload.total_price ?? ppItemPayload.unit_price ?? 0,
+            product_name: ppName.startsWith('[POST-PURCHASE]') ? ppName : `[POST-PURCHASE] ${ppName}`,
+            quantity:    ppQty,
+            unit_price:  ppUnit,
+            total_price: ppTotal,
           })
 
         if (itemErr) {
@@ -61,7 +91,7 @@ export async function POST(
           // Не спираме — изпращаме Discord без PP ако DB гърми
         } else {
           // Обновяваме total + notes + has_post_purchase_upsell
-          const newTotal = (Number(order.total) || 0) + (Number(ppItemPayload.total_price) || 0)
+          const newTotal = (Number(order.total) || 0) + ppTotal
           const newNotes = [order.customer_notes || '', '[POST-PURCHASE UPSELL]']
             .filter(Boolean).join(' ').trim()
 
@@ -75,7 +105,7 @@ export async function POST(
             })
             .eq('id', orderId)
 
-          console.log(`✅ PP артикул записан за поръчка #${order.order_number}: ${ppItemPayload.product_name}`)
+          console.log(`✅ PP артикул записан за поръчка #${order.order_number}: ${ppName}`)
         }
       } else {
         console.log(`PP артикул вече съществува за #${order.order_number} — skip insert`)
@@ -203,8 +233,8 @@ export async function POST(
     const total        = Number(finalOrder.total    ?? 0)
     const totalSavings = Number(body.total_savings || 0)
 
-    const ppTotal = ppItems.reduce((s: number, i: any) => s + Number(i.total_price ?? 0), 0)
-    const mainSubtotal = subtotal > 0 ? subtotal : (total - shipping - ppTotal)
+    const ppItemsTotal = ppItems.reduce((s: number, i: any) => s + Number(i.total_price ?? 0), 0)
+    const mainSubtotal = subtotal > 0 ? subtotal : (total - shipping - ppItemsTotal)
 
     const ppSavings = body.post_purchase?.original_price && body.post_purchase.original_price > (body.post_purchase.unit_price ?? 0)
       ? Number(body.post_purchase.original_price) - Number(body.post_purchase.unit_price ?? 0) : 0
@@ -217,7 +247,7 @@ export async function POST(
     }
     if (totalSavings > 0) sumsLines.push(`🏷️ Спестено (оферти): **-${fmt(totalSavings)}**`)
     sumsLines.push(`🚚 Доставка: **${shipping === 0 ? 'Безплатна 🎉' : fmt(shipping)}**`)
-    if (ppLines && ppTotal > 0) sumsLines.push(`⚡ Post-Purchase добавен: **+${fmt(ppTotal)}**`)
+    if (ppLines && ppItemsTotal > 0) sumsLines.push(`⚡ Post-Purchase добавен: **+${fmt(ppItemsTotal)}**`)
     sumsLines.push(`\n━━━━━━━━━━━━━━━━━━`)
     sumsLines.push(`✅ **ОБЩО: ${fmt(total)}**`)
     if (totalSavingsWithPP > 0) sumsLines.push(`💚 Клиентът спести общо: **${fmt(totalSavingsWithPP)}**`)
@@ -307,6 +337,9 @@ export async function POST(
         })
       }
     }
+
+    // ✅ v7: Discord отхвърля полета над 1024 символа
+    for (const f of fields) f.value = String(f.value).slice(0, 1024)
 
     const embed = {
       title: `🛒 Нова поръчка #${finalOrder.order_number}${titleSuffix}`,

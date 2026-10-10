@@ -1,30 +1,31 @@
-// app/api/blog/[id]/route.ts
+// app/api/blog/[id]/route.ts — v2
 // ✅ PATCH  — обновява конкретен пост (admin only)
-// ✅ DELETE — архивира конкретен пост (admin only) — виж ФИКС по-долу
-// ✅ GET по ID — admin only (за директно зареждане в редактора)
-// ✅ revalidatePath при промяна → /blog, /blog/[slug], /blog/[category] и началната страница
+// ✅ DELETE — архивира конкретен пост (soft delete, admin only)
+// ✅ GET по ID — admin only (всичко под /api освен публичните изключения
+//    в middleware.ts е защитено)
 //
-// ✅ ФИКС: PATCH преди не revalidate-ваше категорийната hub страница
-//    (/blog/[category-slug]) при редакция на пост — значи ако смениш
-//    заглавие/съдържание на публикуван пост, /blog и самата статия се
-//    обновяваха веднага, но категорийният hub оставаше стар до изтичане
-//    на 300-те секунди ISR прозорец. Сега добавяме revalidatePath и за
-//    старата, и за новата категория (ако е сменена в тази редакция).
+// ✅ v2 (спрямо v1):
+//   1) published_at се слага САМО при реален преход чернова → публикуван
+//      (когато постът още няма дата). Преди всеки PATCH със status=
+//      'published' без дата в тялото я презаписваше с "сега".
+//   2) created_at/updated_at от клиента се игнорират (updated_at се слага
+//      от trigger trg_blog_posts_updated_at — клиентът пращаше старата).
+//   3) Смяна на slug: валидира се форматът, проверява се колизия с категория
+//      и се revalidate-ва СТАРИЯТ адрес (иначе остава в кеша до 5 мин).
+//   4) has_affiliate_links се включва автоматично при affiliate embed.
+//   5) DELETE (soft) освобождава slug-а: slug → "<slug>--deleted-<id>".
+//      blog_posts.slug е UNIQUE — преди изтрит пост държеше адреса си
+//      завинаги и нов пост със същия slug гърмеше с Postgres грешка.
+//   6) Ясни 404/409 вместо общ 500.
 //
-// ✅ ФИКС: DELETE преди трайно трieше реда от blog_posts — единствено
-//    място в проекта, което прави hard delete, докато продуктите и
-//    категориите последователно ползват active=false (archiving). Сменено
-//    на soft-delete за консистентност и възможност за възстановяване.
-//    GET-заявките навсякъде вече филтрират по .eq('active', true), значи
-//    нищо друго не се чупи от тази смяна.
-//
-// ✅ НОВО: auto-excerpt от първия paragraph при PATCH, ако excerpt е
-//    изчистен/липсва — виж същото обяснение в app/api/blog/route.ts.
+// ✅ (запазено) auto-excerpt от първия paragraph, ако excerpt е изчистен.
+// ✅ (запазено) revalidate на /blog, /, /blog/[slug], /blog/[category] и на
+//    старата категория при преместване.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { revalidatePath } from 'next/cache'
-import { estimateReadingTime } from '@/lib/blog'
+import { estimateReadingTime, hasAffiliateEmbeds, isValidSlug } from '@/lib/blog'
 
 export async function PATCH(
   req: NextRequest,
@@ -35,12 +36,39 @@ export async function PATCH(
     if (!id) return NextResponse.json({ error: 'ID е задължителен' }, { status: 400 })
 
     const body = await req.json()
-    const { id: _id, ...rest } = body
+    const { id: _id, created_at: _c, updated_at: _u, ...rest } = body
+
+    // ✅ Старото състояние ПРЕДИ update-а — за published_at, slug и revalidate.
+    const { data: before } = await supabaseAdmin
+      .from('blog_posts').select('slug, category, status, published_at').eq('id', id).maybeSingle()
+    if (!before) return NextResponse.json({ error: 'Постът не е намерен' }, { status: 404 })
+
+    if ('slug' in rest) {
+      const newSlug = typeof rest.slug === 'string' ? rest.slug.trim() : ''
+      if (!newSlug) return NextResponse.json({ error: 'Slug е задължителен' }, { status: 400 })
+      rest.slug = newSlug
+      if (newSlug !== before.slug) {
+        if (!isValidSlug(newSlug)) {
+          return NextResponse.json(
+            { error: 'Slug трябва да е с малки латински букви, цифри и тирета (напр. lipsa-na-kalciy-domati)' },
+            { status: 400 },
+          )
+        }
+        const { data: catClash } = await supabaseAdmin
+          .from('blog_categories').select('slug').eq('slug', newSlug).maybeSingle()
+        if (catClash) {
+          return NextResponse.json(
+            { error: `Slug „${newSlug}“ съвпада със съществуваща категория — избери друг` },
+            { status: 409 },
+          )
+        }
+      }
+    }
 
     if (Array.isArray(rest.content)) {
       rest.reading_time_minutes = estimateReadingTime(rest.content)
+      if (hasAffiliateEmbeds(rest.content)) rest.has_affiliate_links = true
 
-      // ✅ НОВО: ако excerpt не е попълнен, изведи го от първия paragraph.
       if (!rest.excerpt) {
         const firstParagraph = rest.content.find((b: any) => b.type === 'paragraph')
         if (firstParagraph?.text) {
@@ -49,7 +77,10 @@ export async function PATCH(
         }
       }
     }
-    if (rest.status === 'published' && !rest.published_at) {
+
+    // ✅ v2: дата на публикуване — само ако още няма такава.
+    if (rest.published_at === '') delete rest.published_at
+    if (rest.status === 'published' && !rest.published_at && !before.published_at) {
       rest.published_at = new Date().toISOString()
     }
 
@@ -61,12 +92,6 @@ export async function PATCH(
       return NextResponse.json({ error: 'Няма полета за обновяване' }, { status: 400 })
     }
 
-    // ✅ Вземаме старата категория ПРЕДИ update-а, за да revalidate-нем и
-    //    стария ѝ hub, ако постът е преместен в друга категория с това
-    //    редактиране (иначе старата hub страница остава да го показва).
-    const { data: before } = await supabaseAdmin
-      .from('blog_posts').select('category').eq('id', id).maybeSingle()
-
     const { data, error } = await supabaseAdmin
       .from('blog_posts')
       .update(payload)
@@ -76,14 +101,18 @@ export async function PATCH(
 
     if (error) {
       console.error('[blog PATCH]', error)
+      if ((error as any).code === '23505') {
+        return NextResponse.json({ error: `Slug „${rest.slug}“ вече е зает от друг пост` }, { status: 409 })
+      }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     revalidatePath('/blog')
     revalidatePath('/')
     if (data?.slug) revalidatePath(`/blog/${data.slug}`)
+    if (before.slug && before.slug !== data?.slug) revalidatePath(`/blog/${before.slug}`)
     if (data?.category) revalidatePath(`/blog/${data.category}`)
-    if (before?.category && before.category !== data?.category) {
+    if (before.category && before.category !== data?.category) {
       revalidatePath(`/blog/${before.category}`)
     }
 
@@ -106,14 +135,19 @@ export async function DELETE(
       .from('blog_posts')
       .select('slug, category')
       .eq('id', id)
-      .single()
+      .maybeSingle()
 
-    // ✅ ФИКС: soft-delete (active=false) вместо трайно .delete() —
-    //    консистентно с продуктите/категориите в останалата част на
-    //    проекта, и позволява възстановяване при грешка.
+    if (!existing) return NextResponse.json({ error: 'Постът не е намерен' }, { status: 404 })
+
+    // ✅ soft-delete + освобождаване на slug-а (UNIQUE constraint).
+    const alreadyTagged = /--deleted-/.test(existing.slug || '')
+    const freedSlug = alreadyTagged
+      ? existing.slug
+      : `${existing.slug}--deleted-${Date.now().toString(36)}`
+
     const { error } = await supabaseAdmin
       .from('blog_posts')
-      .update({ active: false })
+      .update({ active: false, slug: freedSlug })
       .eq('id', id)
 
     if (error) {
@@ -123,8 +157,8 @@ export async function DELETE(
 
     revalidatePath('/blog')
     revalidatePath('/')
-    if (existing?.slug) revalidatePath(`/blog/${existing.slug}`)
-    if (existing?.category) revalidatePath(`/blog/${existing.category}`)
+    if (existing.slug) revalidatePath(`/blog/${existing.slug}`)
+    if (existing.category) revalidatePath(`/blog/${existing.category}`)
 
     return NextResponse.json({ ok: true })
   } catch (err: any) {

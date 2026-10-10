@@ -1,6 +1,17 @@
 'use client'
-// components/blog/BlogHandbookEmbed.tsx — v5
-// ✅ ПРОМЯНА спрямо v4:
+// components/blog/BlogHandbookEmbed.tsx — v6
+// ✅ ПРОМЯНА спрямо v5:
+//   1) НОВ prop postSlug → lead-ът се записва с utm_source='blog',
+//      utm_medium='handbook-embed', utm_campaign='blog-<slug на статията>'.
+//      Колоните вече съществуват в leads (POST /api/leads ги приема) —
+//      нулева промяна в базата/сървъра; в админ панела вече се вижда КОЯ
+//      статия носи контакти.
+//   2) Видим линк "Свали ръчно" в състоянието "готово": програмното
+//      a.click() идва СЛЕД мрежови заявки (потребителският жест е изтекъл)
+//      и iOS Safari / popup blocker-ите го спират; download= се игнорира и
+//      за cross-origin PDF. Линкът гарантира, че човекът получава файла.
+//   3) autoComplete (name/email/tel) — по-бързо попълване на мобилно.
+// ✅ ПРОМЯНА v5 спрямо v4:
 //   1) Submit бутонът: "Изтегли сега →" → "Изпрати ми наръчника →" —
 //      по-лично, назовава конкретно какво получава (наръчника), и не
 //      повтаря "безплатно", вече казано два пъти по-нагоре в картата
@@ -28,6 +39,8 @@ interface Props {
   handbook: ResolvedHandbook
   note?: string
   variant?: 'context' | 'fallback'
+  /** slug на статията, в която е вграден — за атрибуция на leads (utm_campaign) */
+  postSlug?: string
 }
 
 type Status = 'idle' | 'form' | 'loading' | 'done' | 'error'
@@ -40,13 +53,14 @@ function TrustRow() {
   )
 }
 
-export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props) {
+export function BlogHandbookEmbed({ handbook, note, variant = 'context', postSlug }: Props) {
   const [status, setStatus] = useState<Status>('idle')
   const [name,  setName]  = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [touched, setTouched] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
 
   const nameErr  = validateName(name)
   const emailErr = validateEmail(email)
@@ -55,9 +69,10 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
 
   const color = handbook.color || '#16a34a'
 
-  const triggerDownload = (pdfUrl: string, title: string) => {
+  const triggerDownload = (url: string, title: string) => {
+    setPdfUrl(url)
     const a = document.createElement('a')
-    a.href = pdfUrl; a.download = `${title}.pdf`; a.target = '_blank'
+    a.href = url; a.download = `${title}.pdf`; a.target = '_blank'; a.rel = 'noopener'
     document.body.appendChild(a); a.click(); document.body.removeChild(a)
   }
 
@@ -73,6 +88,9 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
         body: JSON.stringify({
           email: email.trim(), name: name.trim(), phone: phone.trim(),
           source: 'blog', naruchnik_slug: handbook.slug,
+          // ✅ v6: атрибуция — коя статия носи контакта
+          utm_source: 'blog', utm_medium: 'handbook-embed',
+          utm_campaign: postSlug ? `blog-${postSlug}` : 'blog',
         }),
       })
       const leadData = await leadRes.json().catch(() => ({}))
@@ -108,7 +126,15 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
         <span style={{ fontSize: 22 }}>✅</span>
         <div>
           <p className="bp-handbook-embed-title" style={{ margin: 0 }}>Наръчникът е свален!</p>
-          <p className="bp-handbook-embed-sub" style={{ margin: 0 }}>Провери и папка "Изтеглени файлове" на устройството си.</p>
+          <p className="bp-handbook-embed-sub" style={{ margin: 0 }}>
+            Провери и папка "Изтеглени файлове" на устройството си.
+            {pdfUrl && (
+              <>
+                {' '}Не се е свалил?{' '}
+                <a className="bp-handbook-embed-dl" href={pdfUrl} target="_blank" rel="noopener noreferrer">Свали ръчно →</a>
+              </>
+            )}
+          </p>
         </div>
       </div>
     )
@@ -154,6 +180,7 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
               className="bp-handbook-embed-input"
               placeholder="Име"
               aria-label="Име и фамилия"
+              autoComplete="name"
               value={name}
               onChange={e => setName(e.target.value)}
             />
@@ -166,6 +193,8 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
               placeholder="Имейл"
               aria-label="Имейл адрес"
               type="email"
+              autoComplete="email"
+              inputMode="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
             />
@@ -178,6 +207,7 @@ export function BlogHandbookEmbed({ handbook, note, variant = 'context' }: Props
               placeholder="Телефон"
               aria-label="Телефонен номер"
               type="tel"
+              autoComplete="tel"
               value={phone}
               onChange={e => setPhone(e.target.value)}
             />

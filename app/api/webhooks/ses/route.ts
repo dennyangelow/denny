@@ -1,4 +1,18 @@
-// app/api/webhooks/ses/route.ts — v2
+// app/api/webhooks/ses/route.ts — v3
+//
+// ✅ v3 — ТОЧНОСТ на Open/Click: преди винаги се ъпдейтваше ПОСЛЕДНИЯТ
+//    изпратен email_logs ред за lead-а, независимо кое писмо реално е
+//    отворено — ако lead-ът е получил 2-3 писма от серията, "отворено"
+//    винаги кацаше на най-новото. SES всъщност праща `mail.messageId`
+//    в самото събитие; сега го мачваме директно срещу
+//    email_logs.ses_message_id (записано от lib/automations.ts v7 при
+//    изпращане). Fallback към старото "последен ред на lead-а" поведение
+//    САМО ако messageId липсва (стари редове отпреди тази промяна, или
+//    sendEmail() не е върнал messageId по някаква причина) — за да не
+//    спре да работи нищо, докато старите логове "изтекат".
+//
+//    ⚠️ Изисква SQL преди deploy: ALTER TABLE email_logs ADD COLUMN
+//    ses_message_id text; CREATE INDEX ... (виж миграцията, дадена отделно).
 //
 // Приема POST заявки от SNS (топик "ses-events"), свързан с SES
 // Configuration Set-а "my-first-configuration-set".
@@ -181,27 +195,45 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── Open / Click: последния email_logs запис на lead-а ─────────────────
+      // ── Open / Click: намираме ТОЧНИЯ email_logs ред по ses_message_id ─────
       else if (event.eventType === 'Open' || event.eventType === 'Click') {
-        for (const raw of event.mail?.destination || []) {
-          const email = clean(raw)
-          if (!email) continue
+        const field = event.eventType === 'Open' ? 'opened_at' : 'clicked_at'
+        const sesMessageId = event.mail?.messageId
 
-          const { data: lead } = await supabaseAdmin
-            .from('leads').select('id').eq('email', email).maybeSingle()
-          if (!lead) continue
-
-          const { data: lastLog } = await supabaseAdmin
+        // ✅ v3 — предпочитан път: директен match по ses_message_id.
+        let matched = false
+        if (sesMessageId) {
+          const { data: byMsgId } = await supabaseAdmin
             .from('email_logs')
+            .update({ [field]: now })
+            .eq('ses_message_id', sesMessageId)
             .select('id')
-            .eq('lead_id', lead.id)
-            .order('sent_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-          if (!lastLog) continue
+          matched = !!byMsgId && byMsgId.length > 0
+        }
 
-          const field = event.eventType === 'Open' ? 'opened_at' : 'clicked_at'
-          await supabaseAdmin.from('email_logs').update({ [field]: now }).eq('id', lastLog.id)
+        // ── Fallback: стари редове без messageId — старото поведение
+        //    ("последният пратен лог на lead-а"), само ако мачването по
+        //    messageId не намери нищо.
+        if (!matched) {
+          for (const raw of event.mail?.destination || []) {
+            const email = clean(raw)
+            if (!email) continue
+
+            const { data: lead } = await supabaseAdmin
+              .from('leads').select('id').eq('email', email).maybeSingle()
+            if (!lead) continue
+
+            const { data: lastLog } = await supabaseAdmin
+              .from('email_logs')
+              .select('id')
+              .eq('lead_id', lead.id)
+              .order('sent_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            if (!lastLog) continue
+
+            await supabaseAdmin.from('email_logs').update({ [field]: now }).eq('id', lastLog.id)
+          }
         }
       }
       // 'Delivery' / 'Send' — не изискват промяна в базата.

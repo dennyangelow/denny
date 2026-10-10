@@ -1,4 +1,31 @@
-// middleware.ts — v12
+// middleware.ts — v15
+// ✅ v14 → v15 (сигурност) — fail-closed по подразбиране:
+//    Преди: защитата работеше със СПИСЪК от префикси (PROTECTED_API_PREFIXES)
+//    — всеки нов или забравен route оставаше отворен. Така останаха публични
+//    без вход: /api/customers/* (клиенти, телефони, бележки, call queue),
+//    /api/promo-banners/*, /api/special-sections/* (промяна на живия сайт),
+//    /api/econt/debug.
+//    Сега: ВСЕКИ /api/* изисква admin вход, освен изрично изброените в
+//    isPublicApiRequest(). Нов route е защитен автоматично; ако трябва да е
+//    публичен, добавя се там ръчно.
+//    Публични (явно): econt cities/offices (checkout), /api/cron/* (проверяват
+//    собствен секрет в route-а — ПРОВЕРИ app/api/cron/discord-fallback/route.ts).
+//    Махнат е остарелият публичен изключение за /api/leads/sequence (route няма).
+// ✅ v13 → v14 (сигурност):
+//    /api/automations/* (workflows списък/създаване/промяна/ИЗТРИВАНЕ) не
+//    съвпадаше с нито един префикс и минаваше през общото "/api → next()"
+//    без вход — всеки можеше да чете, променя и трие автоматизациите.
+//    Сега '/api/automations' е защитен. Изключение: GET /api/automations/tick
+//    (вика се от pg_cron, без admin cookie) — той се защитава сам с
+//    CRON_SECRET в самия route.
+// ✅ v12 → v13 (сигурност):
+//    /api/analytics/* беше изцяло публичен (включително GET), така че всеки
+//    можеше да чете посещенията, кликовете и топ страниците на сайта.
+//    Сега само POST (записване на page view / affiliate клик / product event)
+//    е публичен — идва от посетителите без admin cookie. GET (статистиките)
+//    изисква admin вход и е добавен в PROTECTED_API_PREFIXES.
+//    Админ панелът (useAdminData.ts, AnalyticsTab.tsx) вика GET със същия
+//    origin, така че браузърът праща cookie-то автоматично.
 // ✅ v11 → v12 (сигурност):
 //    1. '/api/admin' е в PROTECTED_API_PREFIXES. Преди v12 маршрути като
 //       /api/admin/naruchnici и /api/admin/naruchnici/[id]/seo НЕ съвпадаха с
@@ -41,8 +68,8 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   //    (admin CRUD) остава защитен — само тази под-пътека е изключение.
   if (pathname === '/api/reviews/submit' && method === 'POST')                     return true
   if (pathname === '/api/leads/unsubscribe')                                        return true
-  if (pathname === '/api/leads/sequence' && method === 'GET')                      return true
-  if (pathname.startsWith('/api/analytics/'))                                       return true
+  // ✅ v13: само POST (запис от посетители) е публичен; GET статистиките са за admin
+  if (pathname.startsWith('/api/analytics/') && method === 'POST')                  return true
   // ✅ SES → SNS webhook: няма admin cookie, вика се от Amazon SNS директно.
   //    Собствената защита е вградена в самия route (SNS subscription flow).
   if (pathname === '/api/webhooks/ses' && method === 'POST')                       return true
@@ -51,9 +78,16 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   //    запис, DELETE при успешна поръчка. И двата остават публични.
   if (pathname === '/api/carts/track')                                             return true
   if (pathname === '/api/admin/auth')                                               return true
+  // ✅ v14: cron executor — няма admin cookie, проверява Bearer CRON_SECRET в route.ts
+  if (pathname === '/api/automations/tick' && method === 'GET')                    return true
+  // ✅ v15: checkout търсачките за градове/офиси на Еконт — вика ги публичната форма
+  if (pathname === '/api/econt/cities' || pathname === '/api/econt/offices')        return true
+  // ✅ v15: cron задачи — извиква ги планировчик без admin cookie; защитават се сами
+  //    със секрет вътре в route-а (Bearer CRON_SECRET).
+  if (pathname.startsWith('/api/cron/'))                                            return true
   if (pathname === '/api/marketing' && method === 'GET')                           return true
   // ✅ Блог: GET е публичен (списък + единичен пост през ?slug=) — само
-  //    POST/PATCH/DELETE минават под admin token-а (виж PROTECTED_API_PREFIXES).
+  //    POST/PATCH/DELETE минават под admin token-а.
   if (pathname === '/api/blog' && method === 'GET')                                return true
   // ✅ Категориите: GET публичен (чете ги и /blog, и admin панела) —
   //    POST/PATCH/DELETE минават под admin token-а.
@@ -61,32 +95,8 @@ function isPublicApiRequest(pathname: string, method: string): boolean {
   return false
 }
 
-const PROTECTED_API_PREFIXES = [
-  '/api/settings',
-  '/api/own-products',
-  '/api/affiliate-products',
-  '/api/testimonials',
-  '/api/reviews',      // ← обединената reviews/testimonials система
-  '/api/naruchnici',
-  '/api/faq',
-  '/api/category-links',
-  '/api/ginegar',
-  '/api/upload',
-  '/api/leads/broadcast',
-  '/api/leads',
-  '/api/orders',
-  '/api/marketing',
-  '/api/earnings',     // ← финансов лог, само за admin
-  '/api/email-stats',  // ← open/click/bounce статистики, само за admin
-  '/api/blog',         // ← POST/PATCH/DELETE на блог постове, само за admin (GET е публичен, виж isPublicApiRequest)
-  '/api/blog-categories', // ← POST/PATCH/DELETE на категории, само за admin (GET е публичен)
-  '/api/admin',        // ← v12: всички /api/admin/* освен /api/admin/auth (то е публично по-горе)
-]
-
-function isProtectedApi(pathname: string, method: string): boolean {
-  if (isPublicApiRequest(pathname, method)) return false
-  return PROTECTED_API_PREFIXES.some(p => pathname.startsWith(p))
-}
+// ✅ v15: PROTECTED_API_PREFIXES е премахнат — всичко под /api е защитено, освен
+//    публичните изключения по-горе (fail-closed).
 
 // ✅ ФИКС: преди сравняваше cookie-то директно с ADMIN_SECRET (самата
 // парола, съхранена в cookie — изтекло cookie = изтекла парола, никакъв
@@ -114,17 +124,13 @@ export async function middleware(req: NextRequest) {
     return securityHeaders(NextResponse.next())
   }
 
-  if (isProtectedApi(pathname, method)) {
+  if (pathname.startsWith('/api')) {
     if (!(await isValidToken(req))) {
       return NextResponse.json(
         { error: 'Неоторизиран достъп' },
         { status: 401, headers: { 'WWW-Authenticate': 'Cookie' } }
       )
     }
-    return securityHeaders(NextResponse.next())
-  }
-
-  if (pathname.startsWith('/api')) {
     return securityHeaders(NextResponse.next())
   }
 

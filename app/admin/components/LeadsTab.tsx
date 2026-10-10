@@ -1,5 +1,18 @@
 'use client'
-// app/admin/components/LeadsTab.tsx — v12
+// app/admin/components/LeadsTab.tsx — v13
+// ПОПРАВКИ v13 (спрямо v12) — Фаза 1, тагове от админ панела:
+//   1. Тагове вече се РЕДАКТИРАТ директно от разширения ред (добавяне с
+//      Enter, премахване с ✕) — преди таговете можеха само да СЕ
+//      ФИЛТРИРАТ (вече съществуващи), нямаше UI да добавиш/махнеш таг на
+//      lead. Вика PATCH /api/leads/[id] (вече приема 'tags' — виж route.ts v4).
+//      Оптимистичен local overlay (tagOverrides state) — промяната се вижда
+//      веднага, без да чакаме родителят да презареди leads prop-а;
+//      при грешка от сървъра се връща към старата стойност.
+//   2. ФИКС: SLUG_EMOJI имаше грешен стар slug 'krastavici-visoki-dobivy' —
+//      реалният е 'krastavici-naruchnik'. slugLabel() винаги работеше
+//      правилно (match по includes('krastavic')), но емоджи-то падаше
+//      към generic 📗 fallback за реалния slug.
+//
 // ПОПРАВКИ v12 (спрямо v11):
 //   1. ПЪЛНО премахване на Systeme.io sync логиката — вече няма
 //      syncedIds/invalidIds/blockedIds/resetedIds state, sync филтър,
@@ -18,9 +31,9 @@ import { toast } from '@/components/ui/Toast'
 const PAGE_SIZE = 25
 
 const SLUG_EMOJI: Record<string, string> = {
-  'super-domati':             '🍅',
-  'krastavici-visoki-dobivy': '🥒',
-  'chushki':                  '🫑',
+  'super-domati':         '🍅',
+  'krastavici-naruchnik': '🥒',
+  'chushki':               '🫑',
 }
 const slugEmoji = (slug: string) => SLUG_EMOJI[slug] || '📗'
 const slugLabel = (slug: string) => {
@@ -72,6 +85,9 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
   const [bBody,         setBBody]         = useState('')
   const [bSending,      setBSending]      = useState(false)
   const [isMobile,      setIsMobile]      = useState(false)
+  // ✅ v13 — оптимистичен overlay за tag редакции (виж getTags/addTag/removeTag долу)
+  const [tagOverrides,  setTagOverrides]  = useState<Record<string, string[]>>({})
+  const [tagInput,      setTagInput]      = useState<Record<string, string>>({})
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -100,7 +116,10 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     return Array.from(seen.values()).reverse()
   }, [leads])
 
-  const allTags  = useMemo(() => { const s = new Set<string>(); uniqueLeads.forEach(l => (l.tags||[]).forEach(t => s.add(t))); return Array.from(s).sort() }, [uniqueLeads])
+  // ✅ v13 — чете редактирания таг-списък, ако има такъв за този lead, иначе оригинала от prop-а
+  const getTags = useCallback((l: Lead) => tagOverrides[l.id] ?? (l.tags || []), [tagOverrides])
+
+  const allTags  = useMemo(() => { const s = new Set<string>(); uniqueLeads.forEach(l => getTags(l).forEach(t => s.add(t))); return Array.from(s).sort() }, [uniqueLeads, getTags])
   const allSlugs = useMemo(() => { const s = new Set<string>(); leads.forEach(l => { const arr = (l as any).naruchnici as string[]|null; if (arr?.length) arr.forEach((sl:string)=>s.add(sl)); else if(l.naruchnik_slug) s.add(l.naruchnik_slug) }); return Array.from(s).sort() }, [leads])
 
   const slugCounts = useMemo(() => {
@@ -156,7 +175,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
     const q = search.toLowerCase().trim()
     return uniqueLeads
       .filter(l => filter==='all' ? true : filter==='subscribed' ? l.subscribed : !l.subscribed)
-      .filter(l => !selectedTag || (l.tags||[]).includes(selectedTag))
+      .filter(l => !selectedTag || getTags(l).includes(selectedTag))
       .filter(l => !slugFilter  || (emailToSlugs.get(l.email)?.has(slugFilter)??false))
       .filter(l => !multiFilter || multiEmails.has(l.email))
       .filter(l => !q || l.email.toLowerCase().includes(q) || (l.name||'').toLowerCase().includes(q) || (l.phone||'').includes(q))
@@ -164,7 +183,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
         const av=String(a[sortKey]??''), bv=String(b[sortKey]??'')
         return sortDir==='asc' ? av.localeCompare(bv) : bv.localeCompare(av)
       })
-  }, [uniqueLeads, filter, selectedTag, slugFilter, multiFilter, search, sortKey, sortDir, multiEmails, emailToSlugs])
+  }, [uniqueLeads, filter, selectedTag, slugFilter, multiFilter, search, sortKey, sortDir, multiEmails, emailToSlugs, getTags])
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated  = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE)
@@ -182,7 +201,7 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
         l.email, l.name||'', l.phone||'',
         Array.from(emailToSlugs.get(l.email)||[]).join(';'),
         l.subscribed?'Активен':'Отписан',
-        (l.tags||[]).join(';'), l.utm_source||'',
+        getTags(l).join(';'), l.utm_source||'',
         new Date(l.created_at).toLocaleDateString('bg-BG'),
       ]),
     ]
@@ -219,6 +238,42 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
       toast.success(`${email} е отписан`)
     } catch { toast.error('Грешка при отписване') }
   }, [])
+
+  // ✅ v13 — добавяне/премахване на таг, оптимистично (виж tagOverrides по-горе).
+  // При грешка от сървъра връщаме локалния overlay към старата стойност.
+  const addTag = useCallback(async (lead: Lead, rawTag: string) => {
+    const tag = rawTag.trim()
+    if (!tag) return
+    const current = tagOverrides[lead.id] ?? (lead.tags || [])
+    if (current.includes(tag)) { setTagInput(prev => ({ ...prev, [lead.id]: '' })); return }
+    const next = [...current, tag]
+    setTagOverrides(prev => ({ ...prev, [lead.id]: next }))
+    setTagInput(prev => ({ ...prev, [lead.id]: '' }))
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: next }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      toast.error('Грешка при добавяне на таг')
+      setTagOverrides(prev => ({ ...prev, [lead.id]: current }))
+    }
+  }, [tagOverrides])
+
+  const removeTag = useCallback(async (lead: Lead, tag: string) => {
+    const current = tagOverrides[lead.id] ?? (lead.tags || [])
+    const next = current.filter(t => t !== tag)
+    setTagOverrides(prev => ({ ...prev, [lead.id]: next }))
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: next }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      toast.error('Грешка при премахване на таг')
+      setTagOverrides(prev => ({ ...prev, [lead.id]: current }))
+    }
+  }, [tagOverrides])
 
   const inp: React.CSSProperties = { padding:'8px 13px', border:'1px solid var(--border)', borderRadius:9, fontFamily:'inherit', fontSize:16, outline:'none', background:'#fff' }
   const SortArrow = ({ k }: { k: SortKey }) => (
@@ -451,13 +506,6 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                                 {l.utm_source    && <span><span style={{color:'#9ca3af',fontWeight:600}}>UTM: </span>{l.utm_source}{l.utm_campaign?` / ${l.utm_campaign}`:''}</span>}
                                 {l.downloaded_at && <span><span style={{color:'#9ca3af',fontWeight:600}}>Изтеглено: </span>{new Date(l.downloaded_at).toLocaleString('bg-BG')}</span>}
                                 {l.last_email_sent_at && <span><span style={{color:'#9ca3af',fontWeight:600}}>Посл. имейл: </span>{new Date(l.last_email_sent_at).toLocaleString('bg-BG')}</span>}
-                                {(l.tags||[]).length>0 && (
-                                  <div style={{display:'flex',gap:3}}>
-                                    {(l.tags||[]).map(tag=>(
-                                      <span key={tag} style={{fontSize:10,padding:'1px 6px',background:'#ede9fe',color:'#5b21b6',borderRadius:99,fontWeight:700}}>{tag}</span>
-                                    ))}
-                                  </div>
-                                )}
                                 <a href={`mailto:${l.email}`} onClick={e=>e.stopPropagation()}
                                   style={{fontSize:12,color:'#2d6a4f',fontWeight:700,textDecoration:'none',padding:'4px 12px',background:'#fff',border:'1px solid #bbf7d0',borderRadius:7}}>
                                   ✉️ Пиши
@@ -468,6 +516,28 @@ export function LeadsTab({ leads, onSyncStateChange }: Props) {
                                     ✋ Отпиши
                                   </button>
                                 )}
+                              </div>
+                              {/* ✅ v13 — редактируеми тагове: добавяне с Enter, премахване с ✕ */}
+                              <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginTop:10 }}>
+                                <span style={{ fontSize:12, color:'#9ca3af', fontWeight:600 }}>Тагове:</span>
+                                {getTags(l).map(tag => (
+                                  <span key={tag} style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:10, padding:'2px 4px 2px 8px', background:'#ede9fe', color:'#5b21b6', borderRadius:99, fontWeight:700 }}>
+                                    {tag}
+                                    <button
+                                      onClick={e=>{e.stopPropagation();removeTag(l,tag)}}
+                                      aria-label={`Премахни таг ${tag}`}
+                                      style={{ border:'none', background:'none', cursor:'pointer', color:'#5b21b6', fontSize:11, padding:'0 4px', lineHeight:1 }}
+                                    >✕</button>
+                                  </span>
+                                ))}
+                                <input
+                                  value={tagInput[l.id] || ''}
+                                  onChange={e=>setTagInput(prev=>({ ...prev, [l.id]: e.target.value }))}
+                                  onClick={e=>e.stopPropagation()}
+                                  onKeyDown={e=>{ if (e.key === 'Enter') { e.preventDefault(); addTag(l, tagInput[l.id] || '') } }}
+                                  placeholder="+ нов таг"
+                                  style={{ fontSize:11, padding:'3px 10px', border:'1px dashed #c4b5fd', borderRadius:99, width:100, outline:'none', fontFamily:'inherit', background:'#fff' }}
+                                />
                               </div>
                             </td>
                           </tr>

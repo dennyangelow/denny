@@ -1,5 +1,8 @@
 'use client'
-// components/blog/CategoriesScreen.tsx — v1
+// components/blog/CategoriesScreen.tsx — v2
+// ✅ v2: categories може да съдържа и архивирани (active=false) — вече се
+//    показват в CategoryManager (зачертани, с бутон за връщане); "категории
+//    без постове" брои само активните.
 // Пълноекранен изглед за "Категории" под-таба — не toggle вътре в пост.
 // Стат карти отгоре дават бърз поглед: колко категории, колко постове общо,
 // колко категории стоят без нито един пост (сигнал да ги слееш/архивираш
@@ -33,7 +36,7 @@ export function CategoriesScreen({ categories, posts, onChange }: Props) {
     if (p.category) postCounts[p.category] = (postCounts[p.category] || 0) + 1
   })
 
-  const emptyCategories = categories.filter(c => (postCounts[c.slug] || 0) === 0).length
+  const emptyCategories = categories.filter(c => c.active !== false && (postCounts[c.slug] || 0) === 0).length
 
   return (
     <div>

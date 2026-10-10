@@ -1,15 +1,23 @@
-// app/api/cron/discord-fallback/route.ts
+// app/api/cron/discord-fallback/route.ts — v2
 // ✅ Vercel Cron — пуска се на всеки 5 минути
 // Търси поръчки създадени преди >10 мин където discord_sent = false
 // и ги изпраща директно от DB данните
+//
+// ✅ v1 → v2 (сигурност):
+//   1. Ако CRON_SECRET не е зададен, v1 сравняваше с "Bearer undefined" —
+//      т.е. всеки, който изпрати точно този header, минаваше. Сега без
+//      зададен CRON_SECRET заявката се отхвърля (fail-closed).
+//   2. Ако Discord върне грешка, поръчката се връща в discord_sent=false,
+//      за да я опита следващият цикъл (преди оставаше маркирана като
+//      изпратена, без да е излязло съобщение).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export async function GET(req: NextRequest) {
   // Защита — само Vercel Cron може да вика това
-  const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret || req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -53,7 +61,8 @@ export async function GET(req: NextRequest) {
 
       const itemsText = (order.order_items || [])
         .map((i: any) => `> 📦 **${i.product_name}** — ${i.quantity} бр.\n> 💰 ${fmt(i.unit_price)} × ${i.quantity} = **${fmt(i.total_price)}**`)
-        .join('\n') || '—'
+        .join('\n')
+        .slice(0, 1024) || '—'
 
       const embed = {
         title: `🛒 Поръчка #${order.order_number} ⚠️ fallback`,
@@ -69,17 +78,25 @@ export async function GET(req: NextRequest) {
         timestamp: new Date().toISOString(),
       }
 
-      await fetch(discordWebhook, {
+      const res = await fetch(discordWebhook, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ embeds: [embed] }),
       })
+
+      if (!res.ok) {
+        // ✅ v2: не оставяме поръчката като "изпратена" при неуспех
+        console.error(`Cron Discord HTTP ${res.status} за поръчка #${order.order_number}`)
+        await supabaseAdmin.from('orders').update({ discord_sent: false }).eq('id', order.id)
+        continue
+      }
 
       processed++
       console.log(`✅ Cron Discord fallback: поръчка #${order.order_number}`)
 
     } catch (e) {
       console.error(`Cron fallback грешка за поръчка ${order.id}:`, e)
+      await supabaseAdmin.from('orders').update({ discord_sent: false }).eq('id', order.id)
     }
   }
 

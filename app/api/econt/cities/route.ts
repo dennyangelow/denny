@@ -15,6 +15,7 @@
 // филтриран масив тежи много под 2MB, така че никакъв кеш проблем не възниква.
 
 import { NextResponse } from 'next/server'
+   export const dynamic = 'force-dynamic'
 
 const ECONT_USER = process.env.ECONT_USER || 'iasp-dev'
 const ECONT_PASS = process.env.ECONT_PASS || '1Asp-dev'

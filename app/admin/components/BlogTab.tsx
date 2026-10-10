@@ -1,5 +1,18 @@
 'use client'
-// app/admin/components/BlogTab.tsx — v3
+// app/admin/components/BlogTab.tsx — v4
+// ✅ v4 (спрямо v3):
+//   • Категориите се зареждат с ?includeInactive=1 (само за админ) → архивираните
+//     се виждат в "Категории" и могат да се върнат. В падащото меню на поста
+//     се предлагат само активните (+ текущата категория на поста, ако е архивирана).
+//   • Предупреждение ПРЕДИ публикуване: lib/blogChecks.ts проверява корица/alt,
+//     SEO, счупени вътрешни линкове и т.н. Не блокира — показва списък и пита.
+//   • Slug: валидация за нови/сменени адреси, бутон "от заглавието" (БГ→латиница),
+//     предупреждение при смяна на адрес на ПУБЛИКУВАН пост (няма redirect).
+//   • has_affiliate_links: ако съдържанието има affiliate продукт → отметката
+//     е заключена включена (сървърът я включва така или иначе).
+//   • SEO title: без "| Denny Angelow" в placeholder-а (марката се добавя
+//     автоматично → преди излизаше два пъти), с брояч на символи.
+//   • Изтриване: ясно съобщение, че постът се архивира и адресът се освобождава.
 // ✅ ПРОМЯНА спрямо v2: добавен 'handbook_embed' block type (BLOCK_TYPE_LABELS,
 //    newBlock(), HandbookEmbedBlockEditor) — вгражда конкретен безплатен
 //    наръчник по средата на статия, с picker dropdown от активните
@@ -22,6 +35,8 @@ import { toast } from '@/components/ui/Toast'
 import type { BlogPost, BlogBlock, BlogCategory } from '@/lib/blog'
 import { CategoriesScreen } from '@/components/blog/CategoriesScreen'
 import { BlogHealthPanel } from '@/components/blog/BlogHealthPanel'
+import { isValidSlug, slugifyBg, hasAffiliateEmbeds } from '@/lib/blog'
+import { auditPost, formatPublishWarnings } from '@/lib/blogChecks'
 
 // ─── Styles — идентични на ContentTab.tsx, за визуална консистентност ─────────
 const inp: React.CSSProperties = {
@@ -396,7 +411,8 @@ export function BlogTab() {
 
   const loadCategories = useCallback(async () => {
     try {
-      const res  = await fetch('/api/blog-categories')
+      // ✅ v4: includeInactive=1 работи само за админ — иначе архивираните изчезват от панела
+      const res  = await fetch('/api/blog-categories?includeInactive=1')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setCategories(data.categories || [])
@@ -436,13 +452,38 @@ export function BlogTab() {
 
   const save = async () => {
     if (!editing) return
-    if (editing.slug && categories.some(c => c.slug === editing.slug)) {
-      toast.error(`Slug "${editing.slug}" съвпада със съществуваща категория — избери друг`)
+    const slug = (editing.slug || '').trim()
+    const original = editing.id ? posts.find(p => p.id === editing.id) : undefined
+
+    if (slug && categories.some(c => c.slug === slug)) {
+      toast.error(`Slug "${slug}" съвпада със съществуваща категория — избери друг`)
       return
+    }
+    // ✅ v4: валидираме само НОВ или сменен slug — старите адреси не се блокират при редакция
+    if ((!original || original.slug !== slug) && !isValidSlug(slug)) {
+      toast.error('Slug трябва да е с малки латински букви, цифри и тирета (напр. lipsa-na-kalciy-domati)')
+      return
+    }
+    if (original && original.status === 'published' && original.slug && original.slug !== slug) {
+      const ok = confirm(
+        `Сменяш адреса на ПУБЛИКУВАН пост:\n/blog/${original.slug}  →  /blog/${slug}\n\n` +
+        'Старият адрес ще върне 404 (няма автоматично пренасочване) и ще загубиш позициите му в Google и споделените линкове.\n\nСигурен ли си?'
+      )
+      if (!ok) return
+    }
+    // ✅ v4: качествена проверка преди публикуване (не блокира — само пита)
+    if (editing.status === 'published') {
+      const ctx = {
+        postSlugs:     new Set(posts.filter(p => p.status === 'published' && p.id !== editing.id).map(p => p.slug!).filter(Boolean).concat(slug ? [slug] : [])),
+        categorySlugs: new Set(categories.filter(c => c.active !== false).map(c => c.slug)),
+        handbookSlugs: handbookOptions.length ? new Set(handbookOptions.map(h => h.slug)) : undefined,
+      }
+      const warnings = formatPublishWarnings(auditPost({ ...editing, slug }, ctx))
+      if (warnings && !confirm(`Преди да публикуваш:\n\n${warnings}\n\nПубликувай все пак?`)) return
     }
     setSaving(true)
     try {
-      const payload = { ...editing }
+      const payload = { ...editing, slug }
       const isNew = !payload.id
       const url   = isNew ? '/api/blog' : `/api/blog/${payload.id}`
       const res   = await fetch(url, {
@@ -465,7 +506,7 @@ export function BlogTab() {
   }
 
   const del = async (id: string) => {
-    if (!confirm('Сигурен ли си, че искаш да изтриеш този пост?')) return
+    if (!confirm('Постът ще бъде архивиран (скрит от сайта), а адресът му — освободен за ново ползване. Продължаваш ли?')) return
     try {
       const res = await fetch(`/api/blog/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -599,8 +640,23 @@ export function BlogTab() {
 
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>Slug (URL)</label>
-                <input value={editing.slug || ''} onChange={e => set('slug', e.target.value)}
-                  placeholder="lipsa-na-kalciy-domati" style={{ ...inp, fontFamily: 'monospace' }} onFocus={focusGreen} onBlur={blurGray} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={editing.slug || ''} onChange={e => set('slug', e.target.value)}
+                    placeholder="lipsa-na-kalciy-domati" style={{ ...inp, fontFamily: 'monospace', flex: 1, minWidth: 0 }} onFocus={focusGreen} onBlur={blurGray} />
+                  {!editing.id && (
+                    <button type="button" onClick={() => set('slug', slugifyBg(editing.title || '', 60))}
+                      title="Генерира slug от заглавието (кирилица → латиница)"
+                      style={{ background: '#f3f4f6', border: '1.5px solid #e5e7eb', borderRadius: 8, padding: '0 10px', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: '#374151', fontWeight: 600, flexShrink: 0 }}>
+                      ↻ от заглавието
+                    </button>
+                  )}
+                </div>
+                {editing.slug && !isValidSlug(editing.slug) && (
+                  <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 4 }}>Само малки латински букви, цифри и тирета (напр. lipsa-na-kalciy).</div>
+                )}
+                {editing.id && editing.status === 'published' && (
+                  <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 4 }}>⚠️ Постът е публикуван — смяната на адреса чупи старите линкове.</div>
+                )}
               </div>
 
               <div>
@@ -617,9 +673,9 @@ export function BlogTab() {
 
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>Категория</label>
-                <select value={editing.category || categories[0]?.slug || ''} onChange={e => set('category', e.target.value)} style={inp}>
-                  {categories.map(c => (
-                    <option key={c.slug} value={c.slug}>{c.emoji} {c.label}</option>
+                <select value={editing.category || categories.find(c => c.active !== false)?.slug || ''} onChange={e => set('category', e.target.value)} style={inp}>
+                  {categories.filter(c => c.active !== false || c.slug === editing.category).map(c => (
+                    <option key={c.slug} value={c.slug}>{c.emoji} {c.label}{c.active === false ? ' (архивирана)' : ''}</option>
                   ))}
                 </select>
               </div>
@@ -638,13 +694,20 @@ export function BlogTab() {
               </div>
 
               <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>SEO Title (ако е празно → заглавието)</label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span>SEO Title (ако е празно → заглавието)</span>
+                  <span style={{ fontWeight: 600, color: (editing.seo_title || '').length > 60 ? '#b91c1c' : '#9ca3af' }}>{(editing.seo_title || '').length}/60</span>
+                </label>
                 <input value={editing.seo_title || ''} onChange={e => set('seo_title', e.target.value)}
-                  placeholder="Липса на калций при домати — причини и лечение | Denny Angelow" style={inp} onFocus={focusGreen} onBlur={blurGray} />
+                  placeholder="Липса на калций при домати — причини и лечение" style={inp} onFocus={focusGreen} onBlur={blurGray} />
+                <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 4 }}>Без „| Denny Angelow“ — марката се добавя автоматично.</div>
               </div>
 
               <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>SEO Description (ако е празно → excerpt)</label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span>SEO Description (ако е празно → excerpt)</span>
+                  <span style={{ fontWeight: 600, color: (() => { const n = (editing.seo_description || '').length; return n === 0 || (n >= 110 && n <= 165) ? '#9ca3af' : '#b45309' })() }}>{(editing.seo_description || '').length} (цел 110–165)</span>
+                </label>
                 <textarea rows={2} value={editing.seo_description || ''} onChange={e => set('seo_description', e.target.value)}
                   style={{ ...inp, resize: 'vertical' }} onFocus={focusGreen} onBlur={blurGray} />
               </div>
@@ -656,10 +719,12 @@ export function BlogTab() {
               </div>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600 }}>
-                <input type="checkbox" checked={!!editing.has_affiliate_links}
+                <input type="checkbox" checked={!!editing.has_affiliate_links || hasAffiliateEmbeds(editing.content)}
+                  disabled={hasAffiliateEmbeds(editing.content)}
                   onChange={e => set('has_affiliate_links', e.target.checked)}
                   style={{ width: 16, height: 16, accentColor: '#2d6a4f' }} />
                 Постът съдържа affiliate линкове (показва disclosure банер горе)
+                {hasAffiliateEmbeds(editing.content) && <span style={{ fontWeight: 500, color: '#9ca3af' }}> — включено автоматично (има affiliate продукт в текста)</span>}
               </label>
 
               <div>

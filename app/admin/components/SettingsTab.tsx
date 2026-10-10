@@ -1,13 +1,30 @@
 'use client'
-// app/admin/components/SettingsTab.tsx — v9
-// ✅ v8 → v9: ПЪЛНО премахване на Systeme.io — маха се IntegrationRow за
+// app/admin/components/SettingsTab.tsx — v11
+// ✅ v10 → v11: "🔌 Интеграции" (Email автоматизации toggle) и "⚙️ Email
+//    Sequences" (ръчен старт) бяха 2 отделни карти, сякаш 2 различни
+//    системи — реално и двете управляват СЪЩИЯ двигател (pollTriggers() в
+//    lib/automations.ts → sendEmail() → SES). Слети в 1 карта "✉️ Email
+//    автоматизации": toggle активен/изключен горе, после "как работи",
+//    после разписанието (Welcome/Abandoned), после бутона за ръчен старт.
+//    Изчистени и последните видими Resend остатъци: "Resend Dashboard"
+//    линкът в Бързи линкове (resend.com вече не се ползва никъде в
+//    проекта — транспортът е изцяло Amazon SES). State променливите
+//    resendEnabled/togglingResend → emailAutoEnabled/togglingEmailAuto за
+//    четимост (DB ключът `resend_enabled` НЕ е пипан — смяна на ключа
+//    би изисквала миграция/загуба на текущата стойност в settings
+//    таблицата; виж коментара до KEYS долу).
+// v10: секция "✉️ Email настройки" вече реално прави нещо — преди
+//    email_from_name/email_from_addr/email_reply_to седяха тук, но никой
+//    route не ги четеше (lib/mailer.ts имаше хардкоднат подател). Вече се
+//    четат от lib/email-settings.ts навсякъде, където се праща имейл (виж
+//    lib/mailer.ts v2, lib/email-templates.ts v5). Добавени 2 нови полета:
+//    email_footer_text (дисклеймър редът над "Отпиши се тук" във всяко
+//    писмо) и email_sender_tagline (малкия сив ред под логото в header-а
+//    на писмата, напр. "Denny Angelow — Агро Консултант").
+// v9: ПЪЛНО премахване на Systeme.io — маха се IntegrationRow за
 //    Systeme.io, testSystemeIO функцията, systemeEnabled/togglingSysteme/
 //    testingSysteme state, "Leads sync" статус ред, Systeme.io quick link,
-//    systemeio_api от security checklist-а. "Resend" реда е преименуван на
-//    "Email автоматизации", тъй като реалният транспорт вече е Amazon SES
-//    (ключът resend_enabled е запазен само по историческа причина — виж
-//    lib/mailer.ts). Email Sequences текстът вече казва коректно
-//    "Supabase pg_cron" вместо остарялото "Vercel Cron".
+//    systemeio_api от security checklist-а.
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { toast } from '@/components/ui/Toast'
@@ -87,11 +104,13 @@ const SECTIONS = [
   },
   {
     id: 'emails', group: 'Маркетинг', label: '✉️ Email настройки',
-    description: 'От кой адрес/име излизат системните имейли (поръчки, лийдове)',
+    description: 'От кой адрес/име излизат ВСИЧКИ системни и автоматизирани имейли, Reply-To, и текстовете в рамката на писмата',
     keys: [
-      { key: 'email_from_name', label: 'От (Имена)', type: 'text',  placeholder: 'Denny Angelow' },
-      { key: 'email_from_addr', label: 'От (Имейл)', type: 'email', placeholder: 'support@dennyangelow.com' },
-      { key: 'email_reply_to',  label: 'Reply-To',   type: 'email', placeholder: 'support@dennyangelow.com' },
+      { key: 'email_from_name',      label: 'От (Имена)', type: 'text',     placeholder: 'Denny Angelow' },
+      { key: 'email_from_addr',      label: 'От (Имейл)', type: 'email',    placeholder: 'support@dennyangelow.com', hint: 'Трябва да е verified адрес/домейн в Amazon SES, иначе изпращането ще гърми.' },
+      { key: 'email_reply_to',       label: 'Reply-To',   type: 'email',    placeholder: 'support@dennyangelow.com', hint: 'Къде пада отговорът, ако клиентът натисне "Отговори" в inbox-а си.' },
+      { key: 'email_sender_tagline', label: 'Ред под логото в писмата', type: 'text', placeholder: 'Denny Angelow — Агро Консултант', hint: 'Малкият сив текст в зеления header на всяко автоматизирано писмо (Темплейти таба).' },
+      { key: 'email_footer_text',    label: 'Футър текст (над "Отпиши се тук")', type: 'textarea', placeholder: 'Получаваш този имейл, защото се регистрира на dennyangelow.com.', hint: 'Показва се във всяко писмо, точно над линка за отписване.' },
     ],
   },
   {
@@ -215,8 +234,10 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   const [expanded,   setExpanded]   = useState<Set<string>>(new Set())
   const isFirstLoad = useRef(true)
 
-  const [resendEnabled,  setResendEnabled]  = useState(true)
-  const [togglingResend, setTogglingResend] = useState(false)
+  // DB ключът остава 'resend_enabled' (виж коментара в хедъра на файла) —
+  // само локалните имена са преименувани, за да не бъркат четящия кода.
+  const [emailAutoEnabled,  setEmailAutoEnabled]  = useState(true)
+  const [togglingEmailAuto, setTogglingEmailAuto] = useState(false)
 
   const dirty = useMemo(
     () => Object.keys(vals).some(k => vals[k] !== savedVals[k]),
@@ -230,7 +251,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
         if (d.settings) {
           setVals(d.settings)
           setSavedVals(d.settings)
-          setResendEnabled(d.settings.resend_enabled !== 'false')
+          setEmailAutoEnabled(d.settings.resend_enabled !== 'false')
         }
         setLoading(false)
       })
@@ -545,6 +566,18 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             </div>
           </div>
 
+          {/* ✉️ Email настройки — quick guide */}
+          <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 14, padding: 16 }}>
+            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#3730a3', marginBottom: 10 }}>✉️ Email настройки</h2>
+            <div style={{ fontSize: 12, color: '#4338ca', lineHeight: 1.7 }}>
+              Важат за <strong>всички</strong> автоматизирани писма (наръчник серия, изоставена количка/поръчка, бъдещи темплейти от Темплейти таба).<br/>
+              <br/>
+              <strong>От (Имейл)</strong> трябва да е verified адрес/домейн в Amazon SES конзолата — иначе изпращането гърми.<br/>
+              <br/>
+              Поръчката-потвърждение към клиента и известието към теб (admin) НЕ минават оттук — те нямат footer/unsubscribe и не се пипат от тези полета.
+            </div>
+          </div>
+
           {/* 🛒 Количка по страници — quick guide */}
           <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 14, padding: 16 }}>
             <h2 style={{ fontSize: 13, fontWeight: 700, color: '#1e3a8a', marginBottom: 10 }}>🛒 Количка по страници</h2>
@@ -567,17 +600,34 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             </div>
           </div>
 
-          {/* ИНТЕГРАЦИИ */}
+          {/* ✉️ Email автоматизации — обединена карта (toggle + как работи +
+              разписание + ръчен старт). Преди бяха 2 отделни карти ("🔌
+              Интеграции" и "⚙️ Email Sequences"), сякаш 2 различни системи —
+              реално и двете пипат СЪЩИЯ двигател (pollTriggers() →
+              sendEmail() → SES), просто единият е toggle, другият е
+              "пусни веднага". */}
           <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>🔌 Интеграции</h2>
-            <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.5 }}>Активирай/деактивирай без рестартиране — влиза в сила веднага.</p>
-            <IntegrationRow icon="✉️" name="Email автоматизации" description="Welcome + follow-up имейли (през Amazon SES)" enabled={resendEnabled} loading={togglingResend} statusLabel={resendEnabled ? 'Активен' : 'Изключен'} statusColor={resendEnabled ? '#16a34a' : '#6b7280'} href="https://console.aws.amazon.com/ses/"
-              onToggle={() => toggleIntegration('resend_enabled', resendEnabled, setResendEnabled, setTogglingResend, 'Email автоматизации')} />
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>✉️ Email автоматизации</h2>
+            <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.5 }}>Welcome серия + abandoned cart/order напомняния, през Amazon SES.</p>
+
+            <IntegrationRow icon="✉️" name="Активни" description="Включва/изключва цялата автоматизация — влиза в сила веднага" enabled={emailAutoEnabled} loading={togglingEmailAuto} statusLabel={emailAutoEnabled ? 'Активен' : 'Изключен'} statusColor={emailAutoEnabled ? '#16a34a' : '#6b7280'} href="https://console.aws.amazon.com/ses/"
+              onToggle={() => toggleIntegration('resend_enabled', emailAutoEnabled, setEmailAutoEnabled, setTogglingEmailAuto, 'Email автоматизации')} />
+
             <div style={{ marginTop: 10, background: '#f8fafc', borderRadius: 8, padding: '8px 10px', fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>
               <strong style={{ color: '#374151', display: 'block', marginBottom: 2 }}>Как работи:</strong>
-              При изтегляне на наръчник → записва се в Supabase → изпраща welcome имейл през Amazon SES.<br/>
+              При изтегляне на наръчник / изоставена количка / поръчка →
+              записва се в Supabase → на свой ред изпраща писмо през Amazon SES.<br/>
               <strong style={{ color: '#92400e' }}>⚠️ Env vars:</strong> <code>SES_ACCESS_KEY_ID</code>, <code>SES_SECRET_ACCESS_KEY</code>, <code>SES_REGION</code> в Vercel.
             </div>
+
+            <div style={{ marginTop: 10, background: '#f0fdf4', borderRadius: 9, padding: '10px 12px', fontSize: 12, color: '#166534', lineHeight: 1.6 }}>
+              <strong style={{ display: 'block', marginBottom: 2, color: '#14532d' }}>Разписание (Supabase pg_cron, на всеки час):</strong>
+              📅 Welcome → +2д → +5д → +10д<br/>🛒 Abandoned: след 24ч без обработка
+            </div>
+
+            <button onClick={triggerSequence} style={{ width: '100%', marginTop: 10, padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+              ▶ Стартирай ръчно сега
+            </button>
           </div>
 
           {/* Status */}
@@ -588,7 +638,7 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
               { label: 'Абонати',    value: leadsCount,    color: '#0ea5e9' },
               { label: 'Framework',  value: 'Next.js 14' },
               { label: 'База данни', value: 'Supabase' },
-              { label: 'Email',      value: resendEnabled ? '✅ Amazon SES' : '⏸ Изключен', color: resendEnabled ? '#16a34a' : '#9ca3af' },
+              { label: 'Email',      value: emailAutoEnabled ? '✅ Amazon SES' : '⏸ Изключен', color: emailAutoEnabled ? '#16a34a' : '#9ca3af' },
               { label: 'Hosting',    value: 'Vercel' },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: 13 }}>
@@ -596,18 +646,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
                 <span style={{ fontWeight: 700, color: (row as any).color || 'var(--text)' }}>{row.value}</span>
               </div>
             ))}
-          </div>
-
-          {/* Email sequences */}
-          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>⚙️ Email Sequences</h2>
-            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.5 }}>Изпълнява се автоматично всеки час (Supabase pg_cron).</p>
-            <div style={{ background: '#f0fdf4', borderRadius: 9, padding: '10px 12px', fontSize: 12, color: '#166534', marginBottom: 12, lineHeight: 1.6 }}>
-              📅 Welcome → +2д → +5д → +10д<br/>🛒 Abandoned: след 24ч без обработка
-            </div>
-            <button onClick={triggerSequence} style={{ width: '100%', padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
-              ▶ Стартирай ръчно
-            </button>
           </div>
 
           {/* Google Analytics */}
@@ -641,7 +679,6 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 10px' }}>🔗 Бързи линкове</h2>
             {[
               { label: 'Supabase Dashboard', url: 'https://app.supabase.com',             icon: '⬡', color: '#3ecf8e' },
-              { label: 'Resend Dashboard',   url: 'https://resend.com/emails',             icon: '✉', color: '#0ea5e9' },
               { label: 'Amazon SES Console', url: 'https://console.aws.amazon.com/ses/',   icon: '📨', color: '#ff9900' },
               { label: 'Vercel Dashboard',   url: 'https://vercel.com/dashboard',          icon: '▲', color: '#111' },
               { label: 'Главна страница',    url: '/',                                     icon: '◫', color: '#6b7280' },

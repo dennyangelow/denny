@@ -1,4 +1,12 @@
-// ФАЙЛ: app/api/leads/[id]/route.ts — v3
+// ФАЙЛ: app/api/leads/[id]/route.ts — v4
+//
+// ПОПРАВКИ v4 (спрямо v3) — Фаза 1, тагове от админ панела:
+//   ✅ 'tags' добавено в ALLOWED whitelist-а — преди LeadsTab.tsx можеше
+//      само да ФИЛТРИРА по тагове (вече съществуващи), но нямаше начин да
+//      добави/премахне таг на lead от UI-то — тук изобщо не се пропускаше.
+//   ✅ Валидация: tags трябва да е масив от низове, всеки се trim-ва и
+//      ограничава до 40 символа, дублирани се махат, максимум 20 тага на
+//      lead (защита срещу случаен огромен payload).
 //
 // ПОПРАВКИ v3 (спрямо v2):
 //   ✅ Всички systemeio_* полета и логика МАХНАТИ — Systeme.io е изцяло
@@ -53,7 +61,7 @@ export async function PATCH(
   }
 
   // Позволени полета за обновяване (whitelist за сигурност)
-  const ALLOWED = ['email', 'name', 'phone', 'subscribed'] as const
+  const ALLOWED = ['email', 'name', 'phone', 'subscribed', 'tags'] as const
 
   const updates: Record<string, unknown> = {}
   for (const key of ALLOWED) {
@@ -64,6 +72,20 @@ export async function PATCH(
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'Няма валидни полета за обновяване' }, { status: 400 })
+  }
+
+  // ✅ v4 — валидация на tags: масив от низове, почистен и ограничен.
+  if ('tags' in updates) {
+    const raw = updates.tags
+    if (!Array.isArray(raw)) {
+      return NextResponse.json({ error: 'tags трябва да е масив от низове' }, { status: 400 })
+    }
+    updates.tags = Array.from(new Set(
+      raw
+        .filter((t): t is string => typeof t === 'string')
+        .map(t => t.trim().slice(0, 40))
+        .filter(Boolean)
+    )).slice(0, 20)
   }
 
   const now = new Date().toISOString()

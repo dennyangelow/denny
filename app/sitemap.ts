@@ -112,7 +112,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // ✅ НОВО
     supabaseAdmin
       .from('blog_categories')
-      .select('slug, updated_at')
+      .select('slug')
       .eq('active', true),
   ])
 

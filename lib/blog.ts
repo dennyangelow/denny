@@ -1,4 +1,4 @@
-// lib/blog.ts — v5
+// lib/blog.ts — v6
 // ✅ ПРОМЯНА спрямо v4:
 //   1) НОВ 'handbook_embed' block type — контекстуално вграждане на
 //      безплатен наръчник по средата на статия (огледало на
@@ -14,6 +14,17 @@
 //      да стане "orphan category" (виж BlogHealthPanel.tsx). Добавена е
 //      сега, копирана 1:1 (slug/label/emoji/sort_order/intro_text) от
 //      blog_categories_rows export-а.
+//
+// ✅ v6 (спрямо v5) — САМО ДОБАВКИ, нито един съществуващ export не е
+//    променен по име/сигнатура (файлът се ползва от много места):
+//    • slugifyBg()/isValidSlug()/SLUG_RE — транслитерация БГ→латиница и
+//      валидация на slug (използва се от /api/blog-categories и BlogTab).
+//    • hasAffiliateEmbeds()/hasOwnProductEmbeds() — определят дали статията
+//      съдържа affiliate/собствени продукти (авто-флаг has_affiliate_links).
+//    • uniqueHeadingIds()/headingIdMap() — уникални id-та за заглавията.
+//      extractToc() вече ги ползва: за уникални заглавия id-тата са
+//      ИДЕНТИЧНИ с преди (няма счупени #котви), а при дублирани заглавия
+//      второто получава суфикс -2, -3...
 //
 // (останалата част от файла непроменена спрямо v4)
 
@@ -200,8 +211,73 @@ export function slugifyHeading(text: string): string {
 
 export interface TocEntry { id: string; text: string; level: 2 | 3 }
 
+// ✅ v6 — гарантира уникални id-та. Първото срещане на даден текст пази
+//    точно slugifyHeading(text) (както и преди); следващите с същия текст
+//    получават -2, -3... Празен резултат (заглавие само от символи) → 'razdel'.
+export function uniqueHeadingIds(texts: string[]): string[] {
+  const used = new Set<string>()
+  return texts.map(text => {
+    const base = slugifyHeading(text) || 'razdel'
+    let id = base
+    let n = 2
+    while (used.has(id)) id = `${base}-${n++}`
+    used.add(id)
+    return id
+  })
+}
+
 export function extractToc(content: BlogBlock[]): TocEntry[] {
-  return content
-    .filter((b): b is BlogHeadingBlock => b.type === 'heading')
-    .map(b => ({ id: slugifyHeading(b.text), text: b.text, level: b.level }))
+  const headings = (content || []).filter((b): b is BlogHeadingBlock => b.type === 'heading')
+  const ids = uniqueHeadingIds(headings.map(h => h.text))
+  return headings.map((b, i) => ({ id: ids[i], text: b.text, level: b.level }))
+}
+
+// ✅ v6 — блок → id, за рендера на h2/h3 в BlogPostBody (същия ред и същите
+//    id-та като в extractToc, така че TOC линковете винаги сочат към нещо).
+export function headingIdMap(content: BlogBlock[]): Map<BlogBlock, string> {
+  const headings = (content || []).filter((b): b is BlogHeadingBlock => b.type === 'heading')
+  const ids = uniqueHeadingIds(headings.map(h => h.text))
+  const map = new Map<BlogBlock, string>()
+  headings.forEach((h, i) => map.set(h, ids[i]))
+  return map
+}
+
+// ── ✅ v6: slug помощници ────────────────────────────────────────────────────
+// Опростената транслитерация БГ → латиница, с ц → c (както в вече
+// съществуващите slug-ове на сайта): Оранжерии → oranzherii,
+// Краставици → krastavici, Торене → torene.
+const BG_TO_LATIN: Record<string, string> = {
+  'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ж': 'zh', 'з': 'z',
+  'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p',
+  'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'c', 'ч': 'ch',
+  'ш': 'sh', 'щ': 'sht', 'ъ': 'a', 'ь': 'y', 'ю': 'yu', 'я': 'ya',
+}
+
+export function slugifyBg(text: string, maxLen = 60): string {
+  let out = ''
+  for (const ch of (text || '').toLowerCase().trim()) out += BG_TO_LATIN[ch] ?? ch
+  return out
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLen)
+    .replace(/-+$/, '')
+}
+
+// малки латински букви, цифри и единични тирета — без кирилица/интервали
+export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+export function isValidSlug(slug: string): boolean {
+  return typeof slug === 'string' && slug.length >= 2 && slug.length <= 80 && SLUG_RE.test(slug)
+}
+
+// ── ✅ v6: продуктови embed-и в съдържанието ─────────────────────────────────
+export function hasAffiliateEmbeds(content: BlogBlock[] | null | undefined): boolean {
+  return Array.isArray(content) &&
+    content.some(b => b?.type === 'product_embed' && (b as BlogProductEmbedBlock).product_type === 'affiliate')
+}
+
+export function hasOwnProductEmbeds(content: BlogBlock[] | null | undefined): boolean {
+  return Array.isArray(content) &&
+    content.some(b => b?.type === 'product_embed' && (b as BlogProductEmbedBlock).product_type === 'own')
 }

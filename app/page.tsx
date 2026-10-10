@@ -234,7 +234,7 @@ interface SpecialSection {
 // ── Тип за резултата от GROUP BY заявката за clicks ──────────────────────────
 interface ClickCountRow {
   product_slug: string
-  count: number
+  click_count:  number   // ✅ RPC-то get_top_affiliate_clicks(limit_count, days_back) връща "click_count"
 }
 
 // ✅ Ново: минималният сет полета, нужен за 3-те карти в homepage блог секцията
@@ -339,11 +339,8 @@ async function getPageData() {
       { data: specialSectionsRows, error: e9 },
       { data: faqCategoryRows,     error: e10 },
       // ✅ КРИТИЧНО: GROUP BY в SQL — не зареждаме 5000 реда в паметта.
-      // Supabase RPC или raw query — тук ползваме .rpc ако имаш функция,
-      // иначе select с group (не се поддържа директно от PostgREST — затова
-      // използваме rpc 'get_top_affiliate_clicks' или ограничено select).
-      // Решение без rpc: select само slug + count с head:false и group чрез
-      // PostgREST `group` параметър (Supabase го поддържа от v1.8+).
+      // RPC get_top_affiliate_clicks(limit_count, days_back) — виж
+      // sql/get_top_affiliate_clicks.sql. Връща { product_slug, click_count }.
       { data: clicksRows,          error: e12 },
       // ✅ Маркетинг оферти (bundle витрини, cart upsell/cross-sell/post-purchase) —
       // SSR-нати ТУК, заедно с останалите заявки, вместо клиентски fetch('/api/marketing')
@@ -372,7 +369,7 @@ async function getPageData() {
       db.from('naruchnici').select('*').eq('active', true).order('sort_order'),
       db.from('special_sections').select('*').eq('active', true).order('sort_order'),
       db.from('faq_categories').select('*').order('sort_order'),
-      db.rpc('get_top_affiliate_clicks', { limit_count: 20 }).select('*'),
+      db.rpc('get_top_affiliate_clicks', { limit_count: 999, days_back: 90 }).select('*'),   // ✅ и двата параметъра — идентично с /produkti
       db.from('marketing_settings').select('config').eq('id', 1).maybeSingle(),
       db.from('blog_posts')
         .select('id,slug,title,excerpt,cover_image_url,cover_image_alt,category,published_at,reading_time_minutes')
@@ -557,7 +554,7 @@ async function getPageData() {
     if (Array.isArray(clicksRows)) {
       ;(clicksRows as ClickCountRow[]).forEach(row => {
         if (row.product_slug) {
-          clickCountMap[row.product_slug] = Number(row.count) || 0
+          clickCountMap[row.product_slug] = Number(row.click_count) || 0
         }
       })
     }
@@ -1753,28 +1750,3 @@ export default async function HomePage() {
     </>
   )
 }
-
-// ─── ВАЖНО: SQL функция за affiliate clicks ────────────────────────────────────
-// Изпълни това в Supabase SQL Editor ВЕДНЪЖ:
-//
-// CREATE OR REPLACE FUNCTION get_top_affiliate_clicks(limit_count integer DEFAULT 20)
-// RETURNS TABLE(product_slug text, count bigint)
-// LANGUAGE sql STABLE
-// AS $$
-//   SELECT product_slug, COUNT(*) AS count
-//   FROM affiliate_clicks
-//   WHERE product_slug IS NOT NULL
-//   GROUP BY product_slug
-//   ORDER BY count DESC
-//   LIMIT limit_count;
-// $$;
-//
-// След това page.tsx ще прави 1 лека заявка вместо да зарежда 5000 реда.
-// Ако не искаш да създаваш функция веднага, виж FALLBACK по-долу:
-//
-// FALLBACK (без rpc):
-// Замени реда с .rpc('get_top_affiliate_clicks'...) с:
-//   db.from('affiliate_clicks')
-//     .select('product_slug')
-//     .limit(500),          ← намали лимита от 5000 на 500
-// И логиката по-горе продължава да работи — само по-малко точна при много данни.
