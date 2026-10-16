@@ -1706,6 +1706,8 @@ function CartDrawer({
           courier: 'econt', econt_office_code: econtOfficeCode,
           payment_method: 'cod',
           items: orderItems.map(({ from_offer, ...rest }) => rest),
+          // ✅ UTM от първата страница на сесията (запазва ги PageViewTracker в sessionStorage 'da_utm')
+          ...(() => { try { const u = JSON.parse(sessionStorage.getItem('da_utm') || '{}'); return { utm_source: u.utm_source || undefined, utm_campaign: u.utm_campaign || undefined } } catch { return {} } })(),
           subtotal: +subtotal.toFixed(2), shipping: +shipping.toFixed(2), total: +total.toFixed(2),
           invoice: invoice.type !== 'none' ? (({ _savedType, ...inv }) => inv)(invoice) : null,
         }),

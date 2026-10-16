@@ -17,6 +17,11 @@ function getVisitorId(): string | undefined {
   }
 }
 
+// ✅ v2: праща internal=true, ако устройството е маркирано с ?da_internal=1 (виж PageViewTracker.tsx)
+function isInternalDevice(): boolean {
+  try { return localStorage.getItem('da_internal') === '1' } catch { return false }
+}
+
 export async function trackProductEvent(
   eventType: ProductEventType,
   productSlug: string,
@@ -30,6 +35,7 @@ export async function trackProductEvent(
         event_type:   eventType,
         product_slug: productSlug,
         visitor_id:   getVisitorId(),
+        internal:     isInternalDevice(),
       }),
     })
   } catch {

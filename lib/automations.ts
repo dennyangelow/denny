@@ -1,72 +1,58 @@
-// lib/automations.ts — v7
+// lib/automations.ts — v10
 //
-// ПРОМЕНИ спрямо v6:
-//   ✅ sendEmail() сега връща { messageId } (lib/mailer.ts v3 / lib/ses.ts
-//      v4) — пазим го в email_logs.ses_message_id. Без това,
-//      app/api/webhooks/ses/route.ts не може да различи кое ТОЧНО писмо е
-//      било отворено/кликнато, когато lead-ът е получил няколко писма от
-//      серията — досега винаги се ъпдейтваше "последният пратен" ред,
-//      независимо кое реално е отворено.
-//      ⚠️ Изисква SQL: ALTER TABLE email_logs ADD COLUMN ses_message_id text;
-//      (виж миграцията, дадена отделно в чата). Без тази колона insert-ът
-//      просто игнорира полето (Supabase не гърми на непозната колона в
-//      .insert() само ако схемата вече я има — та трябва да пуснеш SQL-а
-//      ПРЕДИ да качиш този файл).
+// ПОПРАВКИ v10 (спрямо v9) — логика на "Изоставена поръчка":
+//   ✅ Тригерът order_placed вече хваща поръчки със статус 'shipped'
+//      (изпратена), чийто shipped_at е по-стар от 24ч и които още не са
+//      'delivered'. Поръчки в 'new'/'confirmed' НЕ задействат нищо — при
+//      ръчно изпращане не се знае кога ще тръгнат, а клиентът още няма
+//      пратка за получаване. (Вътрешното име order_placed е запазено, за да
+//      не трябва SQL миграция; в админа е преименувано.)
+//   ✅ С 2 стъпки (стъпка 1: 0 дни, стъпка 2: +1 ден) = напомняне на 24-ия и
+//      на 48-ия час след изпращането. Guard-ът преди всяко писмо проверява
+//      на живо, че поръчката още е 'shipped' — щом е маркирана 'delivered'
+//      (или отказана), серията спира.
+//   ✅ Не се пипат пратки, изпратени преди повече от 7 дни (защита, ако
+//      забравиш да маркираш 'delivered' — да не тръгнат закъснели писма).
+//   ✅ enrollPoll(): enrollment-ът е уникален по (workflow, lead), затова
+//      досега един клиент можеше да получи автоматизацията само веднъж
+//      завинаги (втора поръчка/количка — нищо). Сега, ако записът е НОВ
+//      (друг order_id/cart_id) и предишният enrollment е приключил, той се
+//      рестартира с новия контекст. Същият запис никога не се праща два пъти.
+//   ✅ В context за поръчката влизат tracking_number и courier
+//      ({{tracking_number}}, {{courier}} в темплейтите).
 //
-// ПРОМЕНИ спрямо v5 — Мега план: пълна база-само темплейти + часове + условия:
-//   ✅ ПРЕМАХНАТ TEMPLATE_REGISTRY fallback изцяло. Писмата ВИНАГИ идват от
-//      email_templates таблицата (библиотека, редактируема от админ панела).
-//      Няма вече "код по подразбиране" — 6-те стари темплейта се местят в
-//      базата еднократно чрез SQL insert (виж migration-а, даден в чата).
-//      Липсващ ред в email_templates за даден template_key = грешка,
-//      записана през recordFailure() (стъпката не може да прати нищо).
-//   ✅ НОВО: delay_hours — забавянето на стъпка вече е delay_days*24+delay_hours
-//      часа, не само цели дни. Позволява "3 часа след" без да чакаш цял ден.
-//   ✅ НОВО: conditions (jsonb на workflow_steps) — условия преди изпращане:
-//      require_tag/exclude_tag (по lead.tags), min_days_since_last_order/
-//      has_bought_product/total_spent_gte (по lead_order_stats изгледа —
-//      виж SQL migration-а), require_opened_previous_step/
-//      require_clicked_previous_step (по email_logs), и
-//      skip_if_purchased_since_enrollment (излиза от ЦЯЛАТА автоматизация,
-//      не само тази стъпка — целта е постигната, клиентът купи междувременно).
-//      Условие, което не е изпълнено за "require_*" → стъпката се ПРЕСКАЧА
-//      (напредва current_step без изпращане), не праща грешка.
+// ПОПРАВКИ v9 (спрямо v8) — видимост "работи ли cron-ът?":
+//   ✅ pollTriggers() вече връща колко кандидати е намерил (поръчки >24ч в
+//      'new', колички >2ч) и колко НОВИ enrollment-а е създал.
+//   ✅ processDueEnrollments() записва резултата на всяко пускане в
+//      settings['automations_last_tick'] (JSON). Админ панелът (Автоматизации)
+//      го показва: "последно пускане преди X мин, кандидати/пратени" —
+//      веднага се вижда дали hourly cron-ът изобщо тика и защо дадена
+//      автоматизация не праща (напр. няма нито една поръчка в 'new').
 //
-// ПРОМЕНИ спрямо v3:
-//   ✅ abandoned_carts.reminded_at вече СЕ пише след успешен cart-reminder
-//      имейл (виж блока точно след email_logs insert-а по-долу) — преди
-//      това не ставаше никъде, значи email-stats "Получили reminder"
-//      винаги показваше 0 и pollTriggers() намираше същата количка отново
-//      и отново на всеки tick (безвредно заради enrollLead() dedup-а, но
-//      грешна статистика).
+// ПРОМЕНИ спрямо v7:
+//   ✅ recordFailure() вече прави exponential backoff вместо фиксирано
+//      ~15 мин между опитите (което идваше случайно от LEASE_MINUTES,
+//      не беше замислено като retry интервал): опит 1 → +15 мин,
+//      опит 2 → +60 мин, опит 3 (последен) → дава отказ.
+//      Логиката зад това: ако SES временно трепне (напр. rate limit за
+//      секунда), 15 мин стигат. Ако проблемът е по-сериозен (невалиден
+//      темплейт, грешка в данните), по-дългата пауза намалява шанса
+//      три опита да се изгърмят един след друг напразно.
+//   ✅ Когато enrollment-ът СЕ ОТКАЗВА (3-ти неуспешен опит), last_error
+//      вече започва с "[DEAD-LETTER] " — лесно разпознаваем маркер.
+//      Email Stats таб-ът вече показва тези грешки (sampleErrors), но
+//      досега бяха смесени с обичайни "излизания" (lead отписан, купил
+//      е междувременно) — сега се различават на пръв поглед, а и можеш
+//      да филтрираш в Supabase с `last_error LIKE '[DEAD-LETTER]%'`.
+//   ✅ НОВО: app/api/admin/automations/retry-failed/route.ts (отделен
+//      файл) — POST { enrollment_id } връща dead-letter enrollment
+//      обратно в 'active' (attempts=0, next_run_at=сега), за ръчен
+//      повторен опит от админ панела, след като си оправил проблема
+//      (напр. добавил липсващ темплейт).
 //
-// ПРОМЕНИ спрямо v1 (открити при одит на реалните данни):
-//   ✅ Engine-ът вече НЕ праща на отписани (leads.subscribed=false) — v1 изобщо
-//      не проверяваше, значи след unsubscribe/bounce/complaint followup-ите
-//      продължаваха (вреди на SES репутацията, нарушава отписването).
-//   ✅ Непознат template_key вече се брои като неуспешен опит (преди се
-//      опитваше вечно, всеки час — остатък от бъг №2).
-//   ✅ Lease (claim) преди изпращане — синхронният първи опит и hourly tick-ът,
-//      или два застъпили се tick-а, вече не могат да пратят една стъпка два пъти.
-//   ✅ delay_days на СТЪПКА 1 вече се зачита (преди се игнорираше и се пращаше веднага).
-//   ✅ leads.last_email_sent_at се обновява САМО след реално изпращане (преди
-//      се слагаше безусловно при upsert → 2561/2561 лийда "получили имейл").
-//   ✅ По-малък batch на tick (30) — Vercel функциите имат лимит за време.
-//
-// ПРОМЕНИ спрямо v2 (обединяване на двата cron-а в един):
-//   ✅ НОВО: "poll" тригери — cart_abandoned/order_placed нямат дискретно
-//      "случи се" събитие (за разлика от naruchnik_download), а условие,
-//      което узрява с времето ("количка, недокосната >2ч"). pollTriggers()
-//      сканира orders/abandoned_carts В НАЧАЛОТО на всеки tick, намира
-//      новоквалифициралите се, upsert-ва lead по email (findOrCreateLead),
-//      после нормалният enrollLead()/runStep() поема оттам нататък.
-//      Резултат: ЕДИН cron (/api/automations/tick) покрива всичко.
-//      app/api/leads/sequence/route.ts вече не е нужен — виж бележка накрая.
-//   ✅ Guard преди изпращане: за order_placed/cart_abandoned проверяваме
-//      ЖИВО дали поръчката/количката още е "недовършена" точно преди да
-//      пратим — не само в момента на enrollment-а. Ако междувременно се е
-//      потвърдила/конвертирала, enrollment излиза, вместо да продължи да
-//      праща "довърши поръчката" на вече платил клиент.
+// Всичко останало е непроменено спрямо v7 — пълната история на
+// промените v1→v7 е описана там.
 
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendEmail } from '@/lib/mailer'
@@ -84,7 +70,7 @@ interface EnrollmentRow {
   current_step: number
   attempts: number
   // ✅ context носи каквото template-ът/guard-ът за тази стъпка се нуждае:
-  //    { naruchnik_slug } за изтегляне, { order_id } за order_placed,
+  //    { naruchnik_slug } за изтегляне, { order_id, tracking_number, courier } за order_placed,
   //    { cart_id, items, total } за cart_abandoned.
   context: Record<string, any>
   created_at: string
@@ -104,9 +90,20 @@ async function getLeadOrderStats(email: string): Promise<LeadOrderStats | null> 
   return data as LeadOrderStats | null
 }
 
+interface PollStats { staleOrders: number; staleCarts: number; newEnrollments: number }
+
 const MAX_SEND_ATTEMPTS = 3
 const LEASE_MINUTES     = 15   // колко "заключваме" enrollment-а, докато го обработваме
 const TICK_BATCH        = 30
+
+// ✅ v8 — exponential backoff за retry между неуспешни опити за изпращане.
+// Индекс = attempts-1 (1-ви неуспешен опит → BACKOFF_MINUTES[0], и т.н.).
+// Последният елемент не се ползва реално (при attempts >= MAX_SEND_ATTEMPTS
+// вече се отказваме), но е там за безопасност ако MAX_SEND_ATTEMPTS порасне.
+const BACKOFF_MINUTES = [15, 60, 240]
+
+// ✅ v10 — пратки, изпратени преди повече от толкова дни, не се пипат от тригера.
+const SHIPPED_MAX_AGE_DAYS = 7
 
 /** Записва lead-а във всички АКТИВНИ workflows от даден trigger_type (само НОВИ enrollments се връщат). */
 export async function enrollLead(
@@ -145,6 +142,55 @@ export async function enrollLead(
 }
 
 /**
+ * ✅ v10 — enrollLead() за poll тригерите (поръчка/количка).
+ * enrollLead() пропуска вече съществуващ (workflow_id, lead_id), т.е. клиент,
+ * минал веднъж през автоматизацията, не влизаше в нея повече. Тук:
+ *   • няма enrollment → нов (през enrollLead);
+ *   • има за СЪЩИЯ запис (order_id/cart_id) → пропуска (вече е обработен);
+ *   • има за друг запис, но още върви → пропуска (изчакваме да приключи);
+ *   • има за друг запис и е приключил → рестартира се с новия контекст.
+ * Връща броя нови/рестартирани enrollments.
+ */
+async function enrollPoll(
+  triggerType: string,
+  leadId: string,
+  context: Record<string, any>,
+  keyField: 'order_id' | 'cart_id'
+): Promise<number> {
+  const fresh = new Set(await enrollLead(triggerType, leadId, context))
+  let count = fresh.size
+
+  const { data: workflows } = await supabaseAdmin
+    .from('workflows').select('id').eq('trigger_type', triggerType).eq('active', true)
+
+  for (const wf of workflows || []) {
+    if (fresh.has(wf.id)) continue
+    const { data: existing } = await supabaseAdmin
+      .from('workflow_enrollments').select('id, status, context')
+      .eq('workflow_id', wf.id).eq('lead_id', leadId).maybeSingle()
+    if (!existing) continue
+    if (existing.context?.[keyField] === context[keyField]) continue
+    if (existing.status === 'active') continue
+
+    const { data: first } = await supabaseAdmin
+      .from('workflow_steps').select('delay_days, delay_hours')
+      .eq('workflow_id', wf.id).eq('step_number', 1).eq('active', true).maybeSingle()
+
+    const { error } = await supabaseAdmin.from('workflow_enrollments').update({
+      current_step: 0,
+      attempts:     0,
+      last_error:   null,
+      status:       'active',
+      context,
+      next_run_at:  new Date(Date.now() + delayMs(first?.delay_days, first?.delay_hours)).toISOString(),
+      updated_at:   new Date().toISOString(),
+    }).eq('id', existing.id)
+    if (!error) count++
+  }
+  return count
+}
+
+/**
  * Poll тригерите (cart_abandoned/order_placed) нямат "лийд, който попълни
  * форма" — имат клиентски имейл на поръчка/количка. Намираме съществуващ
  * lead по email, или създаваме нов (source: 'order'/'cart') — така цялата
@@ -171,25 +217,32 @@ async function findOrCreateLead(email: string, name: string | null, source: stri
  * enrollLead()/runStep() машинария поема нататък. Идемпотентно е по
  * дизайн: enrollLead() пропуска вече съществуващ (workflow_id, lead_id).
  */
-async function pollTriggers(): Promise<void> {
-  // ── Поръчки, заседнали в 'new' >24ч ──────────────────────────────────
-  const orderCutoff = new Date(Date.now() - 24 * 3600000).toISOString()
+async function pollTriggers(): Promise<PollStats> {
+  const stats: PollStats = { staleOrders: 0, staleCarts: 0, newEnrollments: 0 }
+  // ── Изпратени поръчки, които още не са доставени >24ч ──────────────
+  //    (ръчен процес: 'new'/'confirmed' не задействат нищо — виж v10)
+  const shippedCutoff = new Date(Date.now() - 24 * 3600000).toISOString()
+  const shippedLimit  = new Date(Date.now() - SHIPPED_MAX_AGE_DAYS * 24 * 3600000).toISOString()
   const { data: staleOrders } = await supabaseAdmin
     .from('orders')
-    .select('id, customer_email, customer_name, order_number, total, order_items(product_name, quantity)')
-    .eq('status', 'new')
-    .lt('created_at', orderCutoff)
+    .select('id, customer_email, customer_name, order_number, total, tracking_number, courier, order_items(product_name, quantity)')
+    .eq('status', 'shipped')
+    .not('shipped_at', 'is', null)
+    .lt('shipped_at', shippedCutoff)
+    .gt('shipped_at', shippedLimit)
     .not('customer_email', 'is', null)
     .limit(100)
 
+  stats.staleOrders = (staleOrders || []).length
   for (const o of staleOrders || []) {
     if (!o.customer_email) continue
     const leadId = await findOrCreateLead(o.customer_email, o.customer_name || null, 'order')
     if (!leadId) continue
-    await enrollLead('order_placed', leadId, {
+    stats.newEnrollments += await enrollPoll('order_placed', leadId, {
       order_id: o.id, order_number: o.order_number, total: o.total,
+      tracking_number: o.tracking_number || '', courier: o.courier || '',
       items: (o as any).order_items || [],
-    })
+    }, 'order_id')
   }
 
   // ── Колички, недокоснати >2ч, все още неконвертирани, без вече пратен reminder ──
@@ -203,12 +256,14 @@ async function pollTriggers(): Promise<void> {
     .not('email', 'is', null)
     .limit(100)
 
+  stats.staleCarts = (staleCarts || []).length
   for (const c of staleCarts || []) {
     if (!c.email) continue
     const leadId = await findOrCreateLead(c.email, c.name || null, 'cart')
     if (!leadId) continue
-    await enrollLead('cart_abandoned', leadId, { cart_id: c.id, items: c.items, total: c.total })
+    stats.newEnrollments += await enrollPoll('cart_abandoned', leadId, { cart_id: c.id, items: c.items, total: c.total }, 'cart_id')
   }
+  return stats
 }
 
 /** Атомарно "заключване": само един изпълнител може да вземе дължимия enrollment. */
@@ -226,17 +281,27 @@ async function claim(enr: EnrollmentRow): Promise<boolean> {
   return !!data && data.length > 0
 }
 
+// ✅ v8 — exponential backoff + ясен [DEAD-LETTER] маркер при окончателен отказ.
 async function recordFailure(enr: EnrollmentRow, message: string): Promise<string> {
   const attempts = (enr.attempts || 0) + 1
   const giveUp   = attempts >= MAX_SEND_ATTEMPTS
-  await supabaseAdmin.from('workflow_enrollments').update({
+  const backoffMinutes = BACKOFF_MINUTES[Math.min(attempts - 1, BACKOFF_MINUTES.length - 1)]
+
+  const updates: Record<string, any> = {
     attempts,
-    last_error: message.slice(0, 500),
+    last_error: (giveUp ? '[DEAD-LETTER] ' : '') + message.slice(0, 480),
     status:     giveUp ? 'exited' : 'active',
     updated_at: new Date().toISOString(),
-  }).eq('id', enr.id)
-  // next_run_at остава = края на lease-а → следващ опит след ~15 мин, не веднага
-  return `опит ${attempts}/${MAX_SEND_ATTEMPTS}${giveUp ? ', отказано' : ''}: ${message}`
+  }
+  // При отказ next_run_at е без значение (status вече не е 'active' и tick-ът
+  // го подминава) — пипаме го само докато все още се очаква следващ опит.
+  if (!giveUp) updates.next_run_at = new Date(Date.now() + backoffMinutes * 60000).toISOString()
+
+  await supabaseAdmin.from('workflow_enrollments').update(updates).eq('id', enr.id)
+
+  return giveUp
+    ? `опит ${attempts}/${MAX_SEND_ATTEMPTS}, отказано (dead-letter): ${message}`
+    : `опит ${attempts}/${MAX_SEND_ATTEMPTS}, следващ опит след ${backoffMinutes} мин: ${message}`
 }
 
 interface StepConditions {
@@ -350,17 +415,17 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
     return { sent: false }
   }
 
-  // ✅ НОВО: guard за poll тригерите — проверяваме ЖИВО дали условието още
-  //    важи, точно преди да пратим. Enrollment-ът може да е стар с часове;
-  //    ако поръчката вече е потвърдена / количката вече е конвертирана
+  // ✅ guard за poll тригерите — проверяваме ЖИВО дали условието още важи,
+  //    точно преди да пратим. Enrollment-ът може да е стар с часове; ако
+  //    поръчката вече е потвърдена / количката вече е конвертирана
   //    междувременно, спираме — не пращаме "довърши поръчката" на човек,
   //    който вече е платил.
   if (enr.context?.order_id) {
     const { data: order } = await supabaseAdmin
       .from('orders').select('status').eq('id', enr.context.order_id).maybeSingle()
-    if (!order || order.status !== 'new') {
+    if (!order || order.status !== 'shipped') {
       await supabaseAdmin.from('workflow_enrollments')
-        .update({ status: 'exited', last_error: 'поръчката вече не е "new"', updated_at: now }).eq('id', enr.id)
+        .update({ status: 'exited', last_error: 'поръчката вече не е "shipped" (доставена/отказана)', updated_at: now }).eq('id', enr.id)
       return { sent: false }
     }
   }
@@ -374,8 +439,8 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
     }
   }
 
-  // ✅ НОВО (v6) — условия на стъпката (conditions jsonb). 'exit' спира
-  // ЦЯЛАТА автоматизация, 'skip' напредва без да праща тази стъпка.
+  // ✅ условия на стъпката (conditions jsonb). 'exit' спира ЦЯЛАТА
+  // автоматизация, 'skip' напредва без да праща тази стъпка.
   const verdict = await checkConditions(step, enr)
   if (verdict.action === 'exit') {
     await supabaseAdmin.from('workflow_enrollments')
@@ -397,9 +462,8 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
     return { sent: false }
   }
 
-  // ✅ v6 — ВИНАГИ от базата (email_templates), никакъв код fallback повече.
-  // Библиотеката е единственият източник на съдържание — виж SQL migration-а
-  // за еднократния пренос на старите 6 темплейта.
+  // ✅ ВИНАГИ от базата (email_templates), никакъв код fallback повече.
+  // Библиотеката е единственият източник на съдържание.
   const { data: tpl } = await supabaseAdmin
     .from('email_templates')
     .select('subject, body_html')
@@ -419,8 +483,8 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
     context: enr.context,
   })
 
-  // ✅ v7 — messageId се пази в email_logs.ses_message_id по-долу, за да
-  // може webhook-ът (Open/Click) да мачва ТОЧНО това писмо, не "последното".
+  // ✅ messageId се пази в email_logs.ses_message_id по-долу, за да може
+  // webhook-ът (Open/Click) да мачва ТОЧНО това писмо, не "последното".
   let messageId: string | undefined
   try {
     const result = await sendEmail({ to: email, subject, html })
@@ -438,13 +502,8 @@ async function runStep(enr: EnrollmentRow): Promise<{ sent: boolean; error?: str
   })
   await supabaseAdmin.from('leads').update({ last_email_sent_at: now }).eq('id', enr.lead_id)
 
-  // ✅ ФИКС: abandoned_carts.reminded_at никога не се пишеше оттук — значи
-  //    email-stats "Получили reminder" статистиката винаги показваше 0, а
-  //    pollTriggers() намираше същата количка отново и отново на всеки
-  //    tick (безвредно благодарение на enrollLead() dedup-а, но излишно).
-  //    /api/carts/track POST нарочно НУЛИРА reminded_at при всяко
-  //    редактиране на количката (нов шанс за reminder) — тук е мястото,
-  //    където то реално се маркира "пратено", симетрично на това.
+  // abandoned_carts.reminded_at се маркира "пратено" тук, симетрично на
+  // /api/carts/track, което нулира полето при всяко редактиране на количката.
   if (enr.context?.cart_id) {
     await supabaseAdmin.from('abandoned_carts')
       .update({ reminded_at: now }).eq('id', enr.context.cart_id)
@@ -490,14 +549,15 @@ export async function enrollAndRunFirstStep(
 /** Hourly tick — обработва дължимите enrollments (всички тригер типове). */
 export async function processDueEnrollments(
   limit = TICK_BATCH
-): Promise<{ processed: number; sent: number; errors: string[] }> {
+): Promise<{ processed: number; sent: number; errors: string[]; poll: PollStats }> {
   const errors: string[] = []
   let sent = 0
+  let poll: PollStats = { staleOrders: 0, staleCarts: 0, newEnrollments: 0 }
 
-  // ✅ НОВО: едно сканиране на orders/abandoned_carts преди обичайната
-  //    опашка от дължими стъпки — вижте pollTriggers() по-горе.
+  // ✅ едно сканиране на orders/abandoned_carts преди обичайната опашка от
+  //    дължими стъпки — вижте pollTriggers() по-горе.
   try {
-    await pollTriggers()
+    poll = await pollTriggers()
   } catch (e: any) {
     errors.push(`pollTriggers: ${e.message}`)
   }
@@ -520,5 +580,22 @@ export async function processDueEnrollments(
       errors.push(`enrollment ${enr.id}: ${e.message}`)
     }
   }
-  return { processed: (due || []).length, sent, errors }
+
+  // ✅ v9 — следа за "cron-ът тика ли?" (best-effort, никога не гърми tick-а)
+  try {
+    await supabaseAdmin.from('settings').upsert(
+      {
+        key: 'automations_last_tick',
+        value: JSON.stringify({
+          at: new Date().toISOString(), processed: (due || []).length, sent,
+          errors: errors.length, firstError: errors[0] || null, poll,
+        }),
+      },
+      { onConflict: 'key' }
+    )
+  } catch (e: any) {
+    console.error('[automations] last_tick write:', e?.message)
+  }
+
+  return { processed: (due || []).length, sent, errors, poll }
 }

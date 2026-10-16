@@ -1,9 +1,12 @@
-// app/api/orders/[id]/route.ts — v8
-// ✅ v7 → v8: tracking имейла (при "изпратена") вече използва ЕДИНИЯ подател
-//    от Настройки вместо твърдо закодираното 'Denny Angelow <noreply@...>'
-//    — виж app/api/orders/route.ts v9 за същия фикс на поръчковите писма.
-//    `from` вече не се подава → lib/mailer.ts сам хваща buildFromHeader()
-//    от settings таблицата (email_from_name/email_from_addr).
+// app/api/orders/[id]/route.ts — v9
+// ✅ v8 → v9: audit log за tracking писмото (при "изпратена"), в същата
+//    transactional_email_logs таблица като потвърждението/админ известието
+//    (app/api/orders/route.ts v11). Изисква SQL миграцията от чата.
+//
+// v7 → v8 (запазено непроменено): tracking имейла вече използва ЕДИНИЯ
+//    подател от Настройки вместо твърдо закодираното
+//    'Denny Angelow <noreply@...>' — `from` вече не се подава → lib/mailer.ts
+//    сам хваща buildFromHeader() от settings таблицата.
 //
 // v7 (запазено непроменено):
 //   1. Данните в tracking имейла (име на клиент, номер на поръчка, номер за
@@ -30,6 +33,33 @@ const esc = (v: unknown) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+
+// ✅ v9 — същата помощна функция като в orders/route.ts v11 (нарочно
+// дублирана тук, а не изнесена в общ файл — двата route.ts файла си
+// остават самостоятелни и лесни за четене поотделно; таблицата е една и
+// съща). Грешка при логването никога не чупи заявката.
+async function logTransactionalEmail(params: {
+  order_id: string
+  to_email: string
+  kind: 'order_confirmation' | 'admin_notify' | 'tracking'
+  subject: string
+  success: boolean
+  ses_message_id?: string | null
+  error?: string | null
+}) {
+  await supabaseAdmin.from('transactional_email_logs').insert({
+    order_id:       params.order_id,
+    to_email:       params.to_email,
+    kind:           params.kind,
+    subject:        params.subject,
+    success:        params.success,
+    ses_message_id: params.ses_message_id || null,
+    error:          params.error ? String(params.error).slice(0, 500) : null,
+    sent_at:        new Date().toISOString(),
+  }).then(({ error }) => {
+    if (error) console.error('[transactional_email_logs] insert error:', error.message)
+  })
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -132,12 +162,11 @@ export async function PATCH(
     if (error) throw error
 
     // Tracking имейл при shipped (през Amazon SES, подателят от Настройки)
+    // ✅ v9 — логваме опита в transactional_email_logs, успех или грешка.
     if (body.status === 'shipped' && data.customer_email && body.tracking_number) {
       const courierLabel = data.courier === 'speedy' ? 'Спиди' : 'Еконт'
-      await sendEmail({
-        to:   data.customer_email,
-        subject: `🚚 Поръчка ${String(data.order_number ?? '').replace(/[\r\n]/g, ' ')} е изпратена`,
-        html: `
+      const trackingSubject = `🚚 Поръчка ${String(data.order_number ?? '').replace(/[\r\n]/g, ' ')} е изпратена`
+      const trackingHtml = `
           <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">
             <div style="background:linear-gradient(135deg,#0f1f16,#2d6a4f);padding:28px;border-radius:12px 12px 0 0;text-align:center">
               <p style="font-size:32px;margin:0">🚚</p>
@@ -153,8 +182,20 @@ export async function PATCH(
               <p style="color:#6b7280;font-size:13px">Доставката е 1-2 работни дни за цяла България.</p>
             </div>
           </div>
-        `,
-      }).catch(e => console.error('Tracking email error:', e?.message || e))
+        `
+      try {
+        const result = await sendEmail({ to: data.customer_email, subject: trackingSubject, html: trackingHtml })
+        await logTransactionalEmail({
+          order_id: orderId, to_email: data.customer_email, kind: 'tracking',
+          subject: trackingSubject, success: true, ses_message_id: result.messageId,
+        })
+      } catch (e: any) {
+        console.error('Tracking email error:', e?.message || e)
+        await logTransactionalEmail({
+          order_id: orderId, to_email: data.customer_email, kind: 'tracking',
+          subject: trackingSubject, success: false, error: e?.message || e,
+        })
+      }
     }
 
     return NextResponse.json({ success: true, order: data })

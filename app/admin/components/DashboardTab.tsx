@@ -197,7 +197,7 @@ function getVisitsForRange(pv: PageViewStats|null, range: Range): number {
   if (range===7)   return pv.last7   ?? 0
   if (range===30)  return pv.last30  ?? 0
   if (range===90)  return pv.last90  ?? pv.total ?? 0
-  if (range===365) return pv.total   ?? 0
+  if (range===365) return pv.last365 ?? pv.total ?? 0   // ✅ беше pv.total (всичко), не последните 365 дни
   return pv.total ?? pv.last30 ?? 0
 }
 
@@ -207,6 +207,7 @@ function getUniqueForRange(pv: PageViewStats|null, range: Range): number {
   if (range===7)   return pv.last7Unique  ?? 0
   if (range===30)  return pv.last30Unique ?? 0
   if (range===90)  return pv.last90Unique ?? pv.unique ?? 0
+  if (range===365) return pv.last365Unique ?? pv.unique ?? 0   // ✅ ново
   return pv.unique ?? pv.last30Unique ?? 0
 }
 
@@ -216,6 +217,8 @@ function getRefsForRange(pv: PageViewStats|null, range: Range): {name:string;cou
   if (range===1)  return pv.topReferrersToday ?? pv.topReferrers ?? []
   if (range===7)  return pv.topReferrers7     ?? pv.topReferrers ?? []
   if (range===30) return pv.topReferrers30    ?? pv.topReferrers ?? []
+  if (range===90) return pv.topReferrers90    ?? pv.topReferrers ?? []   // ✅ ново: преди 90/365 падаха в "всичко"
+  if (range===365) return pv.topReferrers365  ?? pv.topReferrers ?? []
   return pv.topReferrers ?? []
 }
 
@@ -259,10 +262,14 @@ export function DashboardTab({
   const refsForRange   = useMemo(() => getRefsForRange(pageViews, range),      [pageViews, range])
   const affResult      = useMemo(() => getAffClicksForRange(analytics, range), [analytics, range])
 
+  // ✅ ФИКС: конверсията = поръчки ÷ УНИКАЛНИ посетители (както в AnalyticsTab и useAdminData).
+  // Преди делеше на общи прегледи (≈3× повече) → реално 3,6% се показваше като ~1,1%.
+  // Отказаните поръчки не са конверсия.
   const conversionRate = useMemo(() => {
-    if (!visitsForRange || !filteredOrders.length) return 0
-    return Math.min(99, (filteredOrders.length/visitsForRange)*100)
-  }, [visitsForRange, filteredOrders])
+    const buyers = filteredOrders.filter(o => o.status !== 'cancelled').length
+    if (!uniqueForRange || !buyers) return 0
+    return Math.min(99, (buyers/uniqueForRange)*100)
+  }, [uniqueForRange, filteredOrders])
 
   const newLeadsCount = useMemo(() => {
     if (!leads?.length) return 0
@@ -272,7 +279,7 @@ export function DashboardTab({
       const todayBg = toBulgarianDateStr(now)
       return leads.filter(l => l.created_at ? toBulgarianDateStr(new Date(l.created_at))===todayBg : false).length
     }
-    const cutoffBg = bgDateNDaysAgo(now, range as number)
+    const cutoffBg = bgDateNDaysAgo(now, (range as number) - 1)   // ✅ N дни включително днес
     return leads.filter(l => l.created_at ? toBulgarianDateStr(new Date(l.created_at))>=cutoffBg : false).length
   }, [leads, range])
 

@@ -1,0 +1,247 @@
+// app/produkti/page.tsx — v8
+// ✅ ПОПРАВКИ спрямо v7:
+//   - ФИКС (по решение): p.rating/p.review_count вече НЕ се ползват директно
+//     от affiliate_products — оказаха се ръчно въведени "правдоподобни"
+//     числа (напр. Калитех 4.8/5 · 18) без нито един реален отзив зад тях.
+//     Вместо това — една batch заявка към новата reviews таблица
+//     (getAggregateRatingsBatch), после реалните avg/count се "закачат"
+//     към всеки продукт преди да стигнат до schema-та и клиента. Само
+//     новата reviews система е източник на истина вече, навсякъде.
+
+import { Metadata }              from 'next'
+import { supabaseAdmin }         from '@/lib/supabase'
+import type { AffiliateProduct } from '@/lib/affiliate'
+import { ProduktCatalogClient }  from './ProduktCatalogClient'
+import '../homepage.css'
+import './produkti.css'
+import { getSettings } from '@/lib/settings'
+import { getHeaderCartConfig } from '@/lib/header-cart'
+// ✅ НОВО
+import { getAggregateRatingsBatch } from '@/lib/reviews'
+
+export const revalidate = 300
+
+const BASE_URL   = 'https://dennyangelow.com'
+const OG_IMAGE   = `${BASE_URL}/og/produkti.jpg`
+const PAGE_TITLE = 'Всички Продукти — Проверени от Практиката | Denny Angelow'
+const PAGE_DESC  =
+  'Пълен каталог с биостимулатори, торове, фунгициди и инсектициди — лично тествани от ' +
+  'агро консултант Denny Angelow. Точни дози, карантини и препоръки за домати, лозя, ' +
+  'краставици и всички основни земеделски култури.'
+
+export const metadata: Metadata = {
+  title:       PAGE_TITLE,
+  description: PAGE_DESC,
+  keywords: [
+    'биостимулатори', 'торове за домати', 'фунгицид за домати', 'инсектицид',
+    'Амалгерол', 'Калитех', 'Ридомил Голд', 'Синейс', 'Кристалон', 'Прев-Голд',
+    'органично торене', 'растителна защита', 'Denny Angelow', 'агро консултант',
+    'защита от мана', 'биологичен инсектицид', 'NPK тор',
+  ],
+  alternates: {
+    canonical: `${BASE_URL}/produkti`,
+    languages: { 'bg-BG': `${BASE_URL}/produkti` },
+  },
+  openGraph: {
+    title:       PAGE_TITLE,
+    description: PAGE_DESC,
+    url:         `${BASE_URL}/produkti`,
+    siteName:    'Denny Angelow',
+    locale:      'bg_BG',
+    type:        'website',
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: 'Препоръчани агро продукти — Denny Angelow' }],
+  },
+  twitter: {
+    card:        'summary_large_image',
+    title:       PAGE_TITLE,
+    description: PAGE_DESC,
+    images:      [OG_IMAGE],
+  },
+  robots: {
+    index:  true,
+    follow: true,
+    googleBot: {
+      index:               true,
+      follow:              true,
+      'max-snippet':       -1,
+      'max-image-preview': 'large',
+      'max-video-preview': -1,
+    },
+  },
+}
+
+// ── Тип за RPC резултата ─────────────────────────────────────────────────────
+// ✅ ВАЖНО: колоната се казва "click_count" (не "count") в новата RPC функция
+interface ClickCountRow {
+  product_slug: string
+  click_count:  number
+}
+
+// ── Взима брой кликове чрез RPC (идентично с homepage) ──────────────────────
+async function getClickCounts(): Promise<Record<string, number>> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('get_top_affiliate_clicks', {
+        limit_count: 999,  // всички продукти
+        days_back:   90,   // последните 90 дни
+      })
+
+    if (error) {
+      console.error('[produkti/page] getClickCounts RPC грешка:', error)
+      return {}
+    }
+
+    const counts: Record<string, number> = {}
+    for (const row of (data as ClickCountRow[]) || []) {
+      if (row.product_slug) {
+        counts[row.product_slug] = Number(row.click_count) || 0
+      }
+    }
+    return counts
+  } catch (err) {
+    console.error('[produkti/page] getClickCounts:', err)
+    return {}
+  }
+}
+
+async function getAllProducts(): Promise<AffiliateProduct[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('affiliate_products')
+      .select('*')
+      .eq('active', true)
+      .order('sort_order')
+    if (error) throw error
+    return data || []
+  } catch (err) {
+    console.error('[produkti/page] getAllProducts:', err)
+    return []
+  }
+}
+
+function buildBreadcrumb() {
+  return {
+    '@context': 'https://schema.org',
+    '@type':    'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Начало',   item: BASE_URL },
+      { '@type': 'ListItem', position: 2, name: 'Продукти', item: `${BASE_URL}/produkti` },
+    ],
+  }
+}
+
+function buildItemList(products: AffiliateProduct[]) {
+  return {
+    '@context':    'https://schema.org',
+    '@type':       'ItemList',
+    name:          'Препоръчани агро продукти — Denny Angelow',
+    description:   PAGE_DESC,
+    url:           `${BASE_URL}/produkti`,
+    numberOfItems: products.length,
+    itemListElement: products.map((p, i) => ({
+      '@type':     'ListItem',
+      position:    i + 1,
+      name:        p.name,
+      url:         `${BASE_URL}/produkt/${p.slug}`,
+      image:       p.image_url ?? undefined,
+      description: p.description || p.subtitle,
+    })),
+  }
+}
+
+// ✅ ФИКС: приема Map с реални рейтинги (от reviews таблицата) вместо да
+// чете p.rating/p.review_count директно от affiliate_products
+function buildProductSchemas(
+  products: AffiliateProduct[],
+  ratings: Map<string, { avg: number; count: number }>,
+) {
+  return products.slice(0, 12).map(p => {
+    const rating = ratings.get(p.id)
+    return {
+      '@context':  'https://schema.org',
+      '@type':     'Product',
+      name:        p.name,
+      description: p.description || p.subtitle,
+      image:       p.image_url ?? undefined,
+      url:         `${BASE_URL}/produkt/${p.slug}`,
+      sku:         p.slug,
+      brand:       { '@type': 'Brand', name: p.partner || 'AgroApteki' },
+      ...(p.price ? {
+        offers: {
+          '@type':       'Offer',
+          price:          Number(p.price).toFixed(2),
+          priceCurrency: p.price_currency || 'EUR',
+          availability:  'https://schema.org/InStock',
+          url:           `${BASE_URL}/produkt/${p.slug}`,
+          seller:        { '@type': 'Organization', name: p.partner || 'AgroApteki' },
+        },
+      } : {}),
+      ...(rating && rating.avg > 0 && rating.count > 0 ? {
+        aggregateRating: {
+          '@type':      'AggregateRating',
+          ratingValue:  rating.avg,
+          reviewCount:  rating.count,
+          bestRating:   5,
+          worstRating:  1,
+        },
+      } : {}),
+    }
+  })
+}
+
+export default async function ProduktiPage() {
+  // ✅ Паралелни заявки — по-бързо.
+  const [products, clickCounts, settings] = await Promise.all([
+    getAllProducts(),
+    getClickCounts(),
+    getSettings(),
+  ])
+
+  // ✅ НОВО — една batch заявка за реални рейтинги на ВСИЧКИ продукти наведнъж
+  // (вместо да четем неподкрепените p.rating/p.review_count колони)
+  const ratingsMap = await getAggregateRatingsBatch('affiliate_product', products.map(p => p.id))
+
+  // ✅ Закачаме реалните стойности към всеки продукт — замества старите
+  // p.rating/p.review_count навсякъде надолу по веригата (schema + клиент)
+  const productsWithRealRatings = products.map(p => {
+    const r = ratingsMap.get(p.id)
+    return { ...p, rating: r?.avg || undefined, review_count: r?.count || undefined }
+  })
+
+  const headerCart = getHeaderCartConfig(settings, 'produkti')
+
+  const categories = Array.from(
+    new Set(productsWithRealRatings.map(p => p.category_label).filter(Boolean))
+  ) as string[]
+
+  // ✅ Сортираме по кликове за default view (популярни най-отгоре)
+  const sortedByClicks = [...productsWithRealRatings].sort((a, b) => {
+    const ca = clickCounts[a.slug] || 0
+    const cb = clickCounts[b.slug] || 0
+    return cb - ca  // DESC — най-кликвани първи
+  })
+
+  return (
+    <>
+      <script type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildBreadcrumb()) }} />
+      <script type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildItemList(sortedByClicks)) }} />
+      {buildProductSchemas(sortedByClicks, ratingsMap).map((schema, i) => (
+        <script key={i} type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
+      ))}
+
+      <ProduktCatalogClient
+        products={productsWithRealRatings}    // оригинален ред (sort_order) — за "По ред"
+        sortedByClicks={sortedByClicks}        // ✅ наредени по кликове — за "Популярни"
+        clickCounts={clickCounts}              // ✅ за показване на badge с брой кликове
+        categories={categories}
+        initialVisible={12}
+        initialSort="popular"                  // ✅ default: популярни
+        headerCart={headerCart}
+        settings={settings}
+      />
+    </>
+  )
+}

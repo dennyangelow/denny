@@ -1,5 +1,18 @@
 'use client'
-// app/admin/components/EmailStatsTab.tsx — v3
+// app/admin/components/EmailStatsTab.tsx — v4
+//
+// ПОПРАВКИ v4 (спрямо v3):
+//   ✅ БЪГ ОТКРИТ: fetch('/api/email-stats') тук НЯМАШЕ { cache: 'no-store' },
+//      докато AutomationsTab.tsx-ия еквивалентен fetch (зареждащ workflow
+//      списъка) ИМА { cache: 'no-store' }. И двата backend route-а четат
+//      `active` директно от `workflows` таблицата на всяка заявка — няма
+//      backend кеш. Разликата е чисто в browser/Next.js fetch кеша: без
+//      изрично "никога не кеширай", обикновено презареждане (F5) понякога
+//      сервира стар закеширан отговор за тази заявка, докато Automations
+//      табът (със same-origin GET, но с no-store) винаги вижда свежите
+//      данни. Точно затова Automations табът показваше правилно "● Активно",
+//      а Статистики табът — "○ Спряна" за същите workflow-и, дори след F5.
+//      ФИКС: добавен { cache: 'no-store' }, същия модел като AutomationsTab.
 //
 // ПОПРАВКИ v3 (спрямо v2) — "подобри статистиките както трябва":
 //   ✅ НОВА секция "⚙️ Статус на автоматизациите" — показва active/
@@ -14,7 +27,7 @@
 // rate по sequence стъпка, bounce/complaint брой (30 дни), фунел на
 // изоставените колички, и статус на автоматизациите.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 interface SequenceStat {
   id: string; label: string
@@ -108,13 +121,20 @@ export function EmailStatsTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState('')
 
-  useEffect(() => {
-    fetch('/api/email-stats')
+  // ✅ v4 — извадено в callback, за да може и бутон "🔄 Обнови" да го вика
+  // при нужда, не само useEffect-ът при mount.
+  const load = useCallback(() => {
+    setLoading(true)
+    setError('')
+    // ✅ v4 — { cache: 'no-store' }, виж бележката в заглавния коментар.
+    fetch('/api/email-stats', { cache: 'no-store' })
       .then(r => r.json())
       .then(d => { if (d.error) throw new Error(d.error); setData(d) })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: '#6b7280', fontSize: 14 }}>
@@ -132,9 +152,19 @@ export function EmailStatsTab() {
 
   return (
     <div style={{ padding: '16px 14px' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: 0 }}>Email статистики</h1>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>Последните 90 дни · автоматично от Amazon SES webhook</p>
+      <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.02em', margin: 0 }}>Email статистики</h1>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>Последните 90 дни · автоматично от Amazon SES webhook</p>
+        </div>
+        {/* ✅ v4 — ръчен refresh бутон, за по-бърза проверка след toggle в Automations таба */}
+        <button
+          type="button"
+          onClick={load}
+          style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 9, padding: '8px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#374151' }}
+        >
+          🔄 Обнови
+        </button>
       </div>
 
       {/* Общи числа */}
@@ -173,7 +203,7 @@ export function EmailStatsTab() {
         )}
       </div>
 
-      {/* ✅ НОВО v3: Статус на автоматизациите */}
+      {/* ✅ Статус на автоматизациите */}
       <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 20 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px' }}>⚙️ Статус на автоматизациите</h2>
         <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 16px' }}>На живо от workflow enrollments — кликни на "излезли", за да видиш грешката</p>

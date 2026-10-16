@@ -1,5 +1,9 @@
 'use client'
-// components/blog/AffiliateTrackedLink.tsx — v2
+// components/blog/AffiliateTrackedLink.tsx — v3
+// ✅ v3: `source` вече има стойност по подразбиране 'blog'. Този компонент живее в components/blog и се
+//    ползва САМО от статиите, а никой от извикващите не подаваше source → в базата 8 794 от 8 795 клика
+//    бяха без източник. Така статистиката по канал (bySource) най-накрая показва откъде идват кликовете.
+//    (Ако някъде подадеш друг source, например "produkt-page", той печели.)
 // ✅ ФИКС спрямо v1: href тук е ВИНАГИ вътрешна страница на самия сайт —
 //    /produkt/[slug] (affiliate) или /products/[slug] (own) — bridge/landing
 //    страница с описание, снимки, ревюта. Реалният external линк към
@@ -40,7 +44,7 @@ interface Props {
   className?: string
 }
 
-export function AffiliateTrackedLink({ href, slug, partner, source, sponsored, children, className }: Props) {
+export function AffiliateTrackedLink({ href, slug, partner, source = 'blog', sponsored, children, className }: Props) {
   return (
     <a
       href={href}

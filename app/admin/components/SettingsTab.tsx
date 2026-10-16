@@ -1,6 +1,18 @@
 'use client'
-// app/admin/components/SettingsTab.tsx — v11
-// ✅ v10 → v11: "🔌 Интеграции" (Email автоматизации toggle) и "⚙️ Email
+// app/admin/components/SettingsTab.tsx — v12
+// ✅ v11 → v12: "▶ Стартирай ръчно сега" бутонът сочеше към /api/leads/
+//    sequence — вече изтрит от проекта (старата, pre-mega-plan "sequence"
+//    папка). Дори докато съществуваше, този route накрая обработваше само
+//    abandoned cart/order (не и naruchnik/workflow-базираните серии) и по
+//    security checklist-а по-долу се очакваше да е CRON_SECRET Bearer-
+//    защитен — несъвместимо с обикновен fetch() от браузъра, значи бутонът
+//    вероятно е гърмял с 401 отдавна. Сменен на новия
+//    POST /api/admin/automations/run-now (admin-session защитен през
+//    middleware.ts, вика directno processDueEnrollments() — СЪЩАТА функция,
+//    която hourly cron-ът /api/automations/tick вика, просто без
+//    CRON_SECRET). Security checklist текстът по-долу е обновен да сочи
+//    /api/automations/tick вместо изтрития /api/leads/sequence.
+// v10 → v11: "🔌 Интеграции" (Email автоматизации toggle) и "⚙️ Email
 //    Sequences" (ръчен старт) бяха 2 отделни карти, сякаш 2 различни
 //    системи — реално и двете управляват СЪЩИЯ двигател (pollTriggers() в
 //    lib/automations.ts → sendEmail() → SES). Слети в 1 карта "✉️ Email
@@ -238,6 +250,8 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
   // само локалните имена са преименувани, за да не бъркат четящия кода.
   const [emailAutoEnabled,  setEmailAutoEnabled]  = useState(true)
   const [togglingEmailAuto, setTogglingEmailAuto] = useState(false)
+  // ✅ v12 — за "▶ Стартирай ръчно сега" бутона (виж triggerSequence долу)
+  const [triggeringNow, setTriggeringNow] = useState(false)
 
   const dirty = useMemo(
     () => Object.keys(vals).some(k => vals[k] !== savedVals[k]),
@@ -327,11 +341,25 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
     reader.readAsText(file); e.target.value = ''
   }
 
+  // ✅ v12 — сменено от /api/leads/sequence (изтрит, пращаше 401 при fetch
+  //    без CRON_SECRET Bearer) → /api/admin/automations/run-now
+  //    (admin-session защитен, вика directno processDueEnrollments() —
+  //    обработва ВСИЧКИ активни workflows, не само naruchnik/abandoned).
   const triggerSequence = async () => {
-    const res = await fetch('/api/leads/sequence')
-    const d   = await res.json()
-    if (res.ok) toast.success(`Sequence: ${d.sent} имейла изпратени`)
-    else        toast.error(d.error || 'Грешка')
+    setTriggeringNow(true)
+    try {
+      const res = await fetch('/api/admin/automations/run-now', { method: 'POST' })
+      const d   = await res.json().catch(() => ({}))
+      if (res.ok) {
+        toast.success(d.sent !== undefined ? `✓ Изпратени ${d.sent} имейла` : '✓ Автоматизациите са изпълнени')
+      } else {
+        toast.error(d.error || 'Грешка')
+      }
+    } catch {
+      toast.error('Грешка при стартиране')
+    } finally {
+      setTriggeringNow(false)
+    }
   }
 
   const toggleSection = (id: string) =>
@@ -625,8 +653,9 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
               📅 Welcome → +2д → +5д → +10д<br/>🛒 Abandoned: след 24ч без обработка
             </div>
 
-            <button onClick={triggerSequence} style={{ width: '100%', marginTop: 10, padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
-              ▶ Стартирай ръчно сега
+            <button onClick={triggerSequence} disabled={triggeringNow}
+              style={{ width: '100%', marginTop: 10, padding: '10px', background: '#1b4332', color: '#fff', border: 'none', borderRadius: 9, cursor: triggeringNow ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, opacity: triggeringNow ? .6 : 1 }}>
+              {triggeringNow ? '⏳ Изпълнява...' : '▶ Стартирай ръчно сега'}
             </button>
           </div>
 
@@ -701,7 +730,10 @@ export function SettingsTab({ ordersCount, leadsCount }: Props) {
               ['ADMIN_SECRET',   'Задай в Vercel → Env Vars. Без него /admin е публичен!'],
               ['SES_ACCESS_KEY_ID / SES_SECRET_ACCESS_KEY', 'Задай в Vercel → Env Vars за Amazon SES.'],
               ['RLS в Supabase', 'Row Level Security трябва да е активирана.'],
-              ['CRON_SECRET',    'Защита на /api/leads/sequence и /api/cron/discord-fallback.'],
+              // ✅ v12 — /api/leads/sequence е изтрит; CRON_SECRET вече пази
+              //    /api/automations/tick (ръчният бутон горе минава по
+              //    admin session, не по CRON_SECRET — виж триgger функцията).
+              ['CRON_SECRET',    'Защита на /api/automations/tick и /api/cron/discord-fallback.'],
             ].map(([k, v]) => (
               <div key={k} style={{ marginBottom: 8, fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
                 <strong style={{ color: '#92400e', display: 'block', fontSize: 11, textTransform: 'uppercase' }}>{k}</strong>

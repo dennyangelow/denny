@@ -1,4 +1,9 @@
-// app/admin/components/rangeUtils.ts — v4
+// app/admin/components/rangeUtils.ts — v5
+// ✅ v5: "последните N дни" = N дни ВКЛЮЧИТЕЛНО днес (днес − (N−1) … днес).
+//    Преди getCutoff() връщаше днес − N → поръчките за "7д" покриваха 8 дни, за "30д" 31 дни,
+//    докато графиката показваше N дни, а предходният период беше точно N дни →
+//    тенденцията (▲/▼ %) сравняваше N+1 дни с N дни и беше изкуствено завишена
+//    (при 7д с ~14%). Сега и двата периода са точно N дни, както в ProductStatsSection.
 // ✅ ПОПРАВКИ v4 (спрямо v3):
 //   - Добавена bgDateNDaysAgo() — правилна БГ дата преди N дни (без UTC rolling window)
 //     → Ползва UTC полунощ + setUTCDate() — работи лято и зима без DST проблеми
@@ -83,8 +88,8 @@ export function getCutoff(range: Range): string | null {
   if (range === 'all') return null
   const now = new Date()
   if (range === 1) return toBulgarianDateStr(now)
-  // ✅ Изваждаме от БГ "днес" — правилно нулиране в 00:00 БГ
-  return bgDateNDaysAgo(now, range as number)
+  // ✅ v5: N дни включително днес → (N − 1) дни назад
+  return bgDateNDaysAgo(now, (range as number) - 1)
 }
 
 /**
@@ -101,9 +106,10 @@ export function getPrevCutoff(range: Range): { start: string; end: string } | nu
     return { start: yesterday, end: toBulgarianDateStr(now) }
   }
   const days = range as number
+  // ✅ v5: предходните N дни, веднага преди текущите N (край изключен)
   return {
-    start: bgDateNDaysAgo(now, days * 2),
-    end:   bgDateNDaysAgo(now, days),
+    start: bgDateNDaysAgo(now, days * 2 - 1),
+    end:   bgDateNDaysAgo(now, days - 1),
   }
 }
 

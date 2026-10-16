@@ -1,5 +1,26 @@
 'use client'
-// app/admin/components/EmailTemplatesTab.tsx — v5
+// app/admin/components/EmailTemplatesTab.tsx — v7
+//
+// ПОПРАВКИ v7 (спрямо v6):
+//   ✅ Познатите темплейти от lib/email-template-keys.ts, които още нямат ред в
+//      базата (напр. нов ключ order_pickup_2), вече се показват в списъка като
+//      "Още не е запазен" с текста по подразбиране. Отваряш → Редактирай →
+//      Запази и редът се създава. Преди това такъв темплейт не се виждаше никъде
+//      и нямаше как да се създаде с точния му ключ.
+//   ✅ Бележката под прегледа споменава и примерните куриер/товарителница.
+//
+// ПОПРАВКИ v6 (спрямо v5):
+//   ✅ ПРЕГЛЕД 1:1: PreviewModal вече НЕ рисува приблизителна рамка. Праща
+//      темата+съдържанието към /api/admin/email-templates/preview, който
+//      вика buildCustomEmail() — същата функция като при реалното
+//      изпращане — и показва върнатия HTML в iframe. Каквото виждаш е
+//      каквото получава клиентът (рамка, футър, отписване, бутони).
+//   ✅ НОВО: "📧 Изпрати тест" в прегледа — праща реално писмо до твой
+//      адрес (запомня се), за да го видиш в Yahoo/Gmail/Outlook.
+//   ✅ Редакторът ползва същия шрифт/размер като писмото (15px/1.7) и
+//      обикновен текст без HTML тагове се показва като параграфи.
+//   ✅ Махнати SAMPLE_VALUES/renderPreviewHtml/DEFAULT_LIVE_SETTINGS —
+//      вече не са нужни (сървърът подава реалните данни).
 //
 // ПОПРАВКИ v5 (спрямо v4):
 //   ✅ НОВО: RichTextEditor — contentEditable + toolbar (Bold/Italic/
@@ -26,6 +47,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from '@/components/ui/Toast'
+import { TEMPLATE_KEYS } from '@/lib/email-template-keys'
 
 interface TemplateRow {
   key:              string
@@ -35,18 +57,7 @@ interface TemplateRow {
   body_html:        string
   updated_at:       string
   usedByStepsCount: number
-}
-
-interface LiveEmailSettings {
-  fromName:      string
-  senderTagline: string
-  footerText:    string
-}
-
-const DEFAULT_LIVE_SETTINGS: LiveEmailSettings = {
-  fromName:      'Denny Angelow',
-  senderTagline: 'Denny Angelow — Агро Консултант',
-  footerText:    'Получаваш този имейл, защото се регистрира на dennyangelow.com.',
+  unsaved?:         boolean   // ✅ v7 — познат ключ без ред в базата (показва се с текст по подразбиране)
 }
 
 const inp: React.CSSProperties = {
@@ -64,48 +75,18 @@ const btnGhost: React.CSSProperties = {
 
 const DEFAULT_VARS = ['name', 'email']
 
-// Примерни стойности за произволните merge-полета в писмата (не тези, които
-// идват от Настройки — tagline/footer се теглят на живо, виж LiveEmailSettings).
-const SAMPLE_VALUES: Record<string, string> = {
-  name:             'Иван Иванов',
-  email:            'ivan@example.com',
-  order_number:     'DA-2026-1963',
-  tracking_number:  'BG123456789SP',
-  link:             'https://dennyangelow.com/naruchnik',
-  product_name:     'Органичен тор за домати',
-  days:             '7',
-  amount:           '49.90 лв.',
-  discount:         '10%',
+// Дали текстът изглежда като HTML (има поне един таг) — иначе е обикновен текст.
+function looksLikeHtml(t: string): boolean {
+  return /<\/?[a-z][a-z0-9]*(\s[^>]*)?>/i.test(t)
 }
-
-function substituteSample(text: string, vars: string[]): string {
-  const all = Array.from(new Set([...DEFAULT_VARS, ...vars]))
-  let out = text
-  for (const v of all) {
-    const val = SAMPLE_VALUES[v] ?? `[${v}]`
-    out = out.replaceAll(`{{${v}}}`, val)
-  }
-  return out
+function escHtml(t: string): string {
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
-
-// Приблизителна рамка, вярна на реалния wrapper()/footer() стил в
-// lib/email-templates.ts (тъмнозелен header, доматено лого, светъл body).
-function renderPreviewHtml(bodyHtml: string, settings: LiveEmailSettings): string {
-  return `
-    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">
-      <div style="background:linear-gradient(135deg,#0f1f16,#2d6a4f);padding:28px;border-radius:12px 12px 0 0;text-align:center">
-        <p style="font-size:32px;margin:0 0 6px">🍅</p>
-        <p style="color:#d4e9dd;font-size:12.5px;margin:0;letter-spacing:.2px">${settings.senderTagline}</p>
-      </div>
-      <div style="padding:28px;border:1px solid #eee;border-top:none">
-        ${bodyHtml}
-      </div>
-      <div style="padding:18px 28px;border:1px solid #eee;border-top:none;border-radius:0 0 12px 12px;background:#fafafa">
-        <p style="font-size:11.5px;color:#9ca3af;line-height:1.6;margin:0 0 8px">${settings.footerText}</p>
-        <a href="#" style="font-size:11.5px;color:#6b7280;text-decoration:underline">Отпиши се тук</a>
-      </div>
-    </div>
-  `
+// За визуалния редактор: обикновен текст → параграфи (HTML се връща непроменен).
+function toVisualHtml(t: string): string {
+  if (!t.trim() || looksLikeHtml(t)) return t
+  return t.replace(/\r\n/g, '\n').trim().split(/\n{2,}/)
+    .map(par => `<p>${escHtml(par).replace(/\n/g, '<br>')}</p>`).join('')
 }
 
 function slugifyKey(label: string): string {
@@ -117,62 +98,109 @@ function slugifyKey(label: string): string {
   return `custom_${base || 'template'}_${suffix}`.slice(0, 80)
 }
 
-// ── PreviewModal — голям, scrollable, живи Настройки ───────────────────────
-function PreviewModal({ row, onClose }: { row: TemplateRow; onClose: () => void }) {
-  const [settings, setSettings] = useState<LiveEmailSettings>(DEFAULT_LIVE_SETTINGS)
-  const [loadError, setLoadError] = useState(false)
+// ── PreviewModal — 1:1 с реалното писмо (сървърен рендер) + тест изпращане ──
+function PreviewModal({ subject, bodyHtml, onClose }: { subject: string; bodyHtml: string; onClose: () => void }) {
+  const [html, setHtml]           = useState('')
+  const [finalSubject, setFinal]  = useState(subject)
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState('')
+  const [testTo, setTestTo]       = useState('')
+  const [sending, setSending]     = useState(false)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  useEffect(() => {
+    try { setTestTo(localStorage.getItem('tpl_test_email') || '') } catch {}
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/admin/email-settings', { credentials: 'include', cache: 'no-store' })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(d => { if (!cancelled) setSettings({ ...DEFAULT_LIVE_SETTINGS, ...d }) })
-      .catch(() => { if (!cancelled) setLoadError(true) })
+    setLoading(true); setError('')
+    fetch('/api/admin/email-templates/preview', {
+      method: 'POST', credentials: 'include', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject, body_html: bodyHtml }),
+    })
+      .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d })
+      .then(d => { if (!cancelled) { setHtml(d.html); setFinal(d.subject) } })
+      .catch(e => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [])
+  }, [subject, bodyHtml])
 
-  const subject = substituteSample(row.subject, row.vars)
-  const body    = substituteSample(row.body_html, row.vars)
-  const html    = renderPreviewHtml(body, settings)
+  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:24px 12px;background:#f3f4f6;font-family:'DM Sans',Arial,sans-serif}</style></head><body>${html}</body></html>`
+
+  const fitHeight = () => {
+    const doc = iframeRef.current?.contentDocument
+    if (doc && iframeRef.current) iframeRef.current.style.height = doc.documentElement.scrollHeight + 'px'
+  }
+
+  const sendTest = async () => {
+    setSending(true)
+    try {
+      try { localStorage.setItem('tpl_test_email', testTo) } catch {}
+      const res = await fetch('/api/admin/email-templates/send-test', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testTo, subject, body_html: bodyHtml }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`)
+      toast.success(`Тестовото писмо е изпратено до ${testTo}`)
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setSending(false)
+    }
+  }
 
   return (
     <div
       onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 1000,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-      }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{
-          background: '#fff', borderRadius: 14, width: '100%', maxWidth: 720,
-          maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          boxShadow: '0 20px 60px rgba(0,0,0,.3)',
-        }}
+        style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 720, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}
       >
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '14px 20px', borderBottom: '1px solid #eee', flexShrink: 0,
-        }}>
-          <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid #eee', flexShrink: 0 }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.4px' }}>
-              👁 Преглед (примерни данни)
+              👁 Преглед — точно както ще пристигне
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#111', marginTop: 2 }}>{subject}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#111', marginTop: 2 }}>{finalSubject}</div>
           </div>
           <button type="button" onClick={onClose} style={{ ...btnGhost, padding: '6px 12px', fontSize: 18, lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ overflowY: 'auto', padding: '28px 20px', background: '#f3f4f6', flex: 1 }}>
-          <div dangerouslySetInnerHTML={{ __html: html }} />
+        <div style={{ overflowY: 'auto', background: '#f3f4f6', flex: 1, minHeight: 200 }}>
+          {loading && <p style={{ padding: 24, fontSize: 13, color: '#9ca3af' }}>Генерира прегледа...</p>}
+          {error && <p style={{ padding: 24, fontSize: 13, color: '#991b1b' }}>⚠️ {error}</p>}
+          {!loading && !error && (
+            <iframe
+              ref={iframeRef}
+              title="Преглед на писмото"
+              srcDoc={srcDoc}
+              sandbox="allow-same-origin"
+              onLoad={fitHeight}
+              style={{ width: '100%', border: 'none', display: 'block', minHeight: 300 }}
+            />
+          )}
         </div>
 
         <div style={{ padding: '10px 20px', borderTop: '1px solid #eee', flexShrink: 0, background: '#fafafa' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+            <input
+              type="email" value={testTo} onChange={e => setTestTo(e.target.value)}
+              placeholder="твой имейл за тест (напр. Yahoo)"
+              style={{ ...inp, flex: 1, minWidth: 200, padding: '7px 10px', fontSize: 13 }}
+            />
+            <button type="button" onClick={sendTest} disabled={sending || !testTo.includes('@') || !!error}
+              style={{ ...btnPrimary, padding: '8px 14px', opacity: (sending || !testTo.includes('@') || !!error) ? 0.5 : 1 }}>
+              {sending ? 'Праща...' : '📧 Изпрати тест'}
+            </button>
+          </div>
           <div style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>
-            {loadError
-              ? '⚠️ Не успяхме да заредим реалните Настройки — показваме примерни име/футър текст.'
-              : 'Името, редът под логото и футър текстът са взети на живо от Настройки → Email настройки. Останалите стойности ({{name}}, {{order_number}}...) са примерни.'}
+            Рендерът е от същия код, който праща реалните писма (рамка, футър, отписване, линкове). Само данните са примерни: Иван Иванов, поръчка DA-2026-1963, 49.90 €, Еконт, товарителница 1051234567890.
           </div>
         </div>
       </div>
@@ -213,7 +241,7 @@ function RichTextEditor({
   useEffect(() => {
     const justEnteredVisual = mode === 'visual' && prevMode.current !== 'visual'
     if (mode === 'visual' && editorRef.current && (justEnteredVisual || lastSynced.current !== value)) {
-      editorRef.current.innerHTML = value
+      editorRef.current.innerHTML = toVisualHtml(value)
       lastSynced.current = value
     }
     prevMode.current = mode
@@ -285,7 +313,7 @@ function RichTextEditor({
           suppressContentEditableWarning
           onInput={emitChange}
           onBlur={emitChange}
-          style={{ minHeight: 260, maxHeight: 440, overflowY: 'auto', padding: '12px 14px', fontSize: 14, lineHeight: 1.6, outline: 'none', background: '#fff' }}
+          style={{ minHeight: 260, maxHeight: 440, overflowY: 'auto', padding: '16px 18px', fontSize: 15, lineHeight: 1.7, color: '#374151', fontFamily: "'DM Sans',Arial,sans-serif", outline: 'none', background: '#fff' }}
         />
       ) : (
         <textarea
@@ -383,7 +411,7 @@ function TemplateEditor({ row, isNew, onSaved, onCancel }: { row: TemplateRow; i
       </div>
 
       {preview && (
-        <PreviewModal row={{ ...row, label, subject, body_html: bodyHtml }} onClose={() => setPreview(false)} />
+        <PreviewModal subject={subject} bodyHtml={bodyHtml} onClose={() => setPreview(false)} />
       )}
     </div>
   )
@@ -420,7 +448,12 @@ function TemplateCard({ row, onEdit, onChanged }: { row: TemplateRow; onEdit: ()
                 🔁 Преизползван в {row.usedByStepsCount}
               </span>
             )}
-            {row.usedByStepsCount === 0 && (
+            {row.unsaved && (
+              <span style={{ fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 99, background: '#fef3c7', color: '#92400e' }}>
+                ⚠️ Още не е запазен — Редактирай → Запази
+              </span>
+            )}
+            {row.usedByStepsCount === 0 && !row.unsaved && (
               <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: '#f3f4f6', color: '#9ca3af' }}>
                 Неизползван
               </span>
@@ -431,13 +464,15 @@ function TemplateCard({ row, onEdit, onChanged }: { row: TemplateRow; onEdit: ()
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           <button type="button" onClick={() => setPreview(true)} disabled={busy} style={{ ...btnGhost, padding: '6px 10px' }}>👁 Преглед</button>
           <button type="button" onClick={onEdit} disabled={busy} style={{ ...btnGhost, padding: '6px 10px' }}>✏️ Редактирай</button>
-          <button type="button" onClick={del} disabled={busy} style={{ ...btnGhost, padding: '6px 10px', background: '#fee2e2', color: '#991b1b' }}>
-            🗑 Изтрий
-          </button>
+          {!row.unsaved && (
+            <button type="button" onClick={del} disabled={busy} style={{ ...btnGhost, padding: '6px 10px', background: '#fee2e2', color: '#991b1b' }}>
+              🗑 Изтрий
+            </button>
+          )}
         </div>
       </div>
 
-      {preview && <PreviewModal row={row} onClose={() => setPreview(false)} />}
+      {preview && <PreviewModal subject={row.subject} bodyHtml={row.body_html} onClose={() => setPreview(false)} />}
     </div>
   )
 }
@@ -455,7 +490,17 @@ export function EmailTemplatesTab() {
     try {
       const res = await fetch('/api/admin/email-templates', { credentials: 'include', cache: 'no-store' })
       const data = await res.json()
-      setTemplates(data.templates || [])
+      const rows: TemplateRow[] = data.templates || []
+      // ✅ v7 — познати ключове, които още не са запазени в базата
+      const have = new Set(rows.map(r => r.key))
+      const missing: TemplateRow[] = TEMPLATE_KEYS
+        .filter(m => !have.has(m.key))
+        .map(m => ({
+          key: m.key, label: m.label, vars: m.vars,
+          subject: m.defaultSubject, body_html: m.defaultBodyHtml,
+          updated_at: '', usedByStepsCount: 0, unsaved: true,
+        }))
+      setTemplates([...rows, ...missing])
     } catch {
       toast.error('Грешка при зареждане')
     } finally {

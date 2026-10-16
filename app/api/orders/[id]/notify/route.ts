@@ -1,5 +1,28 @@
-// app/api/orders/[id]/notify/route.ts — v7
-// ✅ v6 → v7 (сигурност; ендпойнтът е ПУБЛИЧЕН — вика се от checkout без вход):
+// app/api/orders/[id]/notify/route.ts — v9
+// ✅ v8 → v9 (сигурност, потокът за клиента НЕ е променен):
+//   1. force:true вече не е достатъчно за публичен повик. Преди всеки, който знае order id,
+//      можеше да праща force:true и да праща Discord съобщение до лимита на rate limit-а.
+//      Сега force минава само ако (а) заявката е от влязъл админ, или (б) в същата заявка
+//      реално е записан НОВ post-purchase артикул (законният PP поток).
+//   2. ЕГН на физическо лице НЕ се изпраща в Discord (личен данни в трети чат). Остава в базата
+//      и в админ панела.
+//   3. allowed_mentions: { parse: [] } — текст от клиента не може да пингва роли/потребители.
+//   4. Видът на плащане се чете от поръчката, не е hardcoded „Наложен платеж“.
+//
+// v8 (по-долу) — непроменено:
+// ✅ v7 → v8: валутният символ вече пада на getCurrencySymbol() (Настройки
+//    → 💶 Валута), вместо на hardcoded '€', когато клиентът не подаде
+//    body.currency_symbol. Преди: ако фронтенд кодът не прати изрично
+//    currency_symbol (или прати грешен), Discord съобщението щеше тихо да
+//    показва € дори ако си сменил валутата от админ панела — несъответствие
+//    със cron fallback-а (app/api/cron/discord-fallback/route.ts v3), който
+//    вече четеше от Настройки. Сега и двата Discord пътя за известяване
+//    ползват един и същ източник. body.currency_symbol продължава да печели
+//    ако клиентът наистина го подаде (не го чупим за съществуващия frontend
+//    flow) — просто фолбекът вече е правилен, не hardcoded.
+//
+// v7 (запазено непроменено, сигурност; ендпойнтът е ПУБЛИЧЕН — вика се от
+//    checkout без вход):
 //   1. Rate limit по IP (30 заявки / 10 мин) — преди всеки, който знае order id,
 //      можеше да спами Discord канала безкрайно с force:true.
 //   2. post_purchase_item се валидира: количество 1–100, цени 0–100 000, име ≤ 200.
@@ -18,6 +41,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { rateLimit, getIP } from '@/lib/rate-limit'
+import { getCurrencySymbol } from '@/lib/currency'
+import { isAdminRequest } from '@/lib/admin-guard'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 /** Валидна цена 0–100 000 или null. */
@@ -39,6 +64,9 @@ export async function POST(
     const orderId = params.id
     const body = await req.json().catch(() => ({}))
     const force = body.force === true
+    // ✅ v9: force от публичен повик е позволен само заедно с НОВ post-purchase артикул (виж по-долу)
+    const isAdmin = force ? await isAdminRequest(req) : false
+    let ppInserted = false
 
     // ── 1. Вземаме поръчката от DB ───────────────────────────────────────────
     const { data: order, error: fetchError } = await supabaseAdmin
@@ -106,10 +134,16 @@ export async function POST(
             .eq('id', orderId)
 
           console.log(`✅ PP артикул записан за поръчка #${order.order_number}: ${ppName}`)
+          ppInserted = true
         }
       } else {
         console.log(`PP артикул вече съществува за #${order.order_number} — skip insert`)
       }
+    }
+
+    // ✅ v9: публичен force без нов PP артикул = опит за повторно изпращане → отказ
+    if (force && !isAdmin && order.discord_sent && !ppInserted) {
+      return NextResponse.json({ skipped: true, reason: 'force_requires_admin_or_new_pp_item' })
     }
 
     // ── 4. Презареждаме поръчката от DB (с новия PP артикул) ─────────────────
@@ -129,7 +163,8 @@ export async function POST(
     }
 
     // ── 6. Форматиране ────────────────────────────────────────────────────────
-    const sym          = body.currency_symbol || '€'
+    // ✅ v8 — фолбекът вече е getCurrencySymbol() (Настройки), не hardcoded €.
+    const sym          = body.currency_symbol || await getCurrencySymbol()
     const fmt          = (n: number) => `${Number(n).toFixed(2)} ${sym}`
     const courierLabel = finalOrder.courier === 'speedy' ? 'Спиди 🚀' : 'Еконт 📦'
 
@@ -284,7 +319,7 @@ export async function POST(
       },
       {
         name: '💳 Плащане',
-        value: `Наложен платеж 💵${offerSummary.length > 0 ? '\n' + offerSummary.join('  ·  ') : ''}`,
+        value: `${finalOrder.payment_method && finalOrder.payment_method !== 'cod' ? String(finalOrder.payment_method).slice(0, 40) : 'Наложен платеж 💵'}${offerSummary.length > 0 ? '\n' + offerSummary.join('  ·  ') : ''}`,
         inline: true,
       },
       { name: '🛒 Поръчани артикули', value: regularLines, inline: false },
@@ -325,7 +360,7 @@ export async function POST(
       } else if (invoiceData.type === 'person') {
         invValue = [
           `👤 **${invoiceData.person_names || '—'}**`,
-          invoiceData.person_egn     ? `ЕГН: \`${invoiceData.person_egn}\``   : null,
+          invoiceData.person_egn ? 'ЕГН: в админ панела' : null,
           invoiceData.person_address ? `Адрес: ${invoiceData.person_address}` : null,
           invoiceData.person_phone   ? `Тел: ${invoiceData.person_phone}`     : null,
         ].filter(Boolean).join('\n')
@@ -355,7 +390,7 @@ export async function POST(
     const discordRes = await fetch(discordWebhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
+      body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }),
     })
 
     if (!discordRes.ok) {

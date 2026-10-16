@@ -152,7 +152,8 @@ function getUniqueVisitsForRange(pageViews: PageViewStats | null, range: Range):
   if (range === 7)     return pageViews.last7Unique  ?? 0
   if (range === 30)    return pageViews.last30Unique ?? 0
   if (range === 90)    return pageViews.last90Unique ?? 0
-  return pageViews.unique ?? 0   // 365/all — само общ unique е наличен
+  if (range === 365)   return pageViews.last365Unique ?? pageViews.unique ?? 0   // ✅ ново
+  return pageViews.unique ?? 0   // all
 }
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
@@ -488,8 +489,10 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
     const prevRev = prevActive.reduce((s, o) => s + Number(o.total), 0)
     const cnt     = filteredOrders.length
     const prevCnt = prevOrders.length
-    const avg     = cnt ? rev / cnt : 0
-    const prevAvg = prevCnt ? prevRev / prevCnt : 0
+    // ✅ ФИКС: приходът не включва отказаните, затова и делителят не ги включва
+    // (преди rev се делеше на ВСИЧКИ поръчки → средната стойност излизаше занижена).
+    const avg     = active.length     ? rev / active.length         : 0
+    const prevAvg = prevActive.length ? prevRev / prevActive.length : 0
     return { rev, prevRev, cnt, prevCnt, avg, prevAvg }
   }, [filteredOrders, prevOrders])
 
@@ -544,7 +547,7 @@ export function AnalyticsTab({ analytics, pageViews, orders }: Props) {
   const funnelData = useMemo(() => {
     // ✅ Уникални посетители, не общи page views — виж getUniqueVisitsForRange
     const visits = getUniqueVisitsForRange(pageViews, range)
-    const cnt    = filteredOrders.length
+    const cnt    = filteredOrders.filter(o => o.status !== 'cancelled').length   // ✅ без отказаните
     return [
       { stage:'Посещения (уник.)', value: visits,    pct: 100 },
       { stage:'Aff. кликове',      value: affClicks, pct: visits ? Math.round(affClicks / visits * 100) : 0 },

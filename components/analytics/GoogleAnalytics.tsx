@@ -1,14 +1,19 @@
 'use client'
-// components/analytics/GoogleAnalytics.tsx
+// components/analytics/GoogleAnalytics.tsx — v2
+// ✅ v2: не мери админ страниците (/admin) — преди всяко твое влизане в панела се
+//    броеше като посещение в Google Analytics и изкривяваше статистиката.
 // Зарежда Google Analytics 4 скрипта само ако GA_ID е наличен
 // Поставя се в app/layout.tsx вътре в <head>
 
 import Script from 'next/script'
+import { usePathname } from 'next/navigation'
 
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID
 
 export function GoogleAnalytics() {
+  const pathname = usePathname()
   if (!GA_ID) return null
+  if (pathname?.startsWith('/admin')) return null
 
   return (
     <>

@@ -1,25 +1,31 @@
-// app/api/analytics/affiliate-click/route.ts — v10
-// ✅ ПОПРАВКИ v9 (спрямо v8):
-//   - bgDateNDaysAgo(): премахнат hardcoded '+03:00' offset (грешен зимата при UTC+2)
-//     → Ново: парсира като UTC полунощ на БГ датата + setUTCDate() → toBulgarianDate()
-//     → Работи правилно и лято (UTC+3) и зима (UTC+2) без DST проблеми
+// app/api/analytics/affiliate-click/route.ts — v13
+// ✅ v13: приема internal=true от trackAffiliateClick (устройство с ?da_internal=1) → is_internal.
+// ✅ v12: твоите кликове (localhost, dev, IP от ANALYTICS_EXCLUDE_IPS) се записват с is_internal=true
+//    и НЕ влизат в статистиката (нужна е колоната — виж product_events_and_affiliate.sql).
+// ✅ v12: периодите са точно 7/30/90 дни ВКЛЮЧИТЕЛНО днес (бяха 8/31/91) — както rangeUtils v5.
+// ✅ v11 спрямо v10:
+//   • GET: детайлните редове (за графиките и разбивките по продукт/партньор/канал) се
+//     четат ПО СТРАНИЦИ от 1000. v10 викаше .limit(50000), но Supabase връща най-много
+//     1000 реда на заявка — щом кликовете за 90 дни минат 1000, графиките и
+//     разбивките тихо се занижаваха, а общите броячи (COUNT) оставаха верни.
+//   • GET: при грешка връща 500 със съобщение, а не обект с нули (AnalyticsTab вече
+//     показва съобщение за грешка при неуспешен fetch).
+//   • POST: rate limit (60/мин по IP) — преди всеки можеше да залее таблицата.
+//   • POST: не пази суров IP — в колоната ip_address се записва HMAC хеш (колоната
+//     остава същата, не е нужна промяна в базата).
+//   (всичко останало е 1:1 с v10)
 //
-// ✅ НОВО v10: 'source' поле — откъде е дошъл кликът (напр. 'blog',
-//    'produkt-page'), ОТДЕЛНО от 'partner' (кой е реалният търговец).
-//    Преди AffiliateTrackedLink.tsx нямаше начин да подаде реалния
-//    partner ОТ статия в блога — резултатът беше, че всеки affiliate клик
-//    от статия пишеше partner='blog' в базата (защото нямаше друг начин
-//    да се различи източникът), губейки реалната партньорска атрибуция.
-//    Сега partner винаги е реалният търговец, а source носи канала —
-//    вижте bySource по-долу в GET.
-//
-//    ⚠️ ИЗИСКВА нова колона в Supabase — пусни веднъж:
-//      alter table affiliate_clicks add column if not exists source text;
+// ✅ v10: 'source' поле — откъде е дошъл кликът ('blog', 'produkt-page'), отделно от
+//    'partner'. Изисква: alter table affiliate_clicks add column if not exists source text;
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createHmac } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase'
+import { rateLimit, getIP } from '@/lib/rate-limit'
 
 const BOT_UA = /bot|crawler|spider|headless|lighthouse|pagespeed|googlebot|bingbot|semrush|ahrefsbot|python-requests|axios|node-fetch|go-http|curl\//i
+const PAGE = 1000
+const LOCAL_IPS = new Set(['::1', '127.0.0.1', '::ffff:127.0.0.1'])
 
 // ── БГ timezone helpers ───────────────────────────────────────────────────────
 
@@ -40,11 +46,7 @@ function toBulgarianHour(d: Date): number {
   )
 }
 
-/**
- * Връща ISO string на началото на БГ деня в UTC.
- * ✅ Пробва UTC+3 (лято) и UTC+2 (зима) — взима правилния.
- * Пример: "2026-04-17" (UTC+3 лято) → "2026-04-16T21:00:00.000Z"
- */
+/** ISO string на началото на БГ деня в UTC (пробва UTC+3 лято и UTC+2 зима). */
 function bulgarianDayStartUtc(bgDateStr: string): string {
   for (const offset of ['+03:00', '+02:00']) {
     const candidate = new Date(bgDateStr + 'T00:00:00' + offset)
@@ -55,20 +57,15 @@ function bulgarianDayStartUtc(bgDateStr: string): string {
   return new Date(bgDateStr + 'T00:00:00+02:00').toISOString()
 }
 
-/**
- * Връща "yyyy-mm-dd" за N дни назад в БГ timezone.
- * ✅ Изчислява се коректно в Europe/Sofia — не прост UTC offset.
- */
+/** "yyyy-mm-dd" за N дни назад в БГ timezone. */
 function bgDateNDaysAgo(now: Date, days: number): string {
-  const todayBg = toBulgarianDate(now)                    // "2026-04-17"
-  // ✅ Парсираме като UTC полунощ на БГ датата — работи правилно и лято и зима
-  // (без hardcoded +03:00 който е грешен зимата при UTC+2)
+  const todayBg = toBulgarianDate(now)
   const utcMidnight = new Date(todayBg + 'T00:00:00Z')
   utcMidnight.setUTCDate(utcMidnight.getUTCDate() - days)
   return toBulgarianDate(utcMidnight)
 }
 
-// ── Helper ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function sanitizeSlug(raw: unknown): string | null {
   if (!raw || typeof raw !== 'string') return null
@@ -88,11 +85,23 @@ function sanitizeSource(raw: unknown): string | null {
   return s.length > 0 ? s : null
 }
 
+function hashIp(ip: string): string {
+  if (!ip || ip === 'unknown') return 'unknown'
+  const salt = process.env.ANALYTICS_SALT || process.env.ADMIN_SECRET || 'dev-analytics-salt'
+  return createHmac('sha256', salt).update(ip).digest('hex').slice(0, 32)
+}
+
 // ─── POST — записва клик ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
+    const ip = getIP(req)
+    const rl = rateLimit(`ac:${ip}`, { limit: 60, window: 60 })
+    if (!rl.success) {
+      return NextResponse.json({ success: false, error: 'rate_limited' }, { status: 429 })
+    }
+
     const body = await req.json().catch(() => ({}))
-    const { partner, product_slug, source } = body
+    const { partner, product_slug, source, internal } = body
 
     if (!partner || typeof partner !== 'string') {
       return NextResponse.json({ success: false, error: 'Missing partner' }, { status: 400 })
@@ -108,17 +117,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, skipped: 'bot' })
     }
 
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim()
-      || req.headers.get('x-real-ip')
-      || 'unknown'
+    const excluded = (process.env.ANALYTICS_EXCLUDE_IPS || '').split(',').map(x => x.trim()).filter(Boolean)
+    const is_internal =
+      process.env.NODE_ENV !== 'production' ||
+      LOCAL_IPS.has(ip) || excluded.includes(ip) || /^(localhost|127\.)/.test(req.headers.get('host') || '') ||
+      internal === true
 
     const { error } = await supabaseAdmin.from('affiliate_clicks').insert({
+      is_internal,
       partner:      partner.trim().slice(0, 60),
       product_slug: slug,
       source:       sanitizeSource(source),
-      ip_address:   ip,
-      user_agent:   ua || null,
-      referrer:     req.headers.get('referer') || null,
+      ip_address:   hashIp(ip),                       // ← хеш, не суров IP
+      user_agent:   ua ? ua.slice(0, 300) : null,
+      referrer:     (req.headers.get('referer') || '').slice(0, 500) || null,
       created_at:   new Date().toISOString(),
     })
 
@@ -134,86 +146,61 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ─── GET — детайлна статистика ───────────────────────────────────────────────
+// Чете ВСИЧКИ детайлни редове за периода, по страници от 1000.
+async function fetchDetailRows(sinceUtc: string) {
+  const rows: { partner: string | null; product_slug: string; source: string | null; created_at: string }[] = []
+  for (let from = 0; from < 200000; from += PAGE) {
+    const { data, error } = await supabaseAdmin
+      .from('affiliate_clicks')
+      .select('partner, product_slug, source, created_at')
+      .gte('created_at', sinceUtc)
+      .eq('is_internal', false)
+      .not('product_slug', 'is', null)
+      .neq('product_slug', '')
+      .neq('product_slug', '-')
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE - 1)
+    if (error) return { data: null, error }
+    rows.push(...((data || []) as typeof rows))
+    if (!data || data.length < PAGE) break
+  }
+  return { data: rows, error: null }
+}
+
+// ─── GET — детайлна статистика (admin) ───────────────────────────────────────
 export async function GET() {
   try {
     const now = new Date()
 
-    // ✅ БГ дати — всички периоди се нулират в 00:00 БГ
     const todayStr = toBulgarianDate(now)
-    const bgDate7  = bgDateNDaysAgo(now, 7)
-    const bgDate30 = bgDateNDaysAgo(now, 30)
-    const bgDate90 = bgDateNDaysAgo(now, 90)
+    const bgDate7  = bgDateNDaysAgo(now, 6)
+    const bgDate30 = bgDateNDaysAgo(now, 29)
+    const bgDate90 = bgDateNDaysAgo(now, 89)
 
-    // ✅ UTC ISO strings за Supabase .gte() заявките
     const todayStartUtc = bulgarianDayStartUtc(todayStr)
     const since7Utc     = bulgarianDayStartUtc(bgDate7)
     const since30Utc    = bulgarianDayStartUtc(bgDate30)
     const since90Utc    = bulgarianDayStartUtc(bgDate90)
 
-    const [
-      totalRes,
-      last30Res,
-      last7Res,
-      todayRes,
-      last90Res,   // ✅ Ново — точна COUNT заявка за 90д
-      detailRes,
-    ] = await Promise.all([
-      // Общо всичко
-      supabaseAdmin
+    const countSince = (sinceUtc?: string) => {
+      let q = supabaseAdmin
         .from('affiliate_clicks')
         .select('*', { count: 'exact', head: true })
-        .not('product_slug', 'is', null)
-        .neq('product_slug', '')
-        .neq('product_slug', '-'),
-
-      // ✅ 30 дни от БГ полунощ на bgDate30
-      supabaseAdmin
-        .from('affiliate_clicks')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', since30Utc)
-        .not('product_slug', 'is', null)
-        .neq('product_slug', '')
-        .neq('product_slug', '-'),
-
-      // ✅ 7 дни от БГ полунощ на bgDate7
-      supabaseAdmin
-        .from('affiliate_clicks')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', since7Utc)
-        .not('product_slug', 'is', null)
-        .neq('product_slug', '')
-        .neq('product_slug', '-'),
-
-      // ✅ Днес от 00:00 БГ
-      supabaseAdmin
-        .from('affiliate_clicks')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', todayStartUtc)
-        .not('product_slug', 'is', null)
-        .neq('product_slug', '')
-        .neq('product_slug', '-'),
-
-      // ✅ 90 дни от БГ полунощ на bgDate90 — точна COUNT, не approximation!
-      supabaseAdmin
-        .from('affiliate_clicks')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', since90Utc)
-        .not('product_slug', 'is', null)
-        .neq('product_slug', '')
-        .neq('product_slug', '-'),
-
-      // Детайли за 90 дни (за chart + per-product breakdown)
-      // ✅ НОВО: added 'source' към select-а за bySource breakdown-а.
-      supabaseAdmin
-        .from('affiliate_clicks')
-        .select('partner, product_slug, source, created_at')
-        .gte('created_at', since90Utc)
+        .eq('is_internal', false)
         .not('product_slug', 'is', null)
         .neq('product_slug', '')
         .neq('product_slug', '-')
-        .order('created_at', { ascending: false })
-        .limit(50000),
+      if (sinceUtc) q = q.gte('created_at', sinceUtc)
+      return q
+    }
+
+    const [totalRes, last30Res, last7Res, todayRes, last90Res, detailRes] = await Promise.all([
+      countSince(),
+      countSince(since30Utc),
+      countSince(since7Utc),
+      countSince(todayStartUtc),
+      countSince(since90Utc),
+      fetchDetailRows(since90Utc),
     ])
 
     if (totalRes.error)  throw totalRes.error
@@ -223,13 +210,11 @@ export async function GET() {
     const total30    = last30Res.count  ?? 0
     const total7     = last7Res.count   ?? 0
     const totalToday = todayRes.count   ?? 0
-    const total90    = last90Res.count  ?? 0   // ✅ Точен брой за 90д
+    const total90    = last90Res.count  ?? 0
 
     const byPartner:      Record<string, number> = {}
     const byProduct:      Record<string, number> = {}
-    // ✅ НОВО — брой кликове по source ('blog', 'produkt-page', '(direct)'
-    //    за стари/непопълнени редове преди тази промяна).
-    const bySource:        Record<string, number> = {}
+    const bySource:       Record<string, number> = {}
     const productDetails: Record<string, { total: number; last30: number; last7: number; today: number }> = {}
     const byDay:          Record<string, number> = {}
     const byHour:         Record<number, number> = {}
@@ -242,10 +227,10 @@ export async function GET() {
       if (!rawSlug || rawSlug.trim() === '' || rawSlug === '-' || rawSlug === '(без slug)') continue
 
       const clickDate = new Date(click.created_at)
-      const bgDay     = toBulgarianDate(clickDate)   // ✅ БГ дата
+      const bgDay     = toBulgarianDate(clickDate)
       const product   = rawSlug.trim()
       const partner   = click.partner?.trim() || '(unknown)'
-      const source    = (click as any).source?.trim() || '(direct)'
+      const source    = click.source?.trim() || '(direct)'
 
       byPartner[partner] = (byPartner[partner] || 0) + 1
       byProduct[product] = (byProduct[product] || 0) + 1
@@ -257,17 +242,13 @@ export async function GET() {
       if (!productDetails[product]) {
         productDetails[product] = { total: 0, last30: 0, last7: 0, today: 0 }
       }
-      // total в productDetails = брой за 90 дни (detailRes обхваща 90д)
       productDetails[product].total++
 
-      // ✅ String сравнение на БГ дати — нулиране в 00:00 БГ, не UTC
       if (bgDay >= bgDate30) productDetails[product].last30++
       if (bgDay >= bgDate7)  productDetails[product].last7++
 
-      // ✅ byDay по БГ дата — MM-DD
       byDay[bgDay] = (byDay[bgDay] || 0) + 1
 
-      // ✅ Hourly само за БГ "Днес" + БГ час
       if (bgDay === todayStr) {
         productDetails[product].today++
         const hour = toBulgarianHour(clickDate)
@@ -289,8 +270,6 @@ export async function GET() {
       .slice(0, 10)
       .map(([name, count]) => ({ name, count }))
 
-    // ✅ НОВО — топ канали, същия shape като topPartners, за лесен reuse
-    //    в UI (напр. AnalyticsTab.tsx може да рендва идентична таблица).
     const topSources = Object.entries(bySource)
       .sort(([, a], [, b]) => b - a)
       .map(([name, count]) => ({ name, count }))
@@ -300,14 +279,12 @@ export async function GET() {
       slugsByPartnerArr[p] = Array.from(s)
     })
 
-    // ✅ dailyChart — 90 дни с БГ дати
     const dailyChart = Array.from({ length: 90 }, (_, i) => {
       const d     = new Date(now.getTime() - (89 - i) * 86400000)
       const bgDay = toBulgarianDate(d)
       return { date: bgDay.slice(5), count: byDay[bgDay] || 0 }
     })
 
-    // ✅ hourlyChart — до текущия БГ час
     const currentBgHour = toBulgarianHour(now)
     const hourlyChart = Array.from({ length: currentBgHour + 1 }, (_, h) => ({
       hour:  h,
@@ -319,26 +296,24 @@ export async function GET() {
       last30days:  total30,
       last7days:   total7,
       today:       totalToday,
-      last90days:  total90,    // ✅ Точен брой за 90д (ново поле)
+      last90days:  total90,
       byProduct,
       byPartner,
-      bySource,        // ✅ НОВО
+      bySource,
       productDetails,
       topProducts,
       topPartners,
-      topSources,       // ✅ НОВО
+      topSources,
       dailyChart,
       hourlyChart,
       slugsByPartner: slugsByPartnerArr,
     }, { headers: { 'Cache-Control': 'no-store' } })
 
-  } catch (err) {
-    console.error('[affiliate-click GET]', err)
-    return NextResponse.json({
-      total: 0, last30days: 0, last7days: 0, today: 0, last90days: 0,
-      byProduct: {}, byPartner: {}, bySource: {}, productDetails: {},
-      topProducts: [], topPartners: [], topSources: [], dailyChart: [], hourlyChart: [],
-      slugsByPartner: {},
-    }, { headers: { 'Cache-Control': 'no-store' } })
+  } catch (err: any) {
+    console.error('[affiliate-click GET]', err?.message || err)
+    return NextResponse.json(
+      { error: 'Статистиката не може да се изчисли', detail: err?.message },
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
+    )
   }
 }

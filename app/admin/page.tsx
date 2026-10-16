@@ -1,5 +1,9 @@
 'use client'
-// app/admin/page.tsx — v9
+// app/admin/page.tsx — v10
+// ✅ v10: (1) useAutoMarkAdminDevice() — при влизане в админа устройството се маркира като "мое"
+//    (посещенията му не влизат в статистиките); (2) карта <InternalDeviceCard /> в таб Настройки.
+//    Виж app/admin/components/InternalDeviceCard.tsx.
+// (v9 по-долу)
 // ✅ ПОПРАВКИ v9 (спрямо v8):
 //   ✅ Премахнат собствения 30-минутен setInterval(fetchAll) — useAdminData
 //      вече си има ВЪТРЕШЕН 2-минутен auto-refresh (виж hooks/useAdminData.ts
@@ -31,6 +35,7 @@ import { ReviewsTab }         from './components/ReviewsTab'
 import { MarketingTab }       from './components/MarketingTab'
 import { ToastContainer }     from '@/components/ui/Toast'
 import { useAdminData }       from '@/hooks/useAdminData'
+import { InternalDeviceCard, useAutoMarkAdminDevice } from './components/InternalDeviceCard'
 import type { TabId }         from '@/lib/constants'
 import type { Order }         from '@/lib/supabase'
 
@@ -118,6 +123,9 @@ export default function AdminPage() {
     updateOrderStatus, updatePaymentStatus,
   } = useAdminData()
 
+  // ✅ Маркира това устройство като "мое" (преди всички ранни return-и — правило на hooks)
+  useAutoMarkAdminDevice()
+
   // ✅ ФИКС: премахнат отделен 30-мин setInterval(fetchAll) — useAdminData
   // вече си прави собствен 2-минутен auto-refresh вътрешно (без setLoading,
   // без unmount на екрана). Двата тайм-съра дублираха едни и същи 4 заявки
@@ -190,7 +198,12 @@ export default function AdminPage() {
           {tab === 'reviews'      && <ReviewsTab />}
           {tab === 'analytics'    && <AnalyticsTab analytics={analytics} pageViews={pageViews} orders={orders} />}
 
-          {tab === 'settings'     && <SettingsTab ordersCount={orders.length} leadsCount={leads.length} />}
+          {tab === 'settings' && (
+            <>
+              <InternalDeviceCard />
+              <SettingsTab ordersCount={orders.length} leadsCount={leads.length} />
+            </>
+          )}
         </main>
       </div>
 

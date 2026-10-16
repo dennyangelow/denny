@@ -1,5 +1,14 @@
-// lib/ses.ts — SES транспортен слой — v4
-// ✅ v4: sendViaSES() вече връща { messageId } вместо целия AWS SDK отговор.
+// lib/ses.ts — SES транспортен слой — v5
+// ✅ v5: добавена plain-text версия (Body.Text) до HTML-а на ВСЯКО писмо —
+//    подобрява доставимостта (inbox-и, особено корпоративни, по-лесно маркират
+//    HTML-only писма като спам/промоция). AWS SES автоматично избира коя
+//    версия да покаже на клиента, в зависимост от неговия mail client.
+//    htmlToText() е груб, но безопасен strip — маха <script>/<style>
+//    блокове, превръща </p>/<br>/</div> в нови редове, маха остатъчните
+//    тагове, decode-ва честите entity-та. Generira се АВТОМАТИЧНО от html
+//    тук — никой caller (lib/mailer.ts, lib/automations.ts, route.ts-овете)
+//    не трябва да се пипа, за да получи plain-text версия.
+// v4: sendViaSES() вече връща { messageId } вместо целия AWS SDK отговор.
 //    SES-ThismessageId е нужен на lib/automations.ts, за да го пази в
 //    email_logs.ses_message_id — иначе webhook-ът (app/api/webhooks/ses)
 //    не може да различи КОЕ точно писмо е било отворено/кликнато, когато
@@ -41,6 +50,36 @@ function getSESClient(): SESClient {
 // (Amazon SES → Configuration sets → my-first-configuration-set).
 const CONFIGURATION_SET = process.env.SES_CONFIGURATION_SET || 'my-first-configuration-set'
 
+// ✅ v5 — груб, но безопасен HTML→text. Не е нужна пълна HTML парсър
+// точност (plain-text версията е fallback за клиенти без HTML рендиране,
+// не крайният продукт) — важното е да няма сурови тагове и да е четимо.
+function htmlToText(html: string): string {
+  return html
+    // Изцяло маха <script>/<style> съдържание (никога не искаме в text версията)
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    // Блокови елементи → нов ред, преди да махнем тага
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Линкове: показваме и текста, и адреса — иначе plain-text версията губи CTA-тата
+    .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href, text) => {
+      const clean = text.replace(/<[^>]+>/g, '').trim()
+      return clean ? `${clean} (${href})` : href
+    })
+    // Остатъчни тагове
+    .replace(/<[^>]+>/g, '')
+    // Чести HTML entity-та
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // Сгъстяваме празните редове/интервали
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export interface SESEmailParams {
   to: string
   from: string
@@ -61,7 +100,10 @@ export async function sendViaSES({ to, from, subject, html, replyTo }: SESEmailP
     Destination: { ToAddresses: [to] },
     Message: {
       Subject: { Data: subject, Charset: 'UTF-8' },
-      Body:    { Html: { Data: html, Charset: 'UTF-8' } },
+      Body: {
+        Html: { Data: html, Charset: 'UTF-8' },
+        Text: { Data: htmlToText(html), Charset: 'UTF-8' },
+      },
     },
     ConfigurationSetName: CONFIGURATION_SET,
     ...(replyTo ? { ReplyToAddresses: [replyTo] } : {}),

@@ -1,14 +1,33 @@
-// app/api/orders/route.ts — v8
-// ✅ v7 → v8:
-//   1. БЕЗ console.log на тялото на поръчката и на фактурата. Преди във Vercel
-//      логовете оставаха имена, телефони, адреси и ЕГН (при фактура на физическо
-//      лице) — лични данни в логове. Остава само номерът на поръчката.
-//   2. Входът се чисти и ограничава: дължини на текстовете, брой артикули (макс. 50),
-//      количество 1–100, цена 0–100 000, формат на имейла. Преди нищо от това
-//      не се проверяваше.
-//   3. Вътрешните DB грешки не се връщат към клиента (само се логват на сървъра).
-//   4. Ако сборът на артикулите + доставката се разминава с подадената обща сума,
-//      се записва предупреждение в логовете (без лични данни).
+// app/api/orders/route.ts — v11
+// ✅ v10 → v11: audit log за транзакционните писма (потвърждение на
+//    поръчка + известие до админа). Всеки sendEmail() опит (успех ИЛИ
+//    грешка) вече записва ред в `transactional_email_logs` — отделна
+//    таблица от email_logs (която пази само automation писмата), за да
+//    не разваля статистиките в "Автоматизации"/"Email Stats". Изисква
+//    SQL миграцията, дадена отделно в чата, ПРЕДИ да качиш този файл.
+//    Целта: ако клиент каже "не получих потвърждение", проверяваш в тази
+//    таблица по order_id дали изобщо е опитано изпращане и какво е станало.
+//
+// v9 → v10 (запазено непроменено): orderConfirmationEmail()/
+//    adminNotifyEmail() вече са async (четат currency_symbol от Настройки)
+//    → добавен await на двата повика.
+//
+// v9 (запазено непроменено): "1 имейл който мога да променям" — подателят
+//    на ВСИЧКИ изходящи писма (автоматизации И поръчки) вече е ЕДИН
+//    източник: lib/email-settings.ts. `from` вече не се подава изобщо →
+//    lib/mailer.ts сам хваща buildFromHeader() от Settings. Админ
+//    известието ходи до `admin_email` от Настройки (ADMIN_EMAIL env var е
+//    fallback само ако настройката липсва), от същия подател като всичко
+//    останало.
+//
+// v8 (запазено непроменено):
+//   1. БЕЗ console.log на тялото на поръчката и на фактурата (само номерът
+//      на поръчката в логовете).
+//   2. Входът се чисти и ограничава: дължини на текстовете, брой артикули
+//      (макс. 50), количество 1–100, цена 0–100 000, формат на имейла.
+//   3. Вътрешните DB грешки не се връщат към клиента.
+//   4. Разминаване артикули+доставка ≠ подадена обща сума → warning в
+//      логовете (без лични данни).
 //
 // ⚠️ ЦЕНИТЕ все още идват от клиента (unit_price / total). Истинска защита е
 //    сървърът да вземе цената от таблица `products` по id/slug на артикула —
@@ -33,6 +52,32 @@ const num = (v: unknown): number => {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+// ✅ v11 — единна помощна функция за записване в transactional_email_logs,
+// ползвана за двете писма по-долу (и за tracking писмото в [id]/route.ts).
+// Грешка при самото логване НИКОГА не чупи заявката — това е само одит.
+async function logTransactionalEmail(params: {
+  order_id: string
+  to_email: string
+  kind: 'order_confirmation' | 'admin_notify' | 'tracking'
+  subject: string
+  success: boolean
+  ses_message_id?: string | null
+  error?: string | null
+}) {
+  await supabaseAdmin.from('transactional_email_logs').insert({
+    order_id:       params.order_id,
+    to_email:       params.to_email,
+    kind:           params.kind,
+    subject:        params.subject,
+    success:        params.success,
+    ses_message_id: params.ses_message_id || null,
+    error:          params.error ? String(params.error).slice(0, 500) : null,
+    sent_at:        new Date().toISOString(),
+  }).then(({ error }) => {
+    if (error) console.error('[transactional_email_logs] insert error:', error.message)
+  })
+}
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req)
@@ -185,25 +230,43 @@ export async function POST(req: NextRequest) {
       console.error('❌ Order items error:', itemsError.message)
     }
 
-    // ── Emails (през Amazon SES) ────────────────────────────────────────────
+    // ── Emails (през Amazon SES, подателят идва от Настройки) ───────────────
+    // ✅ v11 — всеки опит (успех/грешка) се логва в transactional_email_logs.
     if (order.customer_email) {
-      const { subject, html } = orderConfirmationEmail({ order, items: orderItems })
-      await sendEmail({
-        to:      order.customer_email,
-        from:    'Denny Angelow <noreply@dennyangelow.com>',
-        subject,
-        html,
-      }).catch(e => console.error('Customer email error:', e?.message || e))
+      const { subject, html } = await orderConfirmationEmail({ order, items: orderItems })
+      try {
+        const result = await sendEmail({ to: order.customer_email, subject, html })
+        await logTransactionalEmail({
+          order_id: order.id, to_email: order.customer_email, kind: 'order_confirmation',
+          subject, success: true, ses_message_id: result.messageId,
+        })
+      } catch (e: any) {
+        console.error('Customer email error:', e?.message || e)
+        await logTransactionalEmail({
+          order_id: order.id, to_email: order.customer_email, kind: 'order_confirmation',
+          subject, success: false, error: e?.message || e,
+        })
+      }
     }
 
-    const adminEmail = process.env.ADMIN_EMAIL || 'support@dennyangelow.com'
-    const { subject: as, html: ah } = adminNotifyEmail({ order, items: orderItems, siteUrl: process.env.NEXT_PUBLIC_SITE_URL })
-    await sendEmail({
-      to:      adminEmail,
-      from:    'System <noreply@dennyangelow.com>',
-      subject: as,
-      html:    ah,
-    }).catch(e => console.error('Admin email error:', e?.message || e))
+    const { data: adminEmailSetting } = await supabaseAdmin
+      .from('settings').select('value').eq('key', 'admin_email').maybeSingle()
+    const adminEmail = adminEmailSetting?.value || process.env.ADMIN_EMAIL || 'support@dennyangelow.com'
+
+    const { subject: as, html: ah } = await adminNotifyEmail({ order, items: orderItems, siteUrl: process.env.NEXT_PUBLIC_SITE_URL })
+    try {
+      const result = await sendEmail({ to: adminEmail, subject: as, html: ah })
+      await logTransactionalEmail({
+        order_id: order.id, to_email: adminEmail, kind: 'admin_notify',
+        subject: as, success: true, ses_message_id: result.messageId,
+      })
+    } catch (e: any) {
+      console.error('Admin email error:', e?.message || e)
+      await logTransactionalEmail({
+        order_id: order.id, to_email: adminEmail, kind: 'admin_notify',
+        subject: as, success: false, error: e?.message || e,
+      })
+    }
 
     console.log('✅ Order created:', order.order_number, wantsInvoice ? `| Фактура: ${invoiceData?.type}` : '')
 

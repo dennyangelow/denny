@@ -1,7 +1,13 @@
-// app/api/cron/discord-fallback/route.ts — v2
+// app/api/cron/discord-fallback/route.ts — v3
 // ✅ Vercel Cron — пуска се на всеки 5 минути
 // Търси поръчки създадени преди >10 мин където discord_sent = false
 // и ги изпраща директно от DB данните
+//
+// ✅ v2 → v3:
+//   Валутният символ беше hardcoded '€', независимо от settings.currency_symbol
+//   (виж 💶 Валута секцията в Настройки / lib/currency.ts). Сега се чете
+//   веднъж преди цикъла (getCurrencySymbol() вече кешира 1 минута, та едно
+//   извикване тук е евтино) и се подава на fmt() вместо фиксирания низ.
 //
 // ✅ v1 → v2 (сигурност):
 //   1. Ако CRON_SECRET не е зададен, v1 сравняваше с "Bearer undefined" —
@@ -13,6 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getCurrencySymbol } from '@/lib/currency'
 
 export async function GET(req: NextRequest) {
   // Защита — само Vercel Cron може да вика това
@@ -45,6 +52,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ processed: 0 })
   }
 
+  // ✅ v3 — веднъж за целия batch, не per-order (кешира се 1 мин. вътрешно и така)
+  const sym = await getCurrencySymbol()
+  const fmt = (n: number) => `${Number(n).toFixed(2)} ${sym}`
+
   let processed = 0
 
   for (const order of orders) {
@@ -55,8 +66,6 @@ export async function GET(req: NextRequest) {
         .update({ discord_sent: true })
         .eq('id', order.id)
 
-      const sym = '€'
-      const fmt = (n: number) => `${Number(n).toFixed(2)} ${sym}`
       const courierLabel = order.courier === 'speedy' ? 'Спиди 🚀' : 'Еконт 📦'
 
       const itemsText = (order.order_items || [])

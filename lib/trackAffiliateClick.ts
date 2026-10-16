@@ -1,6 +1,11 @@
 // lib/trackAffiliateClick.ts
 // Извиква се на ВСЕКИ клик върху афилиейт линк — от Client Components
 
+// ✅ v2: праща internal=true, ако устройството е маркирано с ?da_internal=1 (виж PageViewTracker.tsx)
+function isInternalDevice(): boolean {
+  try { return localStorage.getItem('da_internal') === '1' } catch { return false }
+}
+
 export async function trackAffiliateClick(
   partner: string,
   productSlug: string,
@@ -16,7 +21,7 @@ export async function trackAffiliateClick(
       headers: { 'Content-Type': 'application/json' },
       // keepalive = изпраща дори ако страницата navigates away веднага
       keepalive: true,
-      body: JSON.stringify({ partner, product_slug: productSlug, source }),
+      body: JSON.stringify({ partner, product_slug: productSlug, source, internal: isInternalDevice() }),
     })
   } catch {
     // Никога не блокираме потребителя заради tracking грешка
